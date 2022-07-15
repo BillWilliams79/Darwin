@@ -1,5 +1,5 @@
 import '../index.css';
-import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
 import ProfileDrawer from './ProfileDrawer.js';
 
 import React, {useContext} from 'react';
@@ -11,8 +11,8 @@ import PedalBikeIcon from '@mui/icons-material/PedalBike';
 import Stack from '@mui/material/Stack';
 
 const NavBar = () => {
-    console.log('navbar rendered');
-    const { idToken } = useContext(AppContext);
+    console.count('Navbar render');
+    const { idToken } = useContext(AuthContext);
 
   return (
     <AppBar className="app-navbar" position="static" sx={{backgroundColor: 'black', padding: 0, mb: {xs: 2, md:0}, ml:0, }}>
@@ -20,7 +20,9 @@ const NavBar = () => {
         <Stack direction={{ xs: 'row', md: 'column', }}
                spacing={1} >
           <PedalBikeIcon />
-          <Link className="app-link" to="/"> DARWIN </Link>
+          <Link className="app-link" to="/">
+            Darwin
+          </Link>
           {idToken &&
               <>
                 <ProfileDrawer/>

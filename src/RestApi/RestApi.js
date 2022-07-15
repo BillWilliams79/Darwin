@@ -1,15 +1,12 @@
 import varDump from '../classifier/classifier';
 
-
-
-// make this a rest api call library that has no UI side effects. Call it from
-// loggiedin's useEffect to instantiate user information state to disply
-// in the profile page
+// make this a rest api call library that has no UI side effects.
+// eventually replace with react-router or similar
 
 const call_rest_api = async (url, method, body, idToken) => {
 
-
-    // STEP 1 - construct a fetch init object
+    // STEP 1 - construct a fetch init object, processing body
+    // and incorporating any auth tokens
     const fetchInit = {
         method: method,
         headers: {
@@ -42,10 +39,9 @@ const call_rest_api = async (url, method, body, idToken) => {
     var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
 
     // STEP 4 construct responseData object and return it
-    var httpStatus = {
-                    httpMethod: fetchInit.method,
-                    httpStatus: response.status,
-                    httpMessage: '',
+    var httpStatus = {httpMethod: fetchInit.method,
+                      httpStatus: response.status,
+                      httpMessage: '',
     };
 
     // Generate httpMessgae based on HTTP status
@@ -68,7 +64,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         httpStatus,
     };
 
-    varDump(returnValue, "callRestApi's return value");
+    varDump(returnValue, "call_rest_api's return value");
 
     return returnValue;
 }

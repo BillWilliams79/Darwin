@@ -1,5 +1,5 @@
 import '../index.css';
-import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
 
 import React, {useContext} from 'react';
 
@@ -9,7 +9,9 @@ import Typography from '@mui/material/Typography';
 
 const Profile = () => {
 
-    const { profile } = useContext(AppContext);
+    console.count('Profile Render');
+
+    const { profile } = useContext(AuthContext);
 
     return (
         <>
@@ -19,31 +21,31 @@ const Profile = () => {
             </Typography>
         </Box >
         <Box className="app-content" sx={{ margin: 2}}>
-        <TextField  label="Name"
+            <TextField  label="Name"
                         value = { profile.name }
                         id= "Name"
                         key="Name"
                         variant= "outlined"
                         size = 'small' />
-        <TextField  label="E-mail"
+            <TextField  label="E-mail"
                         value = { profile.email }
                         id= "email"
                         key="email"
                         variant= "outlined"
                         size = 'small' />
-        <TextField  label="Region"
+            <TextField  label="Region"
                         value = { profile.region }
                         id= "region"
                         key="region"
                         variant= "outlined"
                         size = 'small' />
-        <TextField  label="User Pool ID"
+            <TextField  label="User Pool ID"
                         value = { profile.userPoolId }
                         id= "userPoolId"
                         key="userPoolId"
                         variant= "outlined"
                         size = 'small' />
-        <TextField  label="Cognito Identifier"
+            <TextField  label="Cognito Identifier"
                         value = { profile.userName }
                         id= "userName"
                         key="userName"

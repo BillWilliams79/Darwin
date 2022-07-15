@@ -1,6 +1,6 @@
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
-import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
 
 import React, { useEffect, useContext, useState } from "react";
 import { useLocation, Navigate } from "react-router-dom"
@@ -10,14 +10,14 @@ import Typography from '@mui/material/Typography';
 
 function  LoggedIn() {
 
-    const [errorMsg, setErrorMsg] = useState('');
-
-    console.log('LoggedIn Render');
-    const [cookies, setCookie, removeCookie] = useCookies(['csrfToken']);
-
+    console.count('LoggedIn Render');
     const { idToken, setIdToken, 
             accessToken, setAccessToken, 
-            profile, setProfile, } = useContext(AppContext);
+            profile, setProfile, } = useContext(AuthContext);
+
+    const [cookies, setCookie, removeCookie] = useCookies(['csrfToken']);
+
+    const [errorMsg, setErrorMsg] = useState('');
     
     let location = useLocation();
 
@@ -28,6 +28,7 @@ function  LoggedIn() {
 
         // STEP 2: verify CSRF token match and presence of id/access tokens
         const hashParams = {};
+
         if (location.hash) {
 
             // implicit grant oath flow returns ID and access tokens as hash string
@@ -69,23 +70,6 @@ function  LoggedIn() {
             return;
 
         } 
-        /* else {
-            // NOTE: At present auth code path is not supported. Leave starting point of code in place for now.
-            var returnedCsrfToken = searchParams.get('state');
-            var generatedCsrf = cookies?.csrfToken;
-            removeCookie('csrfToken', { path: '/', maxAge: 1800 });
-
-            if (!returnedCsrfToken.localeCompare(generatedCsrf)) {
-                // CSRF matches - proceed to acquire tokens, store in state
-                var returnedCode = searchParams.get('code');
-                setCode(returnedCode);
-    
-            } else {
-                // CSRF does not match - do not proceed to acquire tokens. User is not properly logged in
-                // what to do? return to home page? display a not logged in page or alternate text on this page
-                console.log('CSRF match failed, not logged in');
-            }
-        } */
 
         //STEP 3 read the database and populate user information into react state
         let url = 'https://l4pdv6n3wg.execute-api.us-west-1.amazonaws.com/eng/user_information/profiles?id=1';

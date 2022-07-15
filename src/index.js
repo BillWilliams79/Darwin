@@ -8,15 +8,15 @@ import { CookiesProvider } from 'react-cookie';
 import HomePage from './HomePage/HomePage'
 import LoggedIn from './LoggedIn/LoggedIn';
 import Error404 from './Error404/Error404';
-import App from './app';
-import Profile from './Profile/Profile';
+import App from './App';
+import Profile from './NavBar/Profile';
 
-import { AppProvider } from './Context/AppContext.js'
+import { AuthContextProvider } from './Context/AuthContext.js'
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(
-    <AppProvider>
+    <AuthContextProvider>
         <CookiesProvider>
             <Router >
                 <div className="app-layout">
@@ -31,5 +31,5 @@ root.render(
                 </div>
             </Router>
         </CookiesProvider>
-    </AppProvider>
+    </AuthContextProvider>
 );

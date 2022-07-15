@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import Button from '@mui/material/Button';
-import Profile from '../Profile/Profile';
+import Profile from './Profile';
 
 const ProfileDrawer = () => {
 
@@ -52,4 +52,3 @@ const ProfileDrawer = () => {
 }
 
 export default ProfileDrawer;
-

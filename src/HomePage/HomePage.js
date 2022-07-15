@@ -1,8 +1,7 @@
 import '../index.css';
-import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
 
 import React,  { useContext } from 'react';
-import { Link } from "react-router-dom"
 import { useCookies } from 'react-cookie';
 import cryptoRandomString from 'crypto-random-string';
 
@@ -11,15 +10,15 @@ import Typography from '@mui/material/Typography';
 
 const HomePage = () => {
 
-    console.log('HomePage Render');
+    console.count('HomePage Render');
 
-    const { idToken, } = useContext(AppContext);
+    const { idToken, } = useContext(AuthContext);
     const [cookies, setCookie] = useCookies(['csrfToken']);
 
     if (!idToken) {
-        // generate CSRF token for login and store in a cookie w/30m expiry
+        // generate CSRF token for login and store in a cookie w/60m expiry
         var generatedCsrf = cryptoRandomString({length: 64, type: 'alphanumeric'});
-        setCookie('csrfToken', generatedCsrf, { path: '/', maxAge: 1800 });
+        setCookie('csrfToken', generatedCsrf, { path: '/', maxAge: 3600 });
     }
         
     return (
@@ -33,14 +32,14 @@ const HomePage = () => {
             <Typography variant="h6">
                 Accounts
             </Typography>
-            {!idToken ? 
+            {!idToken ?
                 <Typography variant="body1"
                              component="a"
                               href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://localhost:3001/loggedin/`}
                               sx={{marginBottom: 2 }} >
-                    Login
+                    Login / Create Account
                 </Typography>
-             : idToken && 
+             :
                 <Typography variant="body1"
                             component="a"
                             href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://localhost:3001/"
