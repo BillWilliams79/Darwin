@@ -1,13 +1,85 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.app-layout {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-gap: 2px;
+    grid-template-areas:
+    "nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar"
+    "title__ title__ title__ title__ title__ title__ title__ title__"
+    "content content content content content content content content";
+  }
+
+@media screen and (min-width: 900px) {
+    .app-layout {
+        display: grid;
+        grid-template-columns: auto auto 1fr;
+        grid-gap: 2px;
+        grid-template-areas:
+          "nav-bar title__"
+          "nav-bar content";
+        height: 100%
+      }
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+.app-navbar{
+    grid-area: nav-bar;
+    margin-bottom: 60px;
+    /* border: 1px solid black; */
+}
+
+.app-title {
+    grid-area: title__;
+}
+
+.app-content {
+    grid-area: content;
+    display: grid;
+    grid-gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
+}
+
+.app-homepage {
+    grid-area: content;
+    display: grid;
+    grid-gap: 16px;
+    grid-template-columns: auto;
+}
+
+.card {
+    display: grid;
+    grid-template-rows: 1fr;
+    background-color: ivory;
+    border: 1px solid gray;
+    font-size: 14px; 
+    font-family: Verdana, sans-serif;
+}
+
+.card-header {
+      background-color: lightsteelblue;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      font-size: 18px;
+}
+
+.task {
+      display: grid;
+      grid-gap: 3px;
+      padding: 1px 3px;
+      grid-template-columns: auto auto 1fr auto;
+      align-items: center;
+      margin: 0; 
+}
+
+.task-description {
+    border: none;
+}
+  
+.task-description-done {
+    border: none;
+    text-decoration: line-through;
+}
+
+.app-link {
+    color: white;
+    text-decoration: none;
+    font-family: 'Roboto';
 }
