@@ -2,6 +2,7 @@ import { createContext, useState } from 'react';
 
 const AuthContext = createContext({});
 
+// Context Provider for Authorization, Login and Profiles
 export const AuthContextProvider = ({ children }) => {
 
     console.count('AuthContext initilialized');

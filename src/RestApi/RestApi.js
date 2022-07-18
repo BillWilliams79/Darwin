@@ -23,6 +23,8 @@ const call_rest_api = async (url, method, body, idToken) => {
 
     // STEP 2, perform fetch and catch the http status not between 200 and 499
     try {
+        //varDump(url, "call_rest_api's url immediately before fetch call");
+        //varDump(fetchInit, "call_rest_api's fetchInit immediately before fetch call");
         var response = await fetch(url, fetchInit)
     } catch (error) {
         const errorReturn = {
@@ -44,7 +46,7 @@ const call_rest_api = async (url, method, body, idToken) => {
                       httpMessage: '',
     };
 
-    // Generate httpMessgae based on HTTP status
+    // Generate httpMessage based on HTTP status
     if (response.status === 200) {
         httpStatus.httpMessage = 'OK';
     } else if (response.status === 201) {
@@ -64,7 +66,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         httpStatus,
     };
 
-    varDump(returnValue, "call_rest_api's return value");
+    //varDump(returnValue, "call_rest_api's return value");
 
     return returnValue;
 }

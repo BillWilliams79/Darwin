@@ -28,6 +28,7 @@
 
 .app-title {
     grid-area: title__;
+    grid-template-rows: auto;
 }
 
 .app-content {
@@ -46,11 +47,9 @@
 
 .card {
     display: grid;
-    grid-template-rows: 1fr;
-    background-color: ivory;
-    border: 1px solid gray;
-    font-size: 14px; 
-    font-family: Verdana, sans-serif;
+    width: 90vw;
+    grid-gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
 }
 
 .card-header {
