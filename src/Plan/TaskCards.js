@@ -46,7 +46,11 @@ const TaskCards = () => {
     const [domainsArray, setDomainsArray] = useState()
     const [areasArray, setAreasArray] = useState()
     const [tasksArray, setTasksArray] = useState()
-    const [readRestApi, setReadRestApi] = useState(false);
+
+    // changing this value triggers useState that re-reads all rest API data
+    // misleading, but true or flase doesn't matter, just flip the value
+    // and set it, the useState is executed
+    const [readRestApi, setReadRestApi] = useState(false); 
 
     // Domain Tabs state
     const [activeTab, setActiveTab] = useState();
@@ -63,7 +67,7 @@ const TaskCards = () => {
     // useEffect retrieves and sets initial
     useEffect( () => {
         // TODO: creator_fk must by dynamically set based on logged in user.
-        console.count('data access useEffect called');
+        console.count('useEffect: read all Rest API data');
 
         // Fetch domains
         let domainUri = `${darwinUri}/domains?creator_fk=1`
@@ -93,7 +97,10 @@ const TaskCards = () => {
                     .then(result => {
                         // sort tasks into area arrays (this enable bookeeping/indexing for the cards)
                         result.data.map( (task) => sortedTasksObject[task.area_fk].push(task))
-                        // TODO: INSERT BLANK OBJECT for creating new tasks...
+
+                        // TODO: creator_fk is hardcoded and needs to come from profile/context
+                        Object.keys(sortedTasksObject).map( (key) => sortedTasksObject[key]
+                            .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(key), 'creator_fk': 1 }));
                         setTasksArray(sortedTasksObject);
                     }).catch(error => {
                          varDump(error, 'error state for retrieve table data');
@@ -104,13 +111,13 @@ const TaskCards = () => {
     }, [readRestApi]);
 
     useEffect( () => {
-        console.count('task delete useEffect called');
+        console.count('useEffect: delete task');
 
         //TODO confirm deleteId is a valid object
         if (deleteConfirmed === true) {
             const {areaId, taskIndex, taskId} = deleteId;
 
-            let uri = `${darwinUri}/tasks?id=${taskId}`;
+            let uri = `${darwinUri}/tasks`;
             call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
@@ -132,7 +139,6 @@ const TaskCards = () => {
 
     }, [deleteConfirmed])
 
-
     const changeActiveTab = (event, newValue) => {
         setActiveTab(newValue);
     };
@@ -142,7 +148,7 @@ const TaskCards = () => {
         // invert the current priority value, write changes to database and update state
         let newTasksArray = {...tasksArray}
         newTasksArray[areaId][taskIndex].priority = newTasksArray[areaId][taskIndex].priority ? 0 : 1;
-        let uri = `${darwinUri}/tasks?id=${taskId}`;
+        let uri = `${darwinUri}/tasks`;
         call_rest_api(uri, 'POST', {'id': taskId, 'priority': newTasksArray[areaId][taskIndex].priority}, idToken);
         setTasksArray(newTasksArray);
     }
@@ -152,12 +158,43 @@ const TaskCards = () => {
         // invert the current done value, write changes to database and update state
         let newTasksArray = {...tasksArray}
         newTasksArray[areaId][taskIndex].done = newTasksArray[areaId][taskIndex].done ? 0 : 1;
-        let uri = `${darwinUri}/tasks?id=${taskId}`;
+        let uri = `${darwinUri}/tasks`;
 
         // toISOString converts to the SQL expected format and UTC from local time. They think of everything
         call_rest_api(uri, 'POST', {'id': taskId, 'done': newTasksArray[areaId][taskIndex].done,
             ...(newTasksArray[areaId][taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}, idToken);
         setTasksArray(newTasksArray);
+    }
+
+    const saveClick = (event, areaId, taskIndex, taskId) => {
+        let uri = `${darwinUri}/tasks`;
+        call_rest_api(uri, 'PUT', {...tasksArray[areaId][taskIndex]}, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    // 200 => record added to database and returned in body
+                    // show snackbar, place new data in table and created another blank element
+                    setSnackBarMessage('Task Created Successfully');
+                    setSnackBarOpen(true);
+                    let newTasksArray = {...tasksArray};
+                    newTasksArray[areaId][taskIndex] = {...result.data[0]};
+                    newTasksArray[areaId].push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': areaId, 'creator_fk': 1 });
+                    setTasksArray(newTasksArray);
+                } else if (result.httpStatus.httpStatus === 201) {
+                    // 201 => record added to database but new data not returned in body
+                    // show snackbar and flip read_rest_api state to initiate full data retrieval
+                    setSnackBarMessage('Task Created Successfully');
+                    setSnackBarOpen(true);
+                    setReadRestApi(readRestApi ? false : true);  
+                } else {
+                    setSnackBarMessage('Task not saved. HTTP Error {result.httpStatus.httpStatus}');
+                    setSnackBarOpen(true);
+                }
+            }).catch(error => {
+                debugger;
+                varDump(error, 'Error caught during saveClick');
+                setSnackBarMessage('Task not saved. Error {error}');
+                setSnackBarOpen(true);
+            });
     }
     
     const descriptionChange = (event, areaId, taskIndex, taskId) => {
@@ -172,26 +209,30 @@ const TaskCards = () => {
     const descriptionKeyDown = (event, areaId, taskIndex, taskId) => {
         if ((event.key === 'Enter') ||
             (event.key === 'Tab')) {
-            let uri = `${darwinUri}/tasks?id=${taskId}`;
-            call_rest_api(uri, 'POST', {'id': taskId, 'description': tasksArray[areaId][taskIndex].description}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-                        // database value is changed only with a 200 response
-                        // so only then show snackbar
-                        setSnackBarMessage('Task Updated Successfully');
-                        setSnackBarOpen(true);
-                    }
-                    varDump(result.httpStatus.httpStatus, 'update based on description change result data');
-                }).catch(error => {
-                    varDump(error, 'error state for retrieve table data');
-                });
-        }
 
+            // blank taskId indicates we are creating a new task rather than updating existing
+            if (taskId === '') {
+                saveClick(event, areaId, taskIndex, taskId)
+            } else {
+                let uri = `${darwinUri}/tasks`;
+                call_rest_api(uri, 'POST', {'id': taskId, 'description': tasksArray[areaId][taskIndex].description}, idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus === 200) {
+                            // database value is changed only with a 200 response
+                            // so only then show snackbar
+                            setSnackBarMessage('Task Updated Successfully');
+                            setSnackBarOpen(true);
+                        }
+                        varDump(result.httpStatus.httpStatus, 'update based on description change result data');
+                    }).catch(error => {
+                        varDump(error, 'error state for retrieve table data');
+                    });
+            }
+        }
         // we don't want the Enter key to be part of the text
         if (event.key === 'Enter') {
             event.preventDefault();
         }
-
     }
 
     const deleteClick = (event, areaId, taskIndex, taskId) => {
@@ -248,14 +289,18 @@ const TaskCards = () => {
                                                                             value={task.description || ''}
                                                                             autoComplete='off'
                                                                             sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
-                                                                            /*disabled= { (columnName === 'id') ? true : false }*/
                                                                             onChange= { (event) => descriptionChange(event, area.id, taskIndex, task.id) }
                                                                             onKeyDown = {(event) => descriptionKeyDown(event, area.id, taskIndex, task.id)}
                                                                             size = 'small' />
-                                                                <IconButton onClick={(event) => deleteClick(event, area.id, taskIndex, task.id)} >
-                                                                    <DeleteIcon/>
-                                                                </IconButton>
-             
+                                                                { task.id === '' ?
+                                                                    <IconButton onClick={(event) => saveClick(event, area.id, taskIndex, task.id)} >
+                                                                        <SavingsIcon/>
+                                                                    </IconButton>
+                                                                    :
+                                                                    <IconButton onClick={(event) => deleteClick(event, area.id, taskIndex, task.id)} >
+                                                                        <DeleteIcon/>
+                                                                    </IconButton>
+                                                                }
                                                             </Box>
                                                         ))
                                                     }

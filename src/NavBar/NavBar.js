@@ -23,8 +23,7 @@ const NavBar = () => {
           <Link className="app-link" to="/">
             Darwin
           </Link>
-          <Link className="app-link" to="/statetesting"> State Testing </Link>
-
+          {/* <Link className="app-link" to="/statetesting"> State Testing </Link> */}
           {idToken &&
               <>
                 <Link className="app-link" to="/taskcards"> Plan </Link>
