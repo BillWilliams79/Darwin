@@ -143,6 +143,40 @@ const TaskCards = () => {
         setActiveTab(newValue);
     };
 
+    const areaChange = (event, areaId, areaIndex) => {
+        // event.target.value contains the new area text
+        // updated changes are written to rest API elsewhere (keyup for example)
+        let newAreasArray = [...areasArray]
+        newAreasArray[areaIndex].area_name = event.target.value;
+        varDump(areasArray, 'state areas Array');
+        varDump(newAreasArray, 'newAreasArray dropped');
+        setAreasArray(newAreasArray);
+    }
+
+    const areaKeyDown = (event, areaId, areaIndex) => {
+        if ((event.key === 'Enter') ||
+            (event.key === 'Tab')) {
+
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[areaIndex].area_name}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        // database value is changed only with a 200 response
+                        // so only then show snackbar
+                        setSnackBarMessage('Area Name Updated Successfully');
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    varDump(error, 'error state for retrieve table data');
+                });
+            }
+        // we don't want the Enter key to be part of the text
+        if (event.key === 'Enter') {
+            event.preventDefault();
+        }
+    }
+
+
     const priorityClick = (areaId, taskIndex, taskId) => {
 
         // invert the current priority value, write changes to database and update state
@@ -198,7 +232,6 @@ const TaskCards = () => {
     }
     
     const descriptionChange = (event, areaId, taskIndex, taskId) => {
-
         // event.target.value contains the new text from description which is retained in state
         // updated changes are written to rest API elsewhere (keyup for example)
         let newTasksArray = {...tasksArray}
@@ -263,9 +296,19 @@ const TaskCards = () => {
                                             .map((area, areaIndex) => (
                                             <Card key={areaIndex} raised={true}>
                                                 <CardContent>
-                                                    <Typography gutterBottom variant="h5" component="div" key={area.id}>
-                                                        {area.area_name}
-                                                    </Typography>
+                                                    <Box sx={{marginBottom: 2}}>
+                                                    <TextField variant="standard"
+                                                                value={area.area_name || ''}
+                                                                name='area-name'
+                                                                onChange= { (event) => areaChange(event, area.id, areaIndex) }
+                                                                onKeyDown = {(event) => areaKeyDown(event, area.id, areaIndex)}
+                                                                multiline
+                                                                autoComplete='off'
+                                                                size = 'small'
+                                                                InputProps={{disableUnderline: true, style: {fontSize: 24}}}
+                                                                key={`area-${area.id}`}
+                                                     />
+                                                     </Box>
                                                     { tasksArray &&
                                                         tasksArray[area.id].filter(task => task.area_fk === area.id)
                                                             .map((task, taskIndex) => (
@@ -275,23 +318,26 @@ const TaskCards = () => {
                                                                     onClick = {() => priorityClick(area.id, taskIndex, task.id)}
                                                                     icon={<ReportGmailerrorredOutlinedIcon />}
                                                                     checkedIcon={<ReportIcon />}
+                                                                    key={`priority-${task.id}`}
                                                                 /> 
                                                                 <Checkbox
                                                                     checked = {task.done ? true : false}
                                                                     onClick = {() => doneClick(area.id, taskIndex, task.id)}
                                                                     icon={<CheckCircleOutlineIcon />}
                                                                     checkedIcon={<CheckCircleIcon />}
+                                                                    key={`done-${task.id}`}
                                                                 /> 
                                                                 <TextField variant="outlined"
-                                                                            multiline
-                                                                            key={`description-${task.id}`}
-                                                                            name='description'
                                                                             value={task.description || ''}
-                                                                            autoComplete='off'
-                                                                            sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
+                                                                            name='description'
                                                                             onChange= { (event) => descriptionChange(event, area.id, taskIndex, task.id) }
                                                                             onKeyDown = {(event) => descriptionKeyDown(event, area.id, taskIndex, task.id)}
-                                                                            size = 'small' />
+                                                                            multiline
+                                                                            autoComplete='off'
+                                                                            sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
+                                                                            size = 'small' 
+                                                                            key={`description-${task.id}`}
+                                                                 />
                                                                 { task.id === '' ?
                                                                     <IconButton onClick={(event) => saveClick(event, area.id, taskIndex, task.id)} >
                                                                         <SavingsIcon/>
