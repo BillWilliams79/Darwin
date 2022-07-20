@@ -70,7 +70,7 @@ const TaskCards = () => {
         console.count('useEffect: read all Rest API data');
 
         // Fetch domains
-        let domainUri = `${darwinUri}/domains?creator_fk=1`
+        let domainUri = `${darwinUri}/domains?creator_fk=2`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
@@ -82,7 +82,7 @@ const TaskCards = () => {
             });
 
         // Fetch Areas
-        let areaUri = `${darwinUri}/areas?creator_fk=1`
+        let areaUri = `${darwinUri}/areas?creator_fk=2`
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
@@ -92,7 +92,7 @@ const TaskCards = () => {
                 result.data.map( area => sortedTasksObject[area.id] = []);
 
                 // Fetch Tasks
-                let taskUri = `${darwinUri}/tasks?creator_fk=1`
+                let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0`
                 call_rest_api(taskUri, 'GET', '', idToken)
                     .then(result => {
                         // sort tasks into area arrays (this enable bookeeping/indexing for the cards)
@@ -100,7 +100,7 @@ const TaskCards = () => {
 
                         // TODO: creator_fk is hardcoded and needs to come from profile/context
                         Object.keys(sortedTasksObject).map( (key) => sortedTasksObject[key]
-                            .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(key), 'creator_fk': 1 }));
+                            .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(key), 'creator_fk': 2 }));
                         setTasksArray(sortedTasksObject);
                     }).catch(error => {
                          varDump(error, 'error state for retrieve table data');
@@ -147,8 +147,8 @@ const TaskCards = () => {
         // event.target.value contains the new area text
         // updated changes are written to rest API elsewhere (keyup for example)
         let newAreasArray = [...areasArray]
+        varDump(event.target.value, 'event.target.log');
         newAreasArray[areaIndex].area_name = event.target.value;
-        varDump(areasArray, 'state areas Array');
         varDump(newAreasArray, 'newAreasArray dropped');
         setAreasArray(newAreasArray);
     }
@@ -211,7 +211,7 @@ const TaskCards = () => {
                     setSnackBarOpen(true);
                     let newTasksArray = {...tasksArray};
                     newTasksArray[areaId][taskIndex] = {...result.data[0]};
-                    newTasksArray[areaId].push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': areaId, 'creator_fk': 1 });
+                    newTasksArray[areaId].push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': areaId, 'creator_fk': 2 });
                     setTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body

@@ -1,5 +1,5 @@
-DROP DATABASE darwin;
-
+/*DROP DATABASE darwin;
+*/
 
 CREATE DATABASE IF NOT EXISTS darwin;
 USE darwin;
@@ -97,7 +97,7 @@ INSERT INTO tasks (priority, done, description, area_fk, creator_fk)
 VALUES (false, false, "Draw a picture of Parker", 1, 1);
 
 INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (false, false, "Draw the Niners beating the Seahawks", 1, 1);
+VALUES (false, true, "Draw the Niners beating the Seahawks", 1, 1);
 
 INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
 VALUES (true, false, "Stick Figures", 2, 1);
@@ -136,4 +136,10 @@ FROM
 		INNER JOIN areas
 			ON tasks.area_fk = areas.id;
             
-
+select
+	*
+from
+	areas;
+    
+UPDATE tasks SET done = '0', done_ts = '2022-07-18T08:35:53Z' WHERE id = 1;
+UPDATE tasks SET done = '0', done_ts = NULL WHERE id = 1;
