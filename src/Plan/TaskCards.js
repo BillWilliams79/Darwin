@@ -64,52 +64,64 @@ const TaskCards = () => {
     const [deleteConfirmed, setDeleteConfirmed] = useState(false);
     const [deleteId, setDeleteId] = useState({});
 
-    // useEffect retrieves and sets initial
+    // useEffect: retrieve page data from Rest API
     useEffect( () => {
         // TODO: creator_fk must by dynamically set based on logged in user.
         console.count('useEffect: read all Rest API data');
 
-        // Fetch domains
+        // FETCH DOMAINS
         let domainUri = `${darwinUri}/domains?creator_fk=2`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
-                setDomainsArray(result.data);
-                // Tabs bookeeping
+                // Tab bookeeping
+                // TODO: store and retrieve in browswer persistent storage
                 setActiveTab(0);
-            }).catch(error => {
-                 varDump(error, 'error state for retrieve table data');
-            });
+                setDomainsArray(result.data);
 
-        // Fetch Areas
-        let areaUri = `${darwinUri}/areas?creator_fk=2`
+                // FETCH AREAS
+                let areaUri = `${darwinUri}/areas?creator_fk=2`
 
-        call_rest_api(areaUri, 'GET', '', idToken)
-            .then(result => {
-                setAreasArray(result.data);
-                // create object with an array per area based on its area.id
-                var sortedTasksObject = {};
-                result.data.map( area => sortedTasksObject[area.id] = []);
+                // create object with an array per domain based on domain.id
+                var sortedAreasObject = {};
+                result.data.map( domain => sortedAreasObject[domain.id] = []);
 
-                // Fetch Tasks
-                let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0`
-                call_rest_api(taskUri, 'GET', '', idToken)
+                call_rest_api(areaUri, 'GET', '', idToken)
                     .then(result => {
-                        // sort tasks into area arrays (this enable bookeeping/indexing for the cards)
-                        result.data.map( (task) => sortedTasksObject[task.area_fk].push(task))
+                        // sort areas into domain arrays (enables bookeeping/indexing for the area names)
+                        result.data.map( (area) => sortedAreasObject[area.domain_fk].push(area))
+                        setAreasArray(sortedAreasObject);
 
-                        // TODO: creator_fk is hardcoded and needs to come from profile/context
-                        Object.keys(sortedTasksObject).map( (key) => sortedTasksObject[key]
-                            .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(key), 'creator_fk': 2 }));
-                        setTasksArray(sortedTasksObject);
+                        // create object with an array per area based on its area.id
+                        var sortedTasksObject = {};
+                        result.data.map( area => sortedTasksObject[area.id] = []);
+
+                        // FETCH TASKS
+                        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0`
+                        call_rest_api(taskUri, 'GET', '', idToken)
+                            .then(result => {
+                                // sort tasks into area arrays (enables bookeeping/indexing for the cards)
+                                result.data.map( (task) => sortedTasksObject[task.area_fk].push(task))
+
+                                // push a blank object onto the end of each list, receives user input for new tasks
+                                // TODO: creator_fk is hardcoded and needs to come from profile/context
+                                Object.keys(sortedTasksObject).map( (areaId) => sortedTasksObject[areaId]
+                                    .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(areaId), 'creator_fk': 2 }));
+                                setTasksArray(sortedTasksObject);
+
+                            }).catch(error => {
+                                 varDump(error, `UseEffect: error retrieving Tasks: ${error}`);
+                            });
                     }).catch(error => {
-                         varDump(error, 'error state for retrieve table data');
+                        varDump(error, `UseEffect: error retrieving Areas: ${error}`);
                     });
             }).catch(error => {
-                 varDump(error, 'error state for retrieve table data');
+                varDump(error, `UseEffect: error retrieving Domains: ${error}`);
             });
+
     }, [readRestApi]);
 
+    // useEffect: deletes task in cooperation with confirmation dialog
     useEffect( () => {
         console.count('useEffect: delete task');
 
@@ -143,39 +155,36 @@ const TaskCards = () => {
         setActiveTab(newValue);
     };
 
-    const areaChange = (event, areaId, areaIndex) => {
+    const areaChange = (event, domainId, areaIndex, areaId) => {
         // event.target.value contains the new area text
         // updated changes are written to rest API elsewhere (keyup for example)
-        let newAreasArray = [...areasArray]
-        varDump(event.target.value, 'event.target.log');
-        newAreasArray[areaIndex].area_name = event.target.value;
-        varDump(newAreasArray, 'newAreasArray dropped');
+        let newAreasArray = {...areasArray}
+        newAreasArray[domainId][areaIndex].area_name = event.target.value;
         setAreasArray(newAreasArray);
     }
 
-    const areaKeyDown = (event, areaId, areaIndex) => {
+    const areaKeyDown = (event, domainId, areaIndex, areaId) => {
         if ((event.key === 'Enter') ||
             (event.key === 'Tab')) {
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[areaIndex].area_name}, idToken)
+            call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[domainId][areaIndex].area_name}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        // database value is changed only with a 200 response
+                        // database change confirmed only with a 200 response
                         // so only then show snackbar
-                        setSnackBarMessage('Area Name Updated Successfully');
+                        setSnackBarMessage('Area Updated Successfully');
                         setSnackBarOpen(true);
                     }
                 }).catch(error => {
-                    varDump(error, 'error state for retrieve table data');
+                    varDump(error, `Error - could not update area name ${error}`);
                 });
             }
-        // we don't want the Enter key to be part of the text
+        // Enter key cannot be part of area name, so eat the event
         if (event.key === 'Enter') {
             event.preventDefault();
         }
     }
-
 
     const priorityClick = (areaId, taskIndex, taskId) => {
 
@@ -292,16 +301,15 @@ const TaskCards = () => {
                             <TabPanel key={domainIndex} value={domainIndex.toString()} >
                                 {areasArray && 
                                     <Box className="card">
-                                        { areasArray.filter(area => area.domain_fk === domain.id)
-                                            .map((area, areaIndex) => (
+                                        { areasArray[domain.id].map((area, areaIndex) => (
                                             <Card key={areaIndex} raised={true}>
                                                 <CardContent>
                                                     <Box sx={{marginBottom: 2}}>
                                                     <TextField variant="standard"
                                                                 value={area.area_name || ''}
                                                                 name='area-name'
-                                                                onChange= { (event) => areaChange(event, area.id, areaIndex) }
-                                                                onKeyDown = {(event) => areaKeyDown(event, area.id, areaIndex)}
+                                                                onChange= { (event) => areaChange(event, domain.id, areaIndex, area.id) }
+                                                                onKeyDown = {(event) => areaKeyDown(event, domain.id, areaIndex, area.id)}
                                                                 multiline
                                                                 autoComplete='off'
                                                                 size = 'small'
@@ -310,8 +318,7 @@ const TaskCards = () => {
                                                      />
                                                      </Box>
                                                     { tasksArray &&
-                                                        tasksArray[area.id].filter(task => task.area_fk === area.id)
-                                                            .map((task, taskIndex) => (
+                                                        tasksArray[area.id].map((task, taskIndex) => (
                                                             <Box className="task">
                                                                 <Checkbox
                                                                     checked = {task.priority ? true : false}
