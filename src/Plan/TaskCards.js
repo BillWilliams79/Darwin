@@ -47,7 +47,7 @@ const TaskCards = () => {
     const [areasArray, setAreasArray] = useState()
     const [tasksArray, setTasksArray] = useState()
 
-    // changing this value triggers useState that re-reads all rest API data
+    // changing this value triggers useState, re-reads all rest API data
     // misleading, but true or flase doesn't matter, just flip the value
     // and set it, the useState is executed
     const [readRestApi, setReadRestApi] = useState(false); 
@@ -88,8 +88,9 @@ const TaskCards = () => {
 
                 call_rest_api(areaUri, 'GET', '', idToken)
                     .then(result => {
-                        // sort areas into domain arrays (enables bookeeping/indexing for the area names)
+                        // distribute areas into domain arrays (enables bookeeping/indexing for the area names)
                         result.data.map( (area) => sortedAreasObject[area.domain_fk].push(area))
+                        
                         setAreasArray(sortedAreasObject);
 
                         // create object with an array per area based on its area.id
@@ -100,8 +101,11 @@ const TaskCards = () => {
                         let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0`
                         call_rest_api(taskUri, 'GET', '', idToken)
                             .then(result => {
-                                // sort tasks into area arrays (enables bookeeping/indexing for the cards)
+                                // distribute tasks into area arrays (enables bookeeping/indexing for the cards)
                                 result.data.map( (task) => sortedTasksObject[task.area_fk].push(task))
+
+                                // sort based on priority only
+                                Object.keys(sortedTasksObject).map( areaId => sortedTasksObject[areaId].sort((taskA, taskB) => taskPrioritySort(taskA, taskB)))
 
                                 // push a blank object onto the end of each list, receives user input for new tasks
                                 // TODO: creator_fk is hardcoded and needs to come from profile/context
@@ -193,6 +197,7 @@ const TaskCards = () => {
         newTasksArray[areaId][taskIndex].priority = newTasksArray[areaId][taskIndex].priority ? 0 : 1;
         let uri = `${darwinUri}/tasks`;
         call_rest_api(uri, 'POST', {'id': taskId, 'priority': newTasksArray[areaId][taskIndex].priority}, idToken);
+        newTasksArray[areaId].sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
         setTasksArray(newTasksArray);
     }
 
@@ -220,6 +225,7 @@ const TaskCards = () => {
                     setSnackBarOpen(true);
                     let newTasksArray = {...tasksArray};
                     newTasksArray[areaId][taskIndex] = {...result.data[0]};
+                    newTasksArray[areaId].sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
                     newTasksArray[areaId].push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': areaId, 'creator_fk': 2 });
                     setTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus === 201) {
@@ -265,13 +271,12 @@ const TaskCards = () => {
                             setSnackBarMessage('Task Updated Successfully');
                             setSnackBarOpen(true);
                         }
-                        varDump(result.httpStatus.httpStatus, 'update based on description change result data');
                     }).catch(error => {
-                        varDump(error, 'error state for retrieve table data');
+                        varDump(error, `Error - could not update area name ${error}`);
                     });
             }
         }
-        // we don't want the Enter key to be part of the text
+        // Enter key cannot be part of task description, so eat the event
         if (event.key === 'Enter') {
             event.preventDefault();
         }
@@ -280,6 +285,20 @@ const TaskCards = () => {
     const deleteClick = (event, areaId, taskIndex, taskId) => {
         setDeleteId({areaId, taskIndex, taskId});
         setDeleteDialogOpen(true);
+    }
+
+    const taskPrioritySort = (taskA, taskB) => {
+            // leave blanks in place
+            if (taskA.id === '') return 1;
+            if (taskB.id === '') return -1;
+
+            if (taskA.priority === taskB.priority) {
+                return 0;
+            } else if (taskA.priority > taskB.priority) {
+                return -1;
+            } else {
+                return 1;
+            }
     }
 
     return (
