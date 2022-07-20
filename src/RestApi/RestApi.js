@@ -27,6 +27,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         //varDump(fetchInit, "call_rest_api's fetchInit immediately before fetch call");
         var response = await fetch(url, fetchInit)
     } catch (error) {
+        console.log(`call_rest_api failed with following message: ${error}`);
         const errorReturn = {
             data: {},
             httpStatus: { httpMethod: fetchInit.method,
@@ -39,6 +40,7 @@ const call_rest_api = async (url, method, body, idToken) => {
     // STEP 3 wait for JSON data and parse into javascript
     const jsonData = await response.json();
     var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
+
 
     // STEP 4 construct responseData object and return it
     var httpStatus = {httpMethod: fetchInit.method,
@@ -66,7 +68,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         httpStatus,
     };
 
-    varDump(returnValue, "call_rest_api's return value");
+    //varDump(returnValue, "call_rest_api's return value");
 
     return returnValue;
 }

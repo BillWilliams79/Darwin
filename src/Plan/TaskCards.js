@@ -70,7 +70,8 @@ const TaskCards = () => {
         console.count('useEffect: read all Rest API data');
 
         // FETCH DOMAINS
-        let domainUri = `${darwinUri}/domains?creator_fk=2`
+        // QSPs limit fields to minimum: id,domain_name
+        let domainUri = `${darwinUri}/domains?creator_fk=2&fields=id,domain_name`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
@@ -80,7 +81,8 @@ const TaskCards = () => {
                 setDomainsArray(result.data);
 
                 // FETCH AREAS
-                let areaUri = `${darwinUri}/areas?creator_fk=2`
+                // QSPs limit fields to minimum: id,area_name,domain_fk
+                let areaUri = `${darwinUri}/areas?creator_fk=2&fields=id,area_name,domain_fk`;
 
                 // create object with an array per domain based on domain.id
                 var sortedAreasObject = {};
@@ -98,7 +100,8 @@ const TaskCards = () => {
                         result.data.map( area => sortedTasksObject[area.id] = []);
 
                         // FETCH TASKS
-                        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0`
+                        // QSPs limit fields to minimum: id,priority,done,description,area_fk
+                        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0&fields=id,priority,done,description,area_fk`
                         call_rest_api(taskUri, 'GET', '', idToken)
                             .then(result => {
                                 // distribute tasks into area arrays (enables bookeeping/indexing for the cards)
@@ -157,7 +160,7 @@ const TaskCards = () => {
 
     const changeActiveTab = (event, newValue) => {
         setActiveTab(newValue);
-    };
+    }
 
     const areaChange = (event, domainId, areaIndex, areaId) => {
         // event.target.value contains the new area text
