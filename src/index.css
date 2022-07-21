@@ -53,9 +53,8 @@
 }
 
 .card-header {
-      background-color: lightsteelblue;
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto;
       font-size: 18px;
 }
 

@@ -1,8 +1,7 @@
-/*DROP DATABASE darwin;
-*/
-
-CREATE DATABASE IF NOT EXISTS darwin;
+/*CREATE DATABASE IF NOT EXISTS darwin;*/
 USE darwin;
+
+/* Initial Version */
 
 CREATE TABLE IF NOT EXISTS profiles (
 	PRIMARY KEY (id),
@@ -61,66 +60,22 @@ CREATE TABLE IF NOT EXISTS tasks (
         ON UPDATE CASCADE ON DELETE CASCADE
 );
 
-/* one sample record per table for testing */
-INSERT INTO profiles (name, email, subject, userName, region, userPoolId)
-VALUES ('Darwin Guy', 'darwintestuser@proton.me', '3af9d78e-db31-4892-ab42-d1a731b724dd', '3af9d78e-db31-4892-ab42-d1a731b724dd', 'us-west-1', 'us-west-1_jqN0WLASK');
+/* Update #1 to support ability to close (hide) areas from the task plan view */
 
-INSERT INTO domains (domain_name, creator_fk) 
-VALUES ('Art', 1);
+ALTER TABLE areas
+ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
 
-INSERT INTO domains (domain_name, creator_fk) 
-VALUES ('Garden', 1);
+/* Future Update Here */
 
-INSERT INTO domains (domain_name, creator_fk) 
-VALUES ('Pool', 1);
-
-INSERT INTO areas (area_name, domain_fk, creator_fk) 
-VALUES ('Pencil Drawings', 1, 1);
-
-INSERT INTO areas (area_name, domain_fk, creator_fk) 
-VALUES ('Charcoal Drawings', 1, 1);
-
-INSERT INTO areas (area_name, domain_fk, creator_fk) 
-VALUES ('Play Dough', 1, 1);
-
-INSERT INTO areas (area_name, domain_fk, creator_fk) 
-VALUES ('Tomatoes', 2, 1);
-
-INSERT INTO areas (area_name, domain_fk, creator_fk) 
-VALUES ('Cucumbers', 2, 1);
-
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "Draw a picture of Ava, Lia and Ella", 1, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (false, false, "Draw a picture of Parker", 1, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (false, true, "Draw the Niners beating the Seahawks", 1, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "Stick Figures", 2, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "A big ole house", 2, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "Big Pizza", 3, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "Plant them", 4, 1);
-
-INSERT INTO tasks (priority, done, description, area_fk, creator_fk) 
-VALUES (true, false, "Pick them", 5, 1);
 
 SELECT
 	*
 FROM
-	profiles;
+	areas;
 
 /* Display a three table star join to confirm tables and constraints function */
-SELECT 
+SELECT
+	tasks.id,
     priority as 'Priority',
     done as 'Done',
     description as 'Description',
@@ -134,12 +89,5 @@ FROM
         INNER JOIN profiles
 			ON tasks.creator_fk = profiles.id
 		INNER JOIN areas
-			ON tasks.area_fk = areas.id;
-            
-select
-	*
-from
-	areas;
-    
-UPDATE tasks SET done = '0', done_ts = '2022-07-18T08:35:53Z' WHERE id = 1;
-UPDATE tasks SET done = '0', done_ts = NULL WHERE id = 1;
+			ON tasks.area_fk = areas.id
+ORDER BY tasks.id asc;

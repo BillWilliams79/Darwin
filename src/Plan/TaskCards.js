@@ -5,6 +5,7 @@ import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import SnackBar from './SnackBar';
 import DeleteDialog from './DeleteDialog';
+import CardSettingsDialog from './CardSettingsDialog';
  
 import React, { useState, useEffect, useContext } from 'react';
 
@@ -12,14 +13,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
-import Zoom from '@mui/material/Zoom';
-import InputLabel from '@mui/material/InputLabel';
-import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
-import Select from '@mui/material/Select';
 import Checkbox from '@mui/material/Checkbox';
-import TextareaAutosize from '@mui/material/TextareaAutosize';
 
 import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -28,6 +22,8 @@ import ReportIcon from '@mui/icons-material/Report';
 import ReportGmailerrorredOutlinedIcon from '@mui/icons-material/ReportGmailerrorredOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import CloseIcon from '@mui/icons-material/Close';
 
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -64,7 +60,13 @@ const TaskCards = () => {
     const [deleteConfirmed, setDeleteConfirmed] = useState(false);
     const [deleteId, setDeleteId] = useState({});
 
-    // useEffect: retrieve page data from Rest API
+    // deleteDialog state
+    const [cardSettingsDialogOpen, setCardSettingsDialogOpen] = useState(false);
+    const [areaCloseConfirmed, setAreaCloseConfirmed] = useState(false);
+    const [areaCloseId, setAreaCloseId] = useState({});
+
+
+    // READ API data for page
     useEffect( () => {
         // TODO: creator_fk must by dynamically set based on logged in user.
         console.count('useEffect: read all Rest API data');
@@ -80,9 +82,9 @@ const TaskCards = () => {
                 setActiveTab(0);
                 setDomainsArray(result.data);
 
-                // FETCH AREAS
+                // FETCH AREAS: filter for: creator, closed=0
                 // QSPs limit fields to minimum: id,area_name,domain_fk
-                let areaUri = `${darwinUri}/areas?creator_fk=2&fields=id,area_name,domain_fk`;
+                let areaUri = `${darwinUri}/areas?creator_fk=2&closed=0&fields=id,area_name,domain_fk`;
 
                 // create object with an array per domain based on domain.id
                 var sortedAreasObject = {};
@@ -99,9 +101,15 @@ const TaskCards = () => {
                         var sortedTasksObject = {};
                         result.data.map( area => sortedTasksObject[area.id] = []);
 
-                        // FETCH TASKS
+                        // create a string of area.id's in the format of (id1, id2, id3...)
+                        // the handy toString makes this a comma separate string
+                        let areaIdArray=[];
+                        result.data.map( area => areaIdArray.push(area.id));
+                        let areaFkString = `(${areaIdArray.toString()})`
+
+                        // FETCH TASKS: filter for creator, done=0 and only for the open areas
                         // QSPs limit fields to minimum: id,priority,done,description,area_fk
-                        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0&fields=id,priority,done,description,area_fk`
+                        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0&area_fk=${areaFkString}&fields=id,priority,done,description,area_fk`
                         call_rest_api(taskUri, 'GET', '', idToken)
                             .then(result => {
                                 // distribute tasks into area arrays (enables bookeeping/indexing for the cards)
@@ -128,13 +136,13 @@ const TaskCards = () => {
 
     }, [readRestApi]);
 
-    // useEffect: deletes task in cooperation with confirmation dialog
+    // DELETE TASK in cooperation with confirmation dialog
     useEffect( () => {
         console.count('useEffect: delete task');
 
         //TODO confirm deleteId is a valid object
         if (deleteConfirmed === true) {
-            const {areaId, taskIndex, taskId} = deleteId;
+            const {areaId, taskId} = deleteId;
 
             let uri = `${darwinUri}/tasks`;
             call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
@@ -147,16 +155,61 @@ const TaskCards = () => {
                         setTasksArray(newTasksArray);
                         setSnackBarMessage('Task Deleted Successfully');
                         setSnackBarOpen(true);
-                        setDeleteConfirmed(false);
-                        setDeleteId({});
                     }
-                    varDump(result.httpStatus.httpStatus, 'update based on description change result data');
+                    console.log(`Error: unable to delete task : ${result.httpStatus.httpStatus}`);
+                    setSnackBarMessage(`Unable to delete task : ${result.httpStatus.httpStatus}`);
+                    setSnackBarOpen(true);
+
                 }).catch(error => {
-                    varDump(error, 'error state for retrieve table data');
+                    console.log(`Error: unable to delete task : ${error}`);
+                    setSnackBarMessage(`Unable to delete task : ${error}`);
+                    setSnackBarOpen(true);
                 });
         }
+        // prior to exit and regardless of outcome, clean up state
+        setDeleteConfirmed(false);
+        setDeleteId({});
 
     }, [deleteConfirmed])
+
+    // CLOSE AREA in cooperation with confirmation dialog
+    useEffect( () => {
+        console.count('useEffect: close Area');
+
+        //TODO confirm areaCloseId is a valid object
+        if (areaCloseConfirmed === true) {
+            const { areaName, areaId, domainId } = areaCloseId;
+
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'POST', {'id': areaId, 'closed': 1}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+
+                        // Area set to close, remove area from Area object state
+                        let newAreasArray = {...areasArray};
+                        newAreasArray[domainId] = newAreasArray[domainId].filter(area => area.id !== areaId );
+                        setAreasArray(newAreasArray);
+
+                        setSnackBarMessage(`${areaName} Closed Successfully`);
+                        setSnackBarOpen(true);
+
+                    } else {
+                        console.log(`Error: unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarMessage(`Unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    console.log(`Error: unable to close ${areaName} : ${error}`);
+                    setSnackBarMessage(`Unable to close ${areaName} : ${error}`);
+                    setSnackBarOpen(true);
+            });
+        }
+        // prior to exit and regardless of outcome, clean up state
+        setAreaCloseConfirmed(false);
+        setAreaCloseId({});
+
+    }, [areaCloseConfirmed])
+
 
     const changeActiveTab = (event, newValue) => {
         setActiveTab(newValue);
@@ -191,6 +244,12 @@ const TaskCards = () => {
         if (event.key === 'Enter') {
             event.preventDefault();
         }
+    }
+
+    const cardSettingsClick = (event, areaName, areaId, domainId) => {
+        // stores data re: card to close, opens dialog
+        setAreaCloseId({ areaName, areaId, domainId });
+        setCardSettingsDialogOpen(true);
     }
 
     const priorityClick = (areaId, taskIndex, taskId) => {
@@ -285,8 +344,9 @@ const TaskCards = () => {
         }
     }
 
-    const deleteClick = (event, areaId, taskIndex, taskId) => {
-        setDeleteId({areaId, taskIndex, taskId});
+    const deleteClick = (event, areaId, taskId) => {
+        // stores data re: task to delete, opens dialog
+        setDeleteId({areaId, taskId});
         setDeleteDialogOpen(true);
     }
 
@@ -326,19 +386,22 @@ const TaskCards = () => {
                                         { areasArray[domain.id].map((area, areaIndex) => (
                                             <Card key={areaIndex} raised={true}>
                                                 <CardContent>
-                                                    <Box sx={{marginBottom: 2}}>
-                                                    <TextField variant="standard"
-                                                                value={area.area_name || ''}
-                                                                name='area-name'
-                                                                onChange= { (event) => areaChange(event, domain.id, areaIndex, area.id) }
-                                                                onKeyDown = {(event) => areaKeyDown(event, domain.id, areaIndex, area.id)}
-                                                                multiline
-                                                                autoComplete='off'
-                                                                size = 'small'
-                                                                InputProps={{disableUnderline: true, style: {fontSize: 24}}}
-                                                                key={`area-${area.id}`}
-                                                     />
-                                                     </Box>
+                                                    <Box className="card-header" sx={{marginBottom: 2}}>
+                                                        <TextField variant="standard"
+                                                                    value={area.area_name || ''}
+                                                                    name='area-name'
+                                                                    onChange= { (event) => areaChange(event, domain.id, areaIndex, area.id) }
+                                                                    onKeyDown = {(event) => areaKeyDown(event, domain.id, areaIndex, area.id)}
+                                                                    multiline
+                                                                    autoComplete='off'
+                                                                    size = 'small'
+                                                                    InputProps={{disableUnderline: true, style: {fontSize: 24}}}
+                                                                    key={`area-${area.id}`}
+                                                         />
+                                                        <IconButton onClick={(event) => cardSettingsClick(event, area.area_name, area.id, domain.id)} >
+                                                            <CloseIcon />
+                                                        </IconButton>
+                                                    </Box>
                                                     { tasksArray &&
                                                         tasksArray[area.id].map((task, taskIndex) => (
                                                             <Box className="task">
@@ -372,7 +435,7 @@ const TaskCards = () => {
                                                                         <SavingsIcon/>
                                                                     </IconButton>
                                                                     :
-                                                                    <IconButton onClick={(event) => deleteClick(event, area.id, taskIndex, task.id)} >
+                                                                    <IconButton onClick={(event) => deleteClick(event, area.id, task.id)} >
                                                                         <DeleteIcon/>
                                                                     </IconButton>
                                                                 }
@@ -394,8 +457,13 @@ const TaskCards = () => {
                               setDeleteDialogOpen = {setDeleteDialogOpen}
                               setDeleteId = {setDeleteId}
                               setDeleteConfirmed = {setDeleteConfirmed} />
+                <CardSettingsDialog cardSettingsDialogOpen = {cardSettingsDialogOpen}
+                                    setCardSettingsDialogOpen = {setCardSettingsDialogOpen}
+                                    areaCloseId = {areaCloseId}
+                                    setAreaCloseId = {setAreaCloseId}
+                                    setAreaCloseConfirmed = {setAreaCloseConfirmed} />
                 </>
-            }
+}
         </>
     );
 
