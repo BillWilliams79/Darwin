@@ -538,7 +538,7 @@ const TaskCards = () => {
                                                                             key={`description-${task.id}`}
                                                                  />
                                                                 { task.id === '' ?
-                                                                    <IconButton onClick={(event) => saveClick(event, area.id, taskIndex, task.id)} >
+                                                                    <IconButton /* onClick={(event) => saveClick(event, area.id, taskIndex, task.id)} */ >
                                                                         <SavingsIcon/>
                                                                     </IconButton>
                                                                     :
