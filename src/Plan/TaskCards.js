@@ -405,14 +405,10 @@ const TaskCards = () => {
     }
 
     const descriptionKeyDown = (event, areaId, taskIndex, taskId) => {
-        if ((event.key === 'Enter') ||
-            (event.key === 'Tab')) {
 
-            updateTask(event, areaId, taskIndex, taskId);
-        }
-
-        // Enter key cannot be part of task description, so eat the event
+        // Enter key triggers save but cannot be part of text so preventDefault
         if (event.key === 'Enter') {
+            updateTask(event, areaId, taskIndex, taskId);
             event.preventDefault();
         }
     }
@@ -423,14 +419,14 @@ const TaskCards = () => {
 
     const updateTask = (event, areaId, taskIndex, taskId) => {
 
-        // new tasks that are blank should not be saved
+        const noop = ()=>{};
+
         if ((taskId === '') &&
             (tasksArray[areaId][taskIndex].description === '')) {
-
-            console.log('no save');
+            // new task with no description, noop
+            noop();
 
         } else {
-
             // blank taskId indicates we are creating a new task rather than updating existing
             if (taskId === '') {
                 saveClick(event, areaId, taskIndex, taskId)

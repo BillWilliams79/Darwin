@@ -4,7 +4,7 @@ import varDump from '../classifier/classifier';
 // eventually replace with react-router or similar
 
 const call_rest_api = async (url, method, body, idToken) => {
-
+    
     // STEP 1 - construct a fetch init object, processing body
     // and incorporating any auth tokens
     const fetchInit = {
@@ -38,9 +38,17 @@ const call_rest_api = async (url, method, body, idToken) => {
     };
 
     // STEP 3 wait for JSON data and parse into javascript
-    const jsonData = await response.json();
-    var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
-
+    if (response.status != 204) {
+        // 204 is a No Content response and independent of what is returned from api lambda
+        // gives an error retrieving the json data. So skip it!
+        try {
+            const jsonData = await response.json();
+            var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
+        } catch (error) {
+            debugger;
+            varDump(error, 'error getting jsondata??!?')
+        }
+    }
 
     // STEP 4 construct responseData object and return it
     var httpStatus = {httpMethod: fetchInit.method,
