@@ -395,7 +395,8 @@ const TaskCards = () => {
             });
     }
     
-    const descriptionChange = (event, areaId, taskIndex, taskId) => {
+    const descriptionChange = (event, areaId, taskIndex) => {
+
         // event.target.value contains the new text from description which is retained in state
         // updated changes are written to rest API elsewhere (keyup for example)
         let newTasksArray = {...tasksArray}
@@ -406,6 +407,29 @@ const TaskCards = () => {
     const descriptionKeyDown = (event, areaId, taskIndex, taskId) => {
         if ((event.key === 'Enter') ||
             (event.key === 'Tab')) {
+
+            updateTask(event, areaId, taskIndex, taskId);
+        }
+
+        // Enter key cannot be part of task description, so eat the event
+        if (event.key === 'Enter') {
+            event.preventDefault();
+        }
+    }
+
+    const descriptionOnBlur= (event, areaId, taskIndex, taskId) => {
+        updateTask(event, areaId, taskIndex, taskId);
+    }
+
+    const updateTask = (event, areaId, taskIndex, taskId) => {
+
+        // new tasks that are blank should not be saved
+        if ((taskId === '') &&
+            (tasksArray[areaId][taskIndex].description === '')) {
+
+            console.log('no save');
+
+        } else {
 
             // blank taskId indicates we are creating a new task rather than updating existing
             if (taskId === '') {
@@ -424,10 +448,6 @@ const TaskCards = () => {
                         varDump(error, `Error - could not update area name ${error}`);
                     });
             }
-        }
-        // Enter key cannot be part of task description, so eat the event
-        if (event.key === 'Enter') {
-            event.preventDefault();
         }
     }
 
@@ -514,6 +534,7 @@ const TaskCards = () => {
                                                                             name='description'
                                                                             onChange= { (event) => descriptionChange(event, area.id, taskIndex, task.id) }
                                                                             onKeyDown = {(event) => descriptionKeyDown(event, area.id, taskIndex, task.id)}
+                                                                            onBlur = {(event) => descriptionOnBlur(event, area.id, taskIndex, task.id)}
                                                                             multiline
                                                                             autoComplete='off'
                                                                             sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
