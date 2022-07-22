@@ -65,13 +65,18 @@ CREATE TABLE IF NOT EXISTS tasks (
 ALTER TABLE areas
 ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
 
+/* Update #2 to support ability to close (hide) domains from the task plan view */
+ALTER TABLE domains
+ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
+
+
 /* Future Update Here */
 
 
 SELECT
 	*
 FROM
-	areas;
+	domains;
 
 /* Display a three table star join to confirm tables and constraints function */
 SELECT
@@ -80,6 +85,7 @@ SELECT
     done as 'Done',
     description as 'Description',
     areas.area_name AS 'Area Name',
+    areas.closed AS 'Hide',
     profiles.name AS 'User Name',
     tasks.create_ts AS 'Created',
     tasks.update_ts AS 'Updated',

@@ -63,6 +63,22 @@ CREATE TABLE IF NOT EXISTS tasks2 (
         ON UPDATE CASCADE ON DELETE CASCADE
 );
 
+use darwin2;
+
+ALTER TABLE areas2
+ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
+
+ALTER TABLE domains2
+ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
+
+SELECT
+	*
+FROM
+	domains2;
+    
+SHOW TABLES;
+DESC areas2;
+
 INSERT INTO profiles2 (name, email, subject, userName, region, userPoolId)
 VALUES ('Darwin Guy', 'darwintestuser@proton.me', '3af9d78e-db31-4892-ab42-d1a731b724dd', '3af9d78e-db31-4892-ab42-d1a731b724dd', 'us-west-1', 'us-west-1_jqN0WLASK');
 
@@ -114,20 +130,7 @@ VALUES (true, false, "Plant them", 4, 1);
 INSERT INTO tasks2 (priority, done, description, area_fk, creator_fk) 
 VALUES (true, false, "Pick them", 5, 1);
 
-use darwin2;
 
-ALTER TABLE areas2
-ADD COLUMN closed TINYINT NOT NULL DEFAULT 0;
-
-
-
-SELECT
-	*
-FROM
-	areas2;
-    
-SHOW TABLES;
-DESC areas2;
 
 
 SELECT

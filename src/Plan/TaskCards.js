@@ -6,6 +6,7 @@ import call_rest_api from '../RestApi/RestApi';
 import SnackBar from './SnackBar';
 import DeleteDialog from './DeleteDialog';
 import CardSettingsDialog from './CardSettingsDialog';
+import DomainSettingsDialog from './DomainSettingsDialog';
  
 import React, { useState, useEffect, useContext } from 'react';
 
@@ -60,11 +61,15 @@ const TaskCards = () => {
     const [deleteConfirmed, setDeleteConfirmed] = useState(false);
     const [deleteId, setDeleteId] = useState({});
 
-    // deleteDialog state
+    // cardSettings state
     const [cardSettingsDialogOpen, setCardSettingsDialogOpen] = useState(false);
     const [areaCloseConfirmed, setAreaCloseConfirmed] = useState(false);
     const [areaCloseId, setAreaCloseId] = useState({});
 
+    // domainSettings state
+    const [tabSettingsDialogOpen, setTabSettingsDialogOpen] = useState(false);
+    const [domainCloseConfirmed, setDomainCloseConfirmed] = useState(false);
+    const [domainCloseId, setDomainCloseId] = useState({});
 
     // READ API data for page
     useEffect( () => {
@@ -73,7 +78,7 @@ const TaskCards = () => {
 
         // FETCH DOMAINS
         // QSPs limit fields to minimum: id,domain_name
-        let domainUri = `${darwinUri}/domains?creator_fk=2&fields=id,domain_name`
+        let domainUri = `${darwinUri}/domains?creator_fk=2&closed=0&fields=id,domain_name`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
@@ -82,13 +87,17 @@ const TaskCards = () => {
                 setActiveTab(0);
                 setDomainsArray(result.data);
 
-                // FETCH AREAS: filter for: creator, closed=0
-                // QSPs limit fields to minimum: id,area_name,domain_fk
-                let areaUri = `${darwinUri}/areas?creator_fk=2&closed=0&fields=id,area_name,domain_fk`;
-
                 // create object with an array per domain based on domain.id
                 var sortedAreasObject = {};
                 result.data.map( domain => sortedAreasObject[domain.id] = []);
+
+                // Create string of domain.ids for use in QSP
+                const domainFkString = `(${Object.keys(sortedAreasObject).toString()})`
+
+                // FETCH AREAS: filter for: creator, closed=0, open domains
+                // QSPs limit area fields to minimum: id,area_name,domain_fk
+                let areaUri = `${darwinUri}/areas?creator_fk=2&closed=0&domain_fk=${domainFkString}&fields=id,area_name,domain_fk`;
+
 
                 call_rest_api(areaUri, 'GET', '', idToken)
                     .then(result => {
@@ -110,18 +119,21 @@ const TaskCards = () => {
                         // FETCH TASKS: filter for creator, done=0 and only for the open areas
                         // QSPs limit fields to minimum: id,priority,done,description,area_fk
                         let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0&area_fk=${areaFkString}&fields=id,priority,done,description,area_fk`
+
                         call_rest_api(taskUri, 'GET', '', idToken)
                             .then(result => {
-                                // distribute tasks into area arrays (enables bookeeping/indexing for the cards)
+                                // tasks are stored in taskObject with key=area.id, value is array of task objects
+                                // thus, push the tasks into the area arrays
                                 result.data.map( (task) => sortedTasksObject[task.area_fk].push(task))
 
-                                // sort based on priority only
+                                // Prior to display, the tasks have to be sorted
                                 Object.keys(sortedTasksObject).map( areaId => sortedTasksObject[areaId].sort((taskA, taskB) => taskPrioritySort(taskA, taskB)))
 
-                                // push a blank object onto the end of each list, receives user input for new tasks
+                                // After sorting, add a blank task that is used for new task creation in the UI
                                 // TODO: creator_fk is hardcoded and needs to come from profile/context
-                                Object.keys(sortedTasksObject).map( (areaId) => sortedTasksObject[areaId]
+                                Object.keys(sortedTasksObject).map( areaId => sortedTasksObject[areaId]
                                     .push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(areaId), 'creator_fk': 2 }));
+
                                 setTasksArray(sortedTasksObject);
 
                             }).catch(error => {
@@ -155,11 +167,11 @@ const TaskCards = () => {
                         setTasksArray(newTasksArray);
                         setSnackBarMessage('Task Deleted Successfully');
                         setSnackBarOpen(true);
+                    } else {
+                        console.log(`Error: unable to delete task : ${result.httpStatus.httpStatus}`);
+                        setSnackBarMessage(`Unable to delete task : ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
                     }
-                    console.log(`Error: unable to delete task : ${result.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to delete task : ${result.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
-
                 }).catch(error => {
                     console.log(`Error: unable to delete task : ${error}`);
                     setSnackBarMessage(`Unable to delete task : ${error}`);
@@ -210,9 +222,54 @@ const TaskCards = () => {
 
     }, [areaCloseConfirmed])
 
+    // CLOSE DOMAIN in cooperation with confirmation dialog
+    useEffect( () => {
+        console.count('useEffect: close Domain');
+
+        //TODO confirm areaCloseId is a valid object
+        if (domainCloseConfirmed === true) {
+            const { domainName, domainId, domainIndex } = domainCloseId;
+
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'POST', {'id': domainId, 'closed': 1}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+
+                        // Domain set to close, remove area from Domain state
+                        let newDomainsArray = [...domainsArray];
+                        newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
+                        setDomainsArray(newDomainsArray);
+
+                        setSnackBarMessage(`${domainName} Closed Successfully`);
+                        setSnackBarOpen(true);
+
+                    } else {
+                        console.log(`Error: unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarMessage(`Unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    console.log(`Error: unable to close ${domainName} : ${error}`);
+                    setSnackBarMessage(`Unable to close ${domainName} : ${error}`);
+                    setSnackBarOpen(true);
+            });
+        }
+        // prior to exit and regardless of outcome, clean up state
+        setDomainCloseConfirmed(false);
+        setDomainCloseId({});
+
+    }, [domainCloseConfirmed])
+
 
     const changeActiveTab = (event, newValue) => {
         setActiveTab(newValue);
+    }
+
+    const domainCloseClick = (event, domainName, domainId, domainIndex) => {
+        // stores data re: card to close, opens dialog
+        varDump(domainName, 'should be domain name')
+        setDomainCloseId({ domainName, domainId, domainIndex });
+        setTabSettingsDialogOpen(true);
     }
 
     const areaChange = (event, domainId, areaIndex, areaId) => {
@@ -368,14 +425,17 @@ const TaskCards = () => {
         <>
             { domainsArray &&
                 <>
-                <Box sx={{ width: '100vw', typography: 'body1'  }}>
+                <Box sx={{ typography: 'body1'  }}>
                     <TabContext value={activeTab.toString()}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                            <TabList onChange={changeActiveTab}>
+                            <TabList  onChange={changeActiveTab}>
                                 {domainsArray.map( (domain, domainIndex) => 
-                                    <Tab key={domainIndex} 
+                                    <Tab sx={{'& .MuiTab-root': {minHeight: '48px'} }} key={domainIndex}
+                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                          label={domain.domain_name} 
-                                         value={domainIndex.toString()} />
+                                         value={domainIndex.toString()}
+                                         iconPosition="end"
+                                         />
                                 )}
                             </TabList>
                         </Box>
@@ -462,6 +522,11 @@ const TaskCards = () => {
                                     areaCloseId = {areaCloseId}
                                     setAreaCloseId = {setAreaCloseId}
                                     setAreaCloseConfirmed = {setAreaCloseConfirmed} />
+                <DomainSettingsDialog tabSettingsDialogOpen = {tabSettingsDialogOpen}
+                                    setTabSettingsDialogOpen = {setTabSettingsDialogOpen}
+                                    domainCloseId = {domainCloseId}
+                                    setDomainCloseId = {setDomainCloseId}
+                                    setDomainCloseConfirmed = {setDomainCloseConfirmed} />
                 </>
 }
         </>
