@@ -311,26 +311,57 @@ const TaskCards = () => {
 
     const priorityClick = (areaId, taskIndex, taskId) => {
 
-        // invert the current priority value, write changes to database and update state
+        // invert priority, resort task array for the card, update state.
         let newTasksArray = {...tasksArray}
         newTasksArray[areaId][taskIndex].priority = newTasksArray[areaId][taskIndex].priority ? 0 : 1;
-        let uri = `${darwinUri}/tasks`;
-        call_rest_api(uri, 'POST', {'id': taskId, 'priority': newTasksArray[areaId][taskIndex].priority}, idToken);
         newTasksArray[areaId].sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
         setTasksArray(newTasksArray);
+
+        // for tasks already in the db, update db
+        if (taskId != '') {
+            let uri = `${darwinUri}/tasks`;
+            call_rest_api(uri, 'POST', {'id': taskId, 'priority': newTasksArray[areaId][taskIndex].priority}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus != 200) {
+                        console.log(`Error Priority not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
+                        setSnackBarMessage(`Priority not updated: ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    console.log(`Error caught during priority update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
+                    setSnackBarMessage(`Priority not updated: ${error.httpStatus.httpStatus}`);
+                    setSnackBarOpen(true);
+                }
+            );
+        }
     }
 
     const doneClick = (areaId, taskIndex, taskId) => {
 
-        // invert the current done value, write changes to database and update state
+        // invert done, update state
         let newTasksArray = {...tasksArray}
         newTasksArray[areaId][taskIndex].done = newTasksArray[areaId][taskIndex].done ? 0 : 1;
-        let uri = `${darwinUri}/tasks`;
-
-        // toISOString converts to the SQL expected format and UTC from local time. They think of everything
-        call_rest_api(uri, 'POST', {'id': taskId, 'done': newTasksArray[areaId][taskIndex].done,
-            ...(newTasksArray[areaId][taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}, idToken);
         setTasksArray(newTasksArray);
+
+        // for tasks already in the db, update the db
+        if (taskId != '') {
+            let uri = `${darwinUri}/tasks`;
+            // toISOString converts to the SQL expected format and UTC from local time. They think of everything
+            call_rest_api(uri, 'POST', {'id': taskId, 'done': newTasksArray[areaId][taskIndex].done,
+                          ...(newTasksArray[areaId][taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus != 200) {
+                        console.log(`Error domainName not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
+                        setSnackBarMessage(`domainName not updated: ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    console.log(`Error caught during done update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
+                    setSnackBarMessage(`domainName not updated: ${error.httpStatus.httpStatus}`);
+                    setSnackBarOpen(true);
+                }
+            );
+        }
     }
 
     const saveClick = (event, areaId, taskIndex, taskId) => {
@@ -358,7 +389,6 @@ const TaskCards = () => {
                     setSnackBarOpen(true);
                 }
             }).catch(error => {
-                debugger;
                 varDump(error, 'Error caught during saveClick');
                 setSnackBarMessage('Task not saved. Error {error}');
                 setSnackBarOpen(true);
@@ -513,6 +543,7 @@ const TaskCards = () => {
                     </TabContext>
                 </Box>
                 <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
+                {/* Confirmation dialogs: at present follow same pattern. If don't become settings, refactor to 1 dialog w/props */}
                 <DeleteDialog deleteDialogOpen = {deleteDialogOpen}
                               setDeleteDialogOpen = {setDeleteDialogOpen}
                               setDeleteId = {setDeleteId}
