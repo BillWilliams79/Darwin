@@ -7,7 +7,8 @@ import SnackBar from './SnackBar';
 import DeleteDialog from './DeleteDialog';
 import CardSettingsDialog from './CardSettingsDialog';
 import DomainSettingsDialog from './DomainSettingsDialog';
- 
+import AddDomainDialog from './AddDomainDialog';
+
 import React, { useState, useEffect, useContext } from 'react';
 
 import Box from '@mui/material/Box';
@@ -25,6 +26,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
 
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -55,6 +57,11 @@ const TaskCards = () => {
     // snackBar state
     const [snackBarOpen, setSnackBarOpen] = useState(false);
     const [snackBarMessage, setSnackBarMessage] = useState('');
+
+    // add domain dialog state
+    const [addDomainDialogOpen, setAddDomainDialogOpen] = useState(false);
+    const [addDomainConfirmed, setAddDomainConfirmed] = useState(false);
+    const [newDomainInfo, setNewDomainInfo] = useState({});
 
     // deleteDialog state
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -260,6 +267,44 @@ const TaskCards = () => {
 
     }, [domainCloseConfirmed])
 
+    // ADD NEW DOMAIN in cooperation with confirmation dialog
+    useEffect( () => {
+        console.count('useEffect: Add New Domain');
+
+        //TODO confirm areaCloseId is a valid object
+        if (addDomainConfirmed === true) {
+
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'PUT', {'creator_fk': 2, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        varDump(result, 'new domain result');
+                        varDump(result.data, 'result data');
+                        debugger;
+                        // Domain set to close, remove area from Domain state
+                        let newDomainsArray = [...domainsArray];
+//                        newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
+                        setDomainsArray(newDomainsArray);
+
+                        setSnackBarMessage(`${newDomainInfo} Created Successfully`);
+                        setSnackBarOpen(true);
+
+                    } else {
+                        console.log(`Error: unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarMessage(`Unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
+                        setSnackBarOpen(true);
+                    }
+                }).catch(error => {
+                    console.log(`Error: unable to create ${newDomainInfo} : ${error}`);
+                    setSnackBarMessage(`Unable to create ${newDomainInfo} : ${error}`);
+                    setSnackBarOpen(true);
+            });
+        }
+        // prior to exit and regardless of outcome, clean up state
+        setAddDomainConfirmed(false);
+        setNewDomainInfo();
+
+    }, [addDomainConfirmed])
 
     const changeActiveTab = (event, newValue) => {
         setActiveTab(newValue);
@@ -279,6 +324,11 @@ const TaskCards = () => {
         newAreasArray[domainId][areaIndex].area_name = event.target.value;
         setAreasArray(newAreasArray);
     }
+
+    const addDomain = (event) => {
+        // open addDomain dialog
+        setAddDomainDialogOpen(true);
+     }
 
     const areaKeyDown = (event, domainId, areaIndex, areaId) => {
         if ((event.key === 'Enter') ||
@@ -483,6 +533,9 @@ const TaskCards = () => {
                                          iconPosition="end"
                                          />
                                 )}
+                                <IconButton onClick={addDomain} >
+                                    <AddIcon/>
+                                </IconButton>
                             </TabList>
                         </Box>
                          { domainsArray.map( (domain, domainIndex) => 
@@ -575,6 +628,13 @@ const TaskCards = () => {
                                     domainCloseId = {domainCloseId}
                                     setDomainCloseId = {setDomainCloseId}
                                     setDomainCloseConfirmed = {setDomainCloseConfirmed} />
+                <AddDomainDialog addDomainDialogOpen = {addDomainDialogOpen}
+                                 setAddDomainDialogOpen = {setAddDomainDialogOpen}
+                                 newDomainInfo = {newDomainInfo}
+                                 setNewDomainInfo = {setNewDomainInfo}
+                                 setAddDomainConfirmed = {setAddDomainConfirmed}
+                                 setDomainCloseConfirmed = {setDomainCloseConfirmed} />
+
                 </>
 }
         </>
