@@ -13,7 +13,7 @@ import Profile from './NavBar/Profile';
 
 import { AuthContextProvider } from './Context/AuthContext.js'
 import { AppContextProvider } from './Context/AppContext';
-import TaskCards from './Plan/TaskCards';
+import TaskCardContent from './Plan2/TaskCardContent';
 import StateTesting from './StateTesting';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -27,7 +27,7 @@ root.render(
                     <Routes>
                         <Route path="/"                element= {<App />} >
                             <Route index               element= {<HomePage />} />
-                            <Route path="taskcards"     element= {<TaskCards />} />
+                            <Route path="taskcards"     element= {<TaskCardContent />} />
                             <Route path="loggedin"     element= {<LoggedIn />} />
                             <Route path="profile"      element= {<Profile />} />
                             <Route path="statetesting"      element= {<StateTesting />} />
