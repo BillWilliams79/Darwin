@@ -13,7 +13,7 @@ import { TabPanel } from '@material-ui/lab';
 
 const AreaTabPanel = ( { domain, domainIndex } ) => {
 
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
     const [areasArray, setAreasArray] = useState()
@@ -30,10 +30,10 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
 
     // READ AREA API data for TabPanel
     useEffect( () => {
-        // TODO: creator_fk must by dynamically set based on logged in user.
+
         console.count('useEffect: read all Rest API data');
 
-        let areaUri = `${darwinUri}/areas?creator_fk=2&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk`;
+        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk`;
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {

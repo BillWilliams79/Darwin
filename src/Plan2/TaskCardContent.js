@@ -24,7 +24,7 @@ import TabList from '@material-ui/lab/TabList';
 
 const TaskCardContent = () => {
 
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
     // Corresponds to crud_app.rest_api table for user, and UI/js index
@@ -33,7 +33,7 @@ const TaskCardContent = () => {
     // changing this value triggers useState, re-reads all rest API data
     // misleading, but true or flase doesn't matter, just flip the value
     // and set it, the useState is executed
-    const [readRestApi, setReadRestApi] = useState(false); 
+    const [domainApiTrigger, setDomainApiTrigger] = useState(false); 
 
     // Domain Tabs state
     const [activeTab, setActiveTab] = useState();
@@ -54,12 +54,12 @@ const TaskCardContent = () => {
 
     // READ domains API data for page
     useEffect( () => {
-        // TODO: creator_fk must by dynamically set based on logged in user.
+
         console.count('useEffect: read all Rest API data');
 
         // FETCH DOMAINS
         // QSPs limit fields to minimum: id,domain_name
-        let domainUri = `${darwinUri}/domains?creator_fk=2&closed=0&fields=id,domain_name`
+        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
@@ -71,7 +71,7 @@ const TaskCardContent = () => {
                 varDump(error, `UseEffect: error retrieving Domains: ${error}`);
             });
 
-    }, [readRestApi]);
+    }, [domainApiTrigger]);
 
     // CLOSE DOMAIN in cooperation with confirmation dialog
     useEffect( () => {
@@ -79,7 +79,7 @@ const TaskCardContent = () => {
 
         //TODO confirm areaCloseId is a valid object
         if (domainCloseConfirmed === true) {
-            const { domainName, domainId  } = domainCloseId;
+            const { domainName, domainId, domainIndex  } = domainCloseId;
 
             let uri = `${darwinUri}/domains`;
             call_rest_api(uri, 'POST', {'id': domainId, 'closed': 1}, idToken)
@@ -90,6 +90,10 @@ const TaskCardContent = () => {
                         let newDomainsArray = [...domainsArray];
                         newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
                         setDomainsArray(newDomainsArray);
+                        if (parseInt(activeTab) === domainIndex ) {
+                            // the current tab was displayed, reset activeTab to 0
+                            setActiveTab(0);
+                        }
 
                         setSnackBarMessage(`${domainName} Closed Successfully`);
                         setSnackBarOpen(true);
@@ -119,12 +123,10 @@ const TaskCardContent = () => {
         if (addDomainConfirmed === true) {
 
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', {'creator_fk': 2, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
+            call_rest_api(uri, 'PUT', {'creator_fk': profile.userName, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        varDump(result, 'new domain result');
-                        varDump(result.data, 'result data');
-                        debugger;
+
                         // Domain set to close, remove area from Domain state
                         let newDomainsArray = [...domainsArray];
                         newDomainsArray.push(result.data[0]);
@@ -133,6 +135,12 @@ const TaskCardContent = () => {
                         setSnackBarMessage(`${newDomainInfo} Created Successfully`);
                         setSnackBarOpen(true);
 
+                    } else if (result.httpStatus.httpStatus === 201) {
+
+                        // new domain created but db could not return new value, trigger API re-read, pop snackbar
+                        setDomainApiTrigger(domainApiTrigger ? false : true);
+                        setSnackBarMessage(`${newDomainInfo} Created Successfully`);
+                        setSnackBarOpen(true);
                     } else {
                         console.log(`Error: unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
@@ -157,7 +165,7 @@ const TaskCardContent = () => {
     const domainCloseClick = (event, domainName, domainId, domainIndex) => {
         // stores data re: card to close, opens dialog
         varDump(domainName, 'should be domain name')
-        setDomainCloseId({ domainName, domainId });
+        setDomainCloseId({ domainName, domainId, domainIndex });
         setTabSettingsDialogOpen(true);
     }
 

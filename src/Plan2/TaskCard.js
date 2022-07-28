@@ -20,7 +20,7 @@ import CardContent from '@mui/material/CardContent';
 
 const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSettingsClick }) => {
 
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
     // Array of task objects
@@ -38,12 +38,12 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
 
     // READ Task API data for card
     useEffect( () => {
-        // TODO: creator_fk must by dynamically set based on logged in user.
+
         console.count('useEffect: read task API data for a given area');
 
         // FETCH TASKS: filter for creator, done=0 and area.id
         // QSPs limit fields to minimum: id,priority,done,description,area_fk
-        let taskUri = `${darwinUri}/tasks?creator_fk=2&done=0&area_fk=${area.id}&fields=id,priority,done,description,area_fk`
+        let taskUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=0&area_fk=${area.id}&fields=id,priority,done,description,area_fk`
 
         call_rest_api(taskUri, 'GET', '', idToken)
             .then(result => {
@@ -52,7 +52,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 // sort so priority items at the top
                 sortedTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
                 // Push empty task into array to support adding new tasks
-                sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': 2 });
+                sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
                 setTasksArray(sortedTasksArray);
 
             }).catch(error => {
@@ -163,7 +163,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                     let newTasksArray = [...tasksArray];
                     newTasksArray[taskIndex] = {...result.data[0]};
                     newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': 2 });
+                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': profile.userName });
                     setTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
