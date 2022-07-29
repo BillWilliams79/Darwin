@@ -24,6 +24,8 @@ import TabList from '@material-ui/lab/TabList';
 
 const TaskCardContent = () => {
 
+    console.count('TaskCardContent rendered');
+
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
@@ -55,7 +57,7 @@ const TaskCardContent = () => {
     // READ domains API data for page
     useEffect( () => {
 
-        console.count('useEffect: read all Rest API data');
+        console.count('useEffect: Read domains REST API data');
 
         // FETCH DOMAINS
         // QSPs limit fields to minimum: id,domain_name
@@ -159,6 +161,9 @@ const TaskCardContent = () => {
     }, [addDomainConfirmed])
 
     const changeActiveTab = (event, newValue) => {
+        // The tab with value 9999 is the add new tab button, hence no change
+        if (newValue === 9999)
+            return;
         setActiveTab(newValue);
     }
 
@@ -181,26 +186,29 @@ const TaskCardContent = () => {
                 <Box sx={{ typography: 'body1'  }}>
                     <TabContext value={activeTab.toString()}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                            <TabList  onChange={changeActiveTab}>
+                            <TabList  onChange={changeActiveTab} >
                                 {domainsArray.map( (domain, domainIndex) => 
-                                    <Tab key={domainIndex}
+                                    <Tab key={domain.id}
                                          icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                          label={domain.domain_name} 
                                          value={domainIndex.toString()}
                                          iconPosition="end"
                                          />
                                 )}
-                                <IconButton onClick={addDomain} >
-                                    <AddIcon/>
-                                </IconButton>
+                                <Tab key={'close-buton'}
+                                     icon={<AddIcon onClick={addDomain}/>}
+                                     iconPosition="start"
+                                     value={9999} // this value is used in changeActiveTab()
+                                />
                             </TabList>
                         </Box>
-                         { domainsArray.map( (domain, domainIndex) => 
-                                <AreaTabPanel domain = {domain}
-                                              domainIndex = {domainIndex}>
-                                </AreaTabPanel>
-                           )
-                         }
+                            {   domainsArray.map( (domain, domainIndex) => 
+                                    <AreaTabPanel key={domain.id}
+                                                  domain = {domain}
+                                                  domainIndex = {domainIndex}>
+                                    </AreaTabPanel>
+                                )
+                            }
                     </TabContext>
                 </Box>
                 <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
@@ -217,7 +225,7 @@ const TaskCardContent = () => {
                                  setDomainCloseConfirmed = {setDomainCloseConfirmed} />
 
                 </>
-}
+        }
         </>
     );
 

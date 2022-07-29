@@ -18,7 +18,7 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
                 descriptionKeyDown, descriptionOnBlur, deleteClick, }) => {
 
     return (
-        <Box className="task">
+        <Box className="task" key={`box-${task.id}`}>
             <Checkbox
                 checked = {task.priority ? true : false}
                 onClick = {() => priorityClick(taskIndex, task.id)}
@@ -47,12 +47,12 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
                         key={`description-${task.id}`}
              />
             { task.id === '' ?
-                <IconButton >
-                    <SavingsIcon/>
+                <IconButton key={`savings-${task.id}`}>
+                    <SavingsIcon key={`savings1-${task.id}`}/>
                 </IconButton>
                 :
-                <IconButton  onClick={(event) => deleteClick(event, task.id)} >
-                    <DeleteIcon  />
+                <IconButton  onClick={(event) => deleteClick(event, task.id)} key={`delete-${task.id}`}>
+                    <DeleteIcon key={`delete1-${task.id}`} />
                 </IconButton>
             }
         </Box>

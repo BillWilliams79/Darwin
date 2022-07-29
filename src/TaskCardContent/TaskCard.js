@@ -276,14 +276,15 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 { tasksArray &&
                     tasksArray.map((task, taskIndex) => (
                         <Task task = {task}
-                               taskIndex = {taskIndex}
-                               areaId = {area.id}
-                               priorityClick = {priorityClick}
-                               doneClick = {doneClick}
-                               descriptionChange = {descriptionChange}
-                               descriptionKeyDown = {descriptionKeyDown} 
-                               descriptionOnBlur = {descriptionOnBlur}
-                               deleteClick = {deleteClick} >
+                              key = {task.id}
+                              taskIndex = {taskIndex}
+                              areaId = {area.id}
+                              priorityClick = {priorityClick}
+                              doneClick = {doneClick}
+                              descriptionChange = {descriptionChange}
+                              descriptionKeyDown = {descriptionKeyDown} 
+                              descriptionOnBlur = {descriptionOnBlur}
+                              deleteClick = {deleteClick} >
                         </Task>
                     ))
                 }

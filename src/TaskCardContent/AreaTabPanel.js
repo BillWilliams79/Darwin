@@ -37,7 +37,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
-                debugger;
+                
                 setAreasArray(result.data);
 
             }).catch(error => {
@@ -128,6 +128,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                     <Box className="card">
                         { areasArray.map((area, areaIndex) => (
                             <TaskCard area = {area}
+                                      key = {area.id}
                                       areaIndex = {areaIndex}
                                       domainId = {domain.id}
                                       areaChange = {areaChange}
