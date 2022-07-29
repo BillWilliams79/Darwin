@@ -47,16 +47,31 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
 
         call_rest_api(taskUri, 'GET', '', idToken)
             .then(result => {
-                // data returned in format we can use
-                let sortedTasksArray = result.data;
-                // sort so priority items at the top
-                sortedTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                // Push empty task into array to support adding new tasks
-                sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
-                setTasksArray(sortedTasksArray);
+
+                if (result.httpStatus.httpStatus === 200) {
+
+                    // 200 = data successfully returned. Sort the tasks, add the blank and update state.
+                    let sortedTasksArray = result.data;
+                    sortedTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
+                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
+                    setTasksArray(sortedTasksArray);
+
+                } else {
+                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
+
+                }  
 
             }).catch(error => {
-                 varDump(error, `UseEffect: error retrieving Tasks: ${error}`);
+
+                if (error.httpStatus.httpStatus === 404) {
+
+                    // 404 = no tasks currently in this area, so we can add the blank and be done
+                    let sortedTasksArray = [];
+                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
+                    setTasksArray(sortedTasksArray);
+                } else {
+                    varDump(error, `TaskCard UseEffect: error retrieving tasks`);
+                }
             });
 
     }, [taskApiTrigger]);
@@ -101,8 +116,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         // invert priority, resort task array for the card, update state.
         let newTasksArray = [...tasksArray]
         newTasksArray[taskIndex].priority = newTasksArray[taskIndex].priority ? 0 : 1;
-        newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-        setTasksArray(newTasksArray);
 
         // for tasks already in the db, update db
         if (taskId != '') {
@@ -121,6 +134,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 }
             );
         }
+        
+        // Only after database is updated, tasks and update state
+        newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
+        setTasksArray(newTasksArray);
     }
 
     const doneClick = (taskIndex, taskId) => {
