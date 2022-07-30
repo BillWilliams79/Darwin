@@ -113,6 +113,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
     }, [deleteConfirmed])
 
     const priorityClick = (taskIndex, taskId) => {
+
         // invert priority, resort task array for the card, update state.
         let newTasksArray = [...tasksArray]
         newTasksArray[taskIndex].priority = newTasksArray[taskIndex].priority ? 0 : 1;
@@ -208,16 +209,17 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         setTasksArray(newTasksArray);
     }
 
-    const descriptionKeyDown = (event, taskId) => {
+    const descriptionKeyDown = (event, taskIndex, taskId) => {
 
         // Enter key triggers save, but Enter itself cannot be part of task.description hence preventDefault
         if (event.key === 'Enter') {
-            updateTask(event, area.id, taskId);
+            updateTask(event, taskIndex, taskId);
             event.preventDefault();
         }
     }
 
     const descriptionOnBlur= (event, taskIndex, taskId) => {
+
         updateTask(event, taskIndex, taskId);
     }
 

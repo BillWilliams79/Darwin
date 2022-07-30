@@ -37,7 +37,7 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
                         value={task.description || ''}
                         name='description'
                         onChange= { (event) => descriptionChange(event, taskIndex) }
-                        onKeyDown = {(event) => descriptionKeyDown(event, task.id)}
+                        onKeyDown = {(event) => descriptionKeyDown(event, taskIndex, task.id)}
                         onBlur = {(event) => descriptionOnBlur(event, taskIndex, task.id)}
                         multiline
                         autoComplete='off'
