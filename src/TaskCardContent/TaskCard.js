@@ -2,7 +2,6 @@ import React, { useState, useEffect, useContext} from 'react'
 import Task from './Task';
 import SnackBar from './SnackBar';
 import DeleteDialog from './DeleteDialog';
-
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
@@ -10,10 +9,8 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
-
 import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
-
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 

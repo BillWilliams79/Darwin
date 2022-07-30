@@ -2,10 +2,8 @@ import '../index.css';
 import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
-
 import call_rest_api from '../RestApi/RestApi';
 import SnackBar from './SnackBar';
-import CardSettingsDialog from './CardSettingsDialog';
 import DomainSettingsDialog from './DomainSettingsDialog';
 import AddDomainDialog from './AddDomainDialog';
 import AreaTabPanel from './AreaTabPanel';
@@ -13,11 +11,8 @@ import AreaTabPanel from './AreaTabPanel';
 import React, { useState, useEffect, useContext } from 'react';
 
 import Box from '@mui/material/Box';
-
-import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
-
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
