@@ -45,8 +45,7 @@ const call_rest_api = async (url, method, body, idToken) => {
             const jsonData = await response.json();
             var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
         } catch (error) {
-            debugger;
-            varDump(error, 'error getting jsondata??!?')
+            varDump(error, 'Error retrieving response.json')
         }
     }
 

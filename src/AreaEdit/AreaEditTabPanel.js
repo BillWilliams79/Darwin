@@ -14,7 +14,7 @@ import TableRow from '@mui/material/TableRow';
 
 import { Box } from '@mui/system';
 import { TabPanel } from '@material-ui/lab';
-import { Checkbox } from '@mui/material';
+import { Checkbox, Typography } from '@mui/material';
 import { TextField } from '@mui/material';
 
 import IconButton from '@mui/material/IconButton';
@@ -49,8 +49,23 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
-                // calculate task counts before adding blanks
-                returnTaskCounts(result.data);
+
+                // retrieve counts from rest API using &fields=count(*), group_by_field syntax
+                let uri = `${darwinUri}/tasks?creator_fk=${profile.userName}&fields=count(*),area_fk`;
+                call_rest_api(uri, 'GET', '', idToken)
+                    .then(result => {
+                        // count(*) returns an array of dict with format {group_by_field, count(*)}
+                        // reformat to dictionary: taskcounts.area_fk = count(*)
+                        let newTaskCounts = {};
+                        result.data.map( (countData) => {
+                            newTaskCounts[countData.area_fk] = countData['count(*)']; 
+                        })
+
+                        setTaskCounts(newTaskCounts);
+        
+                    }).catch(error => {
+                        varDump(error, `UseEffect: error retrieving task counts: ${error}`);
+                    });
 
                 let newAreasArray = result.data;
                 newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
@@ -310,9 +325,12 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                                                   key={`checked-${area.id}`}
                                         />
                                     </TableCell>
-                                    <TableCell>
-                                        {area.id !== '' &&
-                                            taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`] }
+                                    <TableCell> {/* triple ternary checks all cases and display correct value */}
+                                        <Typography variant='body1' sx={{textAlign: 'center'}}>
+                                        {  area.id === '' ? '' :
+                                            taskCounts[`${area.id}`] === undefined ? 0 :
+                                              taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`] }
+                                         </Typography>
                                     </TableCell>
                                     <TableCell>
                                         { area.id === '' ?

@@ -12,7 +12,7 @@ const AreaDeleteDialog = ({ areaDeleteDialogOpen, setAreaDeleteDialogOpen, areaI
     
     let taskString = ` and its ${tasksCount} related tasks?`;
 
-    if (tasksCount === 0) {
+    if (tasksCount === undefined) {
         taskString = '?';
     } else if (tasksCount === 1) {
         taskString = ' and its 1 related task?'
