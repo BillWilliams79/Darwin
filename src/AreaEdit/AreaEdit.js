@@ -3,10 +3,9 @@ import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from '../AreaEdit/SnackBar';
+import SnackBar from './SnackBar';
 import DomainSettingsDialog from './DomainSettingsDialog';
 import AddDomainDialog from './AddDomainDialog';
-import AreaTabPanel from './AreaTabPanel';
 
 import React, { useState, useEffect, useContext } from 'react';
 
@@ -16,10 +15,13 @@ import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
+import { Typography } from '@mui/material';
+import { TabPanel } from '@material-ui/lab';
+import AreaEditTabPanel from './AreaEditTabPanel';
 
-const TaskCardContent = () => {
+const AreaEdit = () => {
 
-    console.count('TaskCardContent rendered');
+    console.count('AreaEdit rendered');
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -176,9 +178,14 @@ const TaskCardContent = () => {
 
     return (
         <>
+            <Box className="app-title">
+                <Typography variant="h4" sx={{ml:2}}>
+                    Area Editor
+                </Typography>
+            </Box>
             { domainsArray &&
                 <>
-                <Box sx={{ typography: 'body1'  }}>
+                <Box className="app-content" sx={{ml:2}}>
                     <TabContext value={activeTab.toString()}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                             <TabList  onChange={changeActiveTab} >
@@ -198,10 +205,10 @@ const TaskCardContent = () => {
                             </TabList>
                         </Box>
                             {   domainsArray.map( (domain, domainIndex) => 
-                                    <AreaTabPanel key={domain.id}
-                                                  domain = {domain}
-                                                  domainIndex = {domainIndex}>
-                                    </AreaTabPanel>
+                                    <AreaEditTabPanel key={domain.id}
+                                                      domain = {domain} 
+                                                      domainIndex = {domainIndex} 
+                                    />
                                 )
                             }
                     </TabContext>
@@ -218,12 +225,10 @@ const TaskCardContent = () => {
                                  setNewDomainInfo = {setNewDomainInfo}
                                  setAddDomainConfirmed = {setAddDomainConfirmed}
                                  setDomainCloseConfirmed = {setDomainCloseConfirmed} />
-
                 </>
-        }
+            }
         </>
     );
+}
 
-} 
-
-export default TaskCardContent;
+export default AreaEdit;

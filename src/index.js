@@ -14,6 +14,7 @@ import Profile from './NavBar/Profile';
 import { AuthContextProvider } from './Context/AuthContext.js'
 import { AppContextProvider } from './Context/AppContext';
 import TaskCardContent from './TaskCardContent/TaskCardContent';
+import AreaEdit from './AreaEdit/AreaEdit';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -27,6 +28,7 @@ root.render(
                         <Route path="/"                element= {<App />} >
                             <Route index               element= {<HomePage />} />
                             <Route path="taskcards"    element= {<TaskCardContent />} />
+                            <Route path="areaedit"     element= {<AreaEdit />} />
                             <Route path="loggedin"     element= {<LoggedIn />} />
                             <Route path="profile"      element= {<Profile />} />
                         </Route >

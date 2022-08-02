@@ -1,6 +1,6 @@
 import React, {useState, useContext, useEffect} from 'react';
 import TaskCard from './TaskCard';
-import SnackBar from './SnackBar';
+import SnackBar from '../AreaEdit/SnackBar';
 import CardSettingsDialog from './CardSettingsDialog';
 
 import varDump from '../classifier/classifier';

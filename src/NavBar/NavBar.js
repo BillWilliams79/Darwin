@@ -20,13 +20,13 @@ const NavBar = () => {
         <Stack direction={{ xs: 'row', md: 'column', }}
                spacing={1} >
           <PedalBikeIcon />
-          <Link className="app-link" to="/">
+          <Link className="nav-title" to="/">
             Darwin
           </Link>
-          {/* <Link className="app-link" to="/statetesting"> State Testing </Link> */}
           {idToken &&
               <>
-                <Link className="app-link" to="/taskcards"> Plan </Link>
+                <Link className="nav-link" to="/taskcards"> Plan </Link>
+                <Link className="nav-link" to="/areaedit"> Areas </Link>
                 <ProfileDrawer/>
               </>
           }
