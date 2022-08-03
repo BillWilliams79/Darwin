@@ -38,7 +38,7 @@ const call_rest_api = async (url, method, body, idToken) => {
     };
 
     // STEP 3 wait for JSON data and parse into javascript
-    if (response.status != 204) {
+    if (response.status !== 204) {
         // 204 is a No Content response and independent of what is returned from api lambda
         // gives an error retrieving the json data. So skip it!
         try {

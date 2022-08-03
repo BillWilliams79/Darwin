@@ -16,7 +16,6 @@ import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
 import { Typography } from '@mui/material';
-import { TabPanel } from '@material-ui/lab';
 import AreaEditTabPanel from './AreaEditTabPanel';
 
 const AreaEdit = () => {
@@ -63,7 +62,6 @@ const AreaEdit = () => {
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
                 // Tab bookeeping
-                // TODO: store and retrieve in browswer persistent storage
                 setActiveTab(0);
                 setDomainsArray(result.data);
             }).catch(error => {
@@ -180,12 +178,12 @@ const AreaEdit = () => {
         <>
             <Box className="app-title">
                 <Typography variant="h4" sx={{ml:2}}>
-                    Area Editor
+                    Areas Editor
                 </Typography>
             </Box>
             { domainsArray &&
                 <>
-                <Box className="app-content" sx={{ml:2}}>
+                <Box className="app-edit" sx={{ml:2}}>
                     <TabContext value={activeTab.toString()}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                             <TabList  onChange={changeActiveTab} >
@@ -197,7 +195,7 @@ const AreaEdit = () => {
                                          iconPosition="end"
                                          />
                                 )}
-                                <Tab key={'close-buton'}
+                                <Tab key={9999}
                                      icon={<AddIcon onClick={addDomain}/>}
                                      iconPosition="start"
                                      value={9999} // this value is used in changeActiveTab()

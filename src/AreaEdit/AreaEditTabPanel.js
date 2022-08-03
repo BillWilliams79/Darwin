@@ -49,7 +49,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
-
                 // retrieve counts from rest API using &fields=count(*), group_by_field syntax
                 let uri = `${darwinUri}/tasks?creator_fk=${profile.userName}&fields=count(*),area_fk`;
                 call_rest_api(uri, 'GET', '', idToken)
@@ -70,42 +69,17 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 let newAreasArray = result.data;
                 newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
                 newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
-                setAreasArray(result.data);
+                setAreasArray(newAreasArray);
 
             }).catch(error => {
-                varDump(error, `UseEffect: error retrieving task counts: ${error}`);
-            });
-
-        const returnTaskCounts = async (newAreasArray) => {
-            // read all tasks for a area and return the count
-            let taskCounts = {}
-
-            const promises = newAreasArray.map( async (area) => {
-                // for each area, retrieve all tasks, count them and set the value in state
-                let uri = `${darwinUri}/tasks?creator_fk=${profile.userName}&area_fk=${area.id}&fields=id`;
-
-                try {
-                    let result = await call_rest_api(uri, 'GET', '', idToken);
-                    let tasks = result.data;
-                    let count = 0;
-                    tasks.map(task => count = count + 1);
-                    taskCounts[area.id] = count;
-                } catch (error) {
-                    if (error.httpStatus.httpStatus === 404 ) {
-                        taskCounts[area.id] = 0;
-                    } else {
-                        // unexpected error retrieving task counts
-                        varDump(error, 'Unexpected error retrieving task counts');
-                        taskCounts[area.id] = 'No data';
-                    }
+                if (error.httpStatus.httpStatus === 404) {
+                    let newAreasArray = [];
+                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
+                    setAreasArray(newAreasArray);
+                } else {
+                    varDump(error, `UseEffect: error reading Areas in a domain ${domain.id}: ${error}`);
                 }
             });
-
-            // have to wait for all the array map promises to resolve before setting state
-            await Promise.all(promises);
-            setTaskCounts(taskCounts);
-        }
-
     }, [areaApiTrigger]);
 
     // DELETE AREA in cooperation with confirmation dialog
@@ -297,7 +271,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     <Box>
                         <Table size='small'>
                             <TableHead>
-                                <TableRow>
+                                <TableRow key = 'TableHead'>
                                     <TableCell> Name </TableCell>
                                     <TableCell> Closed </TableCell>
                                     <TableCell> Task Count </TableCell>
@@ -306,7 +280,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                             </TableHead>
                             <TableBody>
                             { areasArray.map((area, areaIndex) => (
-                                <TableRow>
+                                <TableRow key={area.id}>
                                     <TableCell> 
                                         <TextField variant="outlined"
                                                    value={area.area_name || ''}

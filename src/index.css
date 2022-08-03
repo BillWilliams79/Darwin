@@ -38,6 +38,12 @@
     grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
 }
 
+.app-edit {
+    grid-area: content;
+    display: grid;
+    grid-gap: 16px;
+    grid-template-columns: auto;
+}
 .app-homepage {
     grid-area: content;
     display: grid;

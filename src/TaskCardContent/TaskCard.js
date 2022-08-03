@@ -116,11 +116,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         newTasksArray[taskIndex].priority = newTasksArray[taskIndex].priority ? 0 : 1;
 
         // for tasks already in the db, update db
-        if (taskId != '') {
+        if (taskId !== '') {
             let uri = `${darwinUri}/tasks`;
             call_rest_api(uri, 'POST', {'id': taskId, 'priority': newTasksArray[taskIndex].priority}, idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus != 200) {
+                    if (result.httpStatus.httpStatus !== 200) {
                         console.log(`Error Priority not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
                         setSnackBarMessage(`Priority not updated: ${result.httpStatus.httpStatus}`);
                         setSnackBarOpen(true);
@@ -146,13 +146,13 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         setTasksArray(newTasksArray);
 
         // for tasks already in the db, update the db
-        if (taskId != '') {
+        if (taskId !== '') {
             let uri = `${darwinUri}/tasks`;
             // toISOString converts to the SQL expected format and UTC from local time. They think of everything
             call_rest_api(uri, 'POST', {'id': taskId, 'done': newTasksArray[taskIndex].done,
                           ...(newTasksArray[taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}, idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus != 200) {
+                    if (result.httpStatus.httpStatus !== 200) {
                         console.log(`Error task.done not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
                         setSnackBarMessage(`task.done not updated: ${result.httpStatus.httpStatus}`);
                         setSnackBarOpen(true);

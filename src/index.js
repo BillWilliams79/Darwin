@@ -15,6 +15,7 @@ import { AuthContextProvider } from './Context/AuthContext.js'
 import { AppContextProvider } from './Context/AppContext';
 import TaskCardContent from './TaskCardContent/TaskCardContent';
 import AreaEdit from './AreaEdit/AreaEdit';
+import DomainEdit from './DomainEdit/DomainEdit';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -29,6 +30,7 @@ root.render(
                             <Route index               element= {<HomePage />} />
                             <Route path="taskcards"    element= {<TaskCardContent />} />
                             <Route path="areaedit"     element= {<AreaEdit />} />
+                            <Route path="domainedit"   element= {<DomainEdit />} />
                             <Route path="loggedin"     element= {<LoggedIn />} />
                             <Route path="profile"      element= {<Profile />} />
                         </Route >

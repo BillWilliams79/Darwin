@@ -59,7 +59,7 @@ const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomai
                 />
                 <Typography variant='body1'
                             sx={{ marginTop: 2 }}>
-                    Add a new domain to the planning sheet.
+                    Add a new Domain.
                 </Typography>
             </DialogContent>
             <DialogActions>
