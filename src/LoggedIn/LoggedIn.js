@@ -26,18 +26,7 @@ function  LoggedIn() {
     useEffect( () => {
         console.log('loggedin useEffect called');
 
-        // STEP 1: id token is JWT format, need to parse and verify the hash is valid
-        // TODO: Implement api / lambda to verify on the backend.
-        // TODO/HACK: we were logged in, so we would make an API call to a lambda
-        //            to verify the JWT and to return our identify (cognito user id)
-        //            which we otherwise cannot access anything in the database without
-        //            API Gateway requires idToken in order to provide authorization
-        //            DB backend requires cogntio username to prove owned data in the tables
-        //            for right now we hack this in to verify all the front end changes
-        const cognitoUserName = "3af9d78e-db31-4892-ab42-d1a731b724dd";
-
-
-        // STEP 2: verify CSRF token match and presence of id/access tokens
+        // STEP 1: verify CSRF token match and presence of id/access tokens
         const hashParams = {};
 
         if (location.hash) {
@@ -79,19 +68,32 @@ function  LoggedIn() {
             console.log('error no hash params, not logged in')
             setErrorMsg('No hash paramaters returned from login service, hence credentials unavailable.');
             return;
-
         } 
 
-        //STEP 3 read the database and populate user information into react state
-        //let url = 'https://l4pdv6n3wg.execute-api.us-west-1.amazonaws.com/eng/user_information/profiles?id=1';
-        let uri = `${darwinUri}/profiles?id=${cognitoUserName}`;
-        let body = '';
-        call_rest_api(uri, 'GET', body, `${newIdToken}`)
+        // STEP 2: id token is JWT format, need to parse and verify the hash is valid
+        
+        let uri = `${darwinUri}/jwt`;
+        let body = {'idToken': newIdToken}
+        var cognitoUserName = ''
+        call_rest_api(uri, 'POST', body, `${newIdToken}`)
             .then(result => {
-                setProfile(result.data[0]);
+                cognitoUserName = result.data['username'];
+
+                //STEP 3 read the database and populate user information into react state
+                uri = `${darwinUri}/profiles?id=${cognitoUserName}`;
+                body = '';
+                call_rest_api(uri, 'GET', body, `${newIdToken}`)
+                    .then(result => {
+                        setProfile(result.data[0]);
+                    }).catch(error => {
+                        varDump(error, 'Retrieve user Profile: Error Data');
+                    });
             }).catch(error => {
-                varDump(error, 'error state for retrieve table data');
+                debugger;
+                varDump(error, 'JWT Verify: Call to JWT returned an error');
             });
+
+
     }, [location])
 
     return (
