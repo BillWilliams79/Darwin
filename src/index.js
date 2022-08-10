@@ -16,6 +16,7 @@ import { AppContextProvider } from './Context/AppContext';
 import TaskCardContent from './TaskCardContent/TaskCardContent';
 import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
+import CalendarView from './CalendarView/CalendarView';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -29,6 +30,7 @@ root.render(
                         <Route path="/"                element= {<App />} >
                             <Route index               element= {<HomePage />} />
                             <Route path="taskcards"    element= {<TaskCardContent />} />
+                            <Route path="calview"      element= {<CalendarView /> } />
                             <Route path="areaedit"     element= {<AreaEdit />} />
                             <Route path="domainedit"   element= {<DomainEdit />} />
                             <Route path="loggedin"     element= {<LoggedIn />} />

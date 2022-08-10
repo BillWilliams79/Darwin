@@ -35,7 +35,7 @@ const HomePage = () => {
             {!idToken ?
                 <Typography variant="body1"
                              component="a"
-                              href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://localhost:3001/loggedin/`}
+                              href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://localhost:3000/loggedin/`}
                               //href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://billwilliams.link/loggedin/`}
                               sx={{marginBottom: 2 }} >
                     Login / Create Account
@@ -43,7 +43,7 @@ const HomePage = () => {
              :
                 <Typography variant="body1"
                             component="a"
-                            href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://localhost:3001/"
+                            href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://localhost:3000/"
                             //href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://billwilliams.link/"
                             sx={{marginBottom: 2 }} >
                     Logout

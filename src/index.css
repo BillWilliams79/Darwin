@@ -14,9 +14,10 @@
         grid-template-columns: auto auto 1fr;
         grid-gap: 2px;
         grid-template-areas:
-          "nav-bar title__"
-          "nav-bar content";
-        height: 100%
+          "nav-bar title__ title__"
+          "nav-bar content content"
+          "nav-bar content content";
+          height: 100%
       }
 }
 
@@ -58,6 +59,13 @@
     grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
 }
 
+.card-calendar {
+    display: grid;
+    width: 90vw;
+    grid-gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(225px, 1fr));
+}
+
 .card-header {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -71,6 +79,15 @@
       grid-template-columns: auto auto 1fr auto;
       align-items: center;
       margin: 0; 
+}
+
+.task-calendar {
+    display: grid;
+    grid-gap: 3px;
+    padding: 1px 3px;
+    grid-template-columns: auto;
+    align-items: center;
+    margin: 0; 
 }
 
 .task-description {
