@@ -163,15 +163,67 @@ ADD CONSTRAINT tasks_ibfk_1 FOREIGN KEY (creator_fk) REFERENCES profiles(id) ON 
 
 
 
-
 /* ########################################################################## */
 /* DEBUG AREA: starts with a DESC command that fails so scripts stop here     */
 DESC PROFILES79;
 
+use darwin;
 select * from profiles;
 select * from domains;
-select * from areas;
+select * from areas order by domain_fk ASC, closed ASC;
+select * from areas order by id ASC;
 select * from tasks;
+
+select * from profiles;
+select * from domains where creator_fk = 'sponge79-fc89-476d-ad87-b1f73345e137';
+select * from areas where creator_fk = 'sponge79-fc89-476d-ad87-b1f73345e137';
+select * from tasks where creator_fk = 'sponge79-fc89-476d-ad87-b1f73345e137';
+
+DELETE FROM profiles WHERE id = 'sponge79-fc89-476d-ad87-b1f73345e137';
+
+UPDATE domains SET closed = '1' WHERE id = 1;
+
+SELECT
+	area_name, COUNT(*)
+FROM
+	tasks
+INNER JOIN areas ON tasks.area_fk = areas.id
+WHERE
+	areas.domain_fk = '2' AND tasks.creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd'
+GROUP BY
+	area_name;
+
+SELECT
+	area_fk, COUNT(*)
+FROM
+	tasks
+WHERE
+	creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd'
+GROUP BY
+	area_fk;
+
+SELECT
+    CONCAT('[', JSON_OBJECT('area_fk', area_fk, 'count', count(*) ) ,']')
+FROM
+	tasks
+WHERE
+	creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd'
+GROUP BY
+	area_fk;
+
+SELECT CONCAT('[', GROUP_CONCAT( JSON_OBJECT('id', id, 'priority', priority, 'done', done, 'description', description, 'area_fk', area_fk) SEPARATOR ', ') ,']') 
+FROM
+	tasks 
+WHERE area_fk='3' AND creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd' AND done='0';
+
+    
+    
+
+INSERT INTO areas (creator_fk, area_name, domain_fk, closed)
+VALUES ("3af9d78e-db31-4892-ab42-d1a731b724dd", 'Small Bugs', 19, 0);
+
+INSERT INTO tasks (creator_fk, area_fk, description, priority, done)
+VALUES ("3af9d78e-db31-4892-ab42-d1a731b724dd", 60, 'cannot add new task to area with no existing tasks', 1, 0);
 
 select
 	*
@@ -187,6 +239,7 @@ SET
 WHERE
 	closed = 1;
 
+select * from tasks where description="abc1";
 
 /* Display a three table star join to confirm tables and constraints function */
 SELECT

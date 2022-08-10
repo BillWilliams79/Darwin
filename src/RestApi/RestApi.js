@@ -4,7 +4,7 @@ import varDump from '../classifier/classifier';
 // eventually replace with react-router or similar
 
 const call_rest_api = async (url, method, body, idToken) => {
-    
+
     // STEP 1 - construct a fetch init object, processing body
     // and incorporating any auth tokens
     const fetchInit = {
