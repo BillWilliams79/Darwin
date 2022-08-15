@@ -6,6 +6,7 @@ import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
+import { useDrop } from "react-dnd";
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -108,6 +109,56 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         setDeleteId({});
 
     }, [deleteConfirmed])
+
+    const [, drop] = useDrop(() => ({
+
+        accept: "taskPlan",
+
+        drop: (item) => addTaskToArea(item),
+
+    }), [tasksArray]);
+
+    const addTaskToArea = (task) => {
+
+        console.log('addTaskToArea called');
+
+        // STEP 1: if we are dropping back to the same card, take no action
+        let matchTask = tasksArray.find( arrayTask => arrayTask.id === task.id)
+
+        if (matchTask !== undefined) {
+            // there is a matching task so this is not a drop event
+            // return object with task = null that's used in drag's end method
+            console.log('no drop occurred')
+            return {task: null};
+        }
+
+        // STEP 2: is a drop to a new card, update task with new data via API
+        let taskUri = `${darwinUri}/tasks`;
+
+        call_rest_api(taskUri, 'POST', {'id': task.id, 'area_fk': area.id }, idToken)
+            .then(result => {
+
+                if (result.httpStatus.httpStatus === 200) {
+
+                    // STEP 3: Add moved task to this cards tasksArray, sort
+                    //         and save state which triggers re-render.
+                    var newTasksArray = [...tasksArray];
+                    newTasksArray.push(task);
+                    newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
+                    setTasksArray(newTasksArray);
+                    return {task: task.id};
+
+                } else {
+                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
+                    return {task: null};
+                }  
+
+            }).catch(error => {
+                varDump(error, `TaskCard drop: error updating task with new Date`);
+                return {task: null};
+            });
+    };
+
 
     const priorityClick = (taskIndex, taskId) => {
 
@@ -271,7 +322,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
     }
 
     return (
-        <Card key={areaIndex} raised={true}>
+        <Card key={areaIndex} raised={true} ref={drop}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
                     <TextField variant="standard"
@@ -300,7 +351,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                               descriptionChange = {descriptionChange}
                               descriptionKeyDown = {descriptionKeyDown} 
                               descriptionOnBlur = {descriptionOnBlur}
-                              deleteClick = {deleteClick} >
+                              deleteClick = {deleteClick} 
+                              tasksArray = {tasksArray}
+                              setTasksArray = {setTasksArray}
+                        >
                         </Task>
                     ))
                 }
