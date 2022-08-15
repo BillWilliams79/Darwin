@@ -1,25 +1,49 @@
 import React from 'react'
 import varDump from '../classifier/classifier';
 
-import Box from '@mui/material/Box';
-import TextField from '@mui/material/TextField';
-import Checkbox from '@mui/material/Checkbox';
+import { useDrag } from "react-dnd";
 
-import IconButton from '@mui/material/IconButton';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SavingsIcon from '@mui/icons-material/Savings';
-import ReportIcon from '@mui/icons-material/Report';
-import ReportGmailerrorredOutlinedIcon from '@mui/icons-material/ReportGmailerrorredOutlined';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 
-const Task = ({ task, taskIndex, /* priorityClick, doneClick, descriptionChange,
+const Task = ({ task, taskIndex, tasksArray, setTasksArray /* priorityClick, doneClick, descriptionChange,
                 descriptionKeyDown, descriptionOnBlur, deleteClick, */ }) => {
 
+    const [{ isDragging }, drag] = useDrag(() => ({
+        type: "taskCalendar",
+        item: {...task},
+        end: (item, monitor) => removeTaskFromDay(item, monitor),
+        collect: (monitor) => ({
+          isDragging: !!monitor.isDragging(),
+        }),
+    }),[tasksArray]);
+
+    const removeTaskFromDay = async (item, monitor) => {
+
+        // getDropResult is finnicky. drag's end method is called immediately after
+        // drop's drop method. getDropResult is suppoed to include the return value
+        // from the drop method, however only values immediately returned from drop
+        // method are available here. So it's not possible to call a rest API in drop
+        // and then update the value for use here. So we can only use drop for
+        // immediate fail cases such as dropping a task back to same card.
+        var dropResult = monitor.getDropResult();
+
+        // if task is null, we are dropping on ourselves and
+        // no render Change is required
+        if (dropResult.task === null) {
+            return;
+        }
+
+        // when dropResult.task is non-null, the task is moved off this card
+        // so adjust state accordingly
+        var newTasksArray = [...tasksArray];
+        newTasksArray = newTasksArray.filter( task => task.id !== item.id);
+        setTasksArray(newTasksArray);
+    }
+
     return (
-        <Box className="task-calendar" key={`box-${task.id}`}>
+        <Box className="task-calendar" key={`box-${task.id}`} ref={drag}>
 {/*             <TextField variant="outlined"
                         value={task.description || ''}
                         name='description'
@@ -31,7 +55,10 @@ const Task = ({ task, taskIndex, /* priorityClick, doneClick, descriptionChange,
                         size = 'small'
                         key={`description-${task.id}`}
              /> */}
-             <Typography key={`description-${task.id}`} variant = 'body2'>
+             <Typography key={`description-${task.id}`}
+                         variant = 'body2' 
+                         sx = {{...(isDragging && {opacity: 0.2}),}}
+             >
                 {task.description || ''}
              </Typography>
         </Box>

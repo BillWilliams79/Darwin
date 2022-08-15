@@ -3,16 +3,17 @@ import './index.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
+import { AuthContextProvider } from './Context/AuthContext.js'
+import { AppContextProvider } from './Context/AppContext';
 import { CookiesProvider } from 'react-cookie';
+import { DndProvider } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
 
 import HomePage from './HomePage/HomePage'
 import LoggedIn from './LoggedIn/LoggedIn';
 import Error404 from './Error404/Error404';
 import App from './App';
 import Profile from './NavBar/Profile';
-
-import { AuthContextProvider } from './Context/AuthContext.js'
-import { AppContextProvider } from './Context/AppContext';
 import TaskCardContent from './TaskCardContent/TaskCardContent';
 import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
@@ -24,6 +25,7 @@ root.render(
     <AuthContextProvider>
       <AppContextProvider>
         <CookiesProvider>
+          <DndProvider backend={HTML5Backend}>  
             <Router >
                 <div className="app-layout">
                     <Routes>
@@ -40,6 +42,7 @@ root.render(
                     </Routes>
                 </div>
             </Router>
+          </DndProvider>  
         </CookiesProvider>
       </AppContextProvider>  
     </AuthContextProvider>

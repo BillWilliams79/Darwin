@@ -5,6 +5,8 @@ import varDump from '../classifier/classifier';
 
 const call_rest_api = async (url, method, body, idToken) => {
 
+    //varDump({url, method, body, idToken}, 'call_rest_api parameters');
+
     // STEP 1 - construct a fetch init object, processing body
     // and incorporating any auth tokens
     const fetchInit = {
@@ -23,8 +25,7 @@ const call_rest_api = async (url, method, body, idToken) => {
 
     // STEP 2, perform fetch and catch the http status not between 200 and 499
     try {
-        //varDump(url, "call_rest_api's url immediately before fetch call");
-        //varDump(fetchInit, "call_rest_api's fetchInit immediately before fetch call");
+        //varDump({url, fetchInit}, 'Call Fetch Parameters: call_rest_api');
         var response = await fetch(url, fetchInit)
     } catch (error) {
         console.log(`call_rest_api failed with following message: ${error}`);
@@ -75,7 +76,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         httpStatus,
     };
 
-    //varDump(returnValue, "call_rest_api's return value");
+    //varDump(returnValue, "Return Fetch Data: call_rest_api");
 
     return returnValue;
 }
