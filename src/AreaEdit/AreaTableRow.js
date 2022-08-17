@@ -1,7 +1,7 @@
 import React from 'react'
 import varDump from '../classifier/classifier';
 
-import { useDrag } from "react-dnd";
+import { useDrag, useDrop } from "react-dnd";
 
 import TableCell from '@mui/material/TableCell';
 import TableRow from '@mui/material/TableRow';
@@ -18,7 +18,7 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
     varDump({area, areaIndex, changeAreaName, keyDownAreaName,
         blurAreaName, clickAreaClosed, clickAreaDelete, taskCounts}, 'parameters')
 
-    const [{ isDragging }, drag] = useDrag(() => ({
+    const [{ isDragging }, drag, preview] = useDrag(() => ({
         type: "areaEdit",
         item: {...area},
         //end: (item, monitor) => removeTaskFromDay(item, monitor),
@@ -27,6 +27,52 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
         }),
     }),[]);
 
+    const [, drop] = useDrop(() => ({
+
+        accept: "areaEdit",
+
+        //drop: (item) => addTaskToDay(item),
+
+    }), []);
+
+
+/*     const addTaskToDay = (task) => {
+
+        // STEP 1: if we are dropping back to the same card, take no action
+        let matchTask = tasksArray.find( arrayTask => arrayTask.id === task.id)
+
+        if (matchTask !== undefined) {
+            // there is a matching task so this is not a drop event
+            // return object with task = null that's used in drag's end method
+            return {task: null};
+        }
+
+        // STEP 2: is a drop to a new card, update task with new data via API
+        let taskUri = `${darwinUri}/tasks`;
+
+        call_rest_api(taskUri, 'POST', {'id': task.id, 'done_ts': dropDateString }, idToken)
+            .then(result => {
+
+                if (result.httpStatus.httpStatus === 200) {
+
+                    // STEP 3: Add moved task to this cards tasksArray
+                    //         which triggers re-render.
+                    var newTasksArray = [...tasksArray];
+                    newTasksArray.push(task);
+                    setTasksArray(newTasksArray);
+                    return {task: task.id};
+
+                } else {
+                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
+                    return {task: null};
+                }  
+
+            }).catch(error => {
+                varDump(error, `TaskCard drop: error updating task with new Date`);
+                return {task: null};
+            });
+    };
+ */
     return (
         <TableRow key={area.id}
                   ref={drag}
@@ -58,9 +104,9 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                     }
                 </Typography>
             </TableCell>
-            <TableCell>
+            <TableCell >
                 { area.id === '' ?
-                        <IconButton >
+                        <IconButton>
                             <SavingsIcon />
                         </IconButton>
                     :
