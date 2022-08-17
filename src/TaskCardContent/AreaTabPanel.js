@@ -33,11 +33,12 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
 
         console.count('useEffect: read all Rest API data');
 
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk`;
+        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order`;
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
                 
+                result.data.sort((areaA,areaB) => areaSortOrderSort(areaA, areaB));
                 setAreasArray(result.data);
 
             }).catch(error => {
@@ -55,7 +56,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             const { areaName, areaId } = areaCloseId;
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', {'id': areaId, 'closed': 1}, idToken)
+            call_rest_api(uri, 'POST', {'id': areaId, 'closed': 1, 'sort_order': 'NULL'}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
@@ -120,6 +121,17 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
         // stores data re: card to close, opens dialog
         setAreaCloseId({ areaName, areaId });
         setCardSettingsDialogOpen(true);
+    }
+
+    const areaSortOrderSort = (areaA, areaB) => {
+
+        if (areaA.sort_order === areaB.sort_order) {
+            return 0;
+        } else if (areaA.sort_order < areaB.sort_order) {
+            return -1;
+        } else {
+            return 1;
+        }
     }
 
     return (

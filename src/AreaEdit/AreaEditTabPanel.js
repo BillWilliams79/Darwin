@@ -45,7 +45,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
         console.count('useEffect: read all Rest API data');
 
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&domain_fk=${domain.id}&fields=id,area_name,closed`;
+        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&domain_fk=${domain.id}&fields=id,area_name,closed,sort_order`;
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
@@ -68,7 +68,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
                 let newAreasArray = result.data;
                 newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
-                newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
+                newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName, 'sort_order': null });
                 setAreasArray(newAreasArray);
 
             }).catch(error => {
@@ -128,8 +128,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
     const keyDownAreaName = (event, areaIndex, areaId) => {
         console.log('keyDownAreaName')
- 
-        // Enter key triggers save, but Enter itself cannot be part of task.description hence preventDefault
+        // Enter key triggers update, but Enter itself cannot be part of task.description hence preventDefault
         if (event.key === 'Enter') {
             restUpdateAreaName(areaIndex, areaId);
             event.preventDefault();
@@ -137,8 +136,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
     }
 
     const blurAreaName= (event, areaIndex, areaId) => {
-        console.log('blurAreaName')
-
+        // handler shared with keyDownAreaName
         restUpdateAreaName(areaIndex, areaId);
     }
 
@@ -152,10 +150,11 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
             noop();
 
         } else {
-            // blank areaId indicates we are creating a new area rather than updating existing
+            // blank areaId indicates we are creating a new area
             if (areaId === '') {
-                restSaveAreaName(areaIndex)
+                restSaveNewArea(areaIndex)
             } else {
+                // otherwise we are updating a existing area
                 let uri = `${darwinUri}/areas`;
                 call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[areaIndex].area_name}, idToken)
                     .then(result => {
@@ -174,27 +173,29 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         }
     }
 
-    const restSaveAreaName = (areaIndex) => {
-        
+    const restSaveNewArea = (areaIndex) => {
+
+        let newAreasArray = [...areasArray];
+        newAreasArray[areaIndex].sort_order = calculateSortOrder(newAreasArray, areaIndex, newAreasArray[areaIndex].closed);
+        varDump(newAreasArray[areaIndex], 'new area');
+
         let uri = `${darwinUri}/areas`;
-        call_rest_api(uri, 'PUT', {...areasArray[areaIndex]}, idToken)
+        call_rest_api(uri, 'PUT', {...newAreasArray[areaIndex]}, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
                     // show snackbar, place new data in table and created another blank element
                     setSnackBarMessage('Task Created Successfully');
                     setSnackBarOpen(true);
-                    let newAreasArray = [...areasArray];
                     newAreasArray[areaIndex] = {...result.data[0]};
                     newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
-                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName });
+                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': null });
                     setAreasArray(newAreasArray);
 
                     // update the taskCounts data
                     let newTaskCounts = {...taskCounts};
                     newTaskCounts[result.data[0].id] = 0;
                     setTaskCounts(newTaskCounts);
-
 
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
@@ -215,28 +216,37 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
     const clickAreaClosed = (event, areaIndex, areaId) => {
 
-        // invert closed, re-sort area array for the card, update state.
+        // flip the closed bit...
         let newAreasArray = [...areasArray]
-        newAreasArray[areaIndex].closed = newAreasArray[areaIndex].closed ? 0 : 1;
+        let newClosed = newAreasArray[areaIndex].closed ? 0 : 1;
+        newAreasArray[areaIndex].closed = newClosed;
 
-        // for areas already in the db, update db
-        if (areaId !== '') {
-            let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', {'id': areaId, 'closed': newAreasArray[areaIndex].closed}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
-                        console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
-                        setSnackBarMessage(`closed not updated: ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
-                    }
-                }).catch(error => {
-                    console.log(`Error caught during closed update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
-                    setSnackBarMessage(`closed not updated: ${error.httpStatus.httpStatus}`);
+        if (newAreasArray[areaIndex].id === '') {
+            // if the affected area is the new template, no other work is required
+            // save state and exit. Sort not required
+            setAreasArray(newAreasArray);
+        }
+
+        // calculate correct sort order and returns the value.
+        // if the value is null, it will be API/mySQL NULL string
+        var newSortOrder = calculateSortOrder(newAreasArray, areaIndex, newClosed);
+        
+        // Update database
+        let uri = `${darwinUri}/areas`;
+        call_rest_api(uri, 'POST', {'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus !== 200) {
+                    console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
+                    setSnackBarMessage(`closed not updated: ${result.httpStatus.httpStatus}`);
                     setSnackBarOpen(true);
                 }
-            );
-        }
-        
+            }).catch(error => {
+                console.log(`Error caught during closed update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
+                setSnackBarMessage(`closed not updated: ${error.httpStatus.httpStatus}`);
+                setSnackBarOpen(true);
+            }
+        );
+
         // Only after database is updated, sort areas and update state
         newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
         setAreasArray(newAreasArray);        
@@ -263,7 +273,28 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         }
     }
 
-   
+    const calculateSortOrder = (newAreasArray, areaIndex, newClosed) => {
+
+        // if close = 1, area has a sort_order of NULL, otherwise it moves to the bottom of the list
+        var calcSortOrder = "NULL";
+
+        if (newClosed === 0) {
+            // find the current max sort order in the area array
+            // a newly opened area is sorted to bottom of list by default
+            calcSortOrder = newAreasArray.reduce((previous, current) => {
+                if (current.sort_order === null) {
+                    return previous;
+                } else {
+                    return ((previous > current.sort_order) ? previous : current.sort_order);
+                }
+            }, -1);
+            calcSortOrder = calcSortOrder + 1;
+        }
+        // null written to mysql is "NULL", read from mysql is actualy a JS null.
+        newAreasArray[areaIndex].sort_order = (calcSortOrder === "NULL") ? null : calcSortOrder;
+        return calcSortOrder;
+    }
+
     return (
         <>
             <TabPanel key={domainIndex} value={domainIndex.toString()} >
@@ -300,7 +331,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                                         />
                                     </TableCell>
                                     <TableCell> {/* triple ternary checks all cases and display correct value */}
-                                        <Typography variant='body1' sx={{textAlign: 'center'}}>
+                                        <Typography variant='body1'>
                                         {  area.id === '' ? '' :
                                             taskCounts[`${area.id}`] === undefined ? 0 :
                                               taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`] }

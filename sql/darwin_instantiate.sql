@@ -151,17 +151,25 @@ SET
 ALTER TABLE tasks 
 ADD CONSTRAINT tasks_ibfk_1 FOREIGN KEY (creator_fk) REFERENCES profiles(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
+/* ######################################################################### */
+/* UPDATE #4 to support sorting areas in the UI and retaining settings       */
+/*           across devices, logins and reboots                              */
+
+ALTER TABLE areas
+ADD COLUMN sort_order SMALLINT;
+
 /* Future Update Here */
 
+DESC areas;
+
+ALTER TABLE areas
+ADD COLUMN sort_order SMALLINT;
 
 
 
 
 
-
-
-
-
+UPDATE tasks SET done_ts = '2022-07-17T19:00:00' WHERE id = 739;
 
 /* ########################################################################## */
 /* DEBUG AREA: starts with a DESC command that fails so scripts stop here     */
@@ -170,9 +178,11 @@ DESC PROFILES79;
 use darwin;
 select * from profiles;
 select * from domains;
-select * from areas order by domain_fk ASC, closed ASC;
+
 select * from areas order by id ASC;
 select * from tasks;
+
+
 
 select * from profiles;
 select * from domains where creator_fk = 'sponge79-fc89-476d-ad87-b1f73345e137';
@@ -182,6 +192,27 @@ select * from tasks where creator_fk = 'sponge79-fc89-476d-ad87-b1f73345e137';
 DELETE FROM profiles WHERE id = 'sponge79-fc89-476d-ad87-b1f73345e137';
 
 UPDATE domains SET closed = '1' WHERE id = 1;
+use darwin;
+desc areas;
+show create table areas;
+
+select * from areas where creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd' order by domain_fk ASC, closed ASC, sort_order ASC;
+UPDATE areas set sort_order='0', closed='0' WHERE id=1;
+UPDATE areas set sort_order='1' WHERE id=2;
+UPDATE areas set sort_order='2' WHERE id=3;
+UPDATE areas set sort_order='3' WHERE id=4;
+UPDATE areas set sort_order='4' WHERE id=5;
+
+UPDATE areas set sort_order='0' WHERE id=42;
+UPDATE areas set sort_order='1' WHERE id=43;
+
+UPDATE areas set sort_order='1' WHERE id=53;
+UPDATE areas set sort_order='6' WHERE id=54;
+UPDATE areas set sort_order='0' WHERE id=55;
+UPDATE areas set sort_order='3' WHERE id=56;
+UPDATE areas set sort_order='4' WHERE id=57;
+UPDATE areas set sort_order='5' WHERE id=58;
+UPDATE areas set sort_order='2' WHERE id=60;
 
 SELECT
 	area_name, COUNT(*)
