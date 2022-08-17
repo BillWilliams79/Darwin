@@ -14,13 +14,9 @@ import TableRow from '@mui/material/TableRow';
 
 import { Box } from '@mui/system';
 import { TabPanel } from '@material-ui/lab';
-import { Checkbox, Typography } from '@mui/material';
-import { TextField } from '@mui/material';
 
-import IconButton from '@mui/material/IconButton';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SavingsIcon from '@mui/icons-material/Savings';
 import AreaDeleteDialog from './AreaDeleteDialog';
+import AreaTableRow from './AreaTableRow';
 
 const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
@@ -279,7 +275,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         var calcSortOrder = "NULL";
 
         if (newClosed === 0) {
-            // find the current max sort order in the area array
+            // find the current max sort order in the area array using -1 as initialValue
             // a newly opened area is sorted to bottom of list by default
             calcSortOrder = newAreasArray.reduce((previous, current) => {
                 if (current.sort_order === null) {
@@ -311,44 +307,18 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                             </TableHead>
                             <TableBody>
                             { areasArray.map((area, areaIndex) => (
-                                <TableRow key={area.id}>
-                                    <TableCell> 
-                                        <TextField variant="outlined"
-                                                   value={area.area_name || ''}
-                                                   name='area-name'
-                                                   onChange= { (event) => changeAreaName(event, areaIndex) }
-                                                   onKeyDown = {(event) => keyDownAreaName(event, areaIndex, area.id)}
-                                                   onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
-                                                   autoComplete='off'
-                                                   size = 'small'
-                                                   key={`name-${area.id}`}
-                                         />                                    
-                                    </TableCell>
-                                    <TableCell> 
-                                        <Checkbox checked = {(area.closed === 1) ? true : false }
-                                                  onClick = {(event) => clickAreaClosed(event, areaIndex, area.id) }
-                                                  key={`checked-${area.id}`}
-                                        />
-                                    </TableCell>
-                                    <TableCell> {/* triple ternary checks all cases and display correct value */}
-                                        <Typography variant='body1'>
-                                        {  area.id === '' ? '' :
-                                            taskCounts[`${area.id}`] === undefined ? 0 :
-                                              taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`] }
-                                         </Typography>
-                                    </TableCell>
-                                    <TableCell>
-                                        { area.id === '' ?
-                                            <IconButton >
-                                                <SavingsIcon />
-                                            </IconButton>
-                                            :
-                                            <IconButton  onClick={(event) => clickAreaDelete(event, area.id, area.area_name)} >
-                                                <DeleteIcon />
-                                            </IconButton>
-                                        }
-                                </TableCell>
-                                </TableRow>
+                                <AreaTableRow
+                                    key = {area.id}
+                                    area = {area}
+                                    areaIndex = {areaIndex}
+                                    changeAreaName = {changeAreaName}
+                                    keyDownAreaName = {keyDownAreaName}
+                                    blurAreaName = {blurAreaName}
+                                    clickAreaClosed = {clickAreaClosed}
+                                    clickAreaDelete = {clickAreaDelete}
+                                    taskCounts = {taskCounts}
+                                >
+                                </AreaTableRow>
                             ))}
                             </TableBody>
                         </Table>
