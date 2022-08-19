@@ -1,4 +1,4 @@
-DROP DATABASE darwin2;
+/*DROP DATABASE darwin2;*/
 
 /* development database parallels darwin design */
 
@@ -224,6 +224,14 @@ ADD CONSTRAINT tasks2_ibfk_1 FOREIGN KEY (creator_fk) REFERENCES profiles2(id) O
 
 /* END VERSION 3 CHANGES ###################################################### */
 
+/* ######################################################################### */
+/* UPDATE #4 to support sorting areas in the UI and retaining settings       */
+/*           across devices, logins and reboots                              */
+
+ALTER TABLE areas2
+ADD COLUMN sort_order SMALLINT;
+
+
 SELECT
 	*
 FROM
@@ -243,7 +251,54 @@ SELECT
 	*
 FROM
 	tasks2;
+    
+UPDATE areas2 SET sort_order = CASE id 
+                          WHEN 1 THEN 0 
+                          WHEN 2 THEN 2
+                          WHEN 3 THEN 3
+                          WHEN 4 THEN 1
+                          ELSE sort_order
+                        END, 
+                 closed = CASE id 
+                          WHEN 5 THEN 1 
+                          ELSE closed 
+                        END,
+				area_name = CASE id
+						  WHEN 4 THEN "Tomtoms"
+                          ELSE area_name
+						END
+             WHERE id IN (1, 2, 3, 4, 5);
 
+/areas2
+[    
+{id: 1, sort_order: 0},
+{id: 2, sort_order: 1},
+{id: 9, sort_order: 2},
+{id: 10, sort_order: 3},
+]
+
+translates to this syntax
+
+UPDATE areas2 set sort_order = CASE id
+                    WHEN 1 THEN 0
+                    WHEN 2 THEN 1
+                    WHEN 9 THEN 2
+                    WHEN 10 THEN 3
+                    ELSE sort_order
+                    END
+          WHERE id in (1,2,9,10);
+/tableN
+[    
+{id: x, columnA: valX},
+{id: y, columnA: valY},
+]
+
+UPDATE tableN set columnA = CASE id
+                    WHEN x THEN valX
+                    WHEN y THEN valY
+                    ELSE columnA
+                    END
+          WHERE id in (x,y);
 
 /* set user to have correct cognito name (in darwin and cognito database) */
 UPDATE

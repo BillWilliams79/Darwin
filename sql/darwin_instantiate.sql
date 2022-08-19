@@ -196,7 +196,7 @@ use darwin;
 desc areas;
 show create table areas;
 
-select * from areas where creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd' order by domain_fk ASC, closed ASC, sort_order ASC;
+select * from areas where creator_fk='3af9d78e-db31-4892-ab42-d1a731b724dd' order by domain_fk ASC, -sort_order DESC;
 UPDATE areas set sort_order='0', closed='0' WHERE id=1;
 UPDATE areas set sort_order='1' WHERE id=2;
 UPDATE areas set sort_order='2' WHERE id=3;

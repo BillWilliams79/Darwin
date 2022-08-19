@@ -38,7 +38,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
                 
-                result.data.sort((areaA,areaB) => areaSortOrderSort(areaA, areaB));
+                result.data.sort((areaA,areaB) => areaSortBySortOrder(areaA, areaB));
                 setAreasArray(result.data);
 
             }).catch(error => {
@@ -56,7 +56,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             const { areaName, areaId } = areaCloseId;
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', {'id': areaId, 'closed': 1, 'sort_order': 'NULL'}, idToken)
+            call_rest_api(uri, 'POST', [{'id': areaId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
@@ -99,7 +99,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             (event.key === 'Tab')) {
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[areaIndex].area_name}, idToken)
+            call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         // database change confirmed only with a 200 response
@@ -123,7 +123,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
         setCardSettingsDialogOpen(true);
     }
 
-    const areaSortOrderSort = (areaA, areaB) => {
+    const areaSortBySortOrder = (areaA, areaB) => {
 
         if (areaA.sort_order === areaB.sort_order) {
             return 0;

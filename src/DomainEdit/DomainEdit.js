@@ -153,7 +153,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 restSaveDomainName(domainIndex)
             } else {
                 let uri = `${darwinUri}/domains`;
-                call_rest_api(uri, 'POST', {'id': domainId, 'domain_name': domainsArray[domainIndex].domain_name}, idToken)
+                call_rest_api(uri, 'POST', [{'id': domainId, 'domain_name': domainsArray[domainIndex].domain_name}], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus === 200) {
                             // database value is changed only with a 200 response
@@ -220,7 +220,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         // for domains already in the db, update db
         if (domainId !== '') {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', {'id': domainId, 'closed': newDomainsArray[domainIndex].closed}, idToken)
+            call_rest_api(uri, 'POST', [{'id': domainId, 'closed': newDomainsArray[domainIndex].closed}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);

@@ -5,6 +5,8 @@ import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+
 
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -63,7 +65,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     });
 
                 let newAreasArray = result.data;
-                newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
+                newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
                 newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName, 'sort_order': null });
                 setAreasArray(newAreasArray);
 
@@ -124,7 +126,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
     const keyDownAreaName = (event, areaIndex, areaId) => {
         console.log('keyDownAreaName')
-        // Enter key triggers update, but Enter itself cannot be part of task.description hence preventDefault
+        // Enter key triggers update, but Enter itself cannot be part of area.area_name hence preventDefault
         if (event.key === 'Enter') {
             restUpdateAreaName(areaIndex, areaId);
             event.preventDefault();
@@ -152,7 +154,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
             } else {
                 // otherwise we are updating a existing area
                 let uri = `${darwinUri}/areas`;
-                call_rest_api(uri, 'POST', {'id': areaId, 'area_name': areasArray[areaIndex].area_name}, idToken)
+                call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus === 200) {
                             // database value is changed only with a 200 response
@@ -184,7 +186,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     setSnackBarMessage('Task Created Successfully');
                     setSnackBarOpen(true);
                     newAreasArray[areaIndex] = {...result.data[0]};
-                    newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
+                    newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': null });
                     setAreasArray(newAreasArray);
 
@@ -221,6 +223,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
             // if the affected area is the new template, no other work is required
             // save state and exit. Sort not required
             setAreasArray(newAreasArray);
+            return;
         }
 
         // calculate correct sort order and returns the value.
@@ -229,7 +232,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         
         // Update database
         let uri = `${darwinUri}/areas`;
-        call_rest_api(uri, 'POST', {'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}, idToken)
+        call_rest_api(uri, 'POST', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200) {
                     console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
@@ -244,7 +247,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         );
 
         // Only after database is updated, sort areas and update state
-        newAreasArray.sort((areaA, areaB) => areaClosedSort(areaA, areaB));
+        newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
         setAreasArray(newAreasArray);        
     }
 
@@ -255,10 +258,24 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         setAreaDeleteDialogOpen(true);
     }
 
-    const areaClosedSort = (areaA, areaB) => {
+    const areaSortByClosedThenSortOrder = (areaA, areaB) => {
+
         // leave blank area in place at bottom of list
         if (areaA.id === '') return 0;
         if (areaB.id === '') return -1;
+
+        // if both areas are open, sort by sort_order
+        if ((areaA.closed === 0) &&
+            (areaB.closed === 0)) {
+
+            if (areaA.sort_order === areaB.sort_order) {
+                return 0;
+            } else if (areaA.sort_order < areaB.sort_order) {
+                return -1;
+            } else {
+                return 1;
+            }
+        }
 
         if (areaA.closed === areaB.closed) {
             return 0;
@@ -267,6 +284,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         } else {
             return -1;
         }
+
     }
 
     const calculateSortOrder = (newAreasArray, areaIndex, newClosed) => {
@@ -291,6 +309,59 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         return calcSortOrder;
     }
 
+    const dragEnd = async (result) => {
+        
+        if ((result.destination === null) ||
+            (result.reason !== 'DROP')) {
+            // dropped out of area or was cancelled
+            return;
+        }
+
+        // mutate the array - relocate the dragged item to the new location    
+        var newAreasArray = [...areasArray]
+        const [draggedArray] = newAreasArray.splice(result.source.index, 1);
+        newAreasArray.splice(result.destination.index, 0, draggedArray);
+
+        //brute force renumbering of the sort values post drag
+        newAreasArray = newAreasArray.map((area, index) => {
+
+            // closed and template areas have no sort_order
+            if ((area.id !== '') &&
+                (area.closed !== 1)) {
+                    area.sort_order = index;
+                    return area;
+            } else {
+                return area;
+            }
+        })
+
+        // update state
+        setAreasArray(newAreasArray);
+
+        // filter/map array down to minimum required to update all areas for the new sort order
+        var restDataArray = newAreasArray
+                .filter(area => ((area.id !== '') && (area.sort_order !== null)) ? true : false)
+                .map(area => ({'id': area.id, 'sort_order': area.sort_order}));
+
+        let uri = `${darwinUri}/areas`;
+        call_rest_api(uri, 'POST', restDataArray, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    // database value is changed only with a 200 response
+                    // so only then show snackbar
+                    setSnackBarMessage('Areas sort order set successfully');
+                    setSnackBarOpen(true);
+                }
+            }).catch(error => {
+                varDump(error, `Error - could not update area name ${error}`);
+                setSnackBarMessage('Areas sort order not set.');
+                setSnackBarOpen(true);
+            });
+ 
+        return;
+
+    }
+
     return (
         <>
             <TabPanel key={domainIndex} value={domainIndex.toString()} >
@@ -305,22 +376,29 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                                     <TableCell></TableCell>
                                 </TableRow>
                             </TableHead>
-                            <TableBody>
-                            { areasArray.map((area, areaIndex) => (
-                                <AreaTableRow
-                                    key = {area.id}
-                                    area = {area}
-                                    areaIndex = {areaIndex}
-                                    changeAreaName = {changeAreaName}
-                                    keyDownAreaName = {keyDownAreaName}
-                                    blurAreaName = {blurAreaName}
-                                    clickAreaClosed = {clickAreaClosed}
-                                    clickAreaDelete = {clickAreaDelete}
-                                    taskCounts = {taskCounts}
-                                >
-                                </AreaTableRow>
-                            ))}
-                            </TableBody>
+                            <DragDropContext onDragEnd={dragEnd}>
+                                <Droppable droppableId="areas">
+                                    {(provided) => (
+                                        <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                                        { areasArray.map((area, areaIndex) => (
+                                            <AreaTableRow
+                                                key = {area.id}
+                                                area = {area}
+                                                areaIndex = {areaIndex}
+                                                changeAreaName = {changeAreaName}
+                                                keyDownAreaName = {keyDownAreaName}
+                                                blurAreaName = {blurAreaName}
+                                                clickAreaClosed = {clickAreaClosed}
+                                                clickAreaDelete = {clickAreaDelete}
+                                                taskCounts = {taskCounts}
+                                            >
+                                            </AreaTableRow>
+                                        ))}
+                                        {provided.placeholder}
+                                        </TableBody>
+                                    )}
+                                </Droppable>
+                            </DragDropContext>
                         </Table>
                     </Box>  
                 }

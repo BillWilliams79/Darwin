@@ -79,7 +79,7 @@ const AreaEdit = () => {
             const { domainName, domainId, domainIndex  } = domainCloseId;
 
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', {'id': domainId, 'closed': 1}, idToken)
+            call_rest_api(uri, 'POST', [{'id': domainId, 'closed': 1}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
