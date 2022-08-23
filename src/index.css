@@ -1,24 +1,61 @@
-.app-layout {
+/* .app-layout {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
-    grid-gap: 2px;
     grid-template-areas:
     "nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar"
     "title__ title__ title__ title__ title__ title__ title__ title__"
     "content content content content content content content content";
+  } */
+
+  .app-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 1fr);
+    grid-template-areas:
+    "nav-bar"
+    "title__"
+    "content";
+    padding-bottom: 1px;
   }
 
 @media screen and (min-width: 900px) {
     .app-layout {
         display: grid;
-        grid-template-columns: auto auto 1fr;
-        grid-gap: 2px;
+        grid-template-columns: min-content auto;
         grid-template-areas:
-          "nav-bar title__ title__"
-          "nav-bar content content"
-          "nav-bar content content";
-          height: 100%
+          /* "nav-bar title__" */
+          "nav-bar content";
       }
+}
+
+.app-content-planpage {
+    grid-area: content;
+    display: grid;
+    grid-template-rows: auto;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-areas:
+        "tabs tabs tabs tabs"
+        "tab-panels tab-panels tab-panels tab-panels";
+}
+
+.app-content-tabs {
+    grid-area: tabs;
+}
+
+.app-content-tabpanel {
+    grid-area: tab-panels;
+}
+
+
+.card {
+    display: grid;
+    grid-gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+}
+
+.task {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
 }
 
 .app-navbar{
@@ -32,6 +69,8 @@
     grid-template-rows: auto;
 }
 
+
+
 .app-content {
     grid-area: content;
     display: grid;
@@ -39,12 +78,14 @@
     grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
 }
 
+
 .app-edit {
     grid-area: content;
     display: grid;
     grid-gap: 16px;
     grid-template-columns: auto;
 }
+
 .app-homepage {
     grid-area: content;
     display: grid;
@@ -52,12 +93,7 @@
     grid-template-columns: auto;
 }
 
-.card {
-    display: grid;
-    width: 90vw;
-    grid-gap: 16px;
-    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-}
+
 
 .card-calendar {
     display: grid;
@@ -72,14 +108,7 @@
       font-size: 18px;
 }
 
-.task {
-      display: grid;
-      grid-gap: 3px;
-      padding: 1px 3px;
-      grid-template-columns: auto auto 1fr auto;
-      align-items: center;
-      margin: 0; 
-}
+
 
 .task-calendar {
     display: grid;

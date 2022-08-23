@@ -178,9 +178,11 @@ const TaskCardContent = () => {
         <>
             { domainsArray &&
                 <>
-                <Box sx={{ typography: 'body1'  }}>
+                <Box className="app-content-planpage">
                     <TabContext value={activeTab.toString()}>
-                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
+                             className="app-content-tabs"
+                        >
                             <TabList  onChange={changeActiveTab} >
                                 {domainsArray.map( (domain, domainIndex) => 
                                     <Tab key={domain.id}

@@ -135,7 +135,9 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
     }
 
     return (
-            <TabPanel key={domainIndex} value={domainIndex.toString()} >
+            <TabPanel key={domainIndex} value={domainIndex.toString()} 
+                      className="app-content-tabpanel"
+            >
                 { areasArray && 
                     <Box className="card">
                         { areasArray.map((area, areaIndex) => (
