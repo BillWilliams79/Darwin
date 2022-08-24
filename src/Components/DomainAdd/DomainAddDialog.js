@@ -1,19 +1,29 @@
+import varDump from '../../classifier/classifier';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
-import varDump from '../classifier/classifier';
 import { Typography } from '@mui/material';
 
-const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomainInfo, setNewDomainInfo, setAddDomainConfirmed, setDomainCloseConfirmed }) => {
+const DomainAddDialog = ({ domainAddDialogOpen,
+                           setDomainAddDialogOpen,
+                           newDomainInfo,
+                           setNewDomainInfo,
+                           setDomainAddConfirmed, }
+                        ) => {
+
+    varDump({ domainAddDialogOpen,
+        setDomainAddDialogOpen,
+        newDomainInfo,
+        setNewDomainInfo,
+        setDomainAddConfirmed, },'DomainAddDialog Props')
 
     const dialogCleanUp = () => {
         console.log('dialogCleanUp');
         // Cancel and Close Path: close dialog and remove dialog state
-        setAddDomainDialogOpen(false);
+        setDomainAddDialogOpen(false);
         setNewDomainInfo('');
         return;
     };
@@ -21,23 +31,23 @@ const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomai
     const CreateDomain = (event) => {
         console.log('createDomain');
         // User confirms add new dialog. Close dialog and trigger useEffect to update DB
-        setAddDomainDialogOpen(false);
-        setAddDomainConfirmed(true);
+        setDomainAddDialogOpen(false);
+        setDomainAddConfirmed(true);
     };
 
     const domainKeyDown = (event) => {
         console.log('keydown called');
          if (event.key === 'Enter') {
              // pressig enter key = accept the change
-             setAddDomainConfirmed(true);
-             setAddDomainDialogOpen(false);
+             setDomainAddConfirmed(true);
+             setDomainAddDialogOpen(false);
              event.preventDefault(); //omit this and dialog doesn't close
          }
      }
 
     return (
 
-        <Dialog open={addDomainDialogOpen}
+        <Dialog open={domainAddDialogOpen}
                 onClose={dialogCleanUp} >
 
             <DialogTitle id="domain-settings-title">
@@ -74,4 +84,4 @@ const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomai
     )
 }
 
-export default AddDomainDialog
+export default DomainAddDialog

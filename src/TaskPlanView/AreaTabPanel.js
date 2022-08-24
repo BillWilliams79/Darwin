@@ -1,10 +1,10 @@
+import varDump from '../classifier/classifier';
 import React, {useState, useContext, useEffect} from 'react';
+import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
 import SnackBar from '../AreaEdit/SnackBar';
-import CardSettingsDialog from './CardSettingsDialog';
+import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
-import varDump from '../classifier/classifier';
-import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 
@@ -68,17 +68,14 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
 
-                        setSnackBarMessage(`${areaName} Closed Successfully`);
-                        setSnackBarOpen(true);
-
                     } else {
                         console.log(`Error: unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
                         setSnackBarOpen(true);
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to close ${areaName} : ${error}`);
-                    setSnackBarMessage(`Unable to close ${areaName} : ${error}`);
+                    console.log(`Error: unable to close ${areaName} : ${error.httpStatus.httpStatus}`);
+                    setSnackBarMessage(`Unable to close ${areaName} : ${error.httpStatus.httpStatus}`);
                     setSnackBarOpen(true);
             });
         }
@@ -107,8 +104,6 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                     if (result.httpStatus.httpStatus === 200) {
                         // database change confirmed only with a 200 response
                         // so only then show snackbar
-                        setSnackBarMessage('Area Updated Successfully');
-                        setSnackBarOpen(true);
                     }
                 }).catch(error => {
                     varDump(error, `Error - could not update area name ${error}`);
@@ -156,11 +151,12 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                     </Box>  
                 }
                 <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
-                <CardSettingsDialog cardSettingsDialogOpen = {cardSettingsDialogOpen}
-                                    setCardSettingsDialogOpen = {setCardSettingsDialogOpen}
-                                    areaCloseId = {areaCloseId}
-                                    setAreaCloseId = {setAreaCloseId}
-                                    setAreaCloseConfirmed = {setAreaCloseConfirmed} />
+                <CardCloseDialog {...{cardSettingsDialogOpen,
+                                      setCardSettingsDialogOpen,
+                                      areaCloseId,
+                                      setAreaCloseId,
+                                      setAreaCloseConfirmed}}
+                />
             </TabPanel>
     )
 }

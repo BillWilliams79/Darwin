@@ -92,16 +92,14 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                         let newTasksArray = [...tasksArray]
                         newTasksArray = newTasksArray.filter(task => task.id !== taskId );
                         setTasksArray(newTasksArray);
-                        setSnackBarMessage('Task Deleted Successfully');
-                        setSnackBarOpen(true);
                     } else {
                         console.log(`Error: unable to delete task : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to delete task : ${result.httpStatus.httpStatus}`);
                         setSnackBarOpen(true);
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to delete task : ${error}`);
-                    setSnackBarMessage(`Unable to delete task : ${error}`);
+                    console.log(`Error: unable to delete task : ${error.httpStatus.httpStatus}`);
+                    setSnackBarMessage(`Unable to delete task : ${error.httpStatus.httpStatus}`);
                     setSnackBarOpen(true);
                 });
         }
@@ -225,8 +223,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
                     // show snackbar, place new data in table and created another blank element
-                    setSnackBarMessage('Task Created Successfully');
-                    setSnackBarOpen(true);
                     let newTasksArray = [...tasksArray];
                     newTasksArray[taskIndex] = {...result.data[0]};
                     newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
@@ -235,8 +231,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setSnackBarMessage('Task Created Successfully');
-                    setSnackBarOpen(true);
                     setTaskApiTrigger(taskApiTrigger ? false : true);  
                 } else {
                     setSnackBarMessage('Task not saved, HTTP Error {result.httpStatus.httpStatus}');
@@ -244,7 +238,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 }
             }).catch(error => {
                 varDump(error, 'Task not saved, ');
-                setSnackBarMessage('Task not saved, HTTP Error {error}');
+                setSnackBarMessage('Task not saved, HTTP Error {error.httpStatus.httpStatus}');
                 setSnackBarOpen(true);
             });
     }
@@ -292,11 +286,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                         if (result.httpStatus.httpStatus === 200) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
-                            setSnackBarMessage('Task Updated Successfully');
-                            setSnackBarOpen(true);
                         }
                     }).catch(error => {
                         varDump(error, `Error - could not update area name ${error}`);
+                        setSnackBarMessage('Task not update, HTTP Error {error.httpStatus.httpStatus}');
+                        setSnackBarOpen(true);
                     });
             }
         }

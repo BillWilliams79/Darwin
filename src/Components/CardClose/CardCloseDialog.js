@@ -6,7 +6,12 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Button from '@mui/material/Button';
 
 
-const CardSettingsDialog = ({ cardSettingsDialogOpen, setCardSettingsDialogOpen, areaCloseId, setAreaCloseId, setAreaCloseConfirmed }) => {
+const CardCloseDialog = ({cardSettingsDialogOpen,
+                          setCardSettingsDialogOpen,
+                          areaCloseId,
+                          setAreaCloseId,
+                          setAreaCloseConfirmed }
+                        ) => {
 
     const { areaName } = areaCloseId;
 
@@ -48,4 +53,4 @@ const CardSettingsDialog = ({ cardSettingsDialogOpen, setCardSettingsDialogOpen,
     )
 }
 
-export default CardSettingsDialog
+export default CardCloseDialog

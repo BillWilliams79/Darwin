@@ -5,7 +5,7 @@ import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import SnackBar from './SnackBar';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
-import AddDomainDialog from './AddDomainDialog';
+import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 
 import React, { useState, useEffect, useContext } from 'react';
 
@@ -41,9 +41,9 @@ const AreaEdit = () => {
     const [snackBarMessage, setSnackBarMessage] = useState('');
 
     // add domain dialog state 
-    const [addDomainDialogOpen, setAddDomainDialogOpen] = useState(false);
-    const [addDomainConfirmed, setAddDomainConfirmed] = useState(false);
-    const [newDomainInfo, setNewDomainInfo] = useState({});
+    const [domainAddDialogOpen, setDomainAddDialogOpen] = useState(false);
+    const [domainAddConfirmed, setDomainAddConfirmed] = useState(false);
+    const [newDomainInfo, setNewDomainInfo] = useState('');
 
     // domainSettings state
     const [domainCloseDialogOpen, setDomainCloseDialogOpen] = useState(false);
@@ -117,7 +117,7 @@ const AreaEdit = () => {
         console.count('useEffect: Add New Domain');
 
         //TODO confirm areaCloseId is a valid object
-        if (addDomainConfirmed === true) {
+        if (domainAddConfirmed === true) {
 
             let uri = `${darwinUri}/domains`;
             call_rest_api(uri, 'PUT', {'creator_fk': profile.userName, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
@@ -150,10 +150,10 @@ const AreaEdit = () => {
             });
         }
         // prior to exit and regardless of outcome, clean up state
-        setAddDomainConfirmed(false);
-        setNewDomainInfo({});
+        setDomainAddConfirmed(false);
+        setNewDomainInfo('');
 
-    }, [addDomainConfirmed])
+    }, [domainAddConfirmed])
 
     const changeActiveTab = (event, newValue) => {
         // The tab with value 9999 is the add new tab button, hence no change
@@ -171,7 +171,7 @@ const AreaEdit = () => {
 
     const addDomain = (event) => {
         // open addDomain dialog
-        setAddDomainDialogOpen(true);
+        setDomainAddDialogOpen(true);
      }
 
     return (
@@ -219,12 +219,12 @@ const AreaEdit = () => {
                                         setDomainCloseId,
                                         setDomainCloseConfirmed}} 
                 />
-                <AddDomainDialog addDomainDialogOpen = {addDomainDialogOpen}
-                                 setAddDomainDialogOpen = {setAddDomainDialogOpen}
-                                 newDomainInfo = {newDomainInfo}
-                                 setNewDomainInfo = {setNewDomainInfo}
-                                 setAddDomainConfirmed = {setAddDomainConfirmed}
-                                 setDomainCloseConfirmed = {setDomainCloseConfirmed} />
+                <DomainAddDialog {...{domainAddDialogOpen,
+                                      setDomainAddDialogOpen,
+                                      newDomainInfo,
+                                      setNewDomainInfo,
+                                      setDomainAddConfirmed,}}
+                />
                 </>
             }
         </>
