@@ -1,12 +1,11 @@
 import React, {useState, useContext, useEffect} from 'react';
-import SnackBar from './SnackBar';
+import SnackBar from '../Components/SnackBar/SnackBar';
 
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-
 
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -359,7 +358,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
             });
  
         return;
-
     }
 
     return (
@@ -380,21 +378,19 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                                 <Droppable droppableId="areas">
                                     {(provided) => (
                                         <TableBody {...provided.droppableProps} ref={provided.innerRef}>
-                                        { areasArray.map((area, areaIndex) => (
-                                            <AreaTableRow
-                                                key = {area.id}
-                                                area = {area}
-                                                areaIndex = {areaIndex}
-                                                changeAreaName = {changeAreaName}
-                                                keyDownAreaName = {keyDownAreaName}
-                                                blurAreaName = {blurAreaName}
-                                                clickAreaClosed = {clickAreaClosed}
-                                                clickAreaDelete = {clickAreaDelete}
-                                                taskCounts = {taskCounts}
-                                            >
-                                            </AreaTableRow>
-                                        ))}
-                                        {provided.placeholder}
+                                            { areasArray.map((area, areaIndex) => (
+                                                <AreaTableRow
+                                                    key = {area.id}
+                                                    area = {area}
+                                                    areaIndex = {areaIndex}
+                                                    changeAreaName = {changeAreaName}
+                                                    keyDownAreaName = {keyDownAreaName}
+                                                    blurAreaName = {blurAreaName}
+                                                    clickAreaClosed = {clickAreaClosed}
+                                                    clickAreaDelete = {clickAreaDelete}
+                                                    taskCounts = {taskCounts} />
+                                            ))}
+                                            {provided.placeholder}
                                         </TableBody>
                                     )}
                                 </Droppable>
@@ -402,17 +398,16 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         </Table>
                     </Box>  
                 }
-
             </TabPanel>
-            <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
+            <SnackBar {...{snackBarOpen,
+                           setSnackBarOpen,
+                           snackBarMessage,}} />
             <AreaDeleteDialog 
                 areaDeleteDialogOpen = { areaDeleteDialogOpen }
                 setAreaDeleteDialogOpen = { setAreaDeleteDialogOpen }
                 areaInfo = { areaInfo }
                 setAreaInfo = { setAreaInfo }
-                setAreaDeleteConfirmed = { setAreaDeleteConfirmed }
-            >
-            </AreaDeleteDialog>
+                setAreaDeleteConfirmed = { setAreaDeleteConfirmed } />
         </>
     )
 }

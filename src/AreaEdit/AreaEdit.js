@@ -3,7 +3,7 @@ import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from './SnackBar';
+import SnackBar from '../Components/SnackBar/SnackBar';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 
@@ -183,48 +183,43 @@ const AreaEdit = () => {
             </Box>
             { domainsArray &&
                 <>
-                <Box className="app-edit" sx={{ml:2}}>
-                    <TabContext value={activeTab.toString()}>
-                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                            <TabList  onChange={changeActiveTab} >
-                                {domainsArray.map( (domain, domainIndex) => 
-                                    <Tab key={domain.id}
-                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
-                                         label={domain.domain_name} 
-                                         value={domainIndex.toString()}
-                                         iconPosition="end"
-                                         />
-                                )}
-                                <Tab key={9999}
-                                     icon={<AddIcon onClick={addDomain}/>}
-                                     iconPosition="start"
-                                     value={9999} // this value is used in changeActiveTab()
-                                />
-                            </TabList>
-                        </Box>
-                            {   domainsArray.map( (domain, domainIndex) => 
+                    <Box className="app-edit" sx={{ml:2}}>
+                        <TabContext value={activeTab.toString()}>
+                            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                                <TabList  onChange={changeActiveTab} >
+                                    { domainsArray.map( (domain, domainIndex) => 
+                                        <Tab key={domain.id}
+                                             icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                             label={domain.domain_name} 
+                                             value={domainIndex.toString()}
+                                             iconPosition="end" />
+                                    )}
+                                    <Tab key={9999}
+                                         icon={<AddIcon onClick={addDomain}/>}
+                                         iconPosition="start"
+                                         value={9999} /* used in changeActiveTab */ /> 
+                                </TabList>
+                            </Box>
+                                { domainsArray.map( (domain, domainIndex) => 
                                     <AreaEditTabPanel key={domain.id}
                                                       domain = {domain} 
-                                                      domainIndex = {domainIndex} 
-                                    />
-                                )
-                            }
-                    </TabContext>
-                </Box>
-                <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
-                
-                <DomainCloseDialog {...{domainCloseDialogOpen,
-                                        setDomainCloseDialogOpen,
-                                        domainCloseId,
-                                        setDomainCloseId,
-                                        setDomainCloseConfirmed}} 
-                />
-                <DomainAddDialog {...{domainAddDialogOpen,
-                                      setDomainAddDialogOpen,
-                                      newDomainInfo,
-                                      setNewDomainInfo,
-                                      setDomainAddConfirmed,}}
-                />
+                                                      domainIndex = {domainIndex} />
+                                )}
+                        </TabContext>
+                    </Box>
+                    <SnackBar {...{snackBarOpen,
+                                   setSnackBarOpen,
+                                   snackBarMessage,}} />   
+                    <DomainCloseDialog {...{domainCloseDialogOpen,
+                                            setDomainCloseDialogOpen,
+                                            domainCloseId,
+                                            setDomainCloseId,
+                                            setDomainCloseConfirmed,}} />
+                    <DomainAddDialog {...{domainAddDialogOpen,
+                                          setDomainAddDialogOpen,
+                                          newDomainInfo,
+                                          setNewDomainInfo,
+                                          setDomainAddConfirmed,}} />
                 </>
             }
         </>

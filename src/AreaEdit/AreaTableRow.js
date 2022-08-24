@@ -16,7 +16,6 @@ import SavingsIcon from '@mui/icons-material/Savings';
 
 const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAreaName, clickAreaClosed, clickAreaDelete, taskCounts}) => {
 
-
 /*
     const [{ isDragging }, drag, preview] = useDrag(() => ({
         type: "areaEdit",
@@ -84,23 +83,21 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                 >
                     <TableCell> 
                         <TextField variant="outlined"
-                        value={area.area_name || ''}
-                        name='area-name'
-                        onChange= { (event) => changeAreaName(event, areaIndex) }
-                        onKeyDown = {(event) => keyDownAreaName(event, areaIndex, area.id)}
-                        onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
-                        autoComplete='off'
-                        size = 'small'
-                                   key={`name-${area.id}`}
-                        />
+                                   value={area.area_name || ''}
+                                   name='area-name'
+                                   onChange= { (event) => changeAreaName(event, areaIndex) }
+                                   onKeyDown = {(event) => keyDownAreaName(event, areaIndex, area.id)}
+                                   onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
+                                   autoComplete='off'
+                                   size = 'small'
+                                   key={`name-${area.id}`} />
                     </TableCell>
                     <TableCell> 
                         <Checkbox checked = {(area.closed === 1) ? true : false }
                                   onClick = {(event) => clickAreaClosed(event, areaIndex, area.id) }
-                                  key={`checked-${area.id}`}
-                        />
+                                  key={`checked-${area.id}`} />
                     </TableCell>
-                    <TableCell> {/* triple ternary checks all cases and display correct value */}
+                    <TableCell>
                         <Typography variant='body1'>
                             { area.id === '' ? '' :
                                 taskCounts[`${area.id}`] === undefined ? 0 :

@@ -27,8 +27,8 @@ const DomainDeleteDialog = ({ domainDeleteDialogOpen, setDomainDeleteDialogOpen,
 
     const clickDeleteDomain = (event) => {
         // User confirms delete
-        setDomainDeleteConfirmed(true);
         setDomainDeleteDialogOpen(false);
+        setDomainDeleteConfirmed(true);
     };
 
     return (

@@ -1,5 +1,5 @@
 import React, {useState, useContext, useEffect} from 'react';
-import SnackBar from './SnackBar';
+import SnackBar from '../Components/SnackBar/SnackBar';
 
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
@@ -325,10 +325,9 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     </Table>
                 </Box>  
             }
-            <SnackBar snackBarOpen = {snackBarOpen}
-                      setSnackBarOpen = {setSnackBarOpen}
-                      snackBarMessage={snackBarMessage}
-            />
+            <SnackBar {...{snackBarOpen,
+                           setSnackBarOpen,
+                           snackBarMessage,}} />
             <DomainDeleteDialog 
                 domainDeleteDialogOpen = { domainDeleteDialogOpen }
                 setDomainDeleteDialogOpen = { setDomainDeleteDialogOpen }

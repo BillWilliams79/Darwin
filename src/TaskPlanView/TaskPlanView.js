@@ -3,7 +3,7 @@ import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from '../AreaEdit/SnackBar';
+import SnackBar from '../Components/SnackBar/SnackBar';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
@@ -200,19 +200,19 @@ const TaskPlanView = () => {
                             }
                     </TabContext>
                 </Box>
-                <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
+                <SnackBar {...{snackBarOpen,
+                               setSnackBarOpen,
+                               snackBarMessage,}} />
                 <DomainCloseDialog {...{domainCloseDialogOpen,
                                         setDomainCloseDialogOpen,
                                         domainCloseId,
                                         setDomainCloseId,
-                                        setDomainCloseConfirmed}}
-                />
+                                        setDomainCloseConfirmed,}} />
                 <DomainAddDialog {...{domainAddDialogOpen,
                                       setDomainAddDialogOpen,
                                       newDomainInfo,
                                       setNewDomainInfo,
-                                      setDomainAddConfirmed,}}
-                />
+                                      setDomainAddConfirmed,}} />
                 </>
         }
         </>

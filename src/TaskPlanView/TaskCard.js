@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useContext} from 'react'
 import Task from './Task';
-import SnackBar from '../AreaEdit/SnackBar';
 import DeleteDialog from './DeleteDialog';
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
+import SnackBar from '../Components/SnackBar/SnackBar';
+
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import { useDrop } from "react-dnd";

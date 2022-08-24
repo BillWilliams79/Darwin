@@ -2,7 +2,7 @@ import varDump from '../classifier/classifier';
 import React, {useState, useContext, useEffect} from 'react';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
-import SnackBar from '../AreaEdit/SnackBar';
+import SnackBar from '../Components/SnackBar/SnackBar';
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
 import AuthContext from '../Context/AuthContext.js'
@@ -150,7 +150,9 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                         ))}
                     </Box>  
                 }
-                <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
+                <SnackBar {...{snackBarOpen,
+                               setSnackBarOpen,
+                               snackBarMessage,}} />
                 <CardCloseDialog {...{cardSettingsDialogOpen,
                                       setCardSettingsDialogOpen,
                                       areaCloseId,
