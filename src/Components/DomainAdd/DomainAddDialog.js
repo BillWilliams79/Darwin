@@ -14,14 +14,7 @@ const DomainAddDialog = ({ domainAddDialogOpen,
                            setDomainAddConfirmed, }
                         ) => {
 
-    varDump({ domainAddDialogOpen,
-        setDomainAddDialogOpen,
-        newDomainInfo,
-        setNewDomainInfo,
-        setDomainAddConfirmed, },'DomainAddDialog Props')
-
     const dialogCleanUp = () => {
-        console.log('dialogCleanUp');
         // Cancel and Close Path: close dialog and remove dialog state
         setDomainAddDialogOpen(false);
         setNewDomainInfo('');
@@ -29,20 +22,25 @@ const DomainAddDialog = ({ domainAddDialogOpen,
     };
 
     const CreateDomain = (event) => {
-        console.log('createDomain');
         // User confirms add new dialog. Close dialog and trigger useEffect to update DB
-        setDomainAddDialogOpen(false);
-        setDomainAddConfirmed(true);
+        processCreateDomain(event);
     };
 
     const domainKeyDown = (event) => {
-        console.log('keydown called');
+
          if (event.key === 'Enter') {
-             // pressig enter key = accept the change
-             setDomainAddConfirmed(true);
-             setDomainAddDialogOpen(false);
-             event.preventDefault(); //omit this and dialog doesn't close
+            // pressing enter key = create the event
+            processCreateDomain(event);
          }
+     }
+
+     const processCreateDomain = (event) => {
+        // new domain created for non-blank values only
+        if (newDomainInfo !== '') {
+            setDomainAddConfirmed(true);
+            setDomainAddDialogOpen(false);
+            event.preventDefault(); //omit this and dialog doesn't close
+        }
      }
 
     return (
