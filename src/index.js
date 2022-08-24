@@ -14,7 +14,7 @@ import LoggedIn from './LoggedIn/LoggedIn';
 import Error404 from './Error404/Error404';
 import App from './App';
 import Profile from './NavBar/Profile';
-import TaskCardContent from './TaskCardContent/TaskCardContent';
+import TaskPlanView from './TaskPlanView/TaskPlanView';
 import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
 import CalendarView from './CalendarView/CalendarView';
@@ -31,7 +31,7 @@ root.render(
                     <Routes>
                         <Route path="/"                element= {<App />} >
                             <Route index               element= {<HomePage />} />
-                            <Route path="taskcards"    element= {<TaskCardContent />} />
+                            <Route path="taskcards"    element= {<TaskPlanView />} />
                             <Route path="calview"      element= {<CalendarView /> } />
                             <Route path="areaedit"     element= {<AreaEdit />} />
                             <Route path="domainedit"   element= {<DomainEdit />} />

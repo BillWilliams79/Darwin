@@ -22,7 +22,7 @@
         display: grid;
         grid-template-columns: min-content auto;
         grid-template-areas:
-          /* "nav-bar title__" */
+          "nav-bar title__"
           "nav-bar content";
       }
 }

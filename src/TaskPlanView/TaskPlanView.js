@@ -4,7 +4,7 @@ import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import SnackBar from '../AreaEdit/SnackBar';
-import DomainSettingsDialog from './DomainSettingsDialog';
+import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import AddDomainDialog from './AddDomainDialog';
 import AreaTabPanel from './AreaTabPanel';
 
@@ -17,7 +17,7 @@ import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
 
-const TaskCardContent = () => {
+const TaskPlanView = () => {
 
     console.count('TaskCardContent rendered');
 
@@ -45,7 +45,7 @@ const TaskCardContent = () => {
     const [newDomainInfo, setNewDomainInfo] = useState({});
 
     // domainSettings state
-    const [tabSettingsDialogOpen, setTabSettingsDialogOpen] = useState(false);
+    const [domainCloseDialogOpen, setDomainCloseDialogOpen] = useState(false);
     const [domainCloseConfirmed, setDomainCloseConfirmed] = useState(false);
     const [domainCloseId, setDomainCloseId] = useState({});
 
@@ -164,9 +164,8 @@ const TaskCardContent = () => {
 
     const domainCloseClick = (event, domainName, domainId, domainIndex) => {
         // stores data re: card to close, opens dialog
-        varDump(domainName, 'should be domain name')
         setDomainCloseId({ domainName, domainId, domainIndex });
-        setTabSettingsDialogOpen(true);
+        setDomainCloseDialogOpen(true);
     }
 
     const addDomain = (event) => {
@@ -190,9 +189,9 @@ const TaskCardContent = () => {
                                          label={domain.domain_name} 
                                          value={domainIndex.toString()}
                                          iconPosition="end"
-                                         />
+                                    />
                                 )}
-                                <Tab key={'close-buton'}
+                                <Tab key={'add-domain'}
                                      icon={<AddIcon onClick={addDomain}/>}
                                      iconPosition="start"
                                      value={9999} // this value is used in changeActiveTab()
@@ -209,11 +208,12 @@ const TaskCardContent = () => {
                     </TabContext>
                 </Box>
                 <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
-                <DomainSettingsDialog tabSettingsDialogOpen = {tabSettingsDialogOpen}
-                                    setTabSettingsDialogOpen = {setTabSettingsDialogOpen}
-                                    domainCloseId = {domainCloseId}
-                                    setDomainCloseId = {setDomainCloseId}
-                                    setDomainCloseConfirmed = {setDomainCloseConfirmed} />
+                <DomainCloseDialog {...{domainCloseDialogOpen,
+                                        setDomainCloseDialogOpen,
+                                        domainCloseId,
+                                        setDomainCloseId,
+                                        setDomainCloseConfirmed}} 
+                />
                 <AddDomainDialog addDomainDialogOpen = {addDomainDialogOpen}
                                  setAddDomainDialogOpen = {setAddDomainDialogOpen}
                                  newDomainInfo = {newDomainInfo}
@@ -228,4 +228,4 @@ const TaskCardContent = () => {
 
 } 
 
-export default TaskCardContent;
+export default TaskPlanView;

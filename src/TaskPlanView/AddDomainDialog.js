@@ -41,7 +41,7 @@ const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomai
                 onClose={dialogCleanUp} >
 
             <DialogTitle id="domain-settings-title">
-                {"Domain Settings"}
+                {"Create New Domain"}
             </DialogTitle>
             <DialogContent>
                 <TextField label = 'Doman Name'
@@ -49,7 +49,7 @@ const AddDomainDialog = ({ addDomainDialogOpen, setAddDomainDialogOpen, newDomai
                             name='domainName-name'
                             id='domainName-id'
                             variant="outlined"
-                            onKeyDown = { (event) => domainKeyDown(event)}
+                            onKeyDown = { event => domainKeyDown(event)}
                             onChange= { ({target}) => setNewDomainInfo(target.value) }
                             autoComplete='off'
                             size = 'small'

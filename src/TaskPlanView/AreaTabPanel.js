@@ -13,6 +13,9 @@ import { TabPanel } from '@material-ui/lab';
 
 const AreaTabPanel = ( { domain, domainIndex } ) => {
 
+    // Tab Panel contains all the taskcards for a given domain
+    // Parent is TaskCardContent. Children are TaskCards
+
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 

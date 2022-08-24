@@ -216,7 +216,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         // invert closed, re-sort domain array for the card, update state.
         let newDomainsArray = [...domainsArray]
         newDomainsArray[domainIndex].closed = newDomainsArray[domainIndex].closed ? 0 : 1;
-        debugger;
+
         // for domains already in the db, update db
         if (domainId !== '') {
             let uri = `${darwinUri}/domains`;

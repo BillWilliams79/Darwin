@@ -18,6 +18,7 @@ import CardContent from '@mui/material/CardContent';
 
 const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSettingsClick }) => {
 
+    // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 

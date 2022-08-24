@@ -1,3 +1,4 @@
+import varDump from '../../classifier/classifier';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -5,14 +6,19 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Button from '@mui/material/Button';
 
+const DomainCloseDialog = ({ domainCloseDialogOpen, 
+                             setDomainCloseDialogOpen,
+                             domainCloseId,
+                             setDomainCloseId,
+                             setDomainCloseConfirmed }
+                          ) => {
 
-const DomainSettingsDialog = ({ tabSettingsDialogOpen, setTabSettingsDialogOpen, domainCloseId, setDomainCloseId, setDomainCloseConfirmed }) => {
-
+    // Dialog to handle closing a domain from a tab
     const { domainName } = domainCloseId;
 
     const dialogCleanUp = () => {
         // Cancel and Close Path
-        setTabSettingsDialogOpen(false);
+        setDomainCloseDialogOpen(false);
         setDomainCloseId({});
         return;
     };
@@ -20,12 +26,12 @@ const DomainSettingsDialog = ({ tabSettingsDialogOpen, setTabSettingsDialogOpen,
     const closeDomain = (event) => {
         // User confirms card closure
         setDomainCloseConfirmed(true);
-        setTabSettingsDialogOpen(false);
+        setDomainCloseDialogOpen(false);
     };
 
     return (
 
-        <Dialog open={tabSettingsDialogOpen}
+        <Dialog open={domainCloseDialogOpen}
                 onClose={dialogCleanUp} >
 
             <DialogTitle id="tab-settings-title">
@@ -48,4 +54,4 @@ const DomainSettingsDialog = ({ tabSettingsDialogOpen, setTabSettingsDialogOpen,
     )
 }
 
-export default DomainSettingsDialog
+export default DomainCloseDialog

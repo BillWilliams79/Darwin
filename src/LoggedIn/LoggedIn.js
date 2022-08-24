@@ -89,7 +89,6 @@ function  LoggedIn() {
                         varDump(error, 'Retrieve user Profile: Error Data');
                     });
             }).catch(error => {
-                debugger;
                 varDump(error, 'JWT Verify: Call to JWT returned an error');
             });
 

@@ -4,7 +4,7 @@ import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import SnackBar from './SnackBar';
-import DomainSettingsDialog from './DomainSettingsDialog';
+import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import AddDomainDialog from './AddDomainDialog';
 
 import React, { useState, useEffect, useContext } from 'react';
@@ -40,13 +40,13 @@ const AreaEdit = () => {
     const [snackBarOpen, setSnackBarOpen] = useState(false);
     const [snackBarMessage, setSnackBarMessage] = useState('');
 
-    // add domain dialog state
+    // add domain dialog state 
     const [addDomainDialogOpen, setAddDomainDialogOpen] = useState(false);
     const [addDomainConfirmed, setAddDomainConfirmed] = useState(false);
     const [newDomainInfo, setNewDomainInfo] = useState({});
 
     // domainSettings state
-    const [tabSettingsDialogOpen, setTabSettingsDialogOpen] = useState(false);
+    const [domainCloseDialogOpen, setDomainCloseDialogOpen] = useState(false);
     const [domainCloseConfirmed, setDomainCloseConfirmed] = useState(false);
     const [domainCloseId, setDomainCloseId] = useState({});
 
@@ -151,7 +151,7 @@ const AreaEdit = () => {
         }
         // prior to exit and regardless of outcome, clean up state
         setAddDomainConfirmed(false);
-        setNewDomainInfo();
+        setNewDomainInfo({});
 
     }, [addDomainConfirmed])
 
@@ -163,10 +163,10 @@ const AreaEdit = () => {
     }
 
     const domainCloseClick = (event, domainName, domainId, domainIndex) => {
-        // stores data re: card to close, opens dialog
-        varDump(domainName, 'should be domain name')
+        // originates from the per tab close button.
+        // Sets state and pops the dialog
         setDomainCloseId({ domainName, domainId, domainIndex });
-        setTabSettingsDialogOpen(true);
+        setDomainCloseDialogOpen(true);
     }
 
     const addDomain = (event) => {
@@ -212,11 +212,13 @@ const AreaEdit = () => {
                     </TabContext>
                 </Box>
                 <SnackBar snackBarOpen = {snackBarOpen} setSnackBarOpen = {setSnackBarOpen} snackBarMessage={snackBarMessage} />
-                <DomainSettingsDialog tabSettingsDialogOpen = {tabSettingsDialogOpen}
-                                    setTabSettingsDialogOpen = {setTabSettingsDialogOpen}
-                                    domainCloseId = {domainCloseId}
-                                    setDomainCloseId = {setDomainCloseId}
-                                    setDomainCloseConfirmed = {setDomainCloseConfirmed} />
+                
+                <DomainCloseDialog {...{domainCloseDialogOpen,
+                                        setDomainCloseDialogOpen,
+                                        domainCloseId,
+                                        setDomainCloseId,
+                                        setDomainCloseConfirmed}} 
+                />
                 <AddDomainDialog addDomainDialogOpen = {addDomainDialogOpen}
                                  setAddDomainDialogOpen = {setAddDomainDialogOpen}
                                  newDomainInfo = {newDomainInfo}
