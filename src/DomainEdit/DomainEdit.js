@@ -94,16 +94,14 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         let newDomainsArray = [...domainsArray]
                         newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
                         setDomainsArray(newDomainsArray);
-                        setSnackBarMessage('Domain Deleted Successfully');
-                        setSnackBarOpen(true);
                     } else {
                         console.log(`Error: unable to delete domain : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to delete domain : ${result.httpStatus.httpStatus}`);
                         setSnackBarOpen(true);
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to delete domain : ${error}`);
-                    setSnackBarMessage(`Unable to delete domain : ${error}`);
+                    console.log(`Error: unable to delete domain : ${error.httpStatus.httpStatus}`);
+                    setSnackBarMessage(`Unable to delete domain : ${error.httpStatus.httpStatus}`);
                     setSnackBarOpen(true);
                 });
         }
@@ -158,8 +156,6 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         if (result.httpStatus.httpStatus === 200) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
-                            setSnackBarMessage('Domain Updated Successfully');
-                            setSnackBarOpen(true);
                         }
                     }).catch(error => {
                         varDump(error, `Error - could not update domain name ${error}`);
@@ -179,8 +175,6 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
                     // show snackbar, place new data in table and created another blank element
-                    setSnackBarMessage('Area Created Successfully');
-                    setSnackBarOpen(true);
 
                     let newDomainsArray = [...domainsArray];
                     newDomainsArray[domainIndex] = {...result.data[0]};
@@ -193,20 +187,17 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     newAreaCounts[result.data[0].id] = 0;
                     setAreaCounts(newAreaCounts);
 
-
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setSnackBarMessage('Domain Created Successfully');
-                    setSnackBarOpen(true);
                     setDomainApiTrigger(domainApiTrigger ? false : true);  
                 } else {
                     setSnackBarMessage('Domain not saved, HTTP Error {result.httpStatus.httpStatus}');
                     setSnackBarOpen(true);
                 }
             }).catch(error => {
-                varDump(error, 'Domain not saved, ');
-                setSnackBarMessage('Domain not saved, HTTP Error {error}');
+                varDump(error, 'Domain not saved');
+                setSnackBarMessage('Domain not saved, HTTP Error {error.httpStatus.httpStatus}');
                 setSnackBarOpen(true);
             });
     }
@@ -292,6 +283,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                                                onBlur = {(event) => blurDomainName(event, domainIndex, domain.id)}
                                                autoComplete='off'
                                                size = 'small'
+                                               inputProps={{ maxLength: 32 }}
                                                key={`name-${domain.id}`}
                                      />                                    
                                 </TableCell>

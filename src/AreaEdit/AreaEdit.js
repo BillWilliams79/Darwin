@@ -12,9 +12,9 @@ import React, { useState, useEffect, useContext } from 'react';
 import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
+import { Tabs } from '@mui/material';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
-import TabList from '@material-ui/lab/TabList';
 import { Typography } from '@mui/material';
 import AreaEditTabPanel from './AreaEditTabPanel';
 
@@ -92,9 +92,6 @@ const AreaEdit = () => {
                             setActiveTab(0);
                         }
 
-                        setSnackBarMessage(`${domainName} Closed Successfully`);
-                        setSnackBarOpen(true);
-
                     } else {
                         console.log(`Error: unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
@@ -129,15 +126,10 @@ const AreaEdit = () => {
                         newDomainsArray.push(result.data[0]);
                         setDomainsArray(newDomainsArray);
 
-                        setSnackBarMessage(`${newDomainInfo} Created Successfully`);
-                        setSnackBarOpen(true);
-
                     } else if (result.httpStatus.httpStatus === 201) {
 
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
                         setDomainApiTrigger(domainApiTrigger ? false : true);
-                        setSnackBarMessage(`${newDomainInfo} Created Successfully`);
-                        setSnackBarOpen(true);
                     } else {
                         console.log(`Error: unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
@@ -186,7 +178,10 @@ const AreaEdit = () => {
                     <Box className="app-edit" sx={{ml:2}}>
                         <TabContext value={activeTab.toString()}>
                             <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                                <TabList  onChange={changeActiveTab} >
+                                <Tabs value={activeTab.toString()}
+                                      onChange={changeActiveTab}
+                                      variant="scrollable"
+                                      scrollButtons="auto" >
                                     { domainsArray.map( (domain, domainIndex) => 
                                         <Tab key={domain.id}
                                              icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
@@ -198,7 +193,7 @@ const AreaEdit = () => {
                                          icon={<AddIcon onClick={addDomain}/>}
                                          iconPosition="start"
                                          value={9999} /* used in changeActiveTab */ /> 
-                                </TabList>
+                                </Tabs>
                             </Box>
                                 { domainsArray.map( (domain, domainIndex) => 
                                     <AreaEditTabPanel key={domain.id}

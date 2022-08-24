@@ -83,6 +83,7 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
                         sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
                         size = 'small'
                         /* inputProps={{ tabIndex: `${taskIndex}` }} */
+                        inputProps={{ maxLength: 256 }}
                         key={`description-${task.id}`}
              />
             { task.id === '' ?

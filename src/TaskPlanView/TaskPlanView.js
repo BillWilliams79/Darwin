@@ -16,6 +16,7 @@ import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
+import { Tabs } from '@mui/material';
 
 const TaskPlanView = () => {
 
@@ -175,21 +176,23 @@ const TaskPlanView = () => {
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
                              className="app-content-tabs"
                         >
-                            <TabList  onChange={changeActiveTab} >
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto" >
                                 {domainsArray.map( (domain, domainIndex) => 
                                     <Tab key={domain.id}
                                          icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                          label={domain.domain_name} 
                                          value={domainIndex.toString()}
-                                         iconPosition="end"
-                                    />
+                                         iconPosition="end" />
                                 )}
                                 <Tab key={'add-domain'}
                                      icon={<AddIcon onClick={addDomain}/>}
                                      iconPosition="start"
                                      value={9999} // this value is used in changeActiveTab()
                                 />
-                            </TabList>
+                            </Tabs>
                         </Box>
                             {   domainsArray.map( (domain, domainIndex) => 
                                     <AreaTabPanel key={domain.id}

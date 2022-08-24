@@ -330,6 +330,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                                 autoComplete='off'
                                 size = 'small'
                                 InputProps={{disableUnderline: true, style: {fontSize: 24}}}
+                                inputProps={{ maxLength: 32, disableUnderline: true }}
                                 key={`area-${area.id}`}
                      />
                     <IconButton onClick={(event) => cardSettingsClick(event, area.area_name, area.id)} >

@@ -95,8 +95,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         let newAreasArray = [...areasArray]
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
-                        setSnackBarMessage('Area Deleted Successfully');
-                        setSnackBarOpen(true);
                     } else {
                         console.log(`Error: unable to delete area : ${result.httpStatus.httpStatus}`);
                         setSnackBarMessage(`Unable to delete area : ${result.httpStatus.httpStatus}`);
@@ -158,8 +156,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         if (result.httpStatus.httpStatus === 200) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
-                            setSnackBarMessage('Area Updated Successfully');
-                            setSnackBarOpen(true);
                         }
                     }).catch(error => {
                         varDump(error, `Error - could not update area name ${error}`);
@@ -182,8 +178,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
                     // show snackbar, place new data in table and created another blank element
-                    setSnackBarMessage('Task Created Successfully');
-                    setSnackBarOpen(true);
                     newAreasArray[areaIndex] = {...result.data[0]};
                     newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': null });
@@ -197,8 +191,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setSnackBarMessage('Area Created Successfully');
-                    setSnackBarOpen(true);
                     setAreaApiTrigger(areaApiTrigger ? false : true);  
                 } else {
                     setSnackBarMessage('Area not saved, HTTP Error {result.httpStatus.httpStatus}');
@@ -348,8 +340,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     // database value is changed only with a 200 response
                     // so only then show snackbar
-                    setSnackBarMessage('Areas sort order set successfully');
-                    setSnackBarOpen(true);
                 }
             }).catch(error => {
                 varDump(error, `Error - could not update area name ${error}`);
