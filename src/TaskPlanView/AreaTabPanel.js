@@ -98,7 +98,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             let uri = `${darwinUri}/areas`;
             call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus > 201) {
+                    if (result.httpStatus.httpStatus > 204) {
                         // database change confirmed only with a 200/201 response
                         snackBarError(result, 'Unable to update ${areaName}', setSnackBarMessage, setSnackBarOpen)
                     }

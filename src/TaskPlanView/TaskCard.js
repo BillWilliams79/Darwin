@@ -269,7 +269,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 let uri = `${darwinUri}/tasks`;
                 call_rest_api(uri, 'POST', [{'id': taskId, 'description': tasksArray[taskIndex].description}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus > 201) {
+                        if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200/201 response
                             // so only then show snackbar
                             snackBarError(result, 'Task description not updated, HTTP error', setSnackBarMessage, setSnackBarOpen)

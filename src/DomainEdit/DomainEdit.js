@@ -149,7 +149,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 let uri = `${darwinUri}/domains`;
                 call_rest_api(uri, 'POST', [{'id': domainId, 'domain_name': domainsArray[domainIndex].domain_name}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus > 201) {
+                        if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
                             snackBarError(result, 'Unable to update domain name', setSnackBarMessage, setSnackBarOpen)
