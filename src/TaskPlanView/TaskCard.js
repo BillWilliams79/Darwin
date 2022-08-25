@@ -3,7 +3,7 @@ import Task from './Task';
 import DeleteDialog from './DeleteDialog';
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
@@ -94,14 +94,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                         newTasksArray = newTasksArray.filter(task => task.id !== taskId );
                         setTasksArray(newTasksArray);
                     } else {
-                        console.log(`Error: unable to delete task : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to delete task : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, 'Unable to delete task', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to delete task : ${error.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to delete task : ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to delete task', setSnackBarMessage, setSnackBarOpen)
                 });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -149,12 +145,12 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                     return {task: task.id};
 
                 } else {
-                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
+                    snackBarError(result, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
                     return {task: null};
                 }  
 
             }).catch(error => {
-                varDump(error, `TaskCard drop: error updating task with new Date`);
+                snackBarError(error, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
                 return {task: null};
             });
     };
@@ -172,14 +168,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
             call_rest_api(uri, 'POST', [{'id': taskId, 'priority': newTasksArray[taskIndex].priority}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        console.log(`Error Priority not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
-                        setSnackBarMessage(`Priority not updated: ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, "Unable to change task's priority", setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error caught during priority update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
-                    setSnackBarMessage(`Priority not updated: ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, "Unable to change task's priority", setSnackBarMessage, setSnackBarOpen)
                 }
             );
         }
@@ -204,14 +196,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                           ...(newTasksArray[taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        console.log(`Error task.done not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
-                        setSnackBarMessage(`task.done not updated: ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, "Unable to mark task completed", setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error task.done not updated: ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
-                    setSnackBarMessage(`task.done not updated: ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, "Unable to mark task completed", setSnackBarMessage, setSnackBarOpen)
                 }
             );
         }
@@ -231,19 +219,16 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                     setTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
-                    // show snackbar and flip read_rest_api state to initiate full data retrieval
+                    // flip read_rest_api state to initiate full data retrieval
                     setTaskApiTrigger(taskApiTrigger ? false : true);  
                 } else {
-                    setSnackBarMessage('Task not saved, HTTP Error {result.httpStatus.httpStatus}');
-                    setSnackBarOpen(true);
+                    snackBarError(result, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {
-                varDump(error, 'Task not saved, ');
-                setSnackBarMessage('Task not saved, HTTP Error {error.httpStatus.httpStatus}');
-                setSnackBarOpen(true);
+                snackBarError(error, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
             });
     }
-    
+
     const descriptionChange = (event, taskIndex) => {
 
         // event.target.value contains the new text from description which is retained in state
@@ -284,14 +269,13 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 let uri = `${darwinUri}/tasks`;
                 call_rest_api(uri, 'POST', [{'id': taskId, 'description': tasksArray[taskIndex].description}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus === 200) {
-                            // database value is changed only with a 200 response
+                        if (result.httpStatus.httpStatus > 201) {
+                            // database value is changed only with a 200/201 response
                             // so only then show snackbar
+                            snackBarError(result, 'Task description not updated, HTTP error', setSnackBarMessage, setSnackBarOpen)
                         }
                     }).catch(error => {
-                        varDump(error, `Error - could not update area name ${error}`);
-                        setSnackBarMessage('Task not update, HTTP Error {error.httpStatus.httpStatus}');
-                        setSnackBarOpen(true);
+                        snackBarError(error, 'Task description not updated, HTTP error', setSnackBarMessage, setSnackBarOpen)
                     });
             }
         }

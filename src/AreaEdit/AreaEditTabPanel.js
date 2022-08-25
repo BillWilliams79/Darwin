@@ -1,5 +1,6 @@
 import React, {useState, useContext, useEffect} from 'react';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+
 
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
@@ -60,7 +61,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         setTaskCounts(newTaskCounts);
         
                     }).catch(error => {
-                        varDump(error, `UseEffect: error retrieving task counts: ${error}`);
+                        snackBarError(error, 'Unable to retrieve task counts', setSnackBarMessage, setSnackBarOpen)
                     });
 
                 let newAreasArray = result.data;
@@ -74,7 +75,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
                     setAreasArray(newAreasArray);
                 } else {
-                    varDump(error, `UseEffect: error reading Areas in a domain ${domain.id}: ${error}`);
+                    snackBarError(error, `Unable to read area data for domain ${domain.id}`, setSnackBarMessage, setSnackBarOpen)
                 }
             });
     }, [areaApiTrigger]);
@@ -96,14 +97,10 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
                     } else {
-                        console.log(`Error: unable to delete area : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to delete area : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, `Unable to delete area`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to delete area : ${error}`);
-                    setSnackBarMessage(`Unable to delete area : ${error}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, `Unable to delete area`, setSnackBarMessage, setSnackBarOpen)
                 });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -153,14 +150,14 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 let uri = `${darwinUri}/areas`;
                 call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus === 200) {
+                        if (result.httpStatus.httpStatus > 201) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
+                            snackBarError(result, `Unable to update area`, setSnackBarMessage, setSnackBarOpen)
+
                         }
                     }).catch(error => {
-                        varDump(error, `Error - could not update area name ${error}`);
-                        setSnackBarMessage('Area name updated failed');
-                        setSnackBarOpen(true);
+                        snackBarError(error, `Unable to update area`, setSnackBarMessage, setSnackBarOpen)
                     });
             }
         }
@@ -193,13 +190,10 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
                     setAreaApiTrigger(areaApiTrigger ? false : true);  
                 } else {
-                    setSnackBarMessage('Area not saved, HTTP Error {result.httpStatus.httpStatus}');
-                    setSnackBarOpen(true);
+                    snackBarError(result, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {
-                varDump(error, 'Area not saved, ');
-                setSnackBarMessage('Area not saved, HTTP Error {error}');
-                setSnackBarOpen(true);
+                snackBarError(error, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
             });
     }
 
@@ -225,15 +219,11 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         let uri = `${darwinUri}/areas`;
         call_rest_api(uri, 'POST', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
             .then(result => {
-                if (result.httpStatus.httpStatus !== 200) {
-                    console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
-                    setSnackBarMessage(`closed not updated: ${result.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                if (result.httpStatus.httpStatus > 200) {
+                    snackBarError(result, `Unable to close area`, setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {
-                console.log(`Error caught during closed update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
-                setSnackBarMessage(`closed not updated: ${error.httpStatus.httpStatus}`);
-                setSnackBarOpen(true);
+                snackBarError(error, `Unable to close area`, setSnackBarMessage, setSnackBarOpen)
             }
         );
 
@@ -340,11 +330,10 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     // database value is changed only with a 200 response
                     // so only then show snackbar
+                    snackBarError(result, `Unable to save area sort order`, setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {
-                varDump(error, `Error - could not update area name ${error}`);
-                setSnackBarMessage('Areas sort order not set.');
-                setSnackBarOpen(true);
+                snackBarError(error, `Unable to save area sort order`, setSnackBarMessage, setSnackBarOpen)
             });
  
         return;

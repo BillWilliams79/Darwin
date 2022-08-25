@@ -1,5 +1,5 @@
 import React, {useState, useContext, useEffect} from 'react';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
@@ -95,14 +95,10 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
                         setDomainsArray(newDomainsArray);
                     } else {
-                        console.log(`Error: unable to delete domain : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to delete domain : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, 'Unable to delete domain', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to delete domain : ${error.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to delete domain : ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to delete domain', setSnackBarMessage, setSnackBarOpen)
                 });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -153,14 +149,14 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 let uri = `${darwinUri}/domains`;
                 call_rest_api(uri, 'POST', [{'id': domainId, 'domain_name': domainsArray[domainIndex].domain_name}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus === 200) {
+                        if (result.httpStatus.httpStatus > 201) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
+                            snackBarError(result, 'Unable to update domain name', setSnackBarMessage, setSnackBarOpen)
+
                         }
                     }).catch(error => {
-                        varDump(error, `Error - could not update domain name ${error}`);
-                        setSnackBarMessage('Domain name updated failed');
-                        setSnackBarOpen(true);
+                        snackBarError(error, 'Unable to update domain name', setSnackBarMessage, setSnackBarOpen)
                     });
             }
         }
@@ -192,13 +188,10 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
                     setDomainApiTrigger(domainApiTrigger ? false : true);  
                 } else {
-                    setSnackBarMessage('Domain not saved, HTTP Error {result.httpStatus.httpStatus}');
-                    setSnackBarOpen(true);
+                    snackBarError(result, 'Unable to update domain', setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {
-                varDump(error, 'Domain not saved');
-                setSnackBarMessage('Domain not saved, HTTP Error {error.httpStatus.httpStatus}');
-                setSnackBarOpen(true);
+                snackBarError(error, 'Unable to update domain', setSnackBarMessage, setSnackBarOpen)
             });
     }
 
@@ -214,14 +207,10 @@ const DomainEdit = ( { domain, domainIndex } ) => {
             call_rest_api(uri, 'POST', [{'id': domainId, 'closed': newDomainsArray[domainIndex].closed}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        console.log(`Error closed not updated: ${result.httpStatus.httpStatus} ${result.httpStatus.httpMessage}`);
-                        setSnackBarMessage(`closed not updated: ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, 'Unable to close domain', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error caught during closed update ${error.httpStatus.httpStatus} ${error.httpStatus.httpMessage}`);
-                    setSnackBarMessage(`closed not updated: ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to close domain', setSnackBarMessage, setSnackBarOpen)
                 }
             );
         }

@@ -12,7 +12,7 @@ const Profile = () => {
     console.count('Profile Render');
 
     const { profile } = useContext(AuthContext);
-
+    
     return (
         <>
         <Box className="app-title" sx={{ ml: 2}}>

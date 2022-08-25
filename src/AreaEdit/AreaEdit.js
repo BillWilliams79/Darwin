@@ -3,7 +3,7 @@ import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 
@@ -93,14 +93,10 @@ const AreaEdit = () => {
                         }
 
                     } else {
-                        console.log(`Error: unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, `Unable to close domain`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to close ${domainName} : ${error}`);
-                    setSnackBarMessage(`Unable to close ${domainName} : ${error}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, `Unable to close domain`, setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -131,14 +127,10 @@ const AreaEdit = () => {
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
                         setDomainApiTrigger(domainApiTrigger ? false : true);
                     } else {
-                        console.log(`Error: unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, `Unable to save new domain ${newDomainInfo}`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to create ${newDomainInfo} : ${error}`);
-                    setSnackBarMessage(`Unable to create ${newDomainInfo} : ${error}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, `Unable to save new domain ${newDomainInfo}`, setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state

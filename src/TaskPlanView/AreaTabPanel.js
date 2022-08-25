@@ -2,7 +2,8 @@ import varDump from '../classifier/classifier';
 import React, {useState, useContext, useEffect} from 'react';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
 import AuthContext from '../Context/AuthContext.js'
@@ -69,14 +70,10 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                         setAreasArray(newAreasArray);
 
                     } else {
-                        console.log(`Error: unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to close ${areaName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, 'Unable to close ${areaName}', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to close ${areaName} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to close ${areaName} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to close ${areaName}', setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -101,12 +98,12 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             let uri = `${darwinUri}/areas`;
             call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-                        // database change confirmed only with a 200 response
-                        // so only then show snackbar
+                    if (result.httpStatus.httpStatus > 201) {
+                        // database change confirmed only with a 200/201 response
+                        snackBarError(result, 'Unable to update ${areaName}', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    varDump(error, `Error - could not update area name ${error}`);
+                    snackBarError(error, 'Unable to update ${areaName}', setSnackBarMessage, setSnackBarOpen)
                 });
             }
         // Enter key cannot be part of area name, so eat the event

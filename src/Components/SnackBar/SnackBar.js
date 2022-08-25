@@ -10,7 +10,7 @@ function SlideTransition(props) {
     return <Slide {...props} direction="up" />;
 }
 
-const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => {
+export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => {
 
     const snackBarClose = (event, reason) => {
         // allow snackbar to auto close or user clicks the X
@@ -44,4 +44,12 @@ const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => {
   );
 }
 
-export default SnackBar;
+// Helper function for popping the snackbar with consistent messaging
+export const snackBarError = (error, error_text, setMessage, openSnack) => {
+    // error_object is {httpStatus, httpMessage} from call_rest_api
+    // error text is displayed in console log along with all details
+    console.log(`${error_text} ${error.httpStatus.httpStatus}`);
+    console.log(`${error.httpStatus.httpMessage}`);
+    setMessage(`${error_text} ${error.httpStatus.httpStatus}`);
+    openSnack(true);
+}

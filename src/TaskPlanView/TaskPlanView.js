@@ -3,7 +3,8 @@ import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import SnackBar from '../Components/SnackBar/SnackBar';
+import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
@@ -66,7 +67,7 @@ const TaskPlanView = () => {
                 setActiveTab(0);
                 setDomainsArray(result.data);
             }).catch(error => {
-                varDump(error, `UseEffect: error retrieving Domains: ${error}`);
+                snackBarError(error, 'Unable to read Domain info from database', setSnackBarMessage, setSnackBarOpen)
             });
 
     }, [domainApiTrigger]);
@@ -94,14 +95,11 @@ const TaskPlanView = () => {
                         }
 
                     } else {
-                        console.log(`Error: unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to close ${domainName} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                    snackBarError(result, 'Unable to close ${domainName}', setSnackBarMessage, setSnackBarOpen)
+
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to close ${domainName} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to close ${domainName} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to close ${domainName}', setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -132,14 +130,10 @@ const TaskPlanView = () => {
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
                         setDomainApiTrigger(domainApiTrigger ? false : true);
                     } else {
-                        console.log(`Error: unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarMessage(`Unable to create ${newDomainInfo} : ${result.httpStatus.httpStatus}`);
-                        setSnackBarOpen(true);
+                        snackBarError(result, 'Unable to create ${newDomainInfo}', setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    console.log(`Error: unable to create ${newDomainInfo} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarMessage(`Unable to create ${newDomainInfo} : ${error.httpStatus.httpStatus}`);
-                    setSnackBarOpen(true);
+                    snackBarError(error, 'Unable to create ${newDomainInfo}', setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
