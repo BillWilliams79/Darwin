@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext} from 'react'
-import Task from './Task';
-import DeleteDialog from './DeleteDialog';
+import TaskEdit from '../Components/TaskEdit/TaskEdit';
+import TaskDeleteDialog from '../Components/TaskDeleteDialong/TaskDeleteDialog';
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
@@ -82,7 +82,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
 
         //TODO confirm deleteId is a valid object
         if (deleteConfirmed === true) {
-            const {areaId, taskId} = deleteId;
+            const {taskId} = deleteId;
 
             let uri = `${darwinUri}/tasks`;
             call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
@@ -155,7 +155,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
             });
     };
 
-
     const priorityClick = (taskIndex, taskId) => {
 
         // invert priority, resort task array for the card, update state.
@@ -203,30 +202,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 }
             );
         }
-    }
-
-    const saveTask = (event, taskIndex) => {
-        let uri = `${darwinUri}/tasks`;
-        call_rest_api(uri, 'PUT', {...tasksArray[taskIndex]}, idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    // 200 => record added to database and returned in body
-                    // show snackbar, place new data in table and created another blank element
-                    let newTasksArray = [...tasksArray];
-                    newTasksArray[taskIndex] = {...result.data[0]};
-                    newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': profile.userName });
-                    setTasksArray(newTasksArray);
-                } else if (result.httpStatus.httpStatus === 201) {
-                    // 201 => record added to database but new data not returned in body
-                    // flip read_rest_api state to initiate full data retrieval
-                    setTaskApiTrigger(taskApiTrigger ? false : true);  
-                } else {
-                    snackBarError(result, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
-                }
-            }).catch(error => {
-                snackBarError(error, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
-            });
     }
 
     const descriptionChange = (event, taskIndex) => {
@@ -281,9 +256,33 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         }
     }
 
+    const saveTask = (event, taskIndex) => {
+        let uri = `${darwinUri}/tasks`;
+        call_rest_api(uri, 'PUT', {...tasksArray[taskIndex]}, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    // 200 => record added to database and returned in body
+                    // show snackbar, place new data in table and created another blank element
+                    let newTasksArray = [...tasksArray];
+                    newTasksArray[taskIndex] = {...result.data[0]};
+                    newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
+                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': profile.userName });
+                    setTasksArray(newTasksArray);
+                } else if (result.httpStatus.httpStatus === 201) {
+                    // 201 => record added to database but new data not returned in body
+                    // flip read_rest_api state to initiate full data retrieval
+                    setTaskApiTrigger(taskApiTrigger ? false : true);  
+                } else {
+                    snackBarError(result, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
+                }
+            }).catch(error => {
+                snackBarError(error, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
+            });
+    }
+
     const deleteClick = (event, taskId) => {
         // stores data re: task to delete, opens dialog
-        setDeleteId({areaId: area.id, taskId});
+        setDeleteId({taskId});
         setDeleteDialogOpen(true);
     }
 
@@ -323,30 +322,19 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 </Box>
                 { tasksArray &&
                     tasksArray.map((task, taskIndex) => (
-                        <Task task = {task}
-                              key = {task.id}
-                              taskIndex = {taskIndex}
-                              areaId = {area.id}
-                              priorityClick = {priorityClick}
-                              doneClick = {doneClick}
-                              descriptionChange = {descriptionChange}
-                              descriptionKeyDown = {descriptionKeyDown} 
-                              descriptionOnBlur = {descriptionOnBlur}
-                              deleteClick = {deleteClick} 
-                              tasksArray = {tasksArray}
-                              setTasksArray = {setTasksArray}
-                        >
-                        </Task>
+                        <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
+                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}
+                        />
                     ))
                 }
             </CardContent>
-            <SnackBar snackBarOpen = {snackBarOpen}
-                      setSnackBarOpen = {setSnackBarOpen}
-                      snackBarMessage={snackBarMessage} />
-            <DeleteDialog deleteDialogOpen = {deleteDialogOpen}
-                          setDeleteDialogOpen = {setDeleteDialogOpen}
-                          setDeleteId = {setDeleteId}
-                          setDeleteConfirmed = {setDeleteConfirmed} />
+            <SnackBar {...{snackBarOpen,
+                           setSnackBarOpen,
+                           snackBarMessage,}} />
+            <TaskDeleteDialog deleteDialogOpen = {deleteDialogOpen}
+                              setDeleteDialogOpen = {setDeleteDialogOpen}
+                              setDeleteId = {setDeleteId}
+                              setDeleteConfirmed = {setDeleteConfirmed} />
         </Card>
     )
 }

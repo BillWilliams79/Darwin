@@ -183,7 +183,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     newAreaCounts[result.data[0].id] = 0;
                     setAreaCounts(newAreaCounts);
 
-                } else if (result.httpStatus.httpStatus === 201) {
+                } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
                     setDomainApiTrigger(domainApiTrigger ? false : true);  

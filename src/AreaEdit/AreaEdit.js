@@ -122,7 +122,7 @@ const AreaEdit = () => {
                         newDomainsArray.push(result.data[0]);
                         setDomainsArray(newDomainsArray);
 
-                    } else if (result.httpStatus.httpStatus === 201) {
+                    } else if (result.httpStatus.httpStatus === 204) {
 
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
                         setDomainApiTrigger(domainApiTrigger ? false : true);

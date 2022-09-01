@@ -1,5 +1,5 @@
 import React from 'react'
-import varDump from '../classifier/classifier';
+import varDump from '../../classifier/classifier';
 import { useDrag } from "react-dnd";
 
 import Box from '@mui/material/Box';
@@ -15,8 +15,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
-const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
-                descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }) => {
+const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, descriptionChange,
+    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, taskSort }) => {
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "taskPlan",
@@ -55,7 +55,8 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
     return (
         <Box className="task"
              key={`box-${task.id}`}
-             ref={task.id === '' ? null : drag}
+             ref={task.id === '' ? null :
+                  supportDrag === false ? null : drag}
              sx = {{...(isDragging && {opacity: 0.2}),}} 
         >
             <Checkbox
@@ -99,4 +100,4 @@ const Task = ({ task, taskIndex, priorityClick, doneClick, descriptionChange,
     )
 }
 
-export default Task
+export default TaskEdit

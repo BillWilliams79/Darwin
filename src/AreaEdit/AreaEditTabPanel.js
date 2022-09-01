@@ -150,7 +150,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 let uri = `${darwinUri}/areas`;
                 call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus > 201) {
+                        if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
                             snackBarError(result, `Unable to update area`, setSnackBarMessage, setSnackBarOpen)
@@ -185,7 +185,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     newTaskCounts[result.data[0].id] = 0;
                     setTaskCounts(newTaskCounts);
 
-                } else if (result.httpStatus.httpStatus === 201) {
+                } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
                     setAreaApiTrigger(areaApiTrigger ? false : true);  

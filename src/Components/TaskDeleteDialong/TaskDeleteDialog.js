@@ -6,7 +6,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Button from '@mui/material/Button';
 
 
-const DeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed }) => {
+const TaskDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed }) => {
 
     const dialogCleanUp = () => {
         // Cancel and Close Path
@@ -27,7 +27,7 @@ const DeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setD
                 onClose={dialogCleanUp} >
 
             <DialogTitle id="confirm-delete-title">
-                {"Delete Task?"}
+                {"Delete Task"}
             </DialogTitle>
             <DialogContent>
                 <DialogContentText id="confirm-delete-text">
@@ -46,4 +46,4 @@ const DeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setD
     )
 }
 
-export default DeleteDialog
+export default TaskDeleteDialog

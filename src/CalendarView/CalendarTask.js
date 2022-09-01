@@ -7,8 +7,7 @@ import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 
-const Task = ({ task, taskIndex, tasksArray, setTasksArray /* priorityClick, doneClick, descriptionChange,
-                descriptionKeyDown, descriptionOnBlur, deleteClick, */ }) => {
+const CalendarTask = ({ task, taskIndex, tasksArray, setTasksArray, setTaskEditInfo, setTaskEditDialogOpen }) => {
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "taskCalendar",
@@ -42,22 +41,23 @@ const Task = ({ task, taskIndex, tasksArray, setTasksArray /* priorityClick, don
         setTasksArray(newTasksArray);
     }
 
+    const onClickTaskDescription = () => {
+        setTaskEditInfo({...{task, taskIndex}});
+        setTaskEditDialogOpen(true);
+    }
+
     return (
-        <Box className="task-calendar" key={`box-${task.id}`} ref={drag}>
-{/*             <TextField variant="outlined"
-                        value={task.description || ''}
-                        name='description'
-                         onChange= { (event) => descriptionChange(event, taskIndex) }
-                        onKeyDown = {(event) => descriptionKeyDown(event, taskIndex, task.id)}
-                        onBlur = {(event) => descriptionOnBlur(event, taskIndex, task.id)}
-                        multiline
-                        autoComplete='off'
-                        size = 'small'
-                        key={`description-${task.id}`}
-             /> */}
+        <Box className="task-calendar" 
+             key={`box-${task.id}`} 
+             ref={drag}
+        >
              <Typography key={`description-${task.id}`}
-                         variant = 'body2' 
-                         sx = {{...(isDragging && {opacity: 0.2}),}}
+                         variant = 'body2'
+                         onClick = {onClickTaskDescription}
+                         sx = {{...(isDragging && {opacity: 0.2}), 
+                                //...(!(taskIndex % 2) && {backgroundColor: 'lavender'})
+                               pb: 0.75
+                              }}
              >
                 {task.description || ''}
              </Typography>
@@ -65,4 +65,4 @@ const Task = ({ task, taskIndex, tasksArray, setTasksArray /* priorityClick, don
     )
 }
 
-export default Task
+export default CalendarTask
