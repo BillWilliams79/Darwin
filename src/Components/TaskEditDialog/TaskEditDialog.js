@@ -1,5 +1,5 @@
 import varDump from '../../classifier/classifier';
-import TaskDeleteDialog from '../TaskDeleteDialong/TaskDeleteDialog';
+import TaskDeleteDialog from '../TaskDeleteDialog/TaskDeleteDialog';
 import TaskEdit from '../TaskEdit/TaskEdit';
 
 import Dialog from '@mui/material/Dialog';

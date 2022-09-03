@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext} from 'react'
 import TaskEdit from '../Components/TaskEdit/TaskEdit';
-import TaskDeleteDialog from '../Components/TaskDeleteDialong/TaskDeleteDialog';
+import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';

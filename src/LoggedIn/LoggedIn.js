@@ -61,6 +61,7 @@ function  LoggedIn() {
                 return;
             }
 
+            // Once idToken is set, user is assumed logged in and can attempt API calls with the token
             setIdToken(newIdToken);
             setAccessToken(newAccessToken);
 
@@ -77,9 +78,9 @@ function  LoggedIn() {
         var cognitoUserName = ''
         call_rest_api(uri, 'POST', body, `${newIdToken}`)
             .then(result => {
-                cognitoUserName = result.data['username'];
 
                 //STEP 3 read the database and populate user information into react state
+                cognitoUserName = result.data['username'];
                 uri = `${darwinUri}/profiles?id=${cognitoUserName}`;
                 body = '';
                 call_rest_api(uri, 'GET', body, `${newIdToken}`)
@@ -89,9 +90,13 @@ function  LoggedIn() {
                         varDump(error, 'Retrieve user Profile: Error Data');
                     });
             }).catch(error => {
-                varDump(error, 'JWT Verify: Call to JWT returned an error');
+                console.log('Access token returned from authentication system is invalid.');
+                setErrorMsg('Access token returned from authentication system is invalid.');
+                //remove tokens to display error and not allow their use
+                setIdToken('');
+                setAccessToken('');
+                return;
             });
-
 
     }, [location])
 
