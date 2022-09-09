@@ -15,6 +15,7 @@ import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
+import { CircularProgress } from '@material-ui/core';
 
 
 const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSettingsClick }) => {
@@ -313,19 +314,21 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                                 autoComplete='off'
                                 size = 'small'
                                 InputProps={{disableUnderline: true, style: {fontSize: 24}}}
-                                inputProps={{ maxLength: 32, disableUnderline: true }}
+                                inputProps={{ maxLength: 32 }}
                                 key={`area-${area.id}`}
                      />
                     <IconButton onClick={(event) => cardSettingsClick(event, area.area_name, area.id)} >
                         <CloseIcon />
                     </IconButton>
                 </Box>
-                { tasksArray &&
+                { tasksArray ?
                     tasksArray.map((task, taskIndex) => (
                         <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
                             descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}
                         />
                     ))
+                  :
+                    <CircularProgress/>
                 }
             </CardContent>
             <SnackBar {...{snackBarOpen,

@@ -1,26 +1,35 @@
 import '../index.css';
+import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext';
 
-import React,  { useContext } from 'react';
+import React,  { useContext, useState, useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import cryptoRandomString from 'crypto-random-string';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
 
 const HomePage = () => {
 
     console.count('HomePage Render');
 
     const { idToken, } = useContext(AuthContext);
-    const [cookies, setCookie] = useCookies(['csrfToken']);
+    const [cookies, setCookie, removeCookie] = useCookies(['idToken', 'accessToken', 'profile']);
+    const [generatedCsrf, setGeneratedCsrf] = useState();
 
-    if (!idToken) {
+    useEffect( () => {
+
         // generate CSRF token for login and store in a cookie w/60m expiry
-        var generatedCsrf = cryptoRandomString({length: 64, type: 'alphanumeric'});
-        setCookie('csrfToken', generatedCsrf, { path: '/', maxAge: 3600 });
-    }
-        
+        console.count('generate CSRF in HomePage');
+
+        var csrf = cryptoRandomString({length: 64, type: 'alphanumeric'});
+        setGeneratedCsrf(csrf);
+        setCookie('csrfToken', csrf, { path: '/', maxAge: 3600 });
+
+    }, [idToken])
+
+
     return (
         <>
         <Box className="app-title">
@@ -33,19 +42,22 @@ const HomePage = () => {
                 Accounts
             </Typography>
             {!idToken ?
-                <Typography variant="body1"
-                            component="a"
-                            href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://localhost:3000/loggedin/`}
-                            //href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=https://billwilliams.link/loggedin/`}
-                            sx={{marginBottom: 2 }} >
-                    Login / Create Account
-                </Typography>
+                generatedCsrf ?
+                    <Typography key="login"
+                                variant="body1"
+                                component="a"
+                                href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=${process.env.REACT_APP_LOGIN_REDIRECT}`}
+                                sx={{marginBottom: 2 }} >
+                        Login / Create Account
+                    </Typography>
+                :
+                    <CircularProgress/>
              :
-                <Typography variant="body1"
+                <Typography key="logout"
+                            variant="body1"
                             component="a"
-                            href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://localhost:3000/"
-                            //href="https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=https://billwilliams.link/"
-                            sx={{marginBottom: 2 }} >
+                            href={`logout`}
+                            sx={{marginBottom: 0, }} >
                     Logout
                 </Typography>
             }

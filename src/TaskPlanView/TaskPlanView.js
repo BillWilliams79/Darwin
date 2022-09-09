@@ -10,6 +10,7 @@ import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
 
 import React, { useState, useEffect, useContext } from 'react';
+import { Navigate } from "react-router-dom"
 
 import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
@@ -17,7 +18,7 @@ import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
 import TabList from '@material-ui/lab/TabList';
-import { Tabs } from '@mui/material';
+import { CircularProgress, Tabs } from '@mui/material';
 
 const TaskPlanView = () => {
 
@@ -56,8 +57,6 @@ const TaskPlanView = () => {
 
         console.count('useEffect: Read domains REST API data');
 
-        // FETCH DOMAINS
-        // QSPs limit fields to minimum: id,domain_name
         let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name`
 
         call_rest_api(domainUri, 'GET', '', idToken)
@@ -70,7 +69,7 @@ const TaskPlanView = () => {
                 snackBarError(error, 'Unable to read Domain info from database', setSnackBarMessage, setSnackBarOpen)
             });
 
-    }, [domainApiTrigger]);
+    }, [domainApiTrigger, profile, idToken]);
 
     // CLOSE DOMAIN in cooperation with confirmation dialog
     useEffect( () => {
@@ -162,55 +161,57 @@ const TaskPlanView = () => {
      }
 
     return (
-        <>
-            { domainsArray &&
-                <>
-                <Box className="app-content-planpage">
-                    <TabContext value={activeTab.toString()}>
-                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
-                             className="app-content-tabs"
-                        >
-                            <Tabs value={activeTab.toString()}
-                                  onChange={changeActiveTab}
-                                  variant="scrollable"
-                                  scrollButtons="auto" >
-                                {domainsArray.map( (domain, domainIndex) => 
-                                    <Tab key={domain.id}
-                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
-                                         label={domain.domain_name} 
-                                         value={domainIndex.toString()}
-                                         iconPosition="end" />
-                                )}
-                                <Tab key={'add-domain'}
-                                     icon={<AddIcon onClick={addDomain}/>}
-                                     iconPosition="start"
-                                     value={9999} // this value is used in changeActiveTab()
-                                />
-                            </Tabs>
-                        </Box>
-                            {   domainsArray.map( (domain, domainIndex) => 
-                                    <AreaTabPanel key={domain.id}
-                                                  domain = {domain}
-                                                  domainIndex = {domainIndex}>
-                                    </AreaTabPanel>
-                                )
-                            }
-                    </TabContext>
-                </Box>
-                <SnackBar {...{snackBarOpen,
-                               setSnackBarOpen,
-                               snackBarMessage,}} />
-                <DomainCloseDialog {...{domainCloseDialogOpen,
-                                        setDomainCloseDialogOpen,
-                                        domainCloseId,
-                                        setDomainCloseId,
-                                        setDomainCloseConfirmed,}} />
-                <DomainAddDialog {...{domainAddDialogOpen,
-                                      setDomainAddDialogOpen,
-                                      newDomainInfo,
-                                      setNewDomainInfo,
-                                      setDomainAddConfirmed,}} />
-                </>
+        <> 
+        {domainsArray ?
+            <>
+            <Box className="app-content-planpage">
+                <TabContext value={activeTab.toString()}>
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
+                         className="app-content-tabs"
+                    >
+                        <Tabs value={activeTab.toString()}
+                              onChange={changeActiveTab}
+                              variant="scrollable"
+                              scrollButtons="auto" >
+                            {domainsArray.map( (domain, domainIndex) => 
+                                <Tab key={domain.id}
+                                     icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                     label={domain.domain_name} 
+                                     value={domainIndex.toString()}
+                                     iconPosition="end" />
+                            )}
+                            <Tab key={'add-domain'}
+                                 icon={<AddIcon onClick={addDomain}/>}
+                                 iconPosition="start"
+                                 value={9999} // this value is used in changeActiveTab()
+                            />
+                        </Tabs>
+                    </Box>
+                        {   domainsArray.map( (domain, domainIndex) => 
+                                <AreaTabPanel key={domain.id}
+                                              domain = {domain}
+                                              domainIndex = {domainIndex}>
+                                </AreaTabPanel>
+                            )
+                        }
+                </TabContext>
+            </Box>
+            <SnackBar {...{snackBarOpen,
+                           setSnackBarOpen,
+                           snackBarMessage,}} />
+            <DomainCloseDialog {...{domainCloseDialogOpen,
+                                    setDomainCloseDialogOpen,
+                                    domainCloseId,
+                                    setDomainCloseId,
+                                    setDomainCloseConfirmed,}} />
+            <DomainAddDialog {...{domainAddDialogOpen,
+                                  setDomainAddDialogOpen,
+                                  newDomainInfo,
+                                  setNewDomainInfo,
+                                  setDomainAddConfirmed,}} />
+            </>
+            :
+            <CircularProgress/>
         }
         </>
     );

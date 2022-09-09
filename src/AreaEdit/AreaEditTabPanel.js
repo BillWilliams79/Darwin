@@ -330,6 +330,9 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     // database value is changed only with a 200 response
                     // so only then show snackbar
+                    console.log('sort order saved');
+                } else {
+
                     snackBarError(result, `Unable to save area sort order`, setSnackBarMessage, setSnackBarOpen)
                 }
             }).catch(error => {

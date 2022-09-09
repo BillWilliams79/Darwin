@@ -12,7 +12,7 @@ import { useDrop } from "react-dnd";
 
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import { Typography, Box } from '@mui/material';
+import { Typography, Box, CircularProgress } from '@mui/material';
 
 import CalendarTask from './CalendarTask';
 
@@ -300,13 +300,15 @@ const DayView = (date) => {
                     </Typography>
                 </Box>
                 <Box>
-                    { tasksArray &&
+                    { tasksArray ?
                         tasksArray.map((task, taskIndex) => (
                             <CalendarTask {...{key: task.id, task, taskIndex, tasksArray,
                                                setTasksArray, setTaskEditInfo, setTaskEditDialogOpen}}
                             />
                             
                         ))
+                      :
+                        <CircularProgress/>
                     }
                 </Box>
             </CardContent>

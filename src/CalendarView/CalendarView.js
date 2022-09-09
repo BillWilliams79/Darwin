@@ -3,7 +3,7 @@ import React, {useState, useContext, useEffect} from 'react';
 import varDump from '../classifier/classifier';
 
 import { Box } from '@mui/system';
-import { Typography } from '@mui/material';
+import { CircularProgress, Typography } from '@mui/material';
 import DayView from './DayView';
 
 const CalendarView = () => {
@@ -42,11 +42,13 @@ const CalendarView = () => {
                 </Typography>
             </Box>
             <Box className="card-calendar">
-                {dateArray &&
+                {dateArray ?
                     dateArray.map( (date) => (
                         <DayView date = {date}
                         />
                     ))
+                 :
+                   <CircularProgress/>
                 }
             </Box>
         </>

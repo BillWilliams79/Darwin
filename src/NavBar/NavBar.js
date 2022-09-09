@@ -23,15 +23,15 @@ const NavBar = () => {
           <Link className="nav-title" to="/">
             Darwin
           </Link>
-          {idToken &&
               <>
                 <Link className="nav-link" to="/taskcards"> Plan </Link>
                 <Link className="nav-link" to="/calview"> Calendar </Link>
                 <Link className="nav-link" to="/domainedit"> Domains </Link>
                 <Link className="nav-link" to="/areaedit"> Areas </Link>
-                <ProfileDrawer/>
+                {idToken &&
+                    <ProfileDrawer/>
+                }
               </>
-          }
         </Stack>
       </Container>
     </AppBar>
