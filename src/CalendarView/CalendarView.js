@@ -21,7 +21,7 @@ const CalendarView = () => {
         var today = new Date();
         var sundayAnchor = new Date();
         sundayAnchor.setDate(today.getDate() - (today.getDay() + displayDays));
-        sundayAnchor.setHours(0,0,0,0)
+        sundayAnchor.setHours(0,0,0,0);
 
         // Create an array of ISO string dates to pass to DayView
         // ISO string dates are readily convertible back to date object

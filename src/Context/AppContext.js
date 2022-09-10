@@ -7,11 +7,13 @@ export const AppContextProvider = ({ children }) => {
 
     console.count('AppContext initilialized');
 
-    const [darwinUri, setDarwinUri] = useState('https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/darwin')
+    const [darwinUri, setDarwinUri] = useState('https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/darwin');
+    const [droidsUri, setDroidsUri] = useState('https://vcgtjqigra.execute-api.us-west-2.amazonaws.com/proto/sensor_droid');
 
     return (
         <AppContext.Provider value={{
             darwinUri, setDarwinUri,
+            droidsUri, setDroidsUri,
         }} >
             {children}
         </AppContext.Provider>

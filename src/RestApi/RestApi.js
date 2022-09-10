@@ -19,8 +19,6 @@ const call_rest_api = async (url, method, body, idToken) => {
 
     if (idToken) {
         fetchInit['headers']['Authorization'] = idToken;
-    } else {
-        console.log('error if idtoken required');
     }
 
     // STEP 2, perform fetch and catch the http status not between 200 and 499
