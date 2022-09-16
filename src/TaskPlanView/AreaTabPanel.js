@@ -60,7 +60,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             const { areaName, areaId } = areaCloseId;
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', [{'id': areaId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
@@ -70,10 +70,10 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                         setAreasArray(newAreasArray);
 
                     } else {
-                        snackBarError(result, 'Unable to close ${areaName}', setSnackBarMessage, setSnackBarOpen)
+                        snackBarError(result, `Unable to close ${areaName}`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to close ${areaName}', setSnackBarMessage, setSnackBarOpen)
+                    snackBarError(error, `Unable to close ${areaName}`, setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -96,14 +96,14 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             (event.key === 'Tab')) {
 
             let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus > 204) {
                         // database change confirmed only with a 200/201 response
-                        snackBarError(result, 'Unable to update ${areaName}', setSnackBarMessage, setSnackBarOpen)
+                        snackBarError(result, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to update ${areaName}', setSnackBarMessage, setSnackBarOpen)
+                    snackBarError(error, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
                 });
             }
         // Enter key cannot be part of area name, so eat the event

@@ -132,7 +132,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         // STEP 2: is a drop to a new card, update task with new data via API
         let taskUri = `${darwinUri}/tasks`;
 
-        call_rest_api(taskUri, 'POST', [{'id': task.id, 'area_fk': area.id }], idToken)
+        call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id }], idToken)
             .then(result => {
 
                 if (result.httpStatus.httpStatus === 200) {
@@ -165,7 +165,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         // for tasks already in the db, update db
         if (taskId !== '') {
             let uri = `${darwinUri}/tasks`;
-            call_rest_api(uri, 'POST', [{'id': taskId, 'priority': newTasksArray[taskIndex].priority}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': taskId, 'priority': newTasksArray[taskIndex].priority}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         snackBarError(result, "Unable to change task's priority", setSnackBarMessage, setSnackBarOpen)
@@ -192,7 +192,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         if (taskId !== '') {
             let uri = `${darwinUri}/tasks`;
             // toISOString converts to the SQL expected format and UTC from local time. They think of everything
-            call_rest_api(uri, 'POST', [{'id': taskId, 'done': newTasksArray[taskIndex].done,
+            call_rest_api(uri, 'PUT', [{'id': taskId, 'done': newTasksArray[taskIndex].done,
                           ...(newTasksArray[taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
@@ -243,7 +243,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                 saveTask(event, taskIndex)
             } else {
                 let uri = `${darwinUri}/tasks`;
-                call_rest_api(uri, 'POST', [{'id': taskId, 'description': tasksArray[taskIndex].description}], idToken)
+                call_rest_api(uri, 'PUT', [{'id': taskId, 'description': tasksArray[taskIndex].description}], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200/201 response
@@ -259,7 +259,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
 
     const saveTask = (event, taskIndex) => {
         let uri = `${darwinUri}/tasks`;
-        call_rest_api(uri, 'PUT', {...tasksArray[taskIndex]}, idToken)
+        call_rest_api(uri, 'POST', {...tasksArray[taskIndex]}, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body

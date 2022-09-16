@@ -80,7 +80,7 @@ const TaskPlanView = () => {
             const { domainName, domainId, domainIndex  } = domainCloseId;
 
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', [{'id': domainId, 'closed': 1}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
@@ -94,11 +94,11 @@ const TaskPlanView = () => {
                         }
 
                     } else {
-                    snackBarError(result, 'Unable to close ${domainName}', setSnackBarMessage, setSnackBarOpen)
+                    snackBarError(result, `Unable to close ${domainName}`, setSnackBarMessage, setSnackBarOpen)
 
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to close ${domainName}', setSnackBarMessage, setSnackBarOpen)
+                    snackBarError(error, `Unable to close ${domainName}`, setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state
@@ -115,7 +115,7 @@ const TaskPlanView = () => {
         if (domainAddConfirmed === true) {
 
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', {'creator_fk': profile.userName, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
+            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainInfo, 'closed': 0}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
 
@@ -129,10 +129,10 @@ const TaskPlanView = () => {
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
                         setDomainApiTrigger(domainApiTrigger ? false : true);
                     } else {
-                        snackBarError(result, 'Unable to create ${newDomainInfo}', setSnackBarMessage, setSnackBarOpen)
+                        snackBarError(result, `Unable to create ${newDomainInfo}`, setSnackBarMessage, setSnackBarOpen)
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to create ${newDomainInfo}', setSnackBarMessage, setSnackBarOpen)
+                    snackBarError(error, `Unable to create ${newDomainInfo}`, setSnackBarMessage, setSnackBarOpen)
             });
         }
         // prior to exit and regardless of outcome, clean up state

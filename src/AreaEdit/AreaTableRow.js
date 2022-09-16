@@ -49,7 +49,7 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
         // STEP 2: is a drop to a new card, update task with new data via API
         let taskUri = `${darwinUri}/tasks`;
 
-        call_rest_api(taskUri, 'POST', [{'id': task.id, 'done_ts': dropDateString }], idToken)
+        call_rest_api(taskUri, 'PUT', [{'id': task.id, 'done_ts': dropDateString }], idToken)
             .then(result => {
 
                 if (result.httpStatus.httpStatus === 200) {

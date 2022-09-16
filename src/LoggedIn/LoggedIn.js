@@ -44,7 +44,8 @@ function  LoggedIn() {
             // parse hash(#) params
             location.hash.slice(1).split('&').map( qspString => {
                 let splitString = qspString.split('=');
-                hashParams[splitString[0]] = splitString[1]
+                hashParams[splitString[0]] = splitString[1];
+                return null;
             });
             var returnedCsrfToken = hashParams?.state;
 
@@ -78,6 +79,7 @@ function  LoggedIn() {
         let uri = `${darwinUri}/jwt`;
         let body = {'idToken': newIdToken}
 
+        // Arbitrarily use a post call so we can encode the token in the body instead of QSP
         call_rest_api(uri, 'POST', body, `${newIdToken}`)
             .then(result => {
 

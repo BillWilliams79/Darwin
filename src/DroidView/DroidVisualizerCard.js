@@ -15,7 +15,7 @@ import { CircularProgress } from '@material-ui/core';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 import { Typography } from '@mui/material';
 
-const DroidVisualizerCard = ({sensorObject, dataPoint, sensorIndex, droidId }) => {
+const DroidVisualizerCard = ({sensorObject, sensorIndex, droidId }) => {
 
     // Task card is the list of tasks per area displayed in a card.
     const { droidProfile } = useContext(AuthContext);
@@ -50,14 +50,26 @@ const DroidVisualizerCard = ({sensorObject, dataPoint, sensorIndex, droidId }) =
 
         // FETCH TASKS: filter for creator, done=0 and area.id
         // QSPs limit fields to minimum: id,priority,done,description,area_fk
-        let droidDataUri = `${droidsUri}/${sensorObject.name}?droid_fk=${droidId}&filter_ts=(time_ts,${startDateString},${endDateString})`
+        //let droidDataUri = `${droidsUri}/${sensorObject.name}?droid_fk=${droidId}&filter_ts=(time_ts,${startDateString},${endDateString})`
+        let droidDataUri = `${droidsUri}/${sensorObject.name}?droid_fk=${droidId}`
         varDump(droidDataUri, "computed URI")
         call_rest_api(droidDataUri, 'GET', '', null)
             .then(result => {
 
                 if (result.httpStatus.httpStatus === 200) {
 
-                    // Store Droid Data
+                    // Store Droid Data, but first trim excess precision
+                    result.data = result.data.map((data) => { 
+                        data.time_ts = data.time_ts.slice(5,10);
+                        if ((sensorObject.dataPoint === 'temperature') ||
+                            (sensorObject.dataPoint === 'relative_humidity') ||
+                            (sensorObject.dataPoint === 'soil_temperature') ||
+                            (sensorObject.dataPoint === 'uv_index')) {
+                            data[sensorObject.dataPoint] = data[sensorObject.dataPoint].toPrecision(3);
+                        }
+                        return data;
+                        }
+                    )
                     setDroidDataArray(result.data);
 
                 } else {

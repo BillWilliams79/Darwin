@@ -148,7 +148,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
             } else {
                 // otherwise we are updating a existing area
                 let uri = `${darwinUri}/areas`;
-                call_rest_api(uri, 'POST', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
+                call_rest_api(uri, 'PUT', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200 response
@@ -170,7 +170,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         varDump(newAreasArray[areaIndex], 'new area');
 
         let uri = `${darwinUri}/areas`;
-        call_rest_api(uri, 'PUT', {...newAreasArray[areaIndex]}, idToken)
+        call_rest_api(uri, 'POST', {...newAreasArray[areaIndex]}, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
@@ -217,7 +217,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         
         // Update database
         let uri = `${darwinUri}/areas`;
-        call_rest_api(uri, 'POST', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
+        call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus > 200) {
                     snackBarError(result, `Unable to close area`, setSnackBarMessage, setSnackBarOpen)
@@ -325,7 +325,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                 .map(area => ({'id': area.id, 'sort_order': area.sort_order}));
 
         let uri = `${darwinUri}/areas`;
-        call_rest_api(uri, 'POST', restDataArray, idToken)
+        call_rest_api(uri, 'PUT', restDataArray, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // database value is changed only with a 200 response
