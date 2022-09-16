@@ -244,6 +244,11 @@ const DayView = (date) => {
             updateTask(event, taskIndex, taskId);
             event.preventDefault();
         }
+
+        // hack around: not escaping single parens so disallow for now
+        if (event.key === "'") {
+            event.preventDefault();
+        }
     }
 
     const descriptionOnBlur= (event, taskIndex, taskId) => {

@@ -221,6 +221,12 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
             updateTask(event, taskIndex, taskId);
             event.preventDefault();
         }
+
+        // hack around: not escaping single parens so disallow for now
+        if (event.key === "'") {
+            event.preventDefault();
+        }
+
     }
 
     const descriptionOnBlur= (event, taskIndex, taskId) => {
