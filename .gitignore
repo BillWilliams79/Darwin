@@ -2,6 +2,8 @@
 
 # darwin specific
 /aJunk
+# Oracle MySQL Workbench development SQL commands
+/sql/darwin_debug.sql
 
 # dependencies
 /node_modules

@@ -5,7 +5,6 @@
 CREATE DATABASE IF NOT EXISTS darwin2;
 USE darwin2;
 
-select * from tasks2 where creator_fk = "3af9d78e-db31-4892-ab42-d1a731b724dd";
 desc tasks2;
 SHOW CREATE TABLE tasks2;
 
@@ -299,14 +298,6 @@ UPDATE tableN set columnA = CASE id
                     ELSE columnA
                     END
           WHERE id in (x,y);
-
-/* set user to have correct cognito name (in darwin and cognito database) */
-UPDATE
-	profiles2
-SET
-	id = "3af9d78e-db31-4892-ab42-d1a731b724dd"
-WHERE
-	email = "darwintestuser@proton.me";
 
 /* add back the FK references using creator_fk column name */
 
