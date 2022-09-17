@@ -15,10 +15,11 @@ const NavBar = () => {
     const { idToken } = useContext(AuthContext);
 
   return (
-    <AppBar className="app-navbar" position="static" sx={{backgroundColor: 'black', padding: 0, mb: {xs: 2, md:0}, ml:0, }}>
-      <Container sx={{ padding: {xs:2 }, mt: {xs: 1, md: 0 }, }}>
+    <AppBar className="app-navbar" position="static" sx={{backgroundColor: 'black', padding: 2,  pb: {xs:2, md:3} }}>
         <Stack direction={{ xs: 'row', md: 'column', }}
-               spacing={1} >
+               spacing={1}
+               alignItems={{xs: 'center', md: 'flex-start'}}
+        >
           <PedalBikeIcon />
           <Link className="nav-title" to="/">
             Darwin
@@ -34,7 +35,6 @@ const NavBar = () => {
                 }
               </>
         </Stack>
-      </Container>
     </AppBar>
   );
 };

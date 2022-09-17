@@ -29,7 +29,7 @@ const ProfileDrawer = () => {
                            marginTop: 0,
                            padding: 0,
                            border: 0,
-                           alignItems: 'start',
+                           paddingTop: 0.1,
                            justifyContent: 'left',
                         }}
                     onClick={toggleDrawer(true)}>

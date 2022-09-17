@@ -60,16 +60,14 @@
 
 .app-navbar{
     grid-area: nav-bar;
-    margin-bottom: 60px;
-    /* border: 1px solid black; */
+    align-items: bottom;
 }
 
 .app-title {
     grid-area: title__;
     grid-template-rows: auto;
+    height: min-content;
 }
-
-
 
 .app-content {
     grid-area: content;
@@ -77,7 +75,6 @@
     grid-gap: 16px;
     grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
 }
-
 
 .app-edit {
     grid-area: content;
@@ -93,8 +90,6 @@
     grid-template-columns: auto;
 }
 
-
-
 .card-calendar {
     display: grid;
     width: 90vw;
@@ -107,8 +102,6 @@
       grid-template-columns: 1fr auto;
       font-size: 18px;
 }
-
-
 
 .task-calendar {
     display: grid;
@@ -134,6 +127,7 @@
     font-family: 'Roboto';
     font-size: 20px;
 }
+
 .nav-link {
     color: white;
     text-decoration: none;
