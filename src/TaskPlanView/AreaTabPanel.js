@@ -42,11 +42,26 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
                 
-                result.data.sort((areaA,areaB) => areaSortBySortOrder(areaA, areaB));
-                setAreasArray(result.data);
+                if (result.httpStatus.httpStatus === 200) {
+
+                    // Sort the data, find largest sort order, add template area/card and save the state
+                    result.data.sort((areaA,areaB) => areaSortBySortOrder(areaA, areaB));
+                    let maxSortOrder = result.data.at(-1).sort_order + 1
+                    result.data.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'creator_fk': profile.userName, });
+                    setAreasArray(result.data);
+
+                } else {
+                    snackBarError(result, 'Unable to read Area data', setSnackBarMessage, setSnackBarOpen)
+                }
 
             }).catch(error => {
-                varDump(error, `UseEffect: error retrieving Areas: ${error}`);
+                if (error.httpStatus.httpStatus === 404) {
+
+                    // a domain with no areas, still requires a template area
+                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1 }]);
+                } else {
+                    snackBarError(error, 'Unable to read Area data', setSnackBarMessage, setSnackBarOpen)
+                }
             });
 
     }, [areaApiTrigger]);
@@ -83,36 +98,89 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
     }, [areaCloseConfirmed])
 
     const areaChange = (event, areaIndex) => {
-        varDump(areaIndex, 'area index for areaChange')
         // event.target.value contains the new area text
-        // updated changes are written to rest API elsewhere (keyup for example)
+        // updated changes are written to rest API elsewhere (keydown for example)
         let newAreasArray = [...areasArray]
         newAreasArray[areaIndex].area_name = event.target.value;
         setAreasArray(newAreasArray);
     }
 
     const areaKeyDown = (event, areaIndex, areaId) => {
-        if ((event.key === 'Enter') ||
-            (event.key === 'Tab')) {
-
-            let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'PUT', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus > 204) {
-                        // database change confirmed only with a 200/201 response
-                        snackBarError(result, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
-                    }
-                }).catch(error => {
-                    snackBarError(error, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
-                });
-            }
-        // Enter key cannot be part of area name, so eat the event
         if (event.key === 'Enter') {
+            updateArea(event, areaIndex, areaId);
+            event.preventDefault();
+        }
+
+        // hack around: not escaping single parens so disallow for now
+        if (event.key === "'") {
             event.preventDefault();
         }
     }
 
-    const cardSettingsClick = (event, areaName, areaId) => {
+    const areaOnBlur = (event, areaIndex, areaId) => {
+        updateArea(event, areaIndex, areaId);
+    }
+
+    const updateArea = (event, areaIndex, areaId) => {
+        
+        const noop = ()=>{};
+
+        if ((areaId === '') &&
+            (areasArray[areaIndex].area_name === '')) {
+            // new area with no description, noop
+            noop();
+
+        } else {
+            // blank taskId indicates we are creating a new task rather than updating existing
+            if (areaId === '') {
+                saveArea(event, areaIndex)
+            } else {
+                
+                // Otherwise we are updating the name of an existing area
+                let uri = `${darwinUri}/areas`;
+                call_rest_api(uri, 'PUT', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus > 204) {
+                            // database change confirmed only with a 200/201 response
+                            snackBarError(result, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
+                        }
+                    }).catch(error => {
+                        snackBarError(error, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
+                    });
+            }
+        }
+    }
+
+    const saveArea = (area, areaIndex, areaId) => {
+
+        // Call rest API and create a new array
+        let newAreasArray = [...areasArray];
+        let uri = `${darwinUri}/areas`;
+        call_rest_api(uri, 'POST', {...newAreasArray[areaIndex]}, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    // 200 => record added to database and returned in body
+                    // place new data in table and created another template area
+                    newAreasArray[areaIndex] = {...result.data[0]};
+                    let newSortOrder = result.data[0].sort_order + 1;
+                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': newSortOrder });
+                    setAreasArray(newAreasArray);
+
+                } else if (result.httpStatus.httpStatus === 201) {
+
+                    // 201 => record added to database but new data not returned in body
+                    // show snackbar and flip read_rest_api state to initiate full data retrieval
+                    setAreaApiTrigger(areaApiTrigger ? false : true);
+
+                } else {
+                    snackBarError(result, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+                }
+            }).catch(error => {
+                snackBarError(error, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+            });        
+    }
+
+    const clickCardClosed = (event, areaName, areaId) => {
         // stores data re: card to close, opens dialog
         setAreaCloseId({ areaName, areaId });
         setCardSettingsDialogOpen(true);
@@ -136,14 +204,14 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                 { areasArray && 
                     <Box className="card">
                         { areasArray.map((area, areaIndex) => (
-                            <TaskCard area = {area}
-                                      key = {area.id}
-                                      areaIndex = {areaIndex}
-                                      domainId = {domain.id}
-                                      areaChange = {areaChange}
-                                      areaKeyDown = {areaKeyDown}
-                                      cardSettingsClick = {cardSettingsClick} >
-                            </TaskCard>
+                            <TaskCard {...{key: area.id,
+                                           area,
+                                           areaIndex,
+                                           domainId: domain.id,
+                                           areaChange,
+                                           areaKeyDown,
+                                           areaOnBlur,
+                                           clickCardClosed,}}/>
                         ))}
                     </Box>  
                 }

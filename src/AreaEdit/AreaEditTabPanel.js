@@ -167,7 +167,6 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
         let newAreasArray = [...areasArray];
         newAreasArray[areaIndex].sort_order = calculateSortOrder(newAreasArray, areaIndex, newAreasArray[areaIndex].closed);
-        varDump(newAreasArray[areaIndex], 'new area');
 
         let uri = `${darwinUri}/areas`;
         call_rest_api(uri, 'POST', {...newAreasArray[areaIndex]}, idToken)
@@ -185,7 +184,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     newTaskCounts[result.data[0].id] = 0;
                     setTaskCounts(newTaskCounts);
 
-                } else if (result.httpStatus.httpStatus < 205) {
+                } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
                     setAreaApiTrigger(areaApiTrigger ? false : true);  

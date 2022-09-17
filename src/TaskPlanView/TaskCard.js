@@ -18,7 +18,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@material-ui/core';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSettingsClick }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed }) => {
 
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
@@ -58,8 +58,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                     setTasksArray(sortedTasksArray);
 
                 } else {
-                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
-
+                    snackBarError(result, 'Unable to read tasks', setSnackBarMessage, setSnackBarOpen)
                 }  
 
             }).catch(error => {
@@ -71,7 +70,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
                     sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
                     setTasksArray(sortedTasksArray);
                 } else {
-                    varDump(error, `TaskCard UseEffect: error retrieving tasks`);
+                    snackBarError(error, 'Unable to read tasks', setSnackBarMessage, setSnackBarOpen)
                 }
             });
 
@@ -208,7 +207,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
     const descriptionChange = (event, taskIndex) => {
 
         // event.target.value contains the new text from description which is retained in state
-        // updated changes are written to rest API elsewhere (keyup for example)
+        // updated changes are written to rest API elsewhere (keydown for example)
         let newTasksArray = [...tasksArray]
         newTasksArray[taskIndex].description = event.target.value;
         setTasksArray(newTasksArray);
@@ -226,7 +225,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         if (event.key === "'") {
             event.preventDefault();
         }
-
     }
 
     const descriptionOnBlur= (event, taskIndex, taskId) => {
@@ -311,30 +309,34 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, cardSetti
         <Card key={areaIndex} raised={true} ref={drop}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
-                    <TextField variant="standard"
+                    <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
+                                variant="standard"
                                 value={area.area_name || ''}
                                 name='area-name'
+                                label={area.area_name !== '' ? '' : 'New Area Name'}
                                 onChange= { (event) => areaChange(event, areaIndex) }
                                 onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
+                                onBlur = {(event) => areaOnBlur(event, areaIndex, area.id)}
                                 multiline
                                 autoComplete='off'
                                 size = 'small'
-                                InputProps={{disableUnderline: true, style: {fontSize: 24}}}
+                                InputProps={{...(area.id !== '' && {disableUnderline: true}), style: {fontSize: 24}}}
+                                /*InputProps={{disableUnderline: true, style: {fontSize: 24}}}*/
                                 inputProps={{ maxLength: 32 }}
                                 key={`area-${area.id}`}
                      />
-                    <IconButton onClick={(event) => cardSettingsClick(event, area.area_name, area.id)} >
+                    <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} >
                         <CloseIcon />
                     </IconButton>
                 </Box>
-                { tasksArray ?
+                { (area.area_name && tasksArray) ?
                     tasksArray.map((task, taskIndex) => (
                         <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
                             descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}
                         />
                     ))
                   :
-                    <CircularProgress/>
+                    area.id  === '' ? '' : <CircularProgress/>
                 }
             </CardContent>
             <SnackBar {...{snackBarOpen,
