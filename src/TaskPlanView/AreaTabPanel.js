@@ -122,7 +122,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
     }
 
     const updateArea = (event, areaIndex, areaId) => {
-        
+
         const noop = ()=>{};
 
         if ((areaId === '') &&
@@ -135,7 +135,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
             if (areaId === '') {
                 saveArea(event, areaIndex)
             } else {
-                
+
                 // Otherwise we are updating the name of an existing area
                 let uri = `${darwinUri}/areas`;
                 call_rest_api(uri, 'PUT', [{'id': areaId, 'area_name': areasArray[areaIndex].area_name}], idToken)
@@ -177,13 +177,15 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                 }
             }).catch(error => {
                 snackBarError(error, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
-            });        
+            });
     }
 
     const clickCardClosed = (event, areaName, areaId) => {
         // stores data re: card to close, opens dialog
-        setAreaCloseId({ areaName, areaId });
-        setCardSettingsDialogOpen(true);
+        if (areaId !== '') {
+            setAreaCloseId({ areaName, areaId });
+            setCardSettingsDialogOpen(true);
+        }
     }
 
     const areaSortBySortOrder = (areaA, areaB) => {

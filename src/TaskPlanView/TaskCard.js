@@ -313,14 +313,14 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 variant="standard"
                                 value={area.area_name || ''}
                                 name='area-name'
-                                label={area.area_name !== '' ? '' : 'New Area Name'}
+                                /*label={((area.area_name !== '') && (area.id !== '')) ? '' : 'New Area Name'}*/
                                 onChange= { (event) => areaChange(event, areaIndex) }
                                 onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
                                 onBlur = {(event) => areaOnBlur(event, areaIndex, area.id)}
                                 multiline
                                 autoComplete='off'
                                 size = 'small'
-                                InputProps={{...(area.id !== '' && {disableUnderline: true}), style: {fontSize: 24}}}
+                                InputProps={{...((area.id !== '') ? {disableUnderline: true} : (area.area_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}}}
                                 /*InputProps={{disableUnderline: true, style: {fontSize: 24}}}*/
                                 inputProps={{ maxLength: 32 }}
                                 key={`area-${area.id}`}
@@ -329,10 +329,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                         <CloseIcon />
                     </IconButton>
                 </Box>
-                { (area.area_name && tasksArray) ?
+                { (tasksArray) ?
                     tasksArray.map((task, taskIndex) => (
                         <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
-                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}
+                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId: area.id, areaName: area.area_name }}
                         />
                     ))
                   :

@@ -16,7 +16,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
 const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, descriptionChange,
-    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, taskSort }) => {
+    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName }) => {
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "taskPlan",
@@ -64,6 +64,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                 onClick = {() => priorityClick(taskIndex, task.id)}
                 icon={<ReportGmailerrorredOutlinedIcon />}
                 checkedIcon={<ReportIcon />}
+                disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                 key={`priority-${task.id}`}
             />
             <Checkbox
@@ -71,16 +72,18 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                 onClick = {() => doneClick(taskIndex, task.id)}
                 icon={<CheckCircleOutlineIcon />}
                 checkedIcon={<CheckCircleIcon />}
+                disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                 key={`done-${task.id}`}
             /> 
             <TextField variant="outlined"
                         value={task.description || ''}
                         name='description'
-                        onChange= { (event) => descriptionChange(event, taskIndex) }
+                        onChange = {(event) => descriptionChange(event, taskIndex) }
                         onKeyDown = {(event) => descriptionKeyDown(event, taskIndex, task.id)}
                         onBlur = {(event) => descriptionOnBlur(event, taskIndex, task.id)}
                         multiline
-                        autoComplete='off'
+                        disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                        autoComplete ='off'
                         sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
                         size = 'small'
                         /* inputProps={{ tabIndex: `${taskIndex}` }} */
@@ -88,7 +91,9 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                         key={`description-${task.id}`}
              />
             { task.id === '' ?
-                <IconButton key={`savings-${task.id}`}>
+                <IconButton key={`savings-${task.id}`}
+                            disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                >
                     <SavingsIcon key={`savings1-${task.id}`}/>
                 </IconButton>
                 :
