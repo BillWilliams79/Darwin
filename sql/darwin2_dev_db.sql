@@ -231,6 +231,14 @@ ALTER TABLE areas2
 ADD COLUMN sort_order SMALLINT;
 
 
+ALTER TABLE tasks2
+MODIFY COLUMN description VARCHAR(1024) NOT NULL;
+
+desc tasks2;
+SHOW CREATE TABLE tasks2;
+
+select * from tasks2;
+
 SELECT
 	*
 FROM

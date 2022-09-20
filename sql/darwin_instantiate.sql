@@ -158,4 +158,13 @@ ADD CONSTRAINT tasks_ibfk_1 FOREIGN KEY (creator_fk) REFERENCES profiles(id) ON 
 ALTER TABLE areas
 ADD COLUMN sort_order SMALLINT;
 
+/* ######################################################################### */
+/* UPDATE #5 User request to have longer  task description                   */
+/* (varchar(1024) instead of 256)                                            */
+
+ALTER TABLE tasks
+MODIFY COLUMN description VARCHAR(1024) NOT NULL;
+
+
 /* Future Update Here */
+USE darwin;

@@ -87,7 +87,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                         sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
                         size = 'small'
                         /* inputProps={{ tabIndex: `${taskIndex}` }} */
-                        inputProps={{ maxLength: 256 }}
+                        inputProps={{ maxLength: 1024 }}
                         key={`description-${task.id}`}
              />
             { task.id === '' ?
