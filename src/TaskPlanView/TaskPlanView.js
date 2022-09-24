@@ -1,4 +1,5 @@
 import '../index.css';
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
@@ -10,14 +11,12 @@ import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
 
 import React, { useState, useEffect, useContext } from 'react';
-import { Navigate } from "react-router-dom"
 
 import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
-import TabList from '@material-ui/lab/TabList';
 import { CircularProgress, Tabs } from '@mui/material';
 
 const TaskPlanView = () => {
@@ -69,7 +68,7 @@ const TaskPlanView = () => {
                 snackBarError(error, 'Unable to read Domain info from database', setSnackBarMessage, setSnackBarOpen)
             });
 
-    }, [domainApiTrigger, profile, idToken]);
+    }, [domainApiTrigger, profile, idToken, darwinUri]);
 
     // CLOSE DOMAIN in cooperation with confirmation dialog
     useEffect( () => {
@@ -105,13 +104,13 @@ const TaskPlanView = () => {
         setDomainCloseConfirmed(false);
         setDomainCloseId({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainCloseConfirmed])
 
     // ADD NEW DOMAIN in cooperation with confirmation dialog
     useEffect( () => {
         console.count('useEffect: Add New Domain');
 
-        //TODO confirm areaCloseId is a valid object
         if (domainAddConfirmed === true) {
 
             let uri = `${darwinUri}/domains`;
@@ -127,7 +126,7 @@ const TaskPlanView = () => {
                     } else if (result.httpStatus.httpStatus === 201) {
 
                         // new domain created but db could not return new value, trigger API re-read, pop snackbar
-                        setDomainApiTrigger(domainApiTrigger ? false : true);
+                        setDomainApiTrigger(domainApiTrigger => domainApiTrigger ? false : true);
                     } else {
                         snackBarError(result, `Unable to create ${newDomainInfo}`, setSnackBarMessage, setSnackBarOpen)
                     }
@@ -139,6 +138,7 @@ const TaskPlanView = () => {
         setDomainAddConfirmed(false);
         setNewDomainInfo('');
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainAddConfirmed])
 
     const changeActiveTab = (event, newValue) => {

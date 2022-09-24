@@ -6,7 +6,6 @@ import React, {useContext} from 'react';
 import { Link } from "react-router-dom"
 
 import AppBar from '@mui/material/AppBar';
-import Container from '@mui/material/Container';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
 import Stack from '@mui/material/Stack';
 

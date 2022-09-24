@@ -66,6 +66,7 @@ const call_rest_api = async (url, method, body, idToken) => {
         // is actually the error message, unpleasant overload for now
         httpStatus.httpMessage = data;
         data = null;
+        // eslint-disable-next-line  no-throw-literal
         throw {data, httpStatus}
     }
 

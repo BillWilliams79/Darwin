@@ -1,4 +1,6 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
+
 import React, {useState, useContext, useEffect} from 'react';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
@@ -64,6 +66,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                 }
             });
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaApiTrigger]);
 
     // CLOSE AREA in cooperation with confirmation dialog
@@ -95,6 +98,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
         setAreaCloseConfirmed(false);
         setAreaCloseId({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaCloseConfirmed])
 
     const areaChange = (event, areaIndex) => {

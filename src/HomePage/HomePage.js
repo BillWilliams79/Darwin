@@ -1,5 +1,7 @@
 import '../index.css';
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
+
 import AuthContext from '../Context/AuthContext';
 
 import React,  { useContext, useState, useEffect } from 'react';
@@ -15,7 +17,8 @@ const HomePage = () => {
     console.count('HomePage Render');
 
     const { idToken, } = useContext(AuthContext);
-    const [cookies, setCookie, removeCookie] = useCookies(['idToken', 'accessToken', 'profile']);
+    //eslint-disable-next-line no-unused-vars
+    const [cookie, setCookie] = useCookies(['idToken', 'accessToken', 'profile']);
     const [generatedCsrf, setGeneratedCsrf] = useState();
 
     useEffect( () => {
@@ -27,7 +30,7 @@ const HomePage = () => {
         setGeneratedCsrf(csrf);
         setCookie('csrfToken', csrf, { path: '/', maxAge: 3600 });
 
-    }, [idToken])
+    }, [idToken, setCookie])
 
 
     return (

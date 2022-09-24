@@ -1,11 +1,13 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
+
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import React, { useEffect, useContext, useState } from "react";
-import { useLocation, Navigate, useNavigate } from "react-router-dom"
+import { useLocation, Navigate } from "react-router-dom"
 import { useCookies } from 'react-cookie';
 
 import Typography from '@mui/material/Typography';
@@ -15,7 +17,7 @@ function  LoggedIn() {
 
     console.count('LoggedIn Render');
     const { idToken, setIdToken, 
-            accessToken, setAccessToken, 
+            setAccessToken, 
             profile, setProfile, } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
@@ -120,6 +122,7 @@ function  LoggedIn() {
             setRedirectPath(cookies?.redirectPath || "/");
             removeCookie('redirectPath', {path: '/', maxAge: 600});
 
+        //eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location])
 
     return (

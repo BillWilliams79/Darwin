@@ -1,7 +1,9 @@
+// eslint-disable-next-line no-unused-vars
+import varDump from '../classifier/classifier';
+
 import React, { useState, useEffect, useContext} from 'react'
 import TaskEdit from '../Components/TaskEdit/TaskEdit';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
-import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
@@ -74,6 +76,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                 }
             });
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [taskApiTrigger]);
 
     // DELETE TASK in cooperation with confirmation dialog
@@ -104,6 +107,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         setDeleteConfirmed(false);
         setDeleteId({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deleteConfirmed])
 
     const [, drop] = useDrop(() => ({
