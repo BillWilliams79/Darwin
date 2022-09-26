@@ -1,7 +1,7 @@
-import React, {useState, useContext, useEffect} from 'react';
-
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
+import React, {useState, useEffect} from 'react';
 import { Box } from '@mui/system';
 import { CircularProgress, Typography } from '@mui/material';
 import DayView from './DayView';

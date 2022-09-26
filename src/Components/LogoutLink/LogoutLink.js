@@ -1,7 +1,6 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../../classifier/classifier';
 
-import { useLocation } from "react-router-dom"
-import cryptoRandomString from 'crypto-random-string';
 import { useCookies } from 'react-cookie';
 
 const LogoutLink = () => {
@@ -10,6 +9,7 @@ const LogoutLink = () => {
     // Logout Link provides a mechanism for HomePage to clear all authentication cookies
     // and logout via cognito
 
+    // eslint-disable-next-line no-unused-vars
     const [cookies, setCookie, removeCookie] = useCookies(['profile', 'idToken', 'accessToken']);
 
     removeCookie('idToken', { path: '/', maxAge: ((24 * 3600) - 300), secure: true });

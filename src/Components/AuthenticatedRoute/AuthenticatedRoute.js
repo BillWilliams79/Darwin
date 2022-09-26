@@ -1,4 +1,6 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../../classifier/classifier';
+
 import AuthContext from '../../Context/AuthContext.js'
 
 import {React, useContext} from 'react'

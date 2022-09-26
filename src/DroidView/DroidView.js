@@ -1,19 +1,18 @@
-import '../index.css';
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
+
+import '../index.css';
+
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import React, { useState, useEffect, useContext } from 'react';
-import { Navigate } from "react-router-dom"
 
 import Box from '@mui/material/Box';
-import CloseIcon from '@mui/icons-material/Close';
-import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import TabContext from '@material-ui/lab/TabContext';
-import TabList from '@material-ui/lab/TabList';
 import { CircularProgress, Tabs } from '@mui/material';
 import DroidTabPanel from './DroidTabPanel';
 
@@ -30,7 +29,7 @@ const DroidView = () => {
     // changing this value triggers useState, re-reads all rest API data
     // misleading, but true or flase doesn't matter, just flip the value
     // and set it, the useState is executed
-    const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
+    //const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
 
     // Domain Tabs state
     const [activeTab, setActiveTab] = useState();
@@ -56,7 +55,7 @@ const DroidView = () => {
                 snackBarError(error, 'Unable to read Domain info from database', setSnackBarMessage, setSnackBarOpen)
             });
 
-    }, [droidApiTrigger, droidProfile]);
+    }, [droidProfile, droidsUri]);
 
 
     const changeActiveTab = (event, newValue) => {

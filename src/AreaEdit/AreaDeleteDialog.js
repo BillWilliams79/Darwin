@@ -8,7 +8,7 @@ import Button from '@mui/material/Button';
 
 const AreaDeleteDialog = ({ areaDeleteDialogOpen, setAreaDeleteDialogOpen, areaInfo, setAreaInfo, setAreaDeleteConfirmed }) => {
 
-    const {areaName, areaId, tasksCount } = areaInfo;
+    const {areaName, tasksCount } = areaInfo;
     
     let taskString = ` and its ${tasksCount} related tasks?`;
 

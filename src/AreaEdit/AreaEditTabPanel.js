@@ -1,12 +1,13 @@
+// eslint-disable-next-line no-unused-vars
+import varDump from '../classifier/classifier';
+
 import React, {useState, useContext, useEffect} from 'react';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
-
-import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, /* Draggable */ } from 'react-beautiful-dnd';
 
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -54,6 +55,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         // count(*) returns an array of dict with format {group_by_field, count(*)}
                         // reformat to dictionary: taskcounts.area_fk = count(*)
                         let newTaskCounts = {};
+                        // eslint-disable-next-line array-callback-return
                         result.data.map( (countData) => {
                             newTaskCounts[countData.area_fk] = countData['count(*)']; 
                         })
@@ -78,6 +80,8 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                     snackBarError(error, `Unable to read area data for domain ${domain.id}`, setSnackBarMessage, setSnackBarOpen)
                 }
             });
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaApiTrigger]);
 
     // DELETE AREA in cooperation with confirmation dialog
@@ -85,7 +89,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         console.count('useEffect: delete area');
 
         if (areaDeleteConfirmed === true) {
-            const {areaName, areaId } = areaInfo;
+            const { areaId } = areaInfo;
 
             let uri = `${darwinUri}/areas`;
             call_rest_api(uri, 'DELETE', {'id': areaId}, idToken)
@@ -107,6 +111,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         setAreaDeleteConfirmed(false);
         setAreaInfo({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaDeleteConfirmed])    
 
     const changeAreaName = (event, areaIndex) => {

@@ -1,7 +1,9 @@
+// eslint-disable-next-line no-unused-vars
+import varDump from '../classifier/classifier';
+
 import React, {useState, useContext, useEffect} from 'react';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
-import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
@@ -57,10 +59,11 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 call_rest_api(uri, 'GET', '', idToken)
                     .then(result => {
                         // count(*) returns an array of dict with format {group_by_field, count(*)}
-                        // reformat to dictionary: taskcounts.area_fk = count(*)
+                        // reformat to dictionary: taskcounts.area_fk = count(*) using map
                         let newAreaCounts = {};
+                        // eslint-disable-next-line array-callback-return
                         result.data.map( (countData) => {
-                            newAreaCounts[countData.domain_fk] = countData['count(*)']; 
+                            newAreaCounts[countData.domain_fk] = countData['count(*)'];
                         })
 
                         setAreaCounts(newAreaCounts);
@@ -76,6 +79,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 varDump(error, `UseEffect: error retrieving Domains: ${error}`);
             });
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainApiTrigger]);
 
     // DELETE DOMAIN in cooperation with confirmation dialog
@@ -83,7 +87,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         console.count('useEffect: delete domain');
 
         if (domainDeleteConfirmed === true) {
-            const {domainName, domainId } = domainInfo;
+            const { domainId } = domainInfo;
 
             let uri = `${darwinUri}/domains`;
             call_rest_api(uri, 'DELETE', {'id': domainId}, idToken)
@@ -105,6 +109,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         setDomainDeleteConfirmed(false);
         setDomainInfo({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainDeleteConfirmed])    
 
     const changeDomainName = (event, domainIndex) => {

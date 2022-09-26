@@ -1,10 +1,12 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
-import React, {useState, useContext, useEffect} from 'react';
-import call_rest_api from '../RestApi/RestApi';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
-import AuthContext from '../Context/AuthContext.js'
-import AppContext from '../Context/AppContext';
+import React, {useState, useEffect} from 'react';
+
+import {SnackBar} from '../Components/SnackBar/SnackBar';
+
+//import AuthContext from '../Context/AuthContext.js'
+//import AppContext from '../Context/AppContext';
 
 import { Box } from '@mui/system';
 import { TabPanel } from '@material-ui/lab';
@@ -16,14 +18,16 @@ const DroidTabPanel = ( { droid, droidIndex } ) => {
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards
 
-    const { droidProfile } = useContext(AuthContext);
-    const { droidUri } = useContext(AppContext);
+    //const { droidProfile } = useContext(AuthContext);
+    //const { droidUri } = useContext(AppContext);
 
     const [sensorsArray, setSensorsArray] = useState()
-    const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
+    //const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
 
     // snackBar state
     const [snackBarOpen, setSnackBarOpen] = useState(false);
+
+    // eslint-disable-next-line no-unused-vars  
     const [snackBarMessage, setSnackBarMessage] = useState('');
 
 
@@ -54,7 +58,7 @@ const DroidTabPanel = ( { droid, droidIndex } ) => {
                 varDump(error, `UseEffect: error retrieving Areas: ${error}`);
             });
  */
-    }, [droidApiTrigger]);
+    }, [setSensorsArray]);
 
     return (
             <TabPanel key={droidIndex} value={droidIndex.toString()} 

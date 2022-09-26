@@ -1,6 +1,8 @@
+// eslint-disable-next-line no-unused-vars
+import varDump from '../classifier/classifier';
+
 import { createContext, useState, useEffect } from 'react';
 import { useCookies } from 'react-cookie';
-import varDump from '../classifier/classifier';
 
 const AuthContext = createContext({});
 
@@ -9,7 +11,7 @@ export const AuthContextProvider = ({ children }) => {
 
     console.count('AuthContext initilialized');
 
-    const [cookies, setCookie, removeCookie] = useCookies(['idToken', 'accessToken', 'profile']);
+    const [cookies] = useCookies(['idToken', 'accessToken', 'profile']);
 
     // Set initial values by directly reading the cookie, this defeats the race condition of
     // reading the values from useEffect. However, keeping useEffect since it conveniently
@@ -39,6 +41,7 @@ export const AuthContextProvider = ({ children }) => {
             setProfile(cookies?.profile);
         }
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cookies])
 
     return (

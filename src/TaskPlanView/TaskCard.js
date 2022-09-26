@@ -63,8 +63,8 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     snackBarError(result, 'Unable to read tasks', setSnackBarMessage, setSnackBarOpen)
                 }  
 
-            }).catch(error => {
 
+            }).catch(error => {
                 if (error.httpStatus.httpStatus === 404) {
 
                     // 404 = no tasks currently in this area, so we can add the blank and be done

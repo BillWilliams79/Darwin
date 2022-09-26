@@ -98,6 +98,7 @@ const DayView = (date) => {
                 }
             });
 
+            // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [taskApiToggle]);
 
     // DELETE TASK in cooperation with confirmation dialog
@@ -130,6 +131,7 @@ const DayView = (date) => {
         setTaskEditDialogOpen(false);
         setTaskEditInfo({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deleteConfirmed])
 
     // Drop support from drag and drop

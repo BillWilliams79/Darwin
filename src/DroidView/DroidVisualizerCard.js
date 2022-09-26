@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useContext} from 'react'
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
-import call_rest_api from '../RestApi/RestApi';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
-import AuthContext from '../Context/AuthContext.js'
+import React, { useState, useEffect, useContext} from 'react'
+import call_rest_api from '../RestApi/RestApi';
+import {SnackBar} from '../Components/SnackBar/SnackBar';
+
+//import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
-import TextField from '@mui/material/TextField';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@material-ui/core';
@@ -18,14 +19,15 @@ import { Typography } from '@mui/material';
 const DroidVisualizerCard = ({sensorObject, sensorIndex, droidId }) => {
 
     // Task card is the list of tasks per area displayed in a card.
-    const { droidProfile } = useContext(AuthContext);
+    //const { droidProfile } = useContext(AuthContext);
     const { droidsUri } = useContext(AppContext);
 
     // Array of task objects
     const [droidDataArray, setDroidDataArray] = useState()
-    const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
+    //const [droidApiTrigger, setDroidApiTrigger] = useState(false); 
 
     const [snackBarOpen, setSnackBarOpen] = useState(false);
+    // eslint-disable-next-line no-unused-vars
     const [snackBarMessage, setSnackBarMessage] = useState('');
 
     console.count(`Render visualizer for sensor: ${sensorObject.displayName}`)
@@ -36,16 +38,16 @@ const DroidVisualizerCard = ({sensorObject, sensorIndex, droidId }) => {
         console.count('useEffect: read task API data for a given area');
 
         // create the start date string for the URI
-        var startDate = new Date();
-        startDate.setDate(startDate.getDate() - 5);
-        startDate.setHours(0,0,0,0);
-        var startDateString = startDate.toISOString().slice(0,19);
+        //var startDate = new Date();
+        //startDate.setDate(startDate.getDate() - 5);
+        //startDate.setHours(0,0,0,0);
+        //var startDateString = startDate.toISOString().slice(0,19);
 
         // create the end date string for the URI
-        var endDate = new Date();
-        endDate.setDate(endDate.getDate() - 4);
-        endDate.setHours(0,0,0,0);
-        var endDateString = endDate.toISOString().slice(0,19);
+        //var endDate = new Date();
+        //endDate.setDate(endDate.getDate() - 4);
+        //endDate.setHours(0,0,0,0);
+        //var endDateString = endDate.toISOString().slice(0,19);
 
 
         // FETCH TASKS: filter for creator, done=0 and area.id
@@ -89,7 +91,8 @@ const DroidVisualizerCard = ({sensorObject, sensorIndex, droidId }) => {
                 }
             });
 
-    }, [droidApiTrigger]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return (
         <Card key={sensorObject.name} raised={true} >

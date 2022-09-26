@@ -1,4 +1,6 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../../classifier/classifier';
+
 import TaskDeleteDialog from '../TaskDeleteDialog/TaskDeleteDialog';
 import TaskEdit from '../TaskEdit/TaskEdit';
 

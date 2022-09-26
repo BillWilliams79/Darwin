@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../../classifier/classifier';
 
 import { useLocation } from "react-router-dom"
@@ -11,6 +12,7 @@ const LoginLink = () => {
     // works if the app never leaves your domain or is reset (e.g. useState). So have to store
     // the return link in browser storage such as cookie (for now). Cookie data picked up in loggedin
 
+    // eslint-disable-next-line no-unused-vars
     const [cookies, setCookie] = useCookies(['csrfToken']);
     const location = useLocation();
 

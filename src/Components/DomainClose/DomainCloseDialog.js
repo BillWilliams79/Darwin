@@ -1,4 +1,6 @@
+// eslint-disable-next-line no-unused-vars
 import varDump from '../../classifier/classifier';
+
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';

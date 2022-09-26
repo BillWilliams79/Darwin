@@ -68,6 +68,7 @@ const AreaEdit = () => {
                 varDump(error, `UseEffect: error retrieving Domains: ${error}`);
             });
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainApiTrigger]);
 
     // CLOSE DOMAIN in cooperation with confirmation dialog
@@ -76,7 +77,7 @@ const AreaEdit = () => {
 
         //TODO confirm areaCloseId is a valid object
         if (domainCloseConfirmed === true) {
-            const { domainName, domainId, domainIndex  } = domainCloseId;
+            const { domainId, domainIndex  } = domainCloseId;
 
             let uri = `${darwinUri}/domains`;
             call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1}], idToken)
@@ -103,6 +104,7 @@ const AreaEdit = () => {
         setDomainCloseConfirmed(false);
         setDomainCloseId({});
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainCloseConfirmed])
 
     // ADD NEW DOMAIN in cooperation with confirmation dialog
@@ -137,6 +139,7 @@ const AreaEdit = () => {
         setDomainAddConfirmed(false);
         setNewDomainInfo('');
 
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainAddConfirmed])
 
     const changeActiveTab = (event, newValue) => {

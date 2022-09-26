@@ -1,6 +1,7 @@
-import React from 'react'
+// eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
+import React from 'react'
 import { useDrag } from "react-dnd";
 
 import Box from '@mui/material/Box';

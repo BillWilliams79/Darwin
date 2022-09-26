@@ -8,7 +8,7 @@ import Button from '@mui/material/Button';
 
 const DomainDeleteDialog = ({ domainDeleteDialogOpen, setDomainDeleteDialogOpen, domainInfo, setDomainInfo, setDomainDeleteConfirmed }) => {
 
-    const {domainName, domainId, tasksCount } = domainInfo;
+    const {domainName, tasksCount } = domainInfo;
     
     let taskString = ` and its ${tasksCount} related tasks?`;
 
