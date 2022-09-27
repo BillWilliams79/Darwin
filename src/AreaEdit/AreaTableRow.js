@@ -78,8 +78,8 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
     return (
         <Draggable key={area.id} draggableId={`areaId-${area.id}`} index={areaIndex}>
             {(provided) => (
-                <TableRow ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}
-                          /*key={area.id}*/
+                <TableRow ref={provided.innerRef} {...(((area.closed === 0) && (area.id !== '')) && provided.draggableProps)} {...(((area.closed === 0) && (area.id !== '')) && provided.dragHandleProps)}
+                          /*key={area.id} {...(task.done === 1 && {textDecoration: 'line-through'}),} */
                           /*ref={drag}
                           sx = {{...(isDragging && {opacity: 0.2}),}}*/
                 >

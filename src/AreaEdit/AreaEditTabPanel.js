@@ -331,8 +331,10 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
         let uri = `${darwinUri}/areas`;
         call_rest_api(uri, 'PUT', restDataArray, idToken)
             .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
+                if ((result.httpStatus.httpStatus === 200)
+                    (result.httpStatus.httpStatus === 204)) {
                     // database value is changed only with a 200 response
+                    // or no change was required with a 204 respone
                     // so only then show snackbar
                     console.log('sort order saved');
                 } else {
