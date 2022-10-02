@@ -39,7 +39,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
 
         console.count('useEffect: read all Rest API data');
 
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order`;
+        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order,creator_fk`;
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
@@ -60,7 +60,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                 if (error.httpStatus.httpStatus === 404) {
 
                     // a domain with no areas, still requires a template area
-                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1 }]);
+                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'creator_fk': profile.userName, }]);
                 } else {
                     snackBarError(error, 'Unable to read Area data', setSnackBarMessage, setSnackBarOpen)
                 }
