@@ -69,6 +69,10 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                 checkedIcon={<ReportIcon />}
                 disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                 key={`priority-${task.id}`}
+                sx = {{maxWidth: "25px",
+                       maxHeight: "25px",
+                       mr: "2px",
+                }}
             />
             <Checkbox
                 checked = {task.done ? true : false}
@@ -77,6 +81,10 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
                 checkedIcon={<CheckCircleIcon />}
                 disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                 key={`done-${task.id}`}
+                sx = {{maxWidth: "25px",
+                       maxHeight: "25px",
+                       mr: "2px",
+                }}
             /> 
             <TextField variant="outlined"
                         value={task.description || ''}
@@ -96,11 +104,19 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
             { task.id === '' ?
                 <IconButton key={`savings-${task.id}`}
                             disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                            sx = {{maxWidth: "25px",
+                                   maxHeight: "25px",
+                            }}
                 >
                     <SavingsIcon key={`savings1-${task.id}`}/>
                 </IconButton>
                 :
-                <IconButton  onClick={(event) => deleteClick(event, task.id)} key={`delete-${task.id}`}>
+                <IconButton  onClick={(event) => deleteClick(event, task.id)}
+                             key={`delete-${task.id}`}
+                             sx = {{maxWidth: "25px",
+                                    maxHeight: "25px",
+                             }}
+                >
                     <DeleteIcon key={`delete1-${task.id}`} />
                 </IconButton>
             }

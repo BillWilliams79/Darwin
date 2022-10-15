@@ -1,12 +1,5 @@
-/* .app-layout {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    grid-template-areas:
-    "nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar nav-bar"
-    "title__ title__ title__ title__ title__ title__ title__ title__"
-    "content content content content content content content content";
-  } */
 
+@media screen and (max-width: 899px) {
   .app-layout {
     display: grid;
     grid-template-columns: repeat(auto-fit, 1fr);
@@ -16,6 +9,7 @@
     "content";
     padding-bottom: 1px;
   }
+}
 
 @media screen and (min-width: 900px) {
     .app-layout {
@@ -41,8 +35,19 @@
     grid-area: tabs;
 }
 
-.app-content-tabpanel {
-    grid-area: tab-panels;
+
+@media screen and (max-width: 899px) {
+    .app-content-tabpanel {
+        grid-area: tab-panels;
+        padding: 0 !important;
+    }
+}
+
+@media screen and (min-width: 900px) {
+    .app-content-tabpanel {
+        grid-area: tab-panels;
+        padding: 24 !important;
+    }
 }
 
 
