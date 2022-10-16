@@ -21,7 +21,6 @@ import DomainEdit from './DomainEdit/DomainEdit';
 import Profile from './NavBar/Profile';
 import Error404 from './Error404/Error404';
 import LogoutLink from './Components/LogoutLink/LogoutLink';
-import DroidView from './DroidView/DroidView';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -51,10 +50,6 @@ root.render(
                     <Route path="domainedit"   element= {<AuthenticatedRoute>
                                                              <DomainEdit />
                                                          </AuthenticatedRoute>} />
-                     <Route path="droidview"   element= {<AuthenticatedRoute>
-                                                             <DroidView />
-                                                         </AuthenticatedRoute>} />
-
                     <Route path="profile"      element= {<AuthenticatedRoute>
                                                              <Profile />
                                                          </AuthenticatedRoute>} />

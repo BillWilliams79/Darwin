@@ -35,6 +35,7 @@ function  LoggedIn() {
 
         // STEP 1: verify CSRF token match and presence of id/access tokens.
         //         Fail if criteria not met with appropriate message.
+
         const hashParams = {};
 
         if (location.hash) {
@@ -146,8 +147,8 @@ function  LoggedIn() {
                 </>
             }
             <SnackBar {...{snackBarOpen,
-               setSnackBarOpen,
-               snackBarMessage,}} />
+                           setSnackBarOpen,
+                           snackBarMessage,}} />
         </>
     )
 }

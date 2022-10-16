@@ -20,7 +20,6 @@ export const AuthContextProvider = ({ children }) => {
     const [idToken, setIdToken] = useState(cookies?.idToken)
     const [accessToken, setAccessToken] = useState(cookies?.accessToken)
     const [profile, setProfile] = useState(cookies?.profile)
-    const [droidProfile, setDroidProfile] = useState(1);
 
     useEffect( () => {
 
@@ -49,7 +48,6 @@ export const AuthContextProvider = ({ children }) => {
             idToken, setIdToken,
             accessToken, setAccessToken,
             profile, setProfile,
-            droidProfile, setDroidProfile,
         }} >
             {children}
         </AuthContext.Provider>
