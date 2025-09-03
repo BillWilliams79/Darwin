@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE TABLE IF NOT EXISTS domains (
     id 							INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
-    domain_name 				VARCHAR(32)	NOT NULL,
+    domain_name 				VARCHAR(64)	NOT NULL,
     creator_fk 					INT				NULL,
     create_ts       			TIMESTAMP 		NULL DEFAULT CURRENT_TIMESTAMP,
     update_ts       			TIMESTAMP		NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS domains (
 
 CREATE TABLE IF NOT EXISTS areas (
     id							INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
-    area_name 					VARCHAR(32)	NOT NULL,
+    area_name 					VARCHAR(64)	NOT NULL,
     domain_fk					INT				NULL,
 	creator_fk					INT				NULL,
     create_ts        			TIMESTAMP 		NULL DEFAULT CURRENT_TIMESTAMP,
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id		 					INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
     priority					BOOLEAN			NOT NULL,
     done						BOOLEAN			NOT NULL,
-    description					VARCHAR(256)	NOT NULL,
+    description					VARCHAR(2048)	NOT NULL,
     area_fk						INT				NULL,
 	creator_fk					INT				NULL,
     create_ts        			TIMESTAMP		NULL DEFAULT CURRENT_TIMESTAMP,
