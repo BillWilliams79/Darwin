@@ -14,7 +14,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import { Tabs } from '@mui/material';
 import Tab from '@mui/material/Tab';
-import TabContext from '@material-ui/lab/TabContext';
 import { Typography } from '@mui/material';
 import AreaEditTabPanel from './AreaEditTabPanel';
 
@@ -171,31 +170,30 @@ const AreaEdit = () => {
             { domainsArray &&
                 <>
                     <Box className="app-edit" sx={{ml:2}}>
-                        <TabContext value={activeTab.toString()}>
-                            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                                <Tabs value={activeTab.toString()}
-                                      onChange={changeActiveTab}
-                                      variant="scrollable"
-                                      scrollButtons="auto" >
-                                    { domainsArray.map( (domain, domainIndex) => 
-                                        <Tab key={domain.id}
-                                             icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
-                                             label={domain.domain_name} 
-                                             value={domainIndex.toString()}
-                                             iconPosition="end" />
-                                    )}
-                                    <Tab key={9999}
-                                         icon={<AddIcon onClick={addDomain}/>}
-                                         iconPosition="start"
-                                         value={9999} /* used in changeActiveTab */ /> 
-                                </Tabs>
-                            </Box>
-                                { domainsArray.map( (domain, domainIndex) => 
-                                    <AreaEditTabPanel key={domain.id}
-                                                      domain = {domain} 
-                                                      domainIndex = {domainIndex} />
+                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto" >
+                                { domainsArray.map( (domain, domainIndex) =>
+                                    <Tab key={domain.id}
+                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                         label={domain.domain_name}
+                                         value={domainIndex.toString()}
+                                         iconPosition="end" />
                                 )}
-                        </TabContext>
+                                <Tab key={9999}
+                                     icon={<AddIcon onClick={addDomain}/>}
+                                     iconPosition="start"
+                                     value={9999} /* used in changeActiveTab */ />
+                            </Tabs>
+                        </Box>
+                            { domainsArray.map( (domain, domainIndex) =>
+                                <AreaEditTabPanel key={domain.id}
+                                                  domain = {domain}
+                                                  domainIndex = {domainIndex}
+                                                  activeTab = {activeTab} />
+                            )}
                     </Box>
                     <SnackBar {...{snackBarOpen,
                                    setSnackBarOpen,

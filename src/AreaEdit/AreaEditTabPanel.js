@@ -16,12 +16,11 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 
 import { Box } from '@mui/system';
-import { TabPanel } from '@material-ui/lab';
 
 import AreaDeleteDialog from './AreaDeleteDialog';
 import AreaTableRow from './AreaTableRow';
 
-const AreaEditTabPanel = ( { domain, domainIndex } ) => {
+const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -350,7 +349,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
 
     return (
         <>
-            <TabPanel key={domainIndex} value={domainIndex.toString()} >
+            <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)} sx={{ p: 3 }} >
                 { areasArray && 
                     <Box>
                         <Table size='small'>
@@ -386,7 +385,7 @@ const AreaEditTabPanel = ( { domain, domainIndex } ) => {
                         </Table>
                     </Box>  
                 }
-            </TabPanel>
+            </Box>
             <SnackBar {...{snackBarOpen,
                            setSnackBarOpen,
                            snackBarMessage,}} />

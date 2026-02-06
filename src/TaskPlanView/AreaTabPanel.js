@@ -12,9 +12,8 @@ import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 
 import { Box } from '@mui/system';
-import { TabPanel } from '@material-ui/lab';
 
-const AreaTabPanel = ( { domain, domainIndex } ) => {
+const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards
@@ -204,8 +203,9 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
     }
 
     return (
-            <TabPanel key={domainIndex} value={domainIndex.toString()} 
-                      className="app-content-tabpanel"
+            <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)}
+                 className="app-content-tabpanel"
+                 sx={{ p: 3 }}
             >
                 { areasArray && 
                     <Box className="card">
@@ -230,7 +230,7 @@ const AreaTabPanel = ( { domain, domainIndex } ) => {
                                       setAreaCloseId,
                                       setAreaCloseConfirmed}}
                 />
-            </TabPanel>
+            </Box>
     )
 }
 

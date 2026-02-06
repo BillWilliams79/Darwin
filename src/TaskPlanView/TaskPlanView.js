@@ -16,7 +16,6 @@ import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
-import TabContext from '@material-ui/lab/TabContext';
 import { CircularProgress, Tabs } from '@mui/material';
 
 const TaskPlanView = () => {
@@ -165,7 +164,6 @@ const TaskPlanView = () => {
         {domainsArray ?
             <>
             <Box className="app-content-planpage">
-                <TabContext value={activeTab.toString()}>
                     <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
                          className="app-content-tabs"
                     >
@@ -173,10 +171,10 @@ const TaskPlanView = () => {
                               onChange={changeActiveTab}
                               variant="scrollable"
                               scrollButtons="auto" >
-                            {domainsArray.map( (domain, domainIndex) => 
+                            {domainsArray.map( (domain, domainIndex) =>
                                 <Tab key={domain.id}
                                      icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
-                                     label={domain.domain_name} 
+                                     label={domain.domain_name}
                                      value={domainIndex.toString()}
                                      iconPosition="end" />
                             )}
@@ -187,14 +185,14 @@ const TaskPlanView = () => {
                             />
                         </Tabs>
                     </Box>
-                        {   domainsArray.map( (domain, domainIndex) => 
+                        {   domainsArray.map( (domain, domainIndex) =>
                                 <AreaTabPanel key={domain.id}
                                               domain = {domain}
-                                              domainIndex = {domainIndex}>
+                                              domainIndex = {domainIndex}
+                                              activeTab = {activeTab}>
                                 </AreaTabPanel>
                             )
                         }
-                </TabContext>
             </Box>
             <SnackBar {...{snackBarOpen,
                            setSnackBarOpen,
