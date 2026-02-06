@@ -277,7 +277,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                                                onBlur = {(event) => blurDomainName(event, domainIndex, domain.id)}
                                                autoComplete='off'
                                                size = 'small'
-                                               inputProps={{ maxLength: 32 }}
+                                               slotProps={{ htmlInput: { maxLength: 32 } }}
                                                key={`name-${domain.id}`}
                                      />                                    
                                 </TableCell>

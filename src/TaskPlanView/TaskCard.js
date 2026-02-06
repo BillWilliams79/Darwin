@@ -324,9 +324,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 multiline
                                 autoComplete='off'
                                 size = 'small'
-                                InputProps={{...((area.id !== '') ? {disableUnderline: true} : (area.area_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}}}
-                                /*InputProps={{disableUnderline: true, style: {fontSize: 24}}}*/
-                                inputProps={{ maxLength: 32 }}
+                                slotProps={{
+                                    input: {...((area.id !== '') ? {disableUnderline: true} : (area.area_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
+                                    htmlInput: { maxLength: 32 }
+                                }}
                                 key={`area-${area.id}`}
                      />
                     <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} >

@@ -92,7 +92,7 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                                    onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
                                    autoComplete='off'
                                    size = 'small'
-                                   inputProps={{ maxLength: 32 }}
+                                   slotProps={{ htmlInput: { maxLength: 32 } }}
                                    key={`name-${area.id}`} />
                     </TableCell>
                     <TableCell> 
