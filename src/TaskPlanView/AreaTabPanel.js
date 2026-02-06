@@ -8,12 +8,13 @@ import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
+import { useDrop } from 'react-dnd';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
+const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, clearDragTabSwitch } ) => {
 
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards
@@ -262,13 +263,193 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
         });
     }, [darwinUri, idToken]);
 
+    const removeArea = useCallback((areaId) => {
+        setAreasArray(prev => {
+            if (!prev) return prev;
+            const updated = prev.filter(area => area.id !== areaId);
+            // renumber sort_order for remaining real cards
+            const renumbered = updated.map((area, index) => {
+                if (area.id !== '') {
+                    return { ...area, sort_order: index };
+                }
+                return area;
+            });
+
+            // persist new sort orders to API
+            const restDataArray = renumbered
+                .filter(area => area.id !== '')
+                .map(area => ({ id: area.id, sort_order: area.sort_order }));
+
+            if (restDataArray.length > 0) {
+                let uri = `${darwinUri}/areas`;
+                call_rest_api(uri, 'PUT', restDataArray, idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                            snackBarError(result, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                        }
+                    }).catch(error => {
+                        snackBarError(error, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                    });
+            }
+
+            areasBeforeDrag.current = null;
+            return renumbered;
+        });
+    }, [darwinUri, idToken]);
+
+    const [, panelDrop] = useDrop(() => ({
+        accept: ['areaCard', 'taskPlan'],
+        canDrop: (item, monitor) => {
+            // Always accept tasks — acts as catch-all to prevent browser snap-back
+            if (monitor.getItemType() === 'taskPlan') return true;
+            // Accept foreign area cards not yet adopted, and already-adopted foreign cards
+            if (item.sourceDomainId) return item.sourceDomainId !== domain.id;
+            return item.domainId !== domain.id;
+        },
+        hover: (item, monitor) => {
+            // Only area cards get hover adoption, not tasks
+            if (monitor.getItemType() !== 'areaCard') return;
+            // Already in this domain — nothing to do
+            if (item.domainId === domain.id) return;
+
+            const currentAreas = areasArray || [];
+
+            // Return-to-origin: card was never removed from this domain's array.
+            // Clean up the adoption from the other domain and restore item state.
+            if (currentAreas.find(a => a.id === item.areaId)) {
+                if (item.removeFromTarget) item.removeFromTarget();
+                item.areaIndex = currentAreas.findIndex(a => a.id === item.areaId);
+                item.domainId = domain.id;
+                item.sourceDomainId = undefined;
+                item.removeFromTarget = undefined;
+                item.persistInTarget = undefined;
+                return;
+            }
+
+            // Normal adoption: insert foreign card into this domain's areasArray
+            const insertIndex = currentAreas.filter(a => a.id !== '').length;
+
+            setAreasArray(prev => {
+                if (!prev) return prev;
+                if (prev.find(a => a.id === item.areaId)) return prev;
+                const newArea = { ...item.areaData, domain_fk: domain.id, _isAdopted: true };
+                const templateIdx = prev.findIndex(a => a.id === '');
+                const updated = [...prev];
+                if (templateIdx >= 0) {
+                    updated.splice(templateIdx, 0, newArea);
+                } else {
+                    updated.push(newArea);
+                }
+                return updated;
+            });
+
+            item.sourceDomainId = item.domainId;
+            item.domainId = domain.id;
+            item.areaIndex = insertIndex;
+
+            // Lock until React commits the insertion
+            item.movePending = true;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    item.movePending = false;
+                });
+            });
+
+            // Store cleanup function for cancel case
+            item.removeFromTarget = () => {
+                setAreasArray(prev => {
+                    if (!prev) return prev;
+                    return prev.filter(a => a.id !== item.areaId);
+                });
+                areasBeforeDrag.current = null;
+            };
+
+            // Store persist function for successful drop
+            item.persistInTarget = () => {
+                areasBeforeDrag.current = null;
+                setAreasArray(prev => {
+                    if (!prev) return prev;
+                    const updated = prev.map((a, idx) => {
+                        if (a.id === '') return a;
+                        const { _isAdopted, ...clean } = a;
+                        return { ...clean, sort_order: idx };
+                    });
+
+                    const restDataArray = updated
+                        .filter(a => a.id !== '')
+                        .map(a => ({
+                            id: a.id,
+                            sort_order: a.sort_order,
+                            ...(a.id === item.areaId ? { domain_fk: domain.id } : {}),
+                        }));
+
+                    let uri = `${darwinUri}/areas`;
+                    call_rest_api(uri, 'PUT', restDataArray, idToken)
+                        .then(result => {
+                            if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                                snackBarError(result, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                            }
+                        }).catch(error => {
+                            snackBarError(error, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                        });
+
+                    return updated;
+                });
+            };
+        },
+        drop: (item, monitor) => {
+            // If a child (TaskCard) already handled the drop, don't interfere
+            if (monitor.didDrop()) return;
+
+            // Task dropped on panel background (not on a card) — treat as cancel.
+            // Returning {task: null} prevents browser snap-back and tells TaskEdit it's a cancel.
+            if (monitor.getItemType() === 'taskPlan') {
+                return { task: null };
+            }
+
+            if (!item.persistInTarget) {
+                // Direct drop without hover adoption (fallback)
+                const areaData = item.areaData;
+                const newSortOrder = areasArray
+                    ? Math.max(0, ...areasArray.filter(a => a.id !== '').map(a => a.sort_order)) + 1
+                    : 0;
+
+                setAreasArray(prev => {
+                    if (!prev) return prev;
+                    const newArea = { ...areaData, domain_fk: domain.id, sort_order: newSortOrder };
+                    const templateIndex = prev.findIndex(a => a.id === '');
+                    const updated = [...prev];
+                    if (templateIndex >= 0) {
+                        updated.splice(templateIndex, 0, newArea);
+                    } else {
+                        updated.push(newArea);
+                    }
+                    return updated;
+                });
+
+                let uri = `${darwinUri}/areas`;
+                call_rest_api(uri, 'PUT', [{ id: areaData.id, domain_fk: domain.id, sort_order: newSortOrder }], idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                            snackBarError(result, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                        }
+                    }).catch(error => {
+                        snackBarError(error, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                    });
+            }
+
+            clearDragTabSwitch();
+            return { crossDomain: true };
+        },
+    }), [domain.id, areasArray, darwinUri, idToken, clearDragTabSwitch]);
+
     return (
             <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)}
                  className="app-content-tabpanel"
                  sx={{ p: 3 }}
             >
-                { areasArray && 
-                    <Box className="card">
+                { areasArray &&
+                    <Box className="card" ref={panelDrop}>
                         { areasArray.map((area, areaIndex) => (
                             <TaskCard {...{key: area.id,
                                            area,
@@ -280,6 +461,9 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            clickCardClosed,
                                            moveCard,
                                            persistAreaOrder,
+                                           removeArea,
+                                           revertDragTabSwitch,
+                                           clearDragTabSwitch,
                                            isTemplate: area.id === '',}}/>
                         ))}
                     </Box>  

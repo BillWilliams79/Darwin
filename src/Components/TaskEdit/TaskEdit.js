@@ -19,7 +19,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
 const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, descriptionChange,
-    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName }) => {
+    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName,
+    revertDragTabSwitch, clearDragTabSwitch }) => {
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "taskPlan",
@@ -32,24 +33,15 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
 
     const removeTaskFromArea = async (item, monitor) => {
 
-        // getDropResult is finnicky. drag's end method is called immediately after
-        // drop's drop method. getDropResult is suppoed to include the return value
-        // from the drop method, however only values immediately returned from drop
-        // method are available here. So it's not possible to call a rest API in drop
-        // and then update the value for use here. So we can only use drop for
-        // immediate fail cases such as dropping a task back to same card.
         var dropResult = monitor.getDropResult();
 
-        // dropResult is null when dropped outside any valid target or
-        // released in place without leaving the card (no drop event fires).
-        // dropResult.task is null when dropped back on the same card.
-        // In both cases, no action is needed.
         if (!dropResult || dropResult.task === null) {
+            if (revertDragTabSwitch) revertDragTabSwitch();
             return;
         }
 
         // when dropResult.task is non-null, the task is moved off this card
-        // so adjust state accordingly
+        if (clearDragTabSwitch) clearDragTabSwitch();
         var newTasksArray = [...tasksArray];
         newTasksArray = newTasksArray.filter( task => task.id !== item.id);
         setTasksArray(newTasksArray);

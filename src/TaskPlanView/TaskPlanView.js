@@ -10,13 +10,14 @@ import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useRef } from 'react';
 
 import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import { CircularProgress, Tabs } from '@mui/material';
+import DroppableTab from './DroppableTab';
 
 const TaskPlanView = () => {
 
@@ -159,6 +160,36 @@ const TaskPlanView = () => {
         setDomainAddDialogOpen(true);
      }
 
+    const preDragTabRef = useRef(null);
+    const switchBlockedRef = useRef(false);
+
+    const onDragTabSwitch = useCallback((domainIndex) => {
+        // Block stale timer calls that arrive after revert/clear
+        if (switchBlockedRef.current) return;
+        setActiveTab(prev => {
+            if (preDragTabRef.current === null) {
+                preDragTabRef.current = prev;
+            }
+            return domainIndex;
+        });
+    }, []);
+
+    const revertDragTabSwitch = useCallback(() => {
+        switchBlockedRef.current = true;
+        if (preDragTabRef.current !== null) {
+            setActiveTab(preDragTabRef.current);
+            preDragTabRef.current = null;
+        }
+        // Unblock after the current frame so the next drag can switch tabs
+        requestAnimationFrame(() => { switchBlockedRef.current = false; });
+    }, []);
+
+    const clearDragTabSwitch = useCallback(() => {
+        switchBlockedRef.current = true;
+        preDragTabRef.current = null;
+        requestAnimationFrame(() => { switchBlockedRef.current = false; });
+    }, []);
+
     return (
         <> 
         {domainsArray ?
@@ -172,7 +203,9 @@ const TaskPlanView = () => {
                               variant="scrollable"
                               scrollButtons="auto" >
                             {domainsArray.map( (domain, domainIndex) =>
-                                <Tab key={domain.id}
+                                <DroppableTab key={domain.id}
+                                     domainIndex={domainIndex}
+                                     onDragTabSwitch={onDragTabSwitch}
                                      icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                      label={domain.domain_name}
                                      value={domainIndex.toString()}
@@ -189,7 +222,9 @@ const TaskPlanView = () => {
                                 <AreaTabPanel key={domain.id}
                                               domain = {domain}
                                               domainIndex = {domainIndex}
-                                              activeTab = {activeTab}>
+                                              activeTab = {activeTab}
+                                              revertDragTabSwitch = {revertDragTabSwitch}
+                                              clearDragTabSwitch = {clearDragTabSwitch}>
                                 </AreaTabPanel>
                             )
                         }

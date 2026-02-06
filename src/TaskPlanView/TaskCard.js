@@ -20,7 +20,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, isTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, removeArea, revertDragTabSwitch, clearDragTabSwitch, isTemplate }) => {
 
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
@@ -37,7 +37,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     const [deleteConfirmed, setDeleteConfirmed] = useState(false);
     const [deleteId, setDeleteId] = useState({});
 
-    console.count(`Render card for area ${area.id}`)
 
     // READ Task API data for card
     useEffect( () => {
@@ -118,11 +117,16 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             if (monitor.getItemType() === "taskPlan") {
                 return addTaskToArea(item);
             }
-            // areaCard drops are handled via hover + drag end
+            // Cross-domain adopted area card
+            if (item.sourceDomainId && item.sourceDomainId !== domainId) {
+                return { crossDomain: true };
+            }
+            // Same-domain areaCard drops are handled via hover + drag end
         },
 
         hover: (item, monitor) => {
             if (monitor.getItemType() !== "areaCard") return;
+            if (item.domainId !== domainId) return;
             if (isTemplate) return;
             const dragIndex = item.areaIndex;
             const hoverIndex = areaIndex;
@@ -166,19 +170,27 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             isOver: monitor.isOver() && monitor.getItemType() === "areaCard",
         }),
 
-    }), [tasksArray, areaIndex, isTemplate, moveCard]);
+    }), [tasksArray, areaIndex, domainId, isTemplate, moveCard]);
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "areaCard",
-        item: () => ({ areaId: area.id, areaIndex }),
+        item: () => ({ areaId: area.id, areaIndex, domainId, areaData: { ...area } }),
         canDrag: () => !isTemplate,
         collect: (monitor) => ({
             isDragging: monitor.isDragging(),
         }),
         end: (item, monitor) => {
-            persistAreaOrder(monitor.didDrop());
+            const dropResult = monitor.getDropResult();
+            if (dropResult && dropResult.crossDomain) {
+                if (item.persistInTarget) item.persistInTarget();
+                removeArea(item.areaId);
+            } else {
+                if (item.removeFromTarget) item.removeFromTarget();
+                persistAreaOrder(monitor.didDrop());
+                revertDragTabSwitch();
+            }
         },
-    }), [area.id, areaIndex, isTemplate, persistAreaOrder]);
+    }), [area, areaIndex, domainId, isTemplate, persistAreaOrder, removeArea, revertDragTabSwitch]);
 
     const cardRef = useRef(null);
     const mergedRef = useCallback((node) => {
@@ -214,17 +226,17 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     newTasksArray.push(task);
                     newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
                     setTasksArray(newTasksArray);
-                    return {task: task.id};
 
                 } else {
                     snackBarError(result, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
-                    return {task: null};
-                }  
+                }
 
             }).catch(error => {
                 snackBarError(error, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
-                return {task: null};
             });
+
+        // Return synchronously so drag source's end handler knows this was a real drop
+        return {task: task.id};
     };
 
     const priorityClick = (taskIndex, taskId) => {
@@ -380,7 +392,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     return (
         <Card key={areaIndex} raised={true} ref={mergedRef}
               sx={{
-                  opacity: isDragging ? 0.3 : 1,
+                  opacity: isDragging ? 0.3 : area._isAdopted ? 0.5 : 1,
                   cursor: isTemplate ? 'default' : 'grab',
                   border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
                   borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
@@ -411,7 +423,8 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                 { (tasksArray) ?
                     tasksArray.map((task, taskIndex) => (
                         <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
-                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId: area.id, areaName: area.area_name }}
+                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId: area.id, areaName: area.area_name,
+                            revertDragTabSwitch, clearDragTabSwitch }}
                         />
                     ))
                   :
