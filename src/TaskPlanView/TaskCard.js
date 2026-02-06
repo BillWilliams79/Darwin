@@ -130,40 +130,25 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             if (isTemplate) return;
             const dragIndex = item.areaIndex;
             const hoverIndex = areaIndex;
-            if (dragIndex === hoverIndex) return;
+            if (dragIndex === hoverIndex) {
+                item.settled = true;
+                return;
+            }
 
-            // Frame lock: after a move, block further moves until React has
-            // re-rendered and the browser has painted. Without this, hover
-            // events fire on relocated cards with stale closure values and
-            // trigger immediate reverse swaps (the flashing bug).
             if (item.movePending) return;
 
-            // Midpoint check: only swap when cursor crosses the center of
-            // the target card on at least one axis. Makes the swap feel
-            // intentional rather than triggering on first pixel of entry.
-            const hoverRect = cardRef.current?.getBoundingClientRect();
-            if (!hoverRect) return;
-            const clientOffset = monitor.getClientOffset();
-            if (!clientOffset) return;
-
-            const hoverMiddleX = (hoverRect.right - hoverRect.left) / 2;
-            const hoverMiddleY = (hoverRect.bottom - hoverRect.top) / 2;
-            const hoverClientX = clientOffset.x - hoverRect.left;
-            const hoverClientY = clientOffset.y - hoverRect.top;
-
-            if (dragIndex < hoverIndex && hoverClientX < hoverMiddleX && hoverClientY < hoverMiddleY) return;
-            if (dragIndex > hoverIndex && hoverClientX > hoverMiddleX && hoverClientY > hoverMiddleY) return;
+            if (item.settled === false) return;
 
             moveCard(dragIndex, hoverIndex);
             item.areaIndex = hoverIndex;
+            item.settled = false;
 
-            // Lock until two animation frames have elapsed (React commit + browser paint)
+            // 150ms cooldown prevents cascading swaps when the cursor
+            // moves through multiple cards in quick succession.
             item.movePending = true;
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    item.movePending = false;
-                });
-            });
+            setTimeout(() => {
+                item.movePending = false;
+            }, 150);
         },
 
         collect: (monitor) => ({
