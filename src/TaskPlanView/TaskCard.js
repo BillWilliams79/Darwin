@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, { useState, useEffect, useContext} from 'react'
+import React, { useState, useEffect, useContext, useRef, useCallback} from 'react'
 import TaskEdit from '../Components/TaskEdit/TaskEdit';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
@@ -9,7 +9,7 @@ import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
-import { useDrop } from "react-dnd";
+import { useDrop, useDrag } from "react-dnd";
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -20,7 +20,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, isTemplate }) => {
 
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
@@ -110,13 +110,81 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deleteConfirmed])
 
-    const [, drop] = useDrop(() => ({
+    const [{ isOver }, drop] = useDrop(() => ({
 
-        accept: "taskPlan",
+        accept: ["taskPlan", "areaCard"],
 
-        drop: (item) => addTaskToArea(item),
+        drop: (item, monitor) => {
+            if (monitor.getItemType() === "taskPlan") {
+                return addTaskToArea(item);
+            }
+            // areaCard drops are handled via hover + drag end
+        },
 
-    }), [tasksArray]);
+        hover: (item, monitor) => {
+            if (monitor.getItemType() !== "areaCard") return;
+            if (isTemplate) return;
+            const dragIndex = item.areaIndex;
+            const hoverIndex = areaIndex;
+            if (dragIndex === hoverIndex) return;
+
+            // Frame lock: after a move, block further moves until React has
+            // re-rendered and the browser has painted. Without this, hover
+            // events fire on relocated cards with stale closure values and
+            // trigger immediate reverse swaps (the flashing bug).
+            if (item.movePending) return;
+
+            // Midpoint check: only swap when cursor crosses the center of
+            // the target card on at least one axis. Makes the swap feel
+            // intentional rather than triggering on first pixel of entry.
+            const hoverRect = cardRef.current?.getBoundingClientRect();
+            if (!hoverRect) return;
+            const clientOffset = monitor.getClientOffset();
+            if (!clientOffset) return;
+
+            const hoverMiddleX = (hoverRect.right - hoverRect.left) / 2;
+            const hoverMiddleY = (hoverRect.bottom - hoverRect.top) / 2;
+            const hoverClientX = clientOffset.x - hoverRect.left;
+            const hoverClientY = clientOffset.y - hoverRect.top;
+
+            if (dragIndex < hoverIndex && hoverClientX < hoverMiddleX && hoverClientY < hoverMiddleY) return;
+            if (dragIndex > hoverIndex && hoverClientX > hoverMiddleX && hoverClientY > hoverMiddleY) return;
+
+            moveCard(dragIndex, hoverIndex);
+            item.areaIndex = hoverIndex;
+
+            // Lock until two animation frames have elapsed (React commit + browser paint)
+            item.movePending = true;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    item.movePending = false;
+                });
+            });
+        },
+
+        collect: (monitor) => ({
+            isOver: monitor.isOver() && monitor.getItemType() === "areaCard",
+        }),
+
+    }), [tasksArray, areaIndex, isTemplate, moveCard]);
+
+    const [{ isDragging }, drag] = useDrag(() => ({
+        type: "areaCard",
+        item: () => ({ areaId: area.id, areaIndex }),
+        canDrag: () => !isTemplate,
+        collect: (monitor) => ({
+            isDragging: monitor.isDragging(),
+        }),
+        end: (item, monitor) => {
+            persistAreaOrder(monitor.didDrop());
+        },
+    }), [area.id, areaIndex, isTemplate, persistAreaOrder]);
+
+    const cardRef = useRef(null);
+    const mergedRef = useCallback((node) => {
+        cardRef.current = node;
+        drag(drop(node));
+    }, [drag, drop]);
 
     const addTaskToArea = (task) => {
 
@@ -310,7 +378,13 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     }
 
     return (
-        <Card key={areaIndex} raised={true} ref={drop}>
+        <Card key={areaIndex} raised={true} ref={mergedRef}
+              sx={{
+                  opacity: isDragging ? 0.3 : 1,
+                  cursor: isTemplate ? 'default' : 'grab',
+                  border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
+                  borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
+              }}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
                     <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/

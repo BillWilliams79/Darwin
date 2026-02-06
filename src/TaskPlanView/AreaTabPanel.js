@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect} from 'react';
+import React, {useState, useContext, useEffect, useRef, useCallback} from 'react';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
@@ -202,6 +202,66 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
         }
     }
 
+    // --- Area card drag-and-drop reordering ---
+    const areasBeforeDrag = useRef(null);
+
+    const moveCard = useCallback((fromIndex, toIndex) => {
+        setAreasArray(prev => {
+            if (!prev) return prev;
+            // snapshot the pre-drag state on first move
+            if (areasBeforeDrag.current === null) {
+                areasBeforeDrag.current = prev;
+            }
+            const updated = [...prev];
+            const [moved] = updated.splice(fromIndex, 1);
+            updated.splice(toIndex, 0, moved);
+            return updated;
+        });
+    }, []);
+
+    const persistAreaOrder = useCallback((didDrop) => {
+        if (!didDrop) {
+            // drag cancelled — revert to pre-drag snapshot
+            if (areasBeforeDrag.current) {
+                setAreasArray(areasBeforeDrag.current);
+            }
+            areasBeforeDrag.current = null;
+            return;
+        }
+
+        areasBeforeDrag.current = null;
+
+        // renumber sort_order 0,1,2,... and bulk PUT
+        setAreasArray(prev => {
+            if (!prev) return prev;
+
+            const restDataArray = prev
+                .filter(area => area.id !== '')
+                .map((area, index) => ({ id: area.id, sort_order: index }));
+
+            // update sort_order in local state
+            const updated = prev.map((area, index) => {
+                if (area.id !== '') {
+                    return { ...area, sort_order: index };
+                }
+                return area;
+            });
+
+            // persist to API
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'PUT', restDataArray, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        snackBarError(result, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                    }
+                }).catch(error => {
+                    snackBarError(error, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                });
+
+            return updated;
+        });
+    }, [darwinUri, idToken]);
+
     return (
             <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)}
                  className="app-content-tabpanel"
@@ -217,7 +277,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            areaChange,
                                            areaKeyDown,
                                            areaOnBlur,
-                                           clickCardClosed,}}/>
+                                           clickCardClosed,
+                                           moveCard,
+                                           persistAreaOrder,
+                                           isTemplate: area.id === '',}}/>
                         ))}
                     </Box>  
                 }
