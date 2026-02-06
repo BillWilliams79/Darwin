@@ -40,11 +40,11 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
         // immediate fail cases such as dropping a task back to same card.
         var dropResult = monitor.getDropResult();
 
-        // if task is null, we are dropping on ourselves and
-        // no render Change is required
-        // for now, an off target drop causes this to generate an exception, which stops 
-        // the re-render below.  While that works, need a better solution
-        if (dropResult.task === null) {
+        // dropResult is null when dropped outside any valid target or
+        // released in place without leaving the card (no drop event fires).
+        // dropResult.task is null when dropped back on the same card.
+        // In both cases, no action is needed.
+        if (!dropResult || dropResult.task === null) {
             return;
         }
 
