@@ -11,7 +11,7 @@ import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
 
-import { Box } from '@mui/system';
+import Box from '@mui/material/Box';
 
 const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 

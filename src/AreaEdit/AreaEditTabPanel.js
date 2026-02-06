@@ -7,7 +7,7 @@ import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext.js'
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable, /* Draggable */ } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, /* Draggable */ } from '@hello-pangea/dnd';
 
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -15,7 +15,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 
-import { Box } from '@mui/system';
+import Box from '@mui/material/Box';
 
 import AreaDeleteDialog from './AreaDeleteDialog';
 import AreaTableRow from './AreaTableRow';

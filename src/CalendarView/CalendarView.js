@@ -2,7 +2,7 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useEffect} from 'react';
-import { Box } from '@mui/system';
+import Box from '@mui/material/Box';
 import { CircularProgress, Typography } from '@mui/material';
 import DayView from './DayView';
 

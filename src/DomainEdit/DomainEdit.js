@@ -14,7 +14,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 
-import { Box } from '@mui/system';
+import Box from '@mui/material/Box';
 import { Checkbox, Typography } from '@mui/material';
 import { TextField } from '@mui/material';
 

@@ -4,7 +4,7 @@ import varDump from '../classifier/classifier';
 import React from 'react'
 
 //import { useDrag, useDrop } from "react-dnd";
-import { /* DragDropContext, Droppable, */ Draggable } from 'react-beautiful-dnd';
+import { /* DragDropContext, Droppable, */ Draggable } from '@hello-pangea/dnd';
 
 import TableCell from '@mui/material/TableCell';
 import TableRow from '@mui/material/TableRow';
