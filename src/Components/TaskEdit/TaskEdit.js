@@ -49,6 +49,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
 
     return (
         <Box className="task"
+             data-testid={task.id === '' ? 'task-template' : `task-${task.id}`}
              key={`box-${task.id}`}
              ref={task.id === '' ? null :
                   supportDrag === false ? null : drag}

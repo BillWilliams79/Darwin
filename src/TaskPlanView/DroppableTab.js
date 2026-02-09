@@ -62,6 +62,7 @@ const DroppableTab = ({ domainIndex, onDragTabSwitch, ...tabProps }) => {
     return (
         <Tab
             ref={drop}
+            data-testid={`domain-tab-${domainIndex}`}
             {...tabProps}
             sx={{
                 ...tabProps.sx,

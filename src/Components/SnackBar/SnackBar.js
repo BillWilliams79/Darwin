@@ -30,6 +30,7 @@ export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => 
 
   return (
       <Snackbar
+        data-testid="snackbar"
         open={snackBarOpen}
         autoHideDuration={2000}
         onClose={snackBarClose}

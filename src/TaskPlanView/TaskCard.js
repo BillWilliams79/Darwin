@@ -376,6 +376,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     return (
         <Card key={areaIndex} raised={true} ref={mergedRef}
+              data-testid={area.id === '' ? 'area-card-template' : `area-card-${area.id}`}
               sx={{
                   opacity: isDragging ? 0.3 : area._isAdopted ? 0.5 : 1,
                   cursor: isTemplate ? 'default' : 'grab',
