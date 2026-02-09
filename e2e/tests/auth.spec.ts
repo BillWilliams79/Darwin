@@ -10,10 +10,13 @@ test.describe('Authentication', () => {
   });
 
   // AUTH-01 requires HTTPS: Cognito redirects to https://localhost:3000/loggedin/ (from
-  // REACT_APP_LOGIN_REDIRECT) but the CRA dev server serves HTTP. The redirect fails with
-  // chrome-error://chromewebdata/. To enable: run CRA with HTTPS=true, or test against
-  // production (darwin.one). The programmatic auth in auth.setup.ts validates token acquisition.
-  test.skip('AUTH-01: full login via Cognito hosted UI', async ({ page }) => {
+  // REACT_APP_LOGIN_REDIRECT) but the CRA dev server serves HTTP by default.
+  // Prerequisites to enable:
+  //   1. Run CRA with HTTPS=true (uses self-signed cert)
+  //   2. Add ignoreHTTPSErrors: true to Playwright config for this test
+  //   3. OR test against production (darwin.one) which serves HTTPS natively
+  // See: https://github.com/BillWilliams79/Darwin/pull/3
+  test('AUTH-01: full login via Cognito hosted UI', async ({ page }) => {
     await page.goto('/');
 
     // Click login link on home page ("Login / Create Account")
