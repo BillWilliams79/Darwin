@@ -24,7 +24,8 @@ const TaskDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, 
     return (
 
         <Dialog open={deleteDialogOpen}
-                onClose={dialogCleanUp} >
+                onClose={dialogCleanUp}
+                data-testid="task-delete-dialog" >
 
             <DialogTitle id="confirm-delete-title">
                 {"Delete Task"}
