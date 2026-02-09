@@ -31,7 +31,8 @@ const CardCloseDialog = ({cardSettingsDialogOpen,
     return (
 
         <Dialog open={cardSettingsDialogOpen}
-                onClose={dialogCleanUp} >
+                onClose={dialogCleanUp}
+                data-testid="card-close-dialog" >
 
             <DialogTitle id="card-settings-title">
                 {"Card Settings"}

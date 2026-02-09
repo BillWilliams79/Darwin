@@ -48,7 +48,8 @@ const DomainAddDialog = ({ domainAddDialogOpen,
     return (
 
         <Dialog open={domainAddDialogOpen}
-                onClose={dialogCleanUp} >
+                onClose={dialogCleanUp}
+                data-testid="domain-add-dialog" >
 
             <DialogTitle id="domain-settings-title">
                 {"Create New Domain"}

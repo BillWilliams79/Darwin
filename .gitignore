@@ -12,9 +12,16 @@
 
 # testing
 /coverage
+/e2e/.auth/
+/e2e/.tmp/
+/e2e/test-results/
+/e2e/playwright-report/
+/test-results/
+/.tmp-playwright/
 
 # production
 /build
+/_deploy_backups
 
 # misc
 .DS_Store

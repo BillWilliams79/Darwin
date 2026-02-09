@@ -34,7 +34,8 @@ const DomainCloseDialog = ({ domainCloseDialogOpen,
     return (
 
         <Dialog open={domainCloseDialogOpen}
-                onClose={dialogCleanUp} >
+                onClose={dialogCleanUp}
+                data-testid="domain-close-dialog" >
 
             <DialogTitle id="tab-settings-title">
                 {"Tab Settings"}
