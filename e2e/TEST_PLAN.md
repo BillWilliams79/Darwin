@@ -18,18 +18,23 @@
 Darwin/
 ├── e2e/
 │   ├── tests/
-│   │   ├── auth.spec.ts           # AUTH-01 through AUTH-05
-│   │   ├── domain.spec.ts         # DOM-01 through DOM-05
-│   │   ├── area.spec.ts           # AREA-01 through AREA-07
-│   │   ├── task.spec.ts           # TASK-01 through TASK-10
-│   │   ├── calendar.spec.ts       # CAL-01, CAL-02
-│   │   ├── navigation.spec.ts     # NAV-01, RESP-01
-│   │   ├── error.spec.ts          # ERR-01
-│   │   └── profile.spec.ts        # PROF-01
+│   │   ├── auth.setup.ts          # Cognito InitiateAuth + cookie injection setup
+│   │   ├── auth.spec.ts           # AUTH-01, AUTH-02 (P0)
+│   │   ├── auth-p1.spec.ts        # AUTH-03, AUTH-04 (P1)
+│   │   ├── domain.spec.ts         # DOM-01, DOM-02 (P0)
+│   │   ├── domain-p1.spec.ts      # DOM-03, DOM-04 (P1)
+│   │   ├── area.spec.ts           # AREA-01, AREA-02, AREA-03 (P0)
+│   │   ├── area-p1.spec.ts        # AREA-04, AREA-05, AREA-06 (P1)
+│   │   ├── task.spec.ts           # TASK-01 through TASK-05 (P0)
+│   │   ├── task-p1.spec.ts        # TASK-06, TASK-07, TASK-08 (P1)
+│   │   ├── calendar.spec.ts       # CAL-01, CAL-02 (P1)
+│   │   ├── navigation.spec.ts     # NAV-01 (P0)
+│   │   └── error.spec.ts          # ERR-01 (P1)
 │   ├── helpers/
 │   │   ├── react-dnd-drag.ts      # Synthetic DragEvent helper for react-dnd
-│   │   └── auth-setup.ts          # Cognito InitiateAuth + cookie injection
-│   ├── fixtures/                   # Test data files
+│   │   ├── auth.ts                # Cognito InitiateAuth token acquisition
+│   │   └── api.ts                 # REST API helper (getIdToken, apiCall, apiDelete, uniqueName)
+│   ├── .auth/                      # Saved auth state (user.json)
 │   ├── playwright.config.ts
 │   └── TEST_PLAN.md               # This file
 ├── src/                            # Application source
