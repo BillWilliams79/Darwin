@@ -4,7 +4,7 @@ import AuthenticatedRoute from './Components/AuthenticatedRoute/AuthenticatedRou
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
-import { AuthContextProvider } from './Context/AuthContext.js'
+import { AuthContextProvider } from './Context/AuthContext'
 import { AppContextProvider } from './Context/AppContext';
 import { CookiesProvider } from 'react-cookie';
 import { DndProvider } from "react-dnd";

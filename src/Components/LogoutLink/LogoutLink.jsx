@@ -16,7 +16,7 @@ const LogoutLink = () => {
     removeCookie('accessToken', { path: '/', maxAge: ((24 * 3600) - 300), secure: true });
     removeCookie('profile', { path: '/', maxAge: ((24 * 3600) - 300), secure: true })
 
-    window.location = `https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=${process.env.REACT_APP_LOGOUT_REDIRECT}`; 
+    window.location = `https://darwin2.auth.us-west-1.amazoncognito.com/logout?client_id=4qv8m44mllqllljbenbeou4uis&logout_uri=${import.meta.env.VITE_LOGOUT_REDIRECT}`; 
     return null;
 }
 

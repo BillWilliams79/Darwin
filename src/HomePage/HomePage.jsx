@@ -49,7 +49,7 @@ const HomePage = () => {
                     <Typography key="login"
                                 variant="body1"
                                 component="a"
-                                href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=${process.env.REACT_APP_LOGIN_REDIRECT}`}
+                                href={`https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${generatedCsrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=${import.meta.env.VITE_LOGIN_REDIRECT}`}
                                 sx={{marginBottom: 2 }} >
                         Login / Create Account
                     </Typography>
