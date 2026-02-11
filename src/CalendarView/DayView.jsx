@@ -6,7 +6,7 @@ import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 
 import React, { useState, useEffect, useContext } from 'react'
-import AuthContext from '../Context/AuthContext.js'
+import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 import { useDrop } from "react-dnd";
 

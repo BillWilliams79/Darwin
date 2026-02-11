@@ -5,7 +5,7 @@ import React, {useState, useContext, useEffect} from 'react';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
 import call_rest_api from '../RestApi/RestApi';
-import AuthContext from '../Context/AuthContext.js'
+import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 
 import Table from '@mui/material/Table';
