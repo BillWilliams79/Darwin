@@ -7,7 +7,7 @@ import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 
-import AuthContext from '../Context/AuthContext.js'
+import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 import { useDrop, useDrag } from "react-dnd";
 

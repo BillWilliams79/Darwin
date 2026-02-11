@@ -2,7 +2,7 @@ import './index.css';
 
 import { Outlet } from "react-router-dom"
 
-import NavBar from './NavBar/NavBar.js'
+import NavBar from './NavBar/NavBar'
 
 const App = () => {
 

@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import ProfileDrawer from './ProfileDrawer.js';
+import ProfileDrawer from './ProfileDrawer';
 
 import React, {useContext} from 'react';
 import { Link } from "react-router-dom"

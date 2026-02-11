@@ -22,7 +22,7 @@ const LoginLink = () => {
 
     var csrf = cryptoRandomString({length: 64, type: 'alphanumeric'});
     setCookie('csrfToken', csrf, { path: '/', maxAge: 3600 });
-    window.location = `https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${csrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=${process.env.REACT_APP_LOGIN_REDIRECT}`; 
+    window.location = `https://darwin2.auth.us-west-1.amazoncognito.com/login?response_type=token&state=${csrf}&client_id=4qv8m44mllqllljbenbeou4uis&scope=aws.cognito.signin.user.admin+email+openid&redirect_uri=${import.meta.env.VITE_LOGIN_REDIRECT}`; 
     return null;
 }
 
