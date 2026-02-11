@@ -9,7 +9,7 @@ import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
 import { useDrop } from 'react-dnd';
-import AuthContext from '../Context/AuthContext.js'
+import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';

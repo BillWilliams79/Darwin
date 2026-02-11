@@ -1,6 +1,6 @@
 import '../index.css';
 import varDump from '../classifier/classifier';
-import AuthContext from '../Context/AuthContext.js'
+import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
