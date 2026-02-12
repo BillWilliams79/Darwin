@@ -5,7 +5,12 @@ import React, { useState, useEffect, useContext, useRef, useCallback} from 'reac
 import TaskEdit from '../Components/TaskEdit/TaskEdit';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { useDragTabStore } from '../stores/useDragTabStore';
+import { TaskActionsContext } from '../hooks/useTaskActions';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -20,7 +25,9 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, removeArea, revertDragTabSwitch, clearDragTabSwitch, isTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
+
+    const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
 
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
@@ -28,14 +35,27 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     // Array of task objects
     const [tasksArray, setTasksArray] = useState()
-    const [taskApiTrigger, setTaskApiTrigger] = useState(false); 
+    const [taskApiTrigger, triggerTaskRefresh] = useApiTrigger();
 
-    const [snackBarOpen, setSnackBarOpen] = useState(false);
-    const [snackBarMessage, setSnackBarMessage] = useState('');
+    const showError = useSnackBarStore(s => s.showError);
 
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [deleteConfirmed, setDeleteConfirmed] = useState(false);
-    const [deleteId, setDeleteId] = useState({});
+    const taskDelete = useConfirmDialog({
+        onConfirm: ({ taskId }) => {
+            let uri = `${darwinUri}/tasks`;
+            call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newTasksArray = [...tasksArray]
+                        newTasksArray = newTasksArray.filter(task => task.id !== taskId );
+                        setTasksArray(newTasksArray);
+                    } else {
+                        showError(result, 'Unable to delete task')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to delete task')
+                });
+        }
+    });
 
 
     // READ Task API data for card
@@ -59,7 +79,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     setTasksArray(sortedTasksArray);
 
                 } else {
-                    snackBarError(result, 'Unable to read tasks', setSnackBarMessage, setSnackBarOpen)
+                    showError(result, 'Unable to read tasks')
                 }  
 
 
@@ -71,43 +91,12 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
                     setTasksArray(sortedTasksArray);
                 } else {
-                    snackBarError(error, 'Unable to read tasks', setSnackBarMessage, setSnackBarOpen)
+                    showError(error, 'Unable to read tasks')
                 }
             });
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [taskApiTrigger]);
-
-    // DELETE TASK in cooperation with confirmation dialog
-    useEffect( () => {
-        console.count('useEffect: delete task');
-
-        //TODO confirm deleteId is a valid object
-        if (deleteConfirmed === true) {
-            const {taskId} = deleteId;
-
-            let uri = `${darwinUri}/tasks`;
-            call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-
-                        // database task was deleted, update taskArray, pop snackbar, cleanup delete dialog
-                        let newTasksArray = [...tasksArray]
-                        newTasksArray = newTasksArray.filter(task => task.id !== taskId );
-                        setTasksArray(newTasksArray);
-                    } else {
-                        snackBarError(result, 'Unable to delete task', setSnackBarMessage, setSnackBarOpen)
-                    }
-                }).catch(error => {
-                    snackBarError(error, 'Unable to delete task', setSnackBarMessage, setSnackBarOpen)
-                });
-        }
-        // prior to exit and regardless of outcome, clean up state
-        setDeleteConfirmed(false);
-        setDeleteId({});
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [deleteConfirmed])
 
     const [{ isOver }, drop] = useDrop(() => ({
 
@@ -213,11 +202,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     setTasksArray(newTasksArray);
 
                 } else {
-                    snackBarError(result, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
+                    showError(result, "Unable to change task's date")
                 }
 
             }).catch(error => {
-                snackBarError(error, "Unable to change task's date", setSnackBarMessage, setSnackBarOpen)
+                showError(error, "Unable to change task's date")
             });
 
         // Return synchronously so drag source's end handler knows this was a real drop
@@ -236,10 +225,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             call_rest_api(uri, 'PUT', [{'id': taskId, 'priority': newTasksArray[taskIndex].priority}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        snackBarError(result, "Unable to change task's priority", setSnackBarMessage, setSnackBarOpen)
+                        showError(result, "Unable to change task's priority")
                     }
                 }).catch(error => {
-                    snackBarError(error, "Unable to change task's priority", setSnackBarMessage, setSnackBarOpen)
+                    showError(error, "Unable to change task's priority")
                 }
             );
         }
@@ -264,41 +253,13 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                           ...(newTasksArray[taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        snackBarError(result, "Unable to mark task completed", setSnackBarMessage, setSnackBarOpen)
+                        showError(result, "Unable to mark task completed")
                     }
                 }).catch(error => {
-                    snackBarError(error, "Unable to mark task completed", setSnackBarMessage, setSnackBarOpen)
+                    showError(error, "Unable to mark task completed")
                 }
             );
         }
-    }
-
-    const descriptionChange = (event, taskIndex) => {
-
-        // event.target.value contains the new text from description which is retained in state
-        // updated changes are written to rest API elsewhere (keydown for example)
-        let newTasksArray = [...tasksArray]
-        newTasksArray[taskIndex].description = event.target.value;
-        setTasksArray(newTasksArray);
-    }
-
-    const descriptionKeyDown = (event, taskIndex, taskId) => {
-
-        // Enter key triggers save, but Enter itself cannot be part of task.description hence preventDefault
-        if (event.key === 'Enter') {
-            updateTask(event, taskIndex, taskId);
-            event.preventDefault();
-        }
-
-        // hack around: not escaping single parens so disallow for now
-        if (event.key === "'") {
-            event.preventDefault();
-        }
-    }
-
-    const descriptionOnBlur= (event, taskIndex, taskId) => {
-
-        updateTask(event, taskIndex, taskId);
     }
 
     const updateTask = (event, taskIndex, taskId) => {
@@ -321,14 +282,18 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                         if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200/201 response
                             // so only then show snackbar
-                            snackBarError(result, 'Task description not updated, HTTP error', setSnackBarMessage, setSnackBarOpen)
+                            showError(result, 'Task description not updated, HTTP error')
                         }
                     }).catch(error => {
-                        snackBarError(error, 'Task description not updated, HTTP error', setSnackBarMessage, setSnackBarOpen)
+                        showError(error, 'Task description not updated, HTTP error')
                     });
             }
         }
     }
+
+    const { fieldChange: descriptionChange, fieldKeyDown: descriptionKeyDown, fieldOnBlur: descriptionOnBlur } = useCrudCallbacks({
+        items: tasksArray, setItems: setTasksArray, fieldName: 'description', saveFn: updateTask
+    });
 
     const saveTask = (event, taskIndex) => {
         let uri = `${darwinUri}/tasks`;
@@ -345,19 +310,17 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // flip read_rest_api state to initiate full data retrieval
-                    setTaskApiTrigger(taskApiTrigger ? false : true);  
+                    triggerTaskRefresh();
                 } else {
-                    snackBarError(result, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
+                    showError(result, 'Task not saved, HTTP error')
                 }
             }).catch(error => {
-                snackBarError(error, 'Task not saved, HTTP error', setSnackBarMessage, setSnackBarOpen)
+                showError(error, 'Task not saved, HTTP error')
             });
     }
 
     const deleteClick = (event, taskId) => {
-        // stores data re: task to delete, opens dialog
-        setDeleteId({taskId});
-        setDeleteDialogOpen(true);
+        taskDelete.openDialog({taskId});
     }
 
     const taskPrioritySort = (taskA, taskB) => {
@@ -407,23 +370,22 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     </IconButton>
                 </Box>
                 { (tasksArray) ?
-                    tasksArray.map((task, taskIndex) => (
-                        <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
-                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId: area.id, areaName: area.area_name,
-                            revertDragTabSwitch, clearDragTabSwitch }}
-                        />
-                    ))
+                    <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
+                        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}>
+                        {tasksArray.map((task, taskIndex) => (
+                            <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex,
+                                areaId: area.id, areaName: area.area_name }}
+                            />
+                        ))}
+                    </TaskActionsContext.Provider>
                   :
                     area.id  === '' ? '' : <CircularProgress/>
                 }
             </CardContent>
-            <SnackBar {...{snackBarOpen,
-                           setSnackBarOpen,
-                           snackBarMessage,}} />
-            <TaskDeleteDialog deleteDialogOpen = {deleteDialogOpen}
-                              setDeleteDialogOpen = {setDeleteDialogOpen}
-                              setDeleteId = {setDeleteId}
-                              setDeleteConfirmed = {setDeleteConfirmed} />
+            <TaskDeleteDialog deleteDialogOpen = {taskDelete.dialogOpen}
+                              setDeleteDialogOpen = {taskDelete.setDialogOpen}
+                              setDeleteId = {taskDelete.setInfoObject}
+                              setDeleteConfirmed = {taskDelete.setConfirmed} />
         </Card>
     )
 }
