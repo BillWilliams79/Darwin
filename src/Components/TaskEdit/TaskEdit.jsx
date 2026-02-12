@@ -5,6 +5,7 @@ import React from 'react'
 
 import { useDrag } from "react-dnd";
 import { useDragTabStore } from '../../stores/useDragTabStore';
+import { useTaskActions } from '../../hooks/useTaskActions';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -19,9 +20,10 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
-const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, descriptionChange,
-    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName }) => {
+const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
 
+    const { priorityClick, doneClick, descriptionChange, descriptionKeyDown,
+        descriptionOnBlur, deleteClick, tasksArray, setTasksArray } = useTaskActions();
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 

@@ -4,6 +4,7 @@ import call_rest_api from '../RestApi/RestApi';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
+import { TaskActionsContext } from '../hooks/useTaskActions';
 
 
 import React, { useState, useEffect, useContext } from 'react'
@@ -279,25 +280,15 @@ const DayView = (date) => {
                     }
                 </Box>
             </CardContent>
-            <TaskEditDialog {...{ taskEditDialogOpen,
-                                  setTaskEditDialogOpen,
-                                  taskEditInfo,
-                                  setTaskEditInfo,
-                                  priorityClick,
-                                  doneClick,
-                                  descriptionChange,
-                                  descriptionKeyDown,
-                                  descriptionOnBlur,
-                                  deleteClick,
-                                  tasksArray,
-                                  setTasksArray,
-                                  taskApiToggle,
-                                  setTaskApiToggle,
-                                  deleteDialogOpen: taskDelete.dialogOpen,
-                                  setDeleteDialogOpen: taskDelete.setDialogOpen,
-                                  setDeleteId: taskDelete.setInfoObject,
-                                  setDeleteConfirmed: taskDelete.setConfirmed, }}
-            />
+            <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
+                descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
+                deleteDialogOpen: taskDelete.dialogOpen, setDeleteDialogOpen: taskDelete.setDialogOpen,
+                setDeleteId: taskDelete.setInfoObject, setDeleteConfirmed: taskDelete.setConfirmed }}>
+                <TaskEditDialog {...{ taskEditDialogOpen, setTaskEditDialogOpen,
+                                      taskEditInfo, setTaskEditInfo,
+                                      taskApiToggle, setTaskApiToggle }}
+                />
+            </TaskActionsContext.Provider>
         </Card>
     )
 }

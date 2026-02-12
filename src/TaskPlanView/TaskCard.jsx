@@ -10,6 +10,7 @@ import { useApiTrigger } from '../hooks/useApiTrigger';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
+import { TaskActionsContext } from '../hooks/useTaskActions';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -369,11 +370,14 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     </IconButton>
                 </Box>
                 { (tasksArray) ?
-                    tasksArray.map((task, taskIndex) => (
-                        <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex, priorityClick, doneClick, descriptionChange,
-                            descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId: area.id, areaName: area.area_name }}
-                        />
-                    ))
+                    <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
+                        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}>
+                        {tasksArray.map((task, taskIndex) => (
+                            <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex,
+                                areaId: area.id, areaName: area.area_name }}
+                            />
+                        ))}
+                    </TaskActionsContext.Provider>
                   :
                     area.id  === '' ? '' : <CircularProgress/>
                 }
