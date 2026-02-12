@@ -2,7 +2,10 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect} from 'react';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext'
@@ -29,18 +32,30 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     const { darwinUri } = useContext(AppContext);
 
     const [domainsArray, setDomainsArray] = useState()
-    const [domainApiTrigger, setDomainApiTrigger] = useState(false); 
+    const [domainApiTrigger, triggerDomainRefresh] = useApiTrigger();
     
     const [areaCounts, setAreaCounts] = useState({});
 
-    // snackBar state
-    const [snackBarOpen, setSnackBarOpen] = useState(false);
-    const [snackBarMessage, setSnackBarMessage] = useState('');
+    const showError = useSnackBarStore(s => s.showError);
 
     // cardSettings state
-    const [domainDeleteDialogOpen, setDomainDeleteDialogOpen] = useState(false);
-    const [domainDeleteConfirmed, setDomainDeleteConfirmed] = useState(false);
-    const [domainInfo, setDomainInfo] = useState({});
+    const domainDelete = useConfirmDialog({
+        onConfirm: ({ domainId }) => {
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'DELETE', {'id': domainId}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newDomainsArray = [...domainsArray]
+                        newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
+                        setDomainsArray(newDomainsArray);
+                    } else {
+                        showError(result, 'Unable to delete domain')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to delete domain')
+                });
+        }
+    });
 
     // READ domains API data for page
     useEffect( () => {
@@ -82,61 +97,6 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [domainApiTrigger]);
 
-    // DELETE DOMAIN in cooperation with confirmation dialog
-    useEffect( () => {
-        console.count('useEffect: delete domain');
-
-        if (domainDeleteConfirmed === true) {
-            const { domainId } = domainInfo;
-
-            let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'DELETE', {'id': domainId}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-
-                        // database domain was deleted, update domainArray, pop snackbar, cleanup delete dialog
-                        let newDomainsArray = [...domainsArray]
-                        newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
-                        setDomainsArray(newDomainsArray);
-                    } else {
-                        snackBarError(result, 'Unable to delete domain', setSnackBarMessage, setSnackBarOpen)
-                    }
-                }).catch(error => {
-                    snackBarError(error, 'Unable to delete domain', setSnackBarMessage, setSnackBarOpen)
-                });
-        }
-        // prior to exit and regardless of outcome, clean up state
-        setDomainDeleteConfirmed(false);
-        setDomainInfo({});
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [domainDeleteConfirmed])    
-
-    const changeDomainName = (event, domainIndex) => {
-
-        // event.target.value contains the new domain text
-        // updated changes are written to rest API elsewhere (keyup for example)
-        let newDomainsArray = [...domainsArray]
-        newDomainsArray[domainIndex].domain_name = event.target.value;
-        setDomainsArray(newDomainsArray);
-    }
-
-    const keyDownDomainName = (event, domainIndex, domainId) => {
-        console.log('keyDownDomainName')
- 
-        // Enter key triggers save, but Enter itself cannot be part of area.description hence preventDefault
-        if (event.key === 'Enter') {
-            restUpdateDomainName(domainIndex, domainId);
-            event.preventDefault();
-        }
-    }
-
-    const blurDomainName= (event, domainIndex, domainId) => {
-        console.log('blurDomainName')
-
-        restUpdateDomainName(domainIndex, domainId);
-    }
-
     const restUpdateDomainName = (domainIndex, domainId) => {
 
         const noop = ()=>{};
@@ -157,15 +117,20 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
-                            snackBarError(result, 'Unable to update domain name', setSnackBarMessage, setSnackBarOpen)
+                            showError(result, 'Unable to update domain name')
 
                         }
                     }).catch(error => {
-                        snackBarError(error, 'Unable to update domain name', setSnackBarMessage, setSnackBarOpen)
+                        showError(error, 'Unable to update domain name')
                     });
             }
         }
     }
+
+    const { fieldChange: changeDomainName, fieldKeyDown: keyDownDomainName, fieldOnBlur: blurDomainName } = useCrudCallbacks({
+        items: domainsArray, setItems: setDomainsArray, fieldName: 'domain_name',
+        saveFn: (_event, index, id) => restUpdateDomainName(index, id), blockApostrophe: false
+    });
 
     const restSaveDomainName = (domainIndex) => {
 
@@ -191,12 +156,12 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setDomainApiTrigger(domainApiTrigger ? false : true);  
+                    triggerDomainRefresh();
                 } else {
-                    snackBarError(result, 'Unable to update domain', setSnackBarMessage, setSnackBarOpen)
+                    showError(result, 'Unable to update domain')
                 }
             }).catch(error => {
-                snackBarError(error, 'Unable to update domain', setSnackBarMessage, setSnackBarOpen)
+                showError(error, 'Unable to update domain')
             });
     }
 
@@ -212,10 +177,10 @@ const DomainEdit = ( { domain, domainIndex } ) => {
             call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': newDomainsArray[domainIndex].closed}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        snackBarError(result, 'Unable to close domain', setSnackBarMessage, setSnackBarOpen)
+                        showError(result, 'Unable to close domain')
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to close domain', setSnackBarMessage, setSnackBarOpen)
+                    showError(error, 'Unable to close domain')
                 }
             );
         }
@@ -226,10 +191,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     }
 
     const clickDomainDelete = (event, domainId, domainName) => {
-
-        // store domain details in state for use in deleting if confirmed
-        setDomainInfo({ domainName, domainId, areasCount: areaCounts[domainId] });
-        setDomainDeleteDialogOpen(true);
+        domainDelete.openDialog({ domainName, domainId, areasCount: areaCounts[domainId] });
     }
 
     const domainClosedSort = (domainA, domainB) => {
@@ -311,15 +273,12 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     </Table>
                 </Box>  
             }
-            <SnackBar {...{snackBarOpen,
-                           setSnackBarOpen,
-                           snackBarMessage,}} />
-            <DomainDeleteDialog 
-                domainDeleteDialogOpen = { domainDeleteDialogOpen }
-                setDomainDeleteDialogOpen = { setDomainDeleteDialogOpen }
-                domainInfo = { domainInfo }
-                setDomainInfo = { setDomainInfo }
-                setDomainDeleteConfirmed = { setDomainDeleteConfirmed }
+            <DomainDeleteDialog
+                domainDeleteDialogOpen = { domainDelete.dialogOpen }
+                setDomainDeleteDialogOpen = { domainDelete.setDialogOpen }
+                domainInfo = { domainDelete.infoObject }
+                setDomainInfo = { domainDelete.setInfoObject }
+                setDomainDeleteConfirmed = { domainDelete.setConfirmed }
             />
         </>
     )

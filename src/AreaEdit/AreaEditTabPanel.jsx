@@ -2,7 +2,10 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect} from 'react';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext'
@@ -27,16 +30,28 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const [areasArray, setAreasArray] = useState();
     const [taskCounts, setTaskCounts] = useState({});
-    const [areaApiTrigger, setAreaApiTrigger] = useState(false);
+    const [areaApiTrigger, triggerAreaRefresh] = useApiTrigger();
  
-    // snackBar state
-    const [snackBarOpen, setSnackBarOpen] = useState(false);
-    const [snackBarMessage, setSnackBarMessage] = useState('');
+    const showError = useSnackBarStore(s => s.showError);
 
     // cardSettings state
-    const [areaDeleteDialogOpen, setAreaDeleteDialogOpen] = useState(false);
-    const [areaDeleteConfirmed, setAreaDeleteConfirmed] = useState(false);
-    const [areaInfo, setAreaInfo] = useState({});
+    const areaDelete = useConfirmDialog({
+        onConfirm: ({ areaId }) => {
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'DELETE', {'id': areaId}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newAreasArray = [...areasArray]
+                        newAreasArray = newAreasArray.filter(area => area.id !== areaId );
+                        setAreasArray(newAreasArray);
+                    } else {
+                        showError(result, 'Unable to delete area')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to delete area')
+                });
+        }
+    });
 
     // READ AREA API data for TabPanel
     useEffect( () => {
@@ -62,7 +77,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         setTaskCounts(newTaskCounts);
         
                     }).catch(error => {
-                        snackBarError(error, 'Unable to retrieve task counts', setSnackBarMessage, setSnackBarOpen)
+                        showError(error, 'Unable to retrieve task counts')
                     });
 
                 let newAreasArray = result.data;
@@ -76,65 +91,12 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
                     setAreasArray(newAreasArray);
                 } else {
-                    snackBarError(error, `Unable to read area data for domain ${domain.id}`, setSnackBarMessage, setSnackBarOpen)
+                    showError(error, `Unable to read area data for domain ${domain.id}`)
                 }
             });
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaApiTrigger]);
-
-    // DELETE AREA in cooperation with confirmation dialog
-    useEffect( () => {
-        console.count('useEffect: delete area');
-
-        if (areaDeleteConfirmed === true) {
-            const { areaId } = areaInfo;
-
-            let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'DELETE', {'id': areaId}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-
-                        // database area was deleted, update areaArray, pop snackbar, cleanup delete dialog
-                        let newAreasArray = [...areasArray]
-                        newAreasArray = newAreasArray.filter(area => area.id !== areaId );
-                        setAreasArray(newAreasArray);
-                    } else {
-                        snackBarError(result, `Unable to delete area`, setSnackBarMessage, setSnackBarOpen)
-                    }
-                }).catch(error => {
-                    snackBarError(error, `Unable to delete area`, setSnackBarMessage, setSnackBarOpen)
-                });
-        }
-        // prior to exit and regardless of outcome, clean up state
-        setAreaDeleteConfirmed(false);
-        setAreaInfo({});
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [areaDeleteConfirmed])    
-
-    const changeAreaName = (event, areaIndex) => {
-
-        // event.target.value contains the new area text
-        // updated changes are written to rest API elsewhere (keyup for example)
-        let newAreasArray = [...areasArray]
-        newAreasArray[areaIndex].area_name = event.target.value;
-        setAreasArray(newAreasArray);
-    }
-
-    const keyDownAreaName = (event, areaIndex, areaId) => {
-        console.log('keyDownAreaName')
-        // Enter key triggers update, but Enter itself cannot be part of area.area_name hence preventDefault
-        if (event.key === 'Enter') {
-            restUpdateAreaName(areaIndex, areaId);
-            event.preventDefault();
-        }
-    }
-
-    const blurAreaName= (event, areaIndex, areaId) => {
-        // handler shared with keyDownAreaName
-        restUpdateAreaName(areaIndex, areaId);
-    }
 
     const restUpdateAreaName = (areaIndex, areaId) => {
 
@@ -157,15 +119,20 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
-                            snackBarError(result, `Unable to update area`, setSnackBarMessage, setSnackBarOpen)
+                            showError(result, `Unable to update area`)
 
                         }
                     }).catch(error => {
-                        snackBarError(error, `Unable to update area`, setSnackBarMessage, setSnackBarOpen)
+                        showError(error, `Unable to update area`)
                     });
             }
         }
     }
+
+    const { fieldChange: changeAreaName, fieldKeyDown: keyDownAreaName, fieldOnBlur: blurAreaName } = useCrudCallbacks({
+        items: areasArray, setItems: setAreasArray, fieldName: 'area_name',
+        saveFn: (_event, index, id) => restUpdateAreaName(index, id), blockApostrophe: false
+    });
 
     const restSaveNewArea = (areaIndex) => {
 
@@ -191,12 +158,12 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setAreaApiTrigger(areaApiTrigger ? false : true);  
+                    triggerAreaRefresh();
                 } else {
-                    snackBarError(result, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+                    showError(result, `Unable to save new area`)
                 }
             }).catch(error => {
-                snackBarError(error, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+                showError(error, `Unable to save new area`)
             });
     }
 
@@ -223,10 +190,10 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
         call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus > 200) {
-                    snackBarError(result, `Unable to close area`, setSnackBarMessage, setSnackBarOpen)
+                    showError(result, `Unable to close area`)
                 }
             }).catch(error => {
-                snackBarError(error, `Unable to close area`, setSnackBarMessage, setSnackBarOpen)
+                showError(error, `Unable to close area`)
             }
         );
 
@@ -236,10 +203,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
     }
 
     const clickAreaDelete = (event, areaId, areaName) => {
-
-        // store area details in state for use in deleting if confirmed
-        setAreaInfo({ areaName, areaId, tasksCount: taskCounts[areaId] });
-        setAreaDeleteDialogOpen(true);
+        areaDelete.openDialog({ areaName, areaId, tasksCount: taskCounts[areaId] });
     }
 
     const areaSortByClosedThenSortOrder = (areaA, areaB) => {
@@ -338,10 +302,10 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     console.log('sort order saved');
                 } else {
 
-                    snackBarError(result, `Unable to save area sort order`, setSnackBarMessage, setSnackBarOpen)
+                    showError(result, `Unable to save area sort order`)
                 }
             }).catch(error => {
-                snackBarError(error, `Unable to save area sort order`, setSnackBarMessage, setSnackBarOpen)
+                showError(error, `Unable to save area sort order`)
             });
  
         return;
@@ -386,15 +350,12 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     </Box>  
                 }
             </Box>
-            <SnackBar {...{snackBarOpen,
-                           setSnackBarOpen,
-                           snackBarMessage,}} />
-            <AreaDeleteDialog 
-                areaDeleteDialogOpen = { areaDeleteDialogOpen }
-                setAreaDeleteDialogOpen = { setAreaDeleteDialogOpen }
-                areaInfo = { areaInfo }
-                setAreaInfo = { setAreaInfo }
-                setAreaDeleteConfirmed = { setAreaDeleteConfirmed } />
+            <AreaDeleteDialog
+                areaDeleteDialogOpen = { areaDelete.dialogOpen }
+                setAreaDeleteDialogOpen = { areaDelete.setDialogOpen }
+                areaInfo = { areaDelete.infoObject }
+                setAreaInfo = { areaDelete.setInfoObject }
+                setAreaDeleteConfirmed = { areaDelete.setConfirmed } />
         </>
     )
 }

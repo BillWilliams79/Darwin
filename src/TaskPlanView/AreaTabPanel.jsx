@@ -4,7 +4,11 @@ import varDump from '../classifier/classifier';
 import React, {useState, useContext, useEffect, useRef, useCallback} from 'react';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { useDragTabStore } from '../stores/useDragTabStore';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 
@@ -14,7 +18,9 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, clearDragTabSwitch } ) => {
+const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
+
+    const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards
@@ -23,16 +29,28 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
     const { darwinUri } = useContext(AppContext);
 
     const [areasArray, setAreasArray] = useState()
-    const [areaApiTrigger, setAreaApiTrigger] = useState(false); 
+    const [areaApiTrigger, triggerAreaRefresh] = useApiTrigger();
 
-    // snackBar state
-    const [snackBarOpen, setSnackBarOpen] = useState(false);
-    const [snackBarMessage, setSnackBarMessage] = useState('');
+    const showError = useSnackBarStore(s => s.showError);
 
     // cardSettings state
-    const [cardSettingsDialogOpen, setCardSettingsDialogOpen] = useState(false);
-    const [areaCloseConfirmed, setAreaCloseConfirmed] = useState(false);
-    const [areaCloseId, setAreaCloseId] = useState({});
+    const areaClose = useConfirmDialog({
+        onConfirm: ({ areaName, areaId }) => {
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newAreasArray = [...areasArray];
+                        newAreasArray = newAreasArray.filter(area => area.id !== areaId );
+                        setAreasArray(newAreasArray);
+                    } else {
+                        showError(result, `Unable to close ${areaName}`)
+                    }
+                }).catch(error => {
+                    showError(error, `Unable to close ${areaName}`)
+                });
+        }
+    });
 
     // READ AREA API data for TabPanel
     useEffect( () => {
@@ -53,7 +71,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                     setAreasArray(result.data);
 
                 } else {
-                    snackBarError(result, 'Unable to read Area data', setSnackBarMessage, setSnackBarOpen)
+                    showError(result, 'Unable to read Area data')
                 }
 
             }).catch(error => {
@@ -62,68 +80,12 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                     // a domain with no areas, still requires a template area
                     setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'creator_fk': profile.userName, }]);
                 } else {
-                    snackBarError(error, 'Unable to read Area data', setSnackBarMessage, setSnackBarOpen)
+                    showError(error, 'Unable to read Area data')
                 }
             });
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [areaApiTrigger]);
-
-    // CLOSE AREA in cooperation with confirmation dialog
-    useEffect( () => {
-        console.count('useEffect: close Area');
-
-        //TODO confirm areaCloseId is a valid object
-        if (areaCloseConfirmed === true) {
-            const { areaName, areaId } = areaCloseId;
-
-            let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-
-                        // Area set to close, remove area from Area object state
-                        let newAreasArray = [...areasArray];
-                        newAreasArray = newAreasArray.filter(area => area.id !== areaId );
-                        setAreasArray(newAreasArray);
-
-                    } else {
-                        snackBarError(result, `Unable to close ${areaName}`, setSnackBarMessage, setSnackBarOpen)
-                    }
-                }).catch(error => {
-                    snackBarError(error, `Unable to close ${areaName}`, setSnackBarMessage, setSnackBarOpen)
-            });
-        }
-        // prior to exit and regardless of outcome, clean up state
-        setAreaCloseConfirmed(false);
-        setAreaCloseId({});
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [areaCloseConfirmed])
-
-    const areaChange = (event, areaIndex) => {
-        // event.target.value contains the new area text
-        // updated changes are written to rest API elsewhere (keydown for example)
-        let newAreasArray = [...areasArray]
-        newAreasArray[areaIndex].area_name = event.target.value;
-        setAreasArray(newAreasArray);
-    }
-
-    const areaKeyDown = (event, areaIndex, areaId) => {
-        if (event.key === 'Enter') {
-            updateArea(event, areaIndex, areaId);
-            event.preventDefault();
-        }
-
-        // hack around: not escaping single parens so disallow for now
-        if (event.key === "'") {
-            event.preventDefault();
-        }
-    }
-
-    const areaOnBlur = (event, areaIndex, areaId) => {
-        updateArea(event, areaIndex, areaId);
-    }
 
     const updateArea = (event, areaIndex, areaId) => {
 
@@ -146,14 +108,18 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                     .then(result => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database change confirmed only with a 200/201 response
-                            snackBarError(result, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
+                            showError(result, `Unable to update area name`)
                         }
                     }).catch(error => {
-                        snackBarError(error, `Unable to update area name`, setSnackBarMessage, setSnackBarOpen)
+                        showError(error, `Unable to update area name`)
                     });
             }
         }
     }
+
+    const { fieldChange: areaChange, fieldKeyDown: areaKeyDown, fieldOnBlur: areaOnBlur } = useCrudCallbacks({
+        items: areasArray, setItems: setAreasArray, fieldName: 'area_name', saveFn: updateArea
+    });
 
     const saveArea = (area, areaIndex, areaId) => {
 
@@ -174,21 +140,19 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
 
                     // 201 => record added to database but new data not returned in body
                     // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    setAreaApiTrigger(areaApiTrigger ? false : true);
+                    triggerAreaRefresh();
 
                 } else {
-                    snackBarError(result, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+                    showError(result, `Unable to save new area`)
                 }
             }).catch(error => {
-                snackBarError(error, `Unable to save new area`, setSnackBarMessage, setSnackBarOpen)
+                showError(error, `Unable to save new area`)
             });
     }
 
     const clickCardClosed = (event, areaName, areaId) => {
-        // stores data re: card to close, opens dialog
         if (areaId !== '') {
-            setAreaCloseId({ areaName, areaId });
-            setCardSettingsDialogOpen(true);
+            areaClose.openDialog({ areaName, areaId });
         }
     }
 
@@ -253,10 +217,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
             call_rest_api(uri, 'PUT', restDataArray, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        snackBarError(result, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                        showError(result, 'Unable to save area sort order');
                     }
                 }).catch(error => {
-                    snackBarError(error, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                    showError(error, 'Unable to save area sort order');
                 });
 
             return updated;
@@ -285,10 +249,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                 call_rest_api(uri, 'PUT', restDataArray, idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            snackBarError(result, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                            showError(result, 'Unable to save area sort order');
                         }
                     }).catch(error => {
-                        snackBarError(error, 'Unable to save area sort order', setSnackBarMessage, setSnackBarOpen);
+                        showError(error, 'Unable to save area sort order');
                     });
             }
 
@@ -387,10 +351,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                     call_rest_api(uri, 'PUT', restDataArray, idToken)
                         .then(result => {
                             if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                                snackBarError(result, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                                showError(result, 'Unable to move area to domain');
                             }
                         }).catch(error => {
-                            snackBarError(error, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                            showError(error, 'Unable to move area to domain');
                         });
 
                     return updated;
@@ -431,10 +395,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                 call_rest_api(uri, 'PUT', [{ id: areaData.id, domain_fk: domain.id, sort_order: newSortOrder }], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            snackBarError(result, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                            showError(result, 'Unable to move area to domain');
                         }
                     }).catch(error => {
-                        snackBarError(error, 'Unable to move area to domain', setSnackBarMessage, setSnackBarOpen);
+                        showError(error, 'Unable to move area to domain');
                     });
             }
 
@@ -462,20 +426,15 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab, revertDragTabSwitch, cl
                                            moveCard,
                                            persistAreaOrder,
                                            removeArea,
-                                           revertDragTabSwitch,
-                                           clearDragTabSwitch,
                                            isTemplate: area.id === '',}}/>
                         ))}
                     </Box>  
                 }
-                <SnackBar {...{snackBarOpen,
-                               setSnackBarOpen,
-                               snackBarMessage,}} />
-                <CardCloseDialog {...{cardSettingsDialogOpen,
-                                      setCardSettingsDialogOpen,
-                                      areaCloseId,
-                                      setAreaCloseId,
-                                      setAreaCloseConfirmed}}
+                <CardCloseDialog cardSettingsDialogOpen={areaClose.dialogOpen}
+                                 setCardSettingsDialogOpen={areaClose.setDialogOpen}
+                                 areaCloseId={areaClose.infoObject}
+                                 setAreaCloseId={areaClose.setInfoObject}
+                                 setAreaCloseConfirmed={areaClose.setConfirmed}
                 />
             </Box>
     )

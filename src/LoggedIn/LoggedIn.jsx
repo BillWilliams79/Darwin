@@ -4,7 +4,7 @@ import varDump from '../classifier/classifier';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import {SnackBar, snackBarError} from '../Components/SnackBar/SnackBar';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
 
 import React, { useEffect, useContext, useState } from "react";
 import { useLocation, Navigate } from "react-router-dom"
@@ -31,8 +31,7 @@ function LoggedIn() {
     const [cookies, setCookie, removeCookie] = useCookies(['csrfToken', 'refreshToken']);
 
     const [errorMsg, setErrorMsg] = useState('');
-    const [snackBarOpen, setSnackBarOpen] = useState(false);
-    const [snackBarMessage, setSnackBarMessage] = useState('');
+    const showError = useSnackBarStore(s => s.showError);
     const [redirectPath, setRedirectPath] = useState();
 
     let location = useLocation();
@@ -99,10 +98,10 @@ function LoggedIn() {
                                     // Schedule background token refresh (pass refresh token for the ref)
                                     scheduleRefresh(tokens.expiresIn, tokens.refreshToken);
                                 } else {
-                                    snackBarError(result, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen);
+                                    showError(result, 'Unable to read user profile data');
                                 }
                             }).catch(error => {
-                                snackBarError(error, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen);
+                                showError(error, 'Unable to read user profile data');
                             });
                     });
             }).catch(error => {
@@ -138,9 +137,6 @@ function LoggedIn() {
                     }
                 </>
             }
-            <SnackBar {...{snackBarOpen,
-                           setSnackBarOpen,
-                           snackBarMessage,}} />
         </>
     )
 }
