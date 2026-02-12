@@ -100,8 +100,8 @@ test.describe.serial('Area Management P1', () => {
     const areaRow = panel.getByTestId(`area-row-${result[0].id}`);
     await expect(areaRow).toBeVisible({ timeout: 5000 });
 
-    // Click the delete icon in the row
-    await areaRow.locator('button:has(svg[data-testid="DeleteIcon"])').click();
+    // Click the delete button (last cell's button in the row)
+    await areaRow.locator('td:last-child button').click();
 
     // AreaDeleteDialog should appear
     const deleteDialog = page.getByRole('dialog');
