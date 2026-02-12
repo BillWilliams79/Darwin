@@ -15,11 +15,15 @@ setup('authenticate', async ({ page }) => {
   // universal-cookie serializes objects as "j:" + JSON.stringify(value), then URL-encodes.
   const profileCookie = encodeURIComponent(`j:${JSON.stringify(profile)}`);
 
-  await page.evaluate(({ idToken, accessToken, profileCookie }) => {
+  await page.evaluate(({ idToken, accessToken, refreshToken, profileCookie }) => {
+    // Set refresh token cookie — AuthContext's silent refresh uses this on page load
+    document.cookie = `refreshToken=${refreshToken}; path=/; max-age=${90 * 86400}; SameSite=Strict`;
+    // Also set legacy cookies — the E2E api helper reads idToken from cookies,
+    // and AuthContext will populate from silent refresh on reload
     document.cookie = `idToken=${idToken}; path=/; max-age=86100`;
     document.cookie = `accessToken=${accessToken}; path=/; max-age=86100`;
     document.cookie = `profile=${profileCookie}; path=/; max-age=86100`;
-  }, { idToken: tokens.idToken, accessToken: tokens.accessToken, profileCookie });
+  }, { idToken: tokens.idToken, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, profileCookie });
 
   // Verify authentication works by loading a protected route
   await page.goto('/taskcards');
