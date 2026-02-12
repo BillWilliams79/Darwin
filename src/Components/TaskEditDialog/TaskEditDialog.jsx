@@ -3,6 +3,7 @@ import varDump from '../../classifier/classifier';
 
 import TaskDeleteDialog from '../TaskDeleteDialog/TaskDeleteDialog';
 import TaskEdit from '../TaskEdit/TaskEdit';
+import { useTaskActions } from '../../hooks/useTaskActions';
 
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -14,23 +15,11 @@ const TaskEditDialog = ({ taskEditDialogOpen,
                           setTaskEditDialogOpen,
                           taskEditInfo,
                           setTaskEditInfo,
-                          priorityClick,
-                          doneClick,
-                          descriptionChange,
-                          descriptionKeyDown,
-                          descriptionOnBlur,
-                          deleteClick,
-                          tasksArray,
-                          setTasksArray,
                           taskApiToggle,
-                          setTaskApiToggle,
-                          deleteDialogOpen,
-                          setDeleteDialogOpen,
-                          setDeleteId,
-                          setDeleteConfirmed, }
+                          setTaskApiToggle, }
                         ) => {
 
-
+    const { deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed } = useTaskActions();
 
     var {task, taskIndex} = taskEditInfo;
 
@@ -54,8 +43,7 @@ const TaskEditDialog = ({ taskEditDialogOpen,
             </DialogTitle>
             <DialogContent>
                 {task &&
-                    <TaskEdit {...{supportDrag: false, task, taskIndex, priorityClick, doneClick, descriptionChange,
-                                    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }} />
+                    <TaskEdit {...{supportDrag: false, task, taskIndex }} />
                 }
             </DialogContent>
             <DialogActions>
