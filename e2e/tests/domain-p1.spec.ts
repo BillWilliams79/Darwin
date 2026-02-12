@@ -107,8 +107,8 @@ test.describe('Domain Management P1', () => {
     }
     expect(targetRow).not.toBeNull();
 
-    // Click the delete icon (DeleteIcon button) in the row
-    await targetRow!.locator('button:has(svg[data-testid="DeleteIcon"])').click();
+    // Click the delete button (last cell's button in the row)
+    await targetRow!.locator('td:last-child button').click();
 
     // DomainDeleteDialog should appear
     const deleteDialog = page.getByRole('dialog');

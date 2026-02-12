@@ -29,9 +29,8 @@ test.describe('Domain Management', () => {
     // Wait for domains to load
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
 
-    // Click the "+" tab to open DomainAddDialog
-    // The "+" tab is the last tab with an AddIcon
-    await page.locator('[data-testid="MuiTab-root"]:last-child, [role="tab"]:has(svg[data-testid="AddIcon"])').first().click();
+    // Click the "+" tab to open DomainAddDialog (last tab, has no text — just the add icon)
+    await page.locator('[role="tab"]').last().click();
 
     // Wait for and interact with DomainAddDialog
     const dialog = page.getByTestId('domain-add-dialog');

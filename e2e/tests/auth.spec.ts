@@ -9,11 +9,9 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  // AUTH-01 requires HTTPS: Cognito redirects to https://localhost:3000/loggedin/ (from
-  // VITE_LOGIN_REDIRECT) but the dev server must serve HTTPS. The redirect fails with
-  // chrome-error://chromewebdata/ on plain HTTP. The programmatic auth in auth.setup.ts
-  // validates token acquisition.
-  test.skip('AUTH-01: full login via Cognito hosted UI', async ({ page }) => {
+  // AUTH-01: Full browser login flow through Cognito hosted UI.
+  // Requires HTTPS (Cognito redirect needs SSL). Works on production and localhost with basicSsl.
+  test('AUTH-01: full login via Cognito hosted UI', async ({ page }) => {
     await page.goto('/');
 
     // Click login link on home page ("Login / Create Account")
@@ -28,16 +26,14 @@ test.describe('Authentication', () => {
     await page.locator('input[name="password"]:visible').fill(process.env.E2E_TEST_PASSWORD!);
     await page.locator('input[name="signInSubmitButton"]:visible').click();
 
-    // Auth code flow: Cognito redirects to /loggedin?code=xxx&state=yyy (query params, not hash).
-    // LoggedIn component exchanges code for tokens, validates JWT, fetches profile, then redirects.
+    // Auth code flow: Cognito redirects to /loggedin?code=xxx&state=yyy (PKCE).
+    // LoggedIn component exchanges code for tokens, then redirects.
     await page.waitForURL('**/loggedin**', { timeout: 15000 });
 
-    // Wait for the redirect away from /loggedin (code exchange + JWT validation + profile fetch)
+    // Wait for the redirect away from /loggedin (token exchange + profile fetch)
     await expect(page).not.toHaveURL(/\/loggedin/, { timeout: 15000 });
 
-    // Verify authenticated state: LoggedIn sets React context (idToken, profile)
-    // and redirects to "/". The HomePage shows "Logout" when idToken is set.
-    await expect(page).toHaveURL(/localhost:3000/, { timeout: 5000 });
+    // Verify authenticated state — Logout link visible on homepage
     await expect(page.getByRole('link', { name: /logout/i })).toBeVisible({ timeout: 10000 });
 
     // Verify in-session navigation to protected route works (SPA navigation, no reload)
