@@ -10,11 +10,11 @@ test.describe('Authentication P1', () => {
     // Navigate to home page to find logout link
     await page.goto('/');
 
-    // The HomePage shows "Logout" as an <a href="logout"> when idToken is set
+    // The HomePage shows "Logout" as a link when idToken is set
     const logoutLink = page.getByRole('link', { name: /logout/i });
     await expect(logoutLink).toBeVisible({ timeout: 5000 });
 
-    // LogoutLink component clears cookies and redirects to Cognito logout URL.
+    // LogoutLink component clears refreshToken cookie and redirects to Cognito logout URL.
     // Cognito logout URL is external (amazoncognito.com) — intercept the
     // external navigation to avoid leaving the test domain.
     await page.route('**/amazoncognito.com/**', route => {
@@ -28,10 +28,8 @@ test.describe('Authentication P1', () => {
 
     await logoutLink.click();
 
-    // After LogoutLink renders, cookies should be cleared.
-    // The component does removeCookie for idToken, accessToken, profile
-    // then redirects via window.location to Cognito logout URL.
-    // Wait for the navigation to happen
+    // After LogoutLink renders, the refreshToken cookie should be cleared
+    // and the page redirects to Cognito logout URL.
     await page.waitForTimeout(2000);
 
     // Verify cookies are cleared by navigating back to the app
@@ -45,30 +43,23 @@ test.describe('Authentication P1', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
     test('AUTH-04: expired/invalid token redirects to login', async ({ page }) => {
-      // Set cookies with an invalid/expired token and incomplete profile.
-      // AuthenticatedRoute checks: profile?.userName === undefined || idToken === ''
-      // An expired JWT is just a string — but the profile cookie must be missing
-      // or have no userName for the guard to redirect.
+      // With no cookies at all (no refreshToken), AuthContext's silent refresh
+      // will find nothing and set authLoading=false with null tokens.
+      // AuthenticatedRoute will then redirect to /login.
       await page.goto('/');
       await page.waitForLoadState('domcontentloaded');
 
-      // Set an expired idToken cookie (valid JWT format but expired)
-      // and a profile cookie with no userName field
+      // Set an invalid refresh token to simulate an expired session
       await page.evaluate(() => {
-        // Set idToken to an expired JWT (header.payload.signature)
-        // The payload decodes to {"sub":"expired","exp":0}
-        document.cookie = 'idToken=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJleHBpcmVkIiwiZXhwIjowfQ.invalid; path=/; max-age=60';
-        document.cookie = 'accessToken=expired-token; path=/; max-age=60';
-        // Profile cookie WITHOUT userName → AuthenticatedRoute redirects
-        const profileNoUser = encodeURIComponent('j:' + JSON.stringify({ email: 'test@test.com' }));
-        document.cookie = `profile=${profileNoUser}; path=/; max-age=60`;
+        document.cookie = 'refreshToken=invalid-expired-token; path=/; max-age=60; SameSite=Strict';
       });
 
       // Try to access a protected route
       await page.goto('/taskcards');
 
-      // AuthenticatedRoute should redirect to /login because profile.userName is undefined
-      await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+      // AuthenticatedRoute should redirect to /login because silent refresh
+      // will fail with an invalid refresh token
+      await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
     });
   });
 });
