@@ -9,8 +9,8 @@ export default defineConfig({
   reporter: [['html', { open: 'never' }]],
   use: {
     baseURL: 'https://localhost:3000',
-    trace: 'on-first-retry',
     ignoreHTTPSErrors: true,
+    trace: 'on-first-retry',
   },
   projects: [
     {

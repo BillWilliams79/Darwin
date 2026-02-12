@@ -1,8 +1,11 @@
 import React, { useRef, useEffect } from 'react';
 import { useDrop } from 'react-dnd';
 import Tab from '@mui/material/Tab';
+import { useDragTabStore } from '../stores/useDragTabStore';
 
-const DroppableTab = ({ domainIndex, onDragTabSwitch, ...tabProps }) => {
+const DroppableTab = ({ domainIndex, ...tabProps }) => {
+
+    const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);
 
     const hoverTimerRef = useRef(null);
     const wasOverRef = useRef(false);
