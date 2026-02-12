@@ -1,53 +1,95 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useCookies } from 'react-cookie';
+import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/authService';
 
 const AuthContext = createContext({});
 
-// Context Provider for Authorization, Login and Profiles
+// Context Provider for Authorization, Login and Profiles.
+// Tokens live in memory (React state). The refresh token cookie
+// enables silent re-authentication on page reload.
 export const AuthContextProvider = ({ children }) => {
 
-    console.count('AuthContext initilialized');
+    console.count('AuthContext initialized');
 
-    const [cookies] = useCookies(['idToken', 'accessToken', 'profile']);
+    const [cookies] = useCookies(['refreshToken', 'idToken', 'accessToken', 'profile']);
 
-    // Set initial values by directly reading the cookie, this defeats the race condition of
-    // reading the values from useEffect. However, keeping useEffect since it conveniently
-    // re-sets context when the cookie expires
-    //
-    const [idToken, setIdToken] = useState(cookies?.idToken)
-    const [accessToken, setAccessToken] = useState(cookies?.accessToken)
-    const [profile, setProfile] = useState(cookies?.profile)
+    const [idToken, setIdToken] = useState(null);
+    const [accessToken, setAccessToken] = useState(null);
+    const [profile, setProfile] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
+    const refreshTimerRef = useRef(null);
+    const refreshTokenRef = useRef(null);
 
-    useEffect( () => {
+    // Schedule the next token refresh before expiry.
+    // Called after initial login and after each successful refresh.
+    // Uses a ref for the refresh token so the timer callback always has the current value.
+    const scheduleRefresh = useCallback((expiresInSeconds, refreshToken) => {
+        if (refreshToken) refreshTokenRef.current = refreshToken;
+        clearTimeout(refreshTimerRef.current);
+        // Refresh 5 minutes before expiry
+        const refreshMs = Math.max((expiresInSeconds - 300) * 1000, 0);
+        refreshTimerRef.current = setTimeout(async () => {
+            if (!refreshTokenRef.current) return;
+            try {
+                const tokens = await refreshTokensApi(refreshTokenRef.current);
+                setIdToken(tokens.idToken);
+                setAccessToken(tokens.accessToken);
+                setProfile(parseIdToken(tokens.idToken));
+                scheduleRefresh(tokens.expiresIn);
+            } catch (e) {
+                console.log('Background token refresh failed:', e.message);
+                // Tokens expired — user will be redirected to login on next navigation
+                setIdToken(null);
+                setAccessToken(null);
+                setProfile(null);
+            }
+        }, refreshMs);
+    }, []);
 
-        console.count('Auth Context load via useEffect')
-        // UseEffect checks and retrieves idToken from cookie. Is called if cookie or state changes.
-        // Page level behavior:
-        // idToken === '' - didn't evaluate cookie token yet, so display blank/wait spinner
-        // idToken === undefined - did evaluate cookie and none available. Page should login/return
-        // idToken === some value - attempt to render JSX
-        if (idToken !== cookies?.idToken) {
-            // avoid needless state changes
-            setIdToken(cookies?.idToken);
+    // On mount, attempt silent refresh using the refresh token cookie.
+    // This handles page reload (F5) — tokens are in memory so they're gone,
+    // but the refresh token cookie survives and can re-acquire them.
+    useEffect(() => {
+        async function silentRefresh() {
+            // Primary path: use refresh token cookie to silently re-acquire tokens
+            const refreshToken = cookies?.refreshToken;
+            if (refreshToken) {
+                refreshTokenRef.current = refreshToken;
+                try {
+                    const tokens = await refreshTokensApi(refreshToken);
+                    setIdToken(tokens.idToken);
+                    setAccessToken(tokens.accessToken);
+                    setProfile(parseIdToken(tokens.idToken));
+                    scheduleRefresh(tokens.expiresIn);
+                    setAuthLoading(false);
+                    return;
+                } catch (e) {
+                    console.log('Silent refresh failed:', e.message);
+                }
+            }
+            // Fallback: read legacy cookies (supports E2E tests and transition period)
+            if (cookies?.idToken && cookies?.profile) {
+                setIdToken(cookies.idToken);
+                setAccessToken(cookies.accessToken);
+                setProfile(cookies.profile);
+            }
+            setAuthLoading(false);
         }
-        if (accessToken !== cookies?.idToken) {
-            setAccessToken(cookies?.accessToken);
-        }
-        if (profile !== cookies?.idToken) {
-            setProfile(cookies?.profile);
-        }
-
+        silentRefresh();
+        return () => clearTimeout(refreshTimerRef.current);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cookies])
+    }, []);
 
     return (
         <AuthContext.Provider value={{
             idToken, setIdToken,
             accessToken, setAccessToken,
             profile, setProfile,
+            authLoading,
+            scheduleRefresh,
         }} >
             {children}
         </AuthContext.Provider>
