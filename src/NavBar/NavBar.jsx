@@ -19,7 +19,7 @@ const NavBar = () => {
                spacing={1}
                alignItems={{xs: 'center', md: 'flex-start'}}
         >
-          <PedalBikeIcon />
+          <PedalBikeIcon sx={{ color: 'pink' }} />
           <Link className="nav-title" to="/">
             Darwin
           </Link>
