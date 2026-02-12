@@ -4,6 +4,7 @@ import varDump from '../../classifier/classifier';
 import React from 'react'
 
 import { useDrag } from "react-dnd";
+import { useDragTabStore } from '../../stores/useDragTabStore';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -19,8 +20,10 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
 const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, descriptionChange,
-    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName,
-    revertDragTabSwitch, clearDragTabSwitch }) => {
+    descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, areaId, areaName }) => {
+
+    const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
+    const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "taskPlan",
@@ -36,12 +39,12 @@ const TaskEdit = ({ supportDrag, task, taskIndex, priorityClick, doneClick, desc
         var dropResult = monitor.getDropResult();
 
         if (!dropResult || dropResult.task === null) {
-            if (revertDragTabSwitch) revertDragTabSwitch();
+            revertDragTabSwitch();
             return;
         }
 
         // when dropResult.task is non-null, the task is moved off this card
-        if (clearDragTabSwitch) clearDragTabSwitch();
+        clearDragTabSwitch();
         var newTasksArray = [...tasksArray];
         newTasksArray = newTasksArray.filter( task => task.id !== item.id);
         setTasksArray(newTasksArray);
