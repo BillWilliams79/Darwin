@@ -7,6 +7,7 @@ const DARWIN_API = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/d
 export interface AuthTokens {
   idToken: string;
   accessToken: string;
+  refreshToken: string;
 }
 
 function computeSecretHash(username: string, clientId: string, clientSecret: string): string {
@@ -56,6 +57,7 @@ export async function getAuthTokens(): Promise<AuthTokens> {
   return {
     idToken: data.AuthenticationResult.IdToken,
     accessToken: data.AuthenticationResult.AccessToken,
+    refreshToken: data.AuthenticationResult.RefreshToken,
   };
 }
 

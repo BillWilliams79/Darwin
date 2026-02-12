@@ -13,115 +13,107 @@ import { useCookies } from 'react-cookie';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 
-function  LoggedIn() {
+import { exchangeCodeForTokens, parseIdToken } from '../services/authService';
+import { getAndClearCodeVerifier } from '../services/pkce';
+
+// 90 days in seconds
+const REFRESH_TOKEN_MAX_AGE = 90 * 24 * 3600;
+
+function LoggedIn() {
 
     console.count('LoggedIn Render');
-    const { idToken, setIdToken, 
-            setAccessToken, 
-            profile, setProfile, } = useContext(AuthContext);
+    const { idToken, setIdToken,
+            setAccessToken,
+            profile, setProfile,
+            scheduleRefresh } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
 
-    const [cookies, setCookie, removeCookie] = useCookies(['csrfToken', 'idToken', 'accessToken']);
+    const [cookies, setCookie, removeCookie] = useCookies(['csrfToken', 'refreshToken']);
 
     const [errorMsg, setErrorMsg] = useState('');
     const [snackBarOpen, setSnackBarOpen] = useState(false);
     const [snackBarMessage, setSnackBarMessage] = useState('');
     const [redirectPath, setRedirectPath] = useState();
-        
+
     let location = useLocation();
 
     useEffect( () => {
-        console.log('loggedin useEffect called');
+        console.log('LoggedIn useEffect called');
 
-        // STEP 1: verify CSRF token match and presence of id/access tokens.
-        //         Fail if criteria not met with appropriate message.
+        // STEP 1: Parse authorization code and state from query params.
+        //         Auth code flow returns ?code=xxx&state=yyy (not hash fragments).
+        const params = new URLSearchParams(location.search);
+        const code = params.get('code');
+        const returnedState = params.get('state');
 
-        const hashParams = {};
-
-        if (location.hash) {
-
-            // implicit grant oath flow returns ID and access tokens as hash string
-            var generatedCsrf = cookies?.csrfToken;
-            removeCookie('csrfToken', { path: '/', maxAge: 1800 });
-
-            // parse hash(#) params
-            location.hash.slice(1).split('&').map( qspString => {
-                let splitString = qspString.split('=');
-                hashParams[splitString[0]] = splitString[1];
-                return null;
-            });
-            var returnedCsrfToken = hashParams?.state;
-
-            // CSRF token verification
-            if (returnedCsrfToken.localeCompare(generatedCsrf)) {
-                // CSRF does not match - do not proceed to acquire tokens. User is not properly logged in
-                // what to do? return to home page? display a not logged in page or alternate text on this page
-                console.log('CSRF match failed, not logged in');
-                setErrorMsg('CSRF Tokens did not match, invalid redirect from AWS');
-                return;
-            }
-
-            // retrieve and verify ID and Access Tokens provided
-            var newIdToken = hashParams?.id_token;
-            var newAccessToken = hashParams?.access_token;
-
-            if (!((newIdToken) && (newAccessToken))) {
-                console.log('Tokens are missing, not logged in');
-                setErrorMsg('Access credentials not returned from login service');
-                return;
-            }
-
-        } else {
-            console.log('error no hash params, not logged in')
-            setErrorMsg('No hash paramaters returned from login service, hence credentials unavailable.');
+        if (!code) {
+            setErrorMsg('No authorization code returned from login service');
             return;
-        } 
+        }
 
-        // STEP 2: id token is JWT format, need to parse and verify the hash is valid
-        
-        let uri = `${darwinUri}/jwt`;
-        let body = {'idToken': newIdToken}
+        // CSRF token verification
+        const generatedCsrf = cookies?.csrfToken;
+        removeCookie('csrfToken', { path: '/', maxAge: 1800 });
 
-        // Arbitrarily use a post call so we can encode the token in the body instead of QSP
-        call_rest_api(uri, 'POST', body, `${newIdToken}`)
-            .then(result => {
+        if (returnedState !== generatedCsrf) {
+            console.log('CSRF match failed, not logged in');
+            setErrorMsg('CSRF Tokens did not match, invalid redirect from AWS');
+            return;
+        }
 
-                // after verification, store tokens and expiry in cookie
-                // Tokens are good for 24 hours, so expire the cookie at 24 hours - 5 mins to force re-login
-                setCookie('idToken', newIdToken, { path: '/', maxAge: ((24 * 3600) - 300), secure: true });
-                setCookie('accessToken', newAccessToken, { path: '/', maxAge: ((24 * 3600) - 300), secure: true });
+        // Retrieve PKCE code_verifier stored before redirect
+        const codeVerifier = getAndClearCodeVerifier();
+        if (!codeVerifier) {
+            setErrorMsg('PKCE code verifier missing — please try logging in again');
+            return;
+        }
 
-                // @ initial login, also need to populate react context copies of tokens as the app uses 
-                // these throughout.
-                setIdToken(newIdToken);
-                setAccessToken(newAccessToken);
+        // STEP 2: Exchange authorization code for tokens via Cognito /oauth2/token
+        exchangeCodeForTokens(code, codeVerifier)
+            .then(tokens => {
+                // Store refresh token in a Secure cookie for session persistence across reloads
+                setCookie('refreshToken', tokens.refreshToken, {
+                    path: '/',
+                    maxAge: REFRESH_TOKEN_MAX_AGE,
+                    secure: true,
+                    sameSite: 'strict',
+                });
 
-                //STEP 3: Read the database and populate user information into react state
-                uri = `${darwinUri}/profiles?id=${result.data['username']}`;
-                body = '';
+                // Set tokens in React context (memory only, no token cookies)
+                setIdToken(tokens.idToken);
+                setAccessToken(tokens.accessToken);
 
-                call_rest_api(uri, 'GET', body, `${newIdToken}`)
+                // STEP 3: Validate ID token via Lambda-JWT (same as before)
+                const jwtUri = `${darwinUri}/jwt`;
+                const jwtBody = {'idToken': tokens.idToken};
+
+                return call_rest_api(jwtUri, 'POST', jwtBody, tokens.idToken)
                     .then(result => {
-                        if (result.httpStatus.httpStatus === 200) {
-                            // profile information ages out same time as the tokens
-                            setProfile(result.data[0]);
-                            setCookie('profile', result.data[0], { path: '/', maxAge: ((24 * 3600) - 300), secure: true })
-                        } else {
-                            snackBarError(result, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen)
-                        }
-                    }).catch(error => {
-                        snackBarError(error, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen)
+                        // STEP 4: Read user profile from database
+                        const profileUri = `${darwinUri}/profiles?id=${result.data['username']}`;
+
+                        return call_rest_api(profileUri, 'GET', '', tokens.idToken)
+                            .then(result => {
+                                if (result.httpStatus.httpStatus === 200) {
+                                    setProfile(result.data[0]);
+                                    // Schedule background token refresh (pass refresh token for the ref)
+                                    scheduleRefresh(tokens.expiresIn, tokens.refreshToken);
+                                } else {
+                                    snackBarError(result, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen);
+                                }
+                            }).catch(error => {
+                                snackBarError(error, 'Unable to read user profile data', setSnackBarMessage, setSnackBarOpen);
+                            });
                     });
             }).catch(error => {
-                console.log('Access token returned from authentication system is invalid.');
-                setErrorMsg('Access token returned from authentication system is invalid.');
+                console.log('Authentication failed:', error.message);
+                setErrorMsg('Authentication failed. Please try logging in again.');
                 return;
             });
 
-            //STEP 4: determine location to navigate post login - either default or the page
-            //        from which the login was initiated, value is stored in a cookie.
-            setRedirectPath(cookies?.redirectPath || "/");
-            removeCookie('redirectPath', {path: '/', maxAge: 600});
+        // STEP 5: Determine post-login redirect path
+        setRedirectPath(cookies?.redirectPath || "/");
+        removeCookie('redirectPath', {path: '/', maxAge: 600});
 
         //eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location])
@@ -137,7 +129,7 @@ function  LoggedIn() {
                                 <Typography className="app-title" variant="h3">
                                     Login unsuccessful, error message below
                                 </Typography>
-                                <Typography className="app-content" variant="body1" component="p"> 
+                                <Typography className="app-content" variant="body1" component="p">
                                     {errorMsg}
                                 </Typography>
                             </>
