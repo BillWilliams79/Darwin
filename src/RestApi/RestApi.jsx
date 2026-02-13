@@ -41,8 +41,11 @@ const call_rest_api = async (url, method, body, idToken) => {
         // 204 is a No Content response and independent of what is returned from api lambda
         // gives an error retrieving the json data. So skip it!
         try {
-            const jsonData = await response.json();
-            var data = (jsonData.length > 0) ? JSON.parse(jsonData) : '';
+            var data = await response.json();
+            // Defensive: handle transition period (cached old frontend + new Lambda)
+            if (typeof data === 'string' && data.length > 0) {
+                try { data = JSON.parse(data); } catch (e) { /* plain string, keep as-is */ }
+            }
         } catch (error) {
             varDump(error, 'Error retrieving response.json')
         }
