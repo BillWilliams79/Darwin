@@ -24,18 +24,9 @@ export async function apiCall(
   });
 
   const text = await res.text();
-  // Lambda double-encodes JSON responses. The response format is typically:
-  //   POST: '["[{\"id\": 168, ...}]"]'  (array containing a JSON string)
-  //   GET:  '"[{\"id\": 168, ...}]"'     (string containing JSON)
-  // The frontend handles this via JSON.parse(array) which coerces array.toString().
-  // We replicate that approach: parse once, then if the result has a .length,
-  // parse it again (matching the front-end's call_rest_api behavior).
+  // Lambda responses are single-encoded JSON.
   try {
-    let data = JSON.parse(text);
-    if (data?.length > 0) {
-      try { data = JSON.parse(data); } catch { /* already final form */ }
-    }
-    return data;
+    return JSON.parse(text);
   } catch {
     return text;
   }
