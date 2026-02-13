@@ -35,6 +35,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     const [domainApiTrigger, triggerDomainRefresh] = useApiTrigger();
     
     const [areaCounts, setAreaCounts] = useState({});
+    const [taskCounts, setTaskCounts] = useState({});
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -68,28 +69,39 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
-
-                // retrieve counts from rest API using &fields=count(*), group_by_field syntax
-                let uri = `${darwinUri}/areas?creator_fk=${profile.userName}&fields=count(*),domain_fk`;
-                call_rest_api(uri, 'GET', '', idToken)
-                    .then(result => {
-                        // count(*) returns an array of dict with format {group_by_field, count(*)}
-                        // reformat to dictionary: taskcounts.area_fk = count(*) using map
-                        let newAreaCounts = {};
-                        // eslint-disable-next-line array-callback-return
-                        result.data.map( (countData) => {
-                            newAreaCounts[countData.domain_fk] = countData['count(*)'];
-                        })
-
-                        setAreaCounts(newAreaCounts);
-        
-                    }).catch(error => {
-                        varDump(error, `UseEffect: error retrieving task counts: ${error}`);
-                    });
                 let newDomainArray = result.data;
                 newDomainArray.sort((domainA, domainB) => domainClosedSort(domainA, domainB));
                 newDomainArray.push({'id':'', 'domain_name':'', 'closed': 0, 'creator_fk': profile.userName });
                 setDomainsArray(result.data);
+
+                // Fetch areas and task counts in parallel
+                const areasUri = `${darwinUri}/areas?creator_fk=${profile.userName}&fields=id,domain_fk`;
+                const tasksUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&fields=count(*),area_fk`;
+
+                Promise.all([
+                    call_rest_api(areasUri, 'GET', '', idToken).catch(() => ({ data: [] })),
+                    call_rest_api(tasksUri, 'GET', '', idToken).catch(() => ({ data: [] })),
+                ]).then(([areasResult, tasksResult]) => {
+                    // Area counts: count areas per domain_fk
+                    const newAreaCounts = {};
+                    const areaToDomain = {};
+                    areasResult.data.forEach((area) => {
+                        // String keys ensure consistent lookup regardless of API number/string types
+                        areaToDomain[String(area.id)] = area.domain_fk;
+                        newAreaCounts[area.domain_fk] = (newAreaCounts[area.domain_fk] || 0) + 1;
+                    });
+                    setAreaCounts(newAreaCounts);
+
+                    // Task counts: map area_fk → domain_fk, sum per domain
+                    const newTaskCounts = {};
+                    tasksResult.data.forEach((taskCount) => {
+                        const domainFk = areaToDomain[String(taskCount.area_fk)];
+                        if (domainFk !== undefined) {
+                            newTaskCounts[domainFk] = (newTaskCounts[domainFk] || 0) + taskCount['count(*)'];
+                        }
+                    });
+                    setTaskCounts(newTaskCounts);
+                });
             }).catch(error => {
                 varDump(error, `UseEffect: error retrieving Domains: ${error}`);
             });
@@ -148,10 +160,14 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     newDomainsArray.push({'id':'', 'domain_name':'', 'closed': 0, 'creator_fk': profile.userName });
                     setDomainsArray(newDomainsArray);
 
-                    // update the areaCounts data
+                    // update the areaCounts and taskCounts data
                     let newAreaCounts = {...areaCounts};
                     newAreaCounts[result.data[0].id] = 0;
                     setAreaCounts(newAreaCounts);
+
+                    let newTaskCounts = {...taskCounts};
+                    newTaskCounts[result.data[0].id] = 0;
+                    setTaskCounts(newTaskCounts);
 
                 } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
@@ -191,7 +207,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     }
 
     const clickDomainDelete = (event, domainId, domainName) => {
-        domainDelete.openDialog({ domainName, domainId, areasCount: areaCounts[domainId] });
+        domainDelete.openDialog({ domainName, domainId, tasksCount: taskCounts[domainId] });
     }
 
     const domainClosedSort = (domainA, domainB) => {
@@ -223,7 +239,8 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                             <TableRow key = 'TableHead'>
                                 <TableCell> Name </TableCell>
                                 <TableCell> Closed </TableCell>
-                                <TableCell> Area Count </TableCell>
+                                <TableCell sx={{textAlign: 'center'}}> Areas </TableCell>
+                                <TableCell sx={{textAlign: 'center'}}> Tasks </TableCell>
                                 <TableCell></TableCell>
                             </TableRow>
                         </TableHead>
@@ -249,11 +266,18 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                                               key={`checked-${domain.id}`}
                                     />
                                 </TableCell>
-                                <TableCell> {/* triple ternary checks all cases and display correct value */}
-                                    <Typography variant='body1' sx={{textAlign: 'center'}}>
+                                <TableCell>
+                                    <Typography variant='body1' sx={{textAlign: 'center'}} data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
                                     {  domain.id === '' ? '' :
                                         areaCounts[`${domain.id}`] === undefined ? 0 :
                                           areaCounts[`${domain.id}`] === '' ? '' : areaCounts[`${domain.id}`] }
+                                     </Typography>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant='body1' sx={{textAlign: 'center'}} data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
+                                    {  domain.id === '' ? '' :
+                                        taskCounts[`${domain.id}`] === undefined ? 0 :
+                                          taskCounts[`${domain.id}`] === '' ? '' : taskCounts[`${domain.id}`] }
                                      </Typography>
                                 </TableCell>
                                 <TableCell>
