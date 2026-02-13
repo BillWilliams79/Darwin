@@ -148,6 +148,97 @@ test.describe.serial('Task Management P1', () => {
     await expect(updatedText).toBeVisible({ timeout: 5000 });
   });
 
+  test('TASK-09: priority set during task creation persists', async ({ page }) => {
+    const taskDesc = uniqueName('PrioRace');
+
+    await goToTestDomain(page);
+
+    const areaCard = page.getByTestId(`area-card-${testAreaId}`);
+    const template = areaCard.getByTestId('task-template');
+    const descField = template.locator('textarea, input[type="text"]').first();
+
+    // Type description in template
+    await descField.fill(taskDesc);
+
+    // Click priority checkbox — triggers blur (POST) then click (priority toggle)
+    const priorityCheckbox = template.getByRole('checkbox').nth(0);
+    await priorityCheckbox.click();
+
+    // Wait for POST + follow-up PUT to complete
+    await page.waitForTimeout(2000);
+
+    // Verify the task was created with priority checked
+    const taskElement = areaCard
+      .locator('[data-testid^="task-"]:not([data-testid="task-template"])')
+      .filter({ hasText: taskDesc });
+    await expect(taskElement).toBeVisible({ timeout: 5000 });
+    const taskPrioCheckbox = taskElement.getByRole('checkbox').nth(0);
+    await expect(taskPrioCheckbox).toBeChecked();
+
+    // Verify persists after reload (proves server has priority=1)
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForTimeout(1500);
+
+    const taskAfterReload = areaCard
+      .locator('[data-testid^="task-"]:not([data-testid="task-template"])')
+      .filter({ hasText: taskDesc });
+    await expect(taskAfterReload).toBeVisible({ timeout: 5000 });
+    await expect(taskAfterReload.getByRole('checkbox').nth(0)).toBeChecked();
+
+    // Track for cleanup
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const tasks = await apiCall(
+      `tasks?creator_fk=${sub}&area_fk=${testAreaId}&done=0`,
+      'GET', '', idToken,
+    ) as Array<{ id: string; description: string }>;
+    const created = tasks?.find(t => t.description === taskDesc);
+    if (created) createdTaskIds.push(created.id);
+  });
+
+  test('TASK-10: no duplicate task when Enter then quick priority click', async ({ page }) => {
+    const taskDesc = uniqueName('NoDupe');
+
+    await goToTestDomain(page);
+
+    const areaCard = page.getByTestId(`area-card-${testAreaId}`);
+    const template = areaCard.getByTestId('task-template');
+    const descField = template.locator('textarea, input[type="text"]').first();
+
+    // Type and press Enter (first save)
+    await descField.fill(taskDesc);
+    await descField.press('Enter');
+
+    // Immediately click priority (would have caused duplicate POST before fix)
+    const priorityCheckbox = template.getByRole('checkbox').nth(0);
+    await priorityCheckbox.click();
+
+    // Wait for everything to settle
+    await page.waitForTimeout(2500);
+
+    // Reload and verify exactly one task with this description
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForTimeout(1500);
+
+    const matchingTasks = areaCard
+      .locator('[data-testid^="task-"]:not([data-testid="task-template"])')
+      .filter({ hasText: taskDesc });
+    await expect(matchingTasks).toHaveCount(1);
+
+    // Cleanup
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const tasks = await apiCall(
+      `tasks?creator_fk=${sub}&area_fk=${testAreaId}&done=0`,
+      'GET', '', idToken,
+    ) as Array<{ id: string; description: string }>;
+    for (const t of (tasks || [])) {
+      if (t.description === taskDesc) createdTaskIds.push(t.id);
+    }
+  });
+
   test('TASK-08: template row controls disabled until parent area saved', async ({ page }) => {
     await goToTestDomain(page);
 
