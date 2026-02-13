@@ -37,6 +37,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     const [tasksArray, setTasksArray] = useState()
     const [taskApiTrigger, triggerTaskRefresh] = useApiTrigger();
 
+    // Guards against race condition: priority/done clicks during in-flight POST
+    const savingRef = useRef(false);
+    const pendingMutationsRef = useRef({});
+
     const showError = useSnackBarStore(s => s.showError);
 
     const taskDelete = useConfirmDialog({
@@ -231,6 +235,9 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     showError(error, "Unable to change task's priority")
                 }
             );
+        } else if (savingRef.current) {
+            // Template task with POST in-flight: queue for follow-up PUT
+            pendingMutationsRef.current.priority = newTasksArray[taskIndex].priority;
         }
         
         // Only after database is updated, tasks and update state
@@ -259,6 +266,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     showError(error, "Unable to mark task completed")
                 }
             );
+        } else if (savingRef.current) {
+            // Template task with POST in-flight: queue for follow-up PUT
+            pendingMutationsRef.current.done = newTasksArray[taskIndex].done;
+            pendingMutationsRef.current.done_ts = newTasksArray[taskIndex].done === 1
+                ? new Date().toISOString() : 'NULL';
         }
     }
 
@@ -296,6 +308,9 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     });
 
     const saveTask = (event, taskIndex) => {
+        if (savingRef.current) return;
+        savingRef.current = true;
+
         let uri = `${darwinUri}/tasks`;
         call_rest_api(uri, 'POST', {...tasksArray[taskIndex]}, idToken)
             .then(result => {
@@ -304,6 +319,21 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     // show snackbar, place new data in table and created another blank element
                     let newTasksArray = [...tasksArray];
                     newTasksArray[taskIndex] = {...result.data[0]};
+
+                    // Apply any mutations made while POST was in-flight (e.g. priority click)
+                    const pending = pendingMutationsRef.current;
+                    if (Object.keys(pending).length > 0) {
+                        Object.assign(newTasksArray[taskIndex], pending);
+                        call_rest_api(uri, 'PUT', [{'id': result.data[0].id, ...pending}], idToken)
+                            .then(putResult => {
+                                if (putResult.httpStatus.httpStatus !== 200) {
+                                    showError(putResult, 'Unable to update task after save');
+                                }
+                            }).catch(putError => {
+                                showError(putError, 'Unable to update task after save');
+                            });
+                    }
+
                     newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
                     newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': profile.userName });
                     setTasksArray(newTasksArray);
@@ -316,6 +346,9 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                 }
             }).catch(error => {
                 showError(error, 'Task not saved, HTTP error')
+            }).finally(() => {
+                savingRef.current = false;
+                pendingMutationsRef.current = {};
             });
     }
 
