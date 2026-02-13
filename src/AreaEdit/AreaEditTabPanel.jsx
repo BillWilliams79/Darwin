@@ -131,7 +131,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const { fieldChange: changeAreaName, fieldKeyDown: keyDownAreaName, fieldOnBlur: blurAreaName } = useCrudCallbacks({
         items: areasArray, setItems: setAreasArray, fieldName: 'area_name',
-        saveFn: (_event, index, id) => restUpdateAreaName(index, id), blockApostrophe: false
+        saveFn: (_event, index, id) => restUpdateAreaName(index, id)
     });
 
     const restSaveNewArea = (areaIndex) => {

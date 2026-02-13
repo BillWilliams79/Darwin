@@ -1,4 +1,4 @@
-export function useCrudCallbacks({ items, setItems, fieldName, saveFn, blockApostrophe = true }) {
+export function useCrudCallbacks({ items, setItems, fieldName, saveFn }) {
 
     const fieldChange = (event, index) => {
         let newItems = [...items];
@@ -9,9 +9,6 @@ export function useCrudCallbacks({ items, setItems, fieldName, saveFn, blockApos
     const fieldKeyDown = (event, index, id) => {
         if (event.key === 'Enter') {
             saveFn(event, index, id);
-            event.preventDefault();
-        }
-        if (blockApostrophe && event.key === "'") {
             event.preventDefault();
         }
     };
