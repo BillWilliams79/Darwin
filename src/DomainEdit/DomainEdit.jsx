@@ -129,7 +129,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
     const { fieldChange: changeDomainName, fieldKeyDown: keyDownDomainName, fieldOnBlur: blurDomainName } = useCrudCallbacks({
         items: domainsArray, setItems: setDomainsArray, fieldName: 'domain_name',
-        saveFn: (_event, index, id) => restUpdateDomainName(index, id), blockApostrophe: false
+        saveFn: (_event, index, id) => restUpdateDomainName(index, id)
     });
 
     const restSaveDomainName = (domainIndex) => {
