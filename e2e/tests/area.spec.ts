@@ -103,7 +103,7 @@ test.describe.serial('Area Management', () => {
     await expect(areaCard).toBeVisible({ timeout: 5000 });
 
     // Click the close (X) icon on the area card header
-    await areaCard.locator('.card-header svg').click();
+    await areaCard.locator('[data-testid^="close-area-"]').click();
 
     // Confirm in CardCloseDialog
     const closeDialog = page.getByTestId('card-close-dialog');
