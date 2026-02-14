@@ -57,7 +57,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
         console.count('useEffect: read all Rest API data');
 
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order,creator_fk`;
+        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order,sort_mode,creator_fk`;
 
         call_rest_api(areaUri, 'GET', '', idToken)
             .then(result => {
@@ -67,7 +67,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     // Sort the data, find largest sort order, add template area/card and save the state
                     result.data.sort((areaA,areaB) => areaSortBySortOrder(areaA, areaB));
                     let maxSortOrder = result.data.at(-1).sort_order + 1
-                    result.data.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'creator_fk': profile.userName, });
+                    result.data.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
                     setAreasArray(result.data);
 
                 } else {
@@ -78,7 +78,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                 if (error.httpStatus.httpStatus === 404) {
 
                     // a domain with no areas, still requires a template area
-                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'creator_fk': profile.userName, }]);
+                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
                 } else {
                     showError(error, 'Unable to read Area data')
                 }
