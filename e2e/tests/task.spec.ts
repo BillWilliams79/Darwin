@@ -196,11 +196,11 @@ test.describe('Task Management', () => {
   });
 
   test('TASK-05: DnD task between areas (react-dnd)', async ({ page }) => {
-    // Create a task in area 1
+    // Create a task in area 1 (include sort_order to avoid lazy-fill race)
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const taskDesc = uniqueName('DragTask');
     const result = await apiCall('tasks', 'POST', {
-      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0,
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0, sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (!result?.length) throw new Error('Failed to create test task');
     const taskId = result[0].id;
