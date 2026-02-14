@@ -109,13 +109,19 @@ test.describe.serial('Cancel Drag', () => {
 
     const taskResult = await apiCall('tasks', 'POST', {
       creator_fk: sub, description: taskDesc, area_fk: areaId,
-      priority: 0, done: 0,
+      priority: 0, done: 0, sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (!taskResult?.length) throw new Error('Failed to create task');
     const taskId = taskResult[0].id;
     createdTaskIds.push(taskId);
 
-    // Intercept PUT requests to tasks
+    // Navigate to TaskPlanView and select domain
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForTimeout(1500);
+
+    // Intercept PUT requests to tasks (after page settles to avoid lazy-fill PUTs)
     let putCount = 0;
     await page.route('**/tasks*', (route) => {
       if (route.request().method() === 'PUT') {
@@ -123,12 +129,6 @@ test.describe.serial('Cancel Drag', () => {
       }
       route.continue();
     });
-
-    // Navigate to TaskPlanView and select domain
-    await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
-    await page.getByRole('tab', { name: testDomainName }).click();
-    await page.waitForTimeout(1500);
 
     // Find the task row
     const taskRow = page.getByTestId(`task-${taskId}`);
