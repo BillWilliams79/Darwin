@@ -550,7 +550,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                             </Tooltip>
                         </>
                     )}
-                    <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} >
+                    <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} data-testid={`close-area-${area.id}`} >
                         <CloseIcon />
                     </IconButton>
                 </Box>
