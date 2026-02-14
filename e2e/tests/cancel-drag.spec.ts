@@ -109,7 +109,7 @@ test.describe.serial('Cancel Drag', () => {
 
     const taskResult = await apiCall('tasks', 'POST', {
       creator_fk: sub, description: taskDesc, area_fk: areaId,
-      priority: 0, done: 0,
+      priority: 0, done: 0, sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (!taskResult?.length) throw new Error('Failed to create task');
     const taskId = taskResult[0].id;

@@ -175,4 +175,208 @@ test.describe.serial('Sort Order Verification', () => {
     // The priority task (taskDescs[1]) should be first
     expect(renderedDescs[0]).toBe(taskDescs[1]);
   });
+
+  test('TASK-11: tasks render in sort_order in hand-sort mode', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const domainName = uniqueName('HandDom');
+    const areaName = uniqueName('HandArea');
+
+    // Create domain and area
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: domainName, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create domain');
+    const domainId = domResult[0].id;
+    createdDomainIds.push(domainId);
+
+    const areaResult = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: areaName, domain_fk: domainId,
+      closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!areaResult?.length) throw new Error('Failed to create area');
+    const areaId = areaResult[0].id;
+    createdAreaIds.push(areaId);
+
+    // Create 3 tasks with explicit sort_order: 2, 0, 1
+    const taskDescs = ['TaskTwo', 'TaskZero', 'TaskOne'];
+    const sortOrders = [2, 0, 1];
+    for (let i = 0; i < 3; i++) {
+      const r = await apiCall('tasks', 'POST', {
+        creator_fk: sub, description: taskDescs[i], area_fk: areaId,
+        priority: 0, done: 0, sort_order: sortOrders[i],
+      }, idToken) as Array<{ id: string }>;
+      if (r?.length) createdTaskIds.push(r[0].id);
+    }
+
+    // Navigate to TaskPlanView and select the domain
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: domainName }).click();
+    await page.waitForTimeout(1500);
+
+    // Click hand-sort button
+    const handSortBtn = page.getByTestId(`sort-hand-${areaId}`);
+    await expect(handSortBtn).toBeVisible({ timeout: 5000 });
+    await handSortBtn.click();
+    await page.waitForTimeout(500);
+
+    // Read task descriptions in order
+    const areaCard = page.getByTestId(`area-card-${areaId}`);
+    const taskRows = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])');
+    const taskCount = await taskRows.count();
+    const renderedDescs: string[] = [];
+    for (let i = 0; i < taskCount; i++) {
+      const desc = taskRows.nth(i).locator('textarea[name="description"], input[name="description"]').first();
+      renderedDescs.push(await desc.inputValue());
+    }
+
+    // Expected order by sort_order ascending: TaskZero(0), TaskOne(1), TaskTwo(2)
+    expect(renderedDescs).toEqual(['TaskZero', 'TaskOne', 'TaskTwo']);
+  });
+
+  test('TASK-12: sort mode toggle switches task order', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const domainName = uniqueName('TogDom');
+    const areaName = uniqueName('TogArea');
+
+    // Create domain and area
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: domainName, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create domain');
+    const domainId = domResult[0].id;
+    createdDomainIds.push(domainId);
+
+    const areaResult = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: areaName, domain_fk: domainId,
+      closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!areaResult?.length) throw new Error('Failed to create area');
+    const areaId = areaResult[0].id;
+    createdAreaIds.push(areaId);
+
+    // Create 2 tasks: one priority (sort_order=1), one non-priority (sort_order=0)
+    const priTask = uniqueName('PriTask');
+    const noPriTask = uniqueName('NoPriTask');
+
+    const r1 = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: noPriTask, area_fk: areaId,
+      priority: 0, done: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (r1?.length) createdTaskIds.push(r1[0].id);
+
+    const r2 = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: priTask, area_fk: areaId,
+      priority: 1, done: 0, sort_order: 1,
+    }, idToken) as Array<{ id: string }>;
+    if (r2?.length) createdTaskIds.push(r2[0].id);
+
+    // Navigate to TaskPlanView and select the domain
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: domainName }).click();
+    await page.waitForTimeout(1500);
+
+    const areaCard = page.getByTestId(`area-card-${areaId}`);
+    const taskRows = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])');
+
+    // In default priority mode: priority task should be first
+    const getDescs = async () => {
+      const count = await taskRows.count();
+      const descs: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const desc = taskRows.nth(i).locator('textarea[name="description"], input[name="description"]').first();
+        descs.push(await desc.inputValue());
+      }
+      return descs;
+    };
+
+    const priorityDescs = await getDescs();
+    expect(priorityDescs[0]).toBe(priTask);
+
+    // Switch to hand-sort mode
+    await page.getByTestId(`sort-hand-${areaId}`).click();
+    await page.waitForTimeout(500);
+
+    // In hand-sort mode: sort_order=0 (noPriTask) should be first
+    const handDescs = await getDescs();
+    expect(handDescs[0]).toBe(noPriTask);
+  });
+
+  test('TASK-13: hand-sort DnD reorder persists after reload', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const domainName = uniqueName('DnDDom');
+    const areaName = uniqueName('DnDArea');
+
+    // Create domain and area
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: domainName, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create domain');
+    const domainId = domResult[0].id;
+    createdDomainIds.push(domainId);
+
+    const areaResult = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: areaName, domain_fk: domainId,
+      closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!areaResult?.length) throw new Error('Failed to create area');
+    const areaId = areaResult[0].id;
+    createdAreaIds.push(areaId);
+
+    // Create 3 tasks with sort_order 0, 1, 2
+    const taskDescs = ['First', 'Second', 'Third'];
+    for (let i = 0; i < 3; i++) {
+      const r = await apiCall('tasks', 'POST', {
+        creator_fk: sub, description: taskDescs[i], area_fk: areaId,
+        priority: 0, done: 0, sort_order: i,
+      }, idToken) as Array<{ id: string }>;
+      if (r?.length) createdTaskIds.push(r[0].id);
+    }
+
+    // Reorder via API: move "First" (sort_order=0) to last (sort_order=2)
+    // This simulates what the DnD would do — direct API PUT for sort_order
+    await apiCall('tasks', 'PUT', [
+      { id: createdTaskIds[createdTaskIds.length - 3], sort_order: 2 },
+      { id: createdTaskIds[createdTaskIds.length - 2], sort_order: 0 },
+      { id: createdTaskIds[createdTaskIds.length - 1], sort_order: 1 },
+    ], idToken);
+
+    // Navigate to TaskPlanView in hand-sort mode and verify order
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: domainName }).click();
+    await page.waitForTimeout(1500);
+
+    // Switch to hand-sort
+    await page.getByTestId(`sort-hand-${areaId}`).click();
+    await page.waitForTimeout(500);
+
+    const areaCard = page.getByTestId(`area-card-${areaId}`);
+    const taskRows = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])');
+
+    const getDescs = async () => {
+      const count = await taskRows.count();
+      const descs: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const desc = taskRows.nth(i).locator('textarea[name="description"], input[name="description"]').first();
+        descs.push(await desc.inputValue());
+      }
+      return descs;
+    };
+
+    // Expected order after reorder: Second(0), Third(1), First(2)
+    const descs = await getDescs();
+    expect(descs).toEqual(['Second', 'Third', 'First']);
+
+    // Reload page and verify persistence
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: domainName }).click();
+    await page.waitForTimeout(1500);
+
+    // Hand-sort mode persists via localStorage
+    const descsAfterReload = await getDescs();
+    expect(descsAfterReload).toEqual(['Second', 'Third', 'First']);
+  });
 });

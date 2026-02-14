@@ -61,6 +61,7 @@
     display: grid;
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
+    background: white;
 }
 
 .app-navbar{
@@ -104,7 +105,8 @@
 
 .card-header {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr auto auto auto;
+      align-items: center;
       font-size: 18px;
 }
 

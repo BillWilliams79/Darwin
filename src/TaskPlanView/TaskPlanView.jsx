@@ -11,6 +11,7 @@ import { useApiTrigger } from '../hooks/useApiTrigger';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
+import TaskDragLayer from '../Components/TaskEdit/TaskDragLayer';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -120,7 +121,8 @@ const TaskPlanView = () => {
      }
 
     return (
-        <> 
+        <>
+        <TaskDragLayer />
         {domainsArray ?
             <>
             <Box className="app-content-planpage">

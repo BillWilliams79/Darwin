@@ -20,6 +20,9 @@ import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
+import FlagIcon from '@mui/icons-material/Flag';
+import SwapVertIcon from '@mui/icons-material/SwapVert';
+import Tooltip from '@mui/material/Tooltip';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
@@ -40,6 +43,22 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     // Guards against race condition: priority/done clicks during in-flight POST
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+
+    // Sort mode: 'priority' (default) or 'hand' — persisted in localStorage per area
+    const [sortMode, setSortMode] = useState(() => {
+        if (area.id === '') return 'priority';
+        return localStorage.getItem(`sortMode-${area.id}`) || 'priority';
+    });
+    const changeSortMode = (mode) => {
+        setSortMode(mode);
+        if (area.id !== '') localStorage.setItem(`sortMode-${area.id}`, mode);
+    };
+
+    // Tracks where a task should be inserted during hand-sort drag (set by TaskEdit hover)
+    const crossCardInsertIndexRef = useRef(null);
+    const setCrossCardInsertIndex = useCallback((index) => {
+        crossCardInsertIndexRef.current = index;
+    }, []);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -68,8 +87,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         console.count('useEffect: read task API data for a given area');
 
         // FETCH TASKS: filter for creator, done=0 and area.id
-        // QSPs limit fields to minimum: id,priority,done,description,area_fk
-        let taskUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=0&area_fk=${area.id}&fields=id,priority,done,description,area_fk`
+        let taskUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=0&area_fk=${area.id}&fields=id,priority,done,description,area_fk,sort_order`
 
         call_rest_api(taskUri, 'GET', '', idToken)
             .then(result => {
@@ -78,13 +96,28 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
                     // 200 = data successfully returned. Sort the tasks, add the blank and update state.
                     let sortedTasksArray = result.data;
-                    sortedTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
+
+                    // Lazy fill: if any real task has null sort_order, assign sequential values and persist
+                    const needsFill = sortedTasksArray.some(t => t.sort_order === null || t.sort_order === undefined);
+                    if (needsFill) {
+                        // Sort by priority first to establish initial hand-sort order
+                        sortedTasksArray.sort((a, b) => taskPrioritySort(a, b));
+                        const bulkUpdate = [];
+                        sortedTasksArray.forEach((t, idx) => {
+                            t.sort_order = idx;
+                            bulkUpdate.push({ id: t.id, sort_order: idx });
+                        });
+                        let uri = `${darwinUri}/tasks`;
+                        call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
+                    }
+
+                    sortedTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
+                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
                     setTasksArray(sortedTasksArray);
 
                 } else {
                     showError(result, 'Unable to read tasks')
-                }  
+                }
 
 
             }).catch(error => {
@@ -92,7 +125,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
                     // 404 = no tasks currently in this area, so we can add the blank and be done
                     let sortedTasksArray = [];
-                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'creator_fk': profile.userName });
+                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
                     setTasksArray(sortedTasksArray);
                 } else {
                     showError(error, 'Unable to read tasks')
@@ -180,38 +213,102 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
         console.log('addTaskToArea called');
 
-        // STEP 1: if we are dropping back to the same card, take no action
+        // Read insert index FIRST (before any early returns clear it)
+        const insertIndex = crossCardInsertIndexRef.current;
+        crossCardInsertIndexRef.current = null;
+
+        // STEP 1: if we are dropping back to the same card, handle same-card reorder
         let matchTask = tasksArray.find( arrayTask => arrayTask.id === task.id)
 
         if (matchTask !== undefined) {
-            // there is a matching task so this is not a drop event
-            // return object with task = null that's used in drag's end method
-            console.log('no drop occurred')
-            return {task: null};
+            // Same-card drop: reorder if hand-sorted with a valid insertion point
+            if (sortMode === 'hand' && insertIndex !== null) {
+                const draggedIdx = tasksArray.findIndex(t => t.id === task.id);
+                if (draggedIdx === -1) return { task: null };
+
+                // Short-circuit if dropped in same position
+                const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
+                if (adjustedIndex === draggedIdx) return { task: null };
+
+                const updated = [...tasksArray];
+                const [moved] = updated.splice(draggedIdx, 1);
+                updated.splice(adjustedIndex, 0, moved);
+
+                // Renumber sort_orders and bulk PUT
+                const bulkUpdate = [];
+                updated.forEach((t, idx) => {
+                    if (t.id !== '') {
+                        t.sort_order = idx;
+                        bulkUpdate.push({ id: t.id, sort_order: idx });
+                    }
+                });
+
+                let taskUri = `${darwinUri}/tasks`;
+                call_rest_api(taskUri, 'PUT', bulkUpdate, idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                            showError(result, 'Unable to save task sort order');
+                        }
+                    }).catch(error => {
+                        showError(error, 'Unable to save task sort order');
+                    });
+
+                setTasksArray(updated);
+            }
+            // Return task: null so drag source's end handler knows this was same-card
+            return { task: null };
         }
 
         // STEP 2: is a drop to a new card, update task with new data via API
         let taskUri = `${darwinUri}/tasks`;
 
-        call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id }], idToken)
-            .then(result => {
+        if (sortMode === 'hand' && insertIndex !== null) {
+            // Hand-sorted target: insert at the tracked position
+            const realTasks = tasksArray.filter(t => t.id !== '');
+            const template = tasksArray.find(t => t.id === '');
+            const clampedIndex = Math.min(insertIndex, realTasks.length);
+            realTasks.splice(clampedIndex, 0, {...task, area_fk: parseInt(area.id)});
 
-                if (result.httpStatus.httpStatus === 200) {
-
-                    // STEP 3: Add moved task to this cards tasksArray, sort
-                    //         and save state which triggers re-render.
-                    var newTasksArray = [...tasksArray];
-                    newTasksArray.push(task);
-                    newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                    setTasksArray(newTasksArray);
-
-                } else {
-                    showError(result, "Unable to change task's date")
-                }
-
-            }).catch(error => {
-                showError(error, "Unable to change task's date")
+            // Renumber sort_orders and build bulk update
+            const bulkUpdate = realTasks.map((t, idx) => {
+                t.sort_order = idx;
+                const update = { id: t.id, sort_order: idx };
+                if (t.id === task.id) update.area_fk = parseInt(area.id);
+                return update;
             });
+
+            call_rest_api(taskUri, 'PUT', bulkUpdate, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        showError(result, "Unable to save task order");
+                    }
+                }).catch(error => {
+                    showError(error, "Unable to save task order");
+                });
+
+            const final = [...realTasks];
+            if (template) final.push(template);
+            setTasksArray(final);
+        } else {
+            // Priority-sorted target or no specific position: append to bottom
+            const maxSortOrder = Math.max(0, ...tasksArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
+            const newSortOrder = maxSortOrder + 1;
+
+            call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id, 'sort_order': newSortOrder }], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        var newTasksArray = [...tasksArray];
+                        task.sort_order = newSortOrder;
+                        newTasksArray.push(task);
+                        newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
+                        setTasksArray(newTasksArray);
+                    } else {
+                        showError(result, "Unable to change task's area")
+                    }
+                }).catch(error => {
+                    showError(error, "Unable to change task's area")
+                });
+        }
 
         // Return synchronously so drag source's end handler knows this was a real drop
         return {task: task.id};
@@ -241,7 +338,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         }
         
         // Only after database is updated, tasks and update state
-        newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
+        newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
         setTasksArray(newTasksArray);
     }
 
@@ -311,8 +408,12 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         if (savingRef.current) return;
         savingRef.current = true;
 
+        // Assign sort_order = max + 1 for new tasks
+        const maxSortOrder = Math.max(0, ...tasksArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
+        const taskToSave = { ...tasksArray[taskIndex], sort_order: maxSortOrder + 1 };
+
         let uri = `${darwinUri}/tasks`;
-        call_rest_api(uri, 'POST', {...tasksArray[taskIndex]}, idToken)
+        call_rest_api(uri, 'POST', taskToSave, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
@@ -334,8 +435,8 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                             });
                     }
 
-                    newTasksArray.sort((taskA, taskB) => taskPrioritySort(taskA, taskB));
-                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'creator_fk': profile.userName });
+                    newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
+                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'sort_order': null, 'creator_fk': profile.userName });
                     setTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
@@ -370,6 +471,29 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         }
     }
 
+    const taskHandSort = (taskA, taskB) => {
+        // leave blanks in place
+        if (taskA.id === '') return 1;
+        if (taskB.id === '') return -1;
+
+        const a = taskA.sort_order ?? Infinity;
+        const b = taskB.sort_order ?? Infinity;
+        return a - b;
+    }
+
+    const activeSort = (taskA, taskB) => {
+        return sortMode === 'hand' ? taskHandSort(taskA, taskB) : taskPrioritySort(taskA, taskB);
+    }
+
+    // Re-sort when sort mode changes
+    useEffect(() => {
+        if (!tasksArray) return;
+        const newTasksArray = [...tasksArray];
+        newTasksArray.sort((a, b) => activeSort(a, b));
+        setTasksArray(newTasksArray);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sortMode]);
+
     return (
         <Card key={areaIndex} raised={true} ref={mergedRef}
               data-testid={area.id === '' ? 'area-card-template' : `area-card-${area.id}`}
@@ -398,13 +522,42 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 }}
                                 key={`area-${area.id}`}
                      />
+                    {area.id !== '' && (
+                        <>
+                            <Tooltip title="Sort by priority" arrow>
+                                <IconButton
+                                    onClick={() => changeSortMode('priority')}
+                                    data-testid={`sort-priority-${area.id}`}
+                                    size="small"
+                                    sx={sortMode === 'priority'
+                                        ? { color: 'primary.main', bgcolor: 'action.selected' }
+                                        : { color: 'action.disabled' }}
+                                >
+                                    <FlagIcon />
+                                </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Sort by hand" arrow>
+                                <IconButton
+                                    onClick={() => changeSortMode('hand')}
+                                    data-testid={`sort-hand-${area.id}`}
+                                    size="small"
+                                    sx={sortMode === 'hand'
+                                        ? { color: 'primary.main', bgcolor: 'action.selected' }
+                                        : { color: 'action.disabled' }}
+                                >
+                                    <SwapVertIcon />
+                                </IconButton>
+                            </Tooltip>
+                        </>
+                    )}
                     <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} >
                         <CloseIcon />
                     </IconButton>
                 </Box>
                 { (tasksArray) ?
                     <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
-                        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray }}>
+                        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
+                        sortMode, setCrossCardInsertIndex }}>
                         {tasksArray.map((task, taskIndex) => (
                             <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex,
                                 areaId: area.id, areaName: area.area_name }}
