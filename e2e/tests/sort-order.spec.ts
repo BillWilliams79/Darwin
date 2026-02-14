@@ -191,7 +191,7 @@ test.describe.serial('Sort Order Verification', () => {
 
     const areaResult = await apiCall('areas', 'POST', {
       creator_fk: sub, area_name: areaName, domain_fk: domainId,
-      closed: 0, sort_order: 0,
+      closed: 0, sort_order: 0, sort_mode: 'hand',
     }, idToken) as Array<{ id: string }>;
     if (!areaResult?.length) throw new Error('Failed to create area');
     const areaId = areaResult[0].id;
@@ -209,16 +209,11 @@ test.describe.serial('Sort Order Verification', () => {
     }
 
     // Navigate to TaskPlanView and select the domain
+    // Area was created with sort_mode: 'hand' — no button click needed
     await page.goto('/taskcards');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: domainName }).click();
     await page.waitForTimeout(1500);
-
-    // Click hand-sort button
-    const handSortBtn = page.getByTestId(`sort-hand-${areaId}`);
-    await expect(handSortBtn).toBeVisible({ timeout: 5000 });
-    await handSortBtn.click();
-    await page.waitForTimeout(500);
 
     // Read task descriptions in order
     const areaCard = page.getByTestId(`area-card-${areaId}`);
@@ -318,7 +313,7 @@ test.describe.serial('Sort Order Verification', () => {
 
     const areaResult = await apiCall('areas', 'POST', {
       creator_fk: sub, area_name: areaName, domain_fk: domainId,
-      closed: 0, sort_order: 0,
+      closed: 0, sort_order: 0, sort_mode: 'hand',
     }, idToken) as Array<{ id: string }>;
     if (!areaResult?.length) throw new Error('Failed to create area');
     const areaId = areaResult[0].id;
@@ -342,15 +337,11 @@ test.describe.serial('Sort Order Verification', () => {
       { id: createdTaskIds[createdTaskIds.length - 1], sort_order: 1 },
     ], idToken);
 
-    // Navigate to TaskPlanView in hand-sort mode and verify order
+    // Navigate to TaskPlanView — area was created with sort_mode: 'hand' via API
     await page.goto('/taskcards');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: domainName }).click();
     await page.waitForTimeout(1500);
-
-    // Switch to hand-sort
-    await page.getByTestId(`sort-hand-${areaId}`).click();
-    await page.waitForTimeout(500);
 
     const areaCard = page.getByTestId(`area-card-${areaId}`);
     const taskRows = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])');
@@ -375,7 +366,7 @@ test.describe.serial('Sort Order Verification', () => {
     await page.getByRole('tab', { name: domainName }).click();
     await page.waitForTimeout(1500);
 
-    // Hand-sort mode persists via localStorage
+    // Hand-sort mode persists via database (areas.sort_mode)
     const descsAfterReload = await getDescs();
     expect(descsAfterReload).toEqual(['Second', 'Third', 'First']);
   });
