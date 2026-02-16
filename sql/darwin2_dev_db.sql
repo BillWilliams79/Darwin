@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS profiles2 (
 
 CREATE TABLE IF NOT EXISTS domains2 (
     id 							INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
-    domain_name 				VARCHAR(32)	    NOT NULL,
+    domain_name 				VARCHAR(64)	    NOT NULL,
     creator_fk 					INT				NULL,
     create_ts       			TIMESTAMP 		NULL DEFAULT CURRENT_TIMESTAMP,
     update_ts       			TIMESTAMP		NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS domains2 (
 
 CREATE TABLE IF NOT EXISTS areas2 (
     id							INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
-    area_name 					VARCHAR(32)	    NOT NULL,
+    area_name 					VARCHAR(64)	    NOT NULL,
     domain_fk					INT				NULL,
 	creator_fk					INT				NULL,
     create_ts        			TIMESTAMP 		NULL DEFAULT CURRENT_TIMESTAMP,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS tasks2 (
     id		 					INT				NOT NULL PRIMARY KEY AUTO_INCREMENT UNIQUE,
     priority					TINYINT			NOT NULL,
     done						TINYINT			NOT NULL,
-    description					VARCHAR(256)	NOT NULL,
+    description					VARCHAR(2048)	NOT NULL,
     area_fk						INT				NULL,
 	creator_fk					INT				NULL,
     create_ts        			TIMESTAMP		NULL DEFAULT CURRENT_TIMESTAMP,
