@@ -23,7 +23,7 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:e2e": "cd e2e && npx playwright test"
+    "test:e2e": "cd tests && npx playwright test"
   },
   "overrides": {
     "react-is": "$react"
