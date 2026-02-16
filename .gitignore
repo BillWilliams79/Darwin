@@ -12,10 +12,10 @@
 
 # testing
 /coverage
-/e2e/.auth/
-/e2e/.tmp/
-/e2e/test-results/
-/e2e/playwright-report/
+/tests/.auth/
+/tests/.tmp/
+/tests/test-results/
+/tests/playwright-report/
 /playwright-report/
 /test-results/
 /.tmp-playwright/
