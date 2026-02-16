@@ -42,7 +42,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     const a1 = await apiCall('areas', 'POST', {
       creator_fk: sub, area_name: area1Name, domain_fk: testDomainId,
-      closed: 0, sort_order: 0,
+      closed: 0, sort_order: 0, sort_mode: 'hand',
     }, idToken) as Array<{ id: string }>;
     if (!a1?.length) throw new Error('Failed to create Area1');
     area1Id = a1[0].id;
@@ -141,9 +141,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
   test('DND-07: Cancel task drag in hand-sort mode — no PUT, task stays', async ({ page }) => {
     await goToTestDomain(page);
-
-    await page.getByTestId(`sort-hand-${area1Id}`).click();
-    await page.waitForTimeout(500);
+    // Area1 created with sort_mode: 'hand' — no button click needed
 
     let putCount = 0;
     await page.route('**/tasks*', (route) => {

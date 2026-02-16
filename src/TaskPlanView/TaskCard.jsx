@@ -44,14 +44,15 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
 
-    // Sort mode: 'priority' (default) or 'hand' — persisted in localStorage per area
-    const [sortMode, setSortMode] = useState(() => {
-        if (area.id === '') return 'priority';
-        return localStorage.getItem(`sortMode-${area.id}`) || 'priority';
-    });
+    // Sort mode: 'priority' (default) or 'hand' — persisted in DB (areas.sort_mode)
+    const [sortMode, setSortMode] = useState(area.sort_mode || 'priority');
+
     const changeSortMode = (mode) => {
         setSortMode(mode);
-        if (area.id !== '') localStorage.setItem(`sortMode-${area.id}`, mode);
+        if (area.id !== '') {
+            call_rest_api(`${darwinUri}/areas`, 'PUT', [{ id: area.id, sort_mode: mode }], idToken)
+                .catch(error => showError(error, 'Unable to save sort preference'));
+        }
     };
 
     // Tracks where a task should be inserted during hand-sort drag (set by TaskEdit hover)
