@@ -82,7 +82,7 @@ test.describe.serial('Area Management', () => {
     if (created) createdAreaIds.push(created.id);
   });
 
-  test('AREA-02: close area card', async ({ page }) => {
+  test('AREA-02: close area via card menu', async ({ page }) => {
     const areaName = uniqueName('CloseArea');
 
     // Create area via API
@@ -102,8 +102,13 @@ test.describe.serial('Area Management', () => {
     const areaCard = panel.locator('[data-testid^="area-card-"]').filter({ hasText: areaName });
     await expect(areaCard).toBeVisible({ timeout: 5000 });
 
-    // Click the close (X) icon on the area card header
-    await areaCard.locator('[data-testid^="close-area-"]').click();
+    // Open the triple-dot card menu
+    await areaCard.locator(`[data-testid^="card-menu-"]`).click();
+
+    // Click "Close Area" menu item
+    const closeMenuItem = page.locator(`[data-testid^="menu-close-area-"]`);
+    await expect(closeMenuItem).toBeVisible();
+    await closeMenuItem.click();
 
     // Confirm in CardCloseDialog
     const closeDialog = page.getByTestId('card-close-dialog');
