@@ -19,16 +19,25 @@ import { useDrop, useDrag } from "react-dnd";
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
 import FlagIcon from '@mui/icons-material/Flag';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Tooltip from '@mui/material/Tooltip';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
 
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
 
@@ -47,13 +56,20 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     // Sort mode: 'priority' (default) or 'hand' — persisted in DB (areas.sort_mode)
     const [sortMode, setSortMode] = useState(area.sort_mode || 'priority');
 
-    const changeSortMode = (mode) => {
-        setSortMode(mode);
+    const changeSortMode = (event, newMode) => {
+        if (newMode === null) return; // MUI ToggleButtonGroup sends null when clicking already-selected
+        setSortMode(newMode);
         if (area.id !== '') {
-            call_rest_api(`${darwinUri}/areas`, 'PUT', [{ id: area.id, sort_mode: mode }], idToken)
+            call_rest_api(`${darwinUri}/areas`, 'PUT', [{ id: area.id, sort_mode: newMode }], idToken)
                 .catch(error => showError(error, 'Unable to save sort preference'));
         }
     };
+
+    // Card options menu (triple dots)
+    const [menuAnchorEl, setMenuAnchorEl] = useState(null);
+    const menuOpen = Boolean(menuAnchorEl);
+    const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
+    const handleMenuClose = () => setMenuAnchorEl(null);
 
     // Tracks where a task should be inserted during hand-sort drag (set by TaskEdit hover)
     const crossCardInsertIndexRef = useRef(null);
@@ -524,36 +540,75 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 key={`area-${area.id}`}
                      />
                     {area.id !== '' && (
+                        <ToggleButtonGroup
+                            value={sortMode}
+                            exclusive
+                            onChange={changeSortMode}
+                            size="small"
+                            sx={{ height: 30 }}
+                        >
+                            <ToggleButton
+                                value="priority"
+                                data-testid={`sort-priority-${area.id}`}
+                                aria-label="Sort by priority"
+                            >
+                                <Tooltip title="Sort by priority" arrow>
+                                    <FlagIcon fontSize="small" />
+                                </Tooltip>
+                            </ToggleButton>
+                            <ToggleButton
+                                value="hand"
+                                data-testid={`sort-hand-${area.id}`}
+                                aria-label="Sort by hand"
+                            >
+                                <Tooltip title="Sort by hand" arrow>
+                                    <SwapVertIcon fontSize="small" />
+                                </Tooltip>
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                    )}
+                    {area.id !== '' && (
                         <>
-                            <Tooltip title="Sort by priority" arrow>
+                            <Tooltip title="Card options" arrow>
                                 <IconButton
-                                    onClick={() => changeSortMode('priority')}
-                                    data-testid={`sort-priority-${area.id}`}
+                                    onClick={handleMenuOpen}
+                                    data-testid={`card-menu-${area.id}`}
                                     size="small"
-                                    sx={sortMode === 'priority'
-                                        ? { color: 'primary.main', bgcolor: 'action.selected' }
-                                        : { color: 'action.disabled' }}
                                 >
-                                    <FlagIcon />
+                                    <MoreVertIcon />
                                 </IconButton>
                             </Tooltip>
-                            <Tooltip title="Sort by hand" arrow>
-                                <IconButton
-                                    onClick={() => changeSortMode('hand')}
-                                    data-testid={`sort-hand-${area.id}`}
-                                    size="small"
-                                    sx={sortMode === 'hand'
-                                        ? { color: 'primary.main', bgcolor: 'action.selected' }
-                                        : { color: 'action.disabled' }}
+                            <Menu
+                                anchorEl={menuAnchorEl}
+                                open={menuOpen}
+                                onClose={handleMenuClose}
+                                data-testid={`card-menu-popup-${area.id}`}
+                                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                            >
+                                <MenuItem
+                                    onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
+                                    data-testid={`menu-close-area-${area.id}`}
                                 >
-                                    <SwapVertIcon />
-                                </IconButton>
-                            </Tooltip>
+                                    <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>Close Area</ListItemText>
+                                </MenuItem>
+                                <Divider />
+                                <MenuItem
+                                    onClick={(event) => {
+                                        handleMenuClose();
+                                        const taskCount = tasksArray ? tasksArray.filter(t => t.id !== '').length : 0;
+                                        clickCardDelete(event, area.area_name, area.id, taskCount);
+                                    }}
+                                    data-testid={`menu-delete-area-${area.id}`}
+                                    sx={{ color: 'error.main' }}
+                                >
+                                    <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+                                    <ListItemText>Delete Area</ListItemText>
+                                </MenuItem>
+                            </Menu>
                         </>
                     )}
-                    <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} data-testid={`close-area-${area.id}`} >
-                        <CloseIcon />
-                    </IconButton>
                 </Box>
                 { (tasksArray) ?
                     <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
