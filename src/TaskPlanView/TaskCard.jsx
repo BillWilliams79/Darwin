@@ -59,6 +59,15 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return; // MUI ToggleButtonGroup sends null when clicking already-selected
         setSortMode(newMode);
+
+        // Re-sort tasks immediately using newMode (not stale sortMode from closure)
+        if (tasksArray) {
+            const sortFn = newMode === 'hand' ? taskHandSort : taskPrioritySort;
+            const sorted = [...tasksArray];
+            sorted.sort((a, b) => sortFn(a, b));
+            setTasksArray(sorted);
+        }
+
         if (area.id !== '') {
             call_rest_api(`${darwinUri}/areas`, 'PUT', [{ id: area.id, sort_mode: newMode }], idToken)
                 .catch(error => showError(error, 'Unable to save sort preference'));
@@ -502,14 +511,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         return sortMode === 'hand' ? taskHandSort(taskA, taskB) : taskPrioritySort(taskA, taskB);
     }
 
-    // Re-sort when sort mode changes
-    useEffect(() => {
-        if (!tasksArray) return;
-        const newTasksArray = [...tasksArray];
-        newTasksArray.sort((a, b) => activeSort(a, b));
-        setTasksArray(newTasksArray);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sortMode]);
 
     return (
         <Card key={areaIndex} raised={true} ref={mergedRef}
