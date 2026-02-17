@@ -30,14 +30,14 @@ import CloseIcon from '@mui/icons-material/Close';
 import FlagIcon from '@mui/icons-material/Flag';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import ArchiveIcon from '@mui/icons-material/Archive';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Tooltip from '@mui/material/Tooltip';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
 
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
 
@@ -590,24 +590,25 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                     onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
                                     data-testid={`menu-close-area-${area.id}`}
                                 >
-                                    <ListItemIcon><ArchiveIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>Close Area</ListItemText>
                                 </MenuItem>
                                 <Divider />
                                 <MenuItem
-                                    onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
+                                    onClick={(event) => {
+                                        handleMenuClose();
+                                        const taskCount = tasksArray ? tasksArray.filter(t => t.id !== '').length : 0;
+                                        clickCardDelete(event, area.area_name, area.id, taskCount);
+                                    }}
                                     data-testid={`menu-delete-area-${area.id}`}
                                     sx={{ color: 'error.main' }}
                                 >
-                                    <ListItemIcon><CloseIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+                                    <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
                                     <ListItemText>Delete Area</ListItemText>
                                 </MenuItem>
                             </Menu>
                         </>
                     )}
-                    <IconButton onClick={(event) => clickCardClosed(event, area.area_name, area.id)} data-testid={`close-area-${area.id}`} >
-                        <CloseIcon />
-                    </IconButton>
                 </Box>
                 { (tasksArray) ?
                     <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,

@@ -11,6 +11,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
+import AreaDeleteDialog from '../Components/AreaDeleteDialog/AreaDeleteDialog';
 
 import { useDrop } from 'react-dnd';
 import AuthContext from '../Context/AuthContext'
@@ -48,6 +49,24 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     }
                 }).catch(error => {
                     showError(error, `Unable to close ${areaName}`)
+                });
+        }
+    });
+
+    const areaDelete = useConfirmDialog({
+        onConfirm: ({ areaId, areaName }) => {
+            let uri = `${darwinUri}/areas`;
+            call_rest_api(uri, 'DELETE', { 'id': areaId }, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newAreasArray = [...areasArray];
+                        newAreasArray = newAreasArray.filter(area => area.id !== areaId);
+                        setAreasArray(newAreasArray);
+                    } else {
+                        showError(result, `Unable to delete ${areaName}`);
+                    }
+                }).catch(error => {
+                    showError(error, `Unable to delete ${areaName}`);
                 });
         }
     });
@@ -153,6 +172,12 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
     const clickCardClosed = (event, areaName, areaId) => {
         if (areaId !== '') {
             areaClose.openDialog({ areaName, areaId });
+        }
+    }
+
+    const clickCardDelete = (event, areaName, areaId, taskCount) => {
+        if (areaId !== '') {
+            areaDelete.openDialog({ areaName, areaId, taskCount });
         }
     }
 
@@ -423,6 +448,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            areaKeyDown,
                                            areaOnBlur,
                                            clickCardClosed,
+                                           clickCardDelete,
                                            moveCard,
                                            persistAreaOrder,
                                            removeArea,
@@ -435,6 +461,12 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                  areaCloseId={areaClose.infoObject}
                                  setAreaCloseId={areaClose.setInfoObject}
                                  setAreaCloseConfirmed={areaClose.setConfirmed}
+                />
+                <AreaDeleteDialog deleteDialogOpen={areaDelete.dialogOpen}
+                                  setDeleteDialogOpen={areaDelete.setDialogOpen}
+                                  areaDeleteInfo={areaDelete.infoObject}
+                                  setAreaDeleteInfo={areaDelete.setInfoObject}
+                                  setDeleteConfirmed={areaDelete.setConfirmed}
                 />
             </Box>
     )
