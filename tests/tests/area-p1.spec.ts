@@ -115,6 +115,100 @@ test.describe.serial('Area Management P1', () => {
     await expect(areaRow).not.toBeVisible({ timeout: 5000 });
   });
 
+  test('AREA-07: delete area via card menu', async ({ page }) => {
+    const areaName = uniqueName('MenuDelArea');
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create area via API
+    const result = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: areaName, domain_fk: testDomainId, closed: 0, sort_order: 11, sort_mode: 'priority',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test area');
+    const areaId = result[0].id;
+    // Don't add to cleanup — we're deleting in the test
+
+    // Create a task in this area so we can verify task count in dialog
+    const taskResult = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: 'test task for delete', area_fk: areaId, priority: 0, done: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+
+    // Navigate to TaskPlanView and select domain tab
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForTimeout(1000);
+
+    const panel = page.locator('[role="tabpanel"]:visible').first();
+
+    // Find the area card
+    const areaCard = panel.getByTestId(`area-card-${areaId}`);
+    await expect(areaCard).toBeVisible({ timeout: 5000 });
+
+    // Open the triple-dot card menu
+    await areaCard.getByTestId(`card-menu-${areaId}`).click();
+
+    // Click "Delete Area" menu item (red)
+    const deleteMenuItem = page.getByTestId(`menu-delete-area-${areaId}`);
+    await expect(deleteMenuItem).toBeVisible();
+    await deleteMenuItem.click();
+
+    // AreaDeleteDialog should appear with area name and task count
+    const deleteDialog = page.getByTestId('area-delete-dialog');
+    await expect(deleteDialog).toBeVisible({ timeout: 5000 });
+    await expect(deleteDialog).toContainText(areaName.substring(0, 20));
+    await expect(deleteDialog).toContainText('1 task');
+    await expect(deleteDialog).toContainText('This cannot be undone');
+
+    // Confirm delete
+    await deleteDialog.getByRole('button', { name: 'Delete' }).click();
+
+    // Verify area card is removed
+    await expect(areaCard).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('AREA-08: delete empty area via card menu shows no-tasks message', async ({ page }) => {
+    const areaName = uniqueName('EmptyDelArea');
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create area with no tasks
+    const result = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: areaName, domain_fk: testDomainId, closed: 0, sort_order: 12, sort_mode: 'priority',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test area');
+    const areaId = result[0].id;
+    // Don't add to cleanup — we're deleting in the test
+
+    // Navigate to TaskPlanView and select domain tab
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForTimeout(1000);
+
+    const panel = page.locator('[role="tabpanel"]:visible').first();
+
+    // Find the area card
+    const areaCard = panel.getByTestId(`area-card-${areaId}`);
+    await expect(areaCard).toBeVisible({ timeout: 5000 });
+
+    // Open the triple-dot card menu and click Delete Area
+    await areaCard.getByTestId(`card-menu-${areaId}`).click();
+    const deleteMenuItem = page.getByTestId(`menu-delete-area-${areaId}`);
+    await expect(deleteMenuItem).toBeVisible();
+    await deleteMenuItem.click();
+
+    // AreaDeleteDialog should show no-tasks message
+    const deleteDialog = page.getByTestId('area-delete-dialog');
+    await expect(deleteDialog).toBeVisible({ timeout: 5000 });
+    await expect(deleteDialog).toContainText('has no tasks');
+    await expect(deleteDialog).toContainText('This cannot be undone');
+
+    // Confirm delete
+    await deleteDialog.getByRole('button', { name: 'Delete' }).click();
+
+    // Verify area card is removed
+    await expect(areaCard).not.toBeVisible({ timeout: 5000 });
+  });
+
   test('AREA-06: DnD area cross-domain on TaskPlanView (react-dnd)', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
