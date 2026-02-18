@@ -32,13 +32,14 @@ const TaskDragLayer = () => {
         return null;
     }
 
-    const transform = `translate(${currentOffset.x}px, ${currentOffset.y}px)`;
+    const transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(0.67)`;
 
     return (
         <div style={layerStyles}>
             <Box className="task" sx={{
                 transform,
                 WebkitTransform: transform,
+                transformOrigin: 'top left',
                 width: item?.sourceWidth || 300,
                 opacity: 0.75,
                 background: '#fff',

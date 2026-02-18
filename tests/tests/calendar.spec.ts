@@ -55,19 +55,16 @@ test.describe('Calendar View P1', () => {
     if (!result?.length) throw new Error('Failed to create done task');
     createdTaskIds.push(result[0].id);
 
-    // Navigate to CalendarView
+    // Navigate to CalendarView (FullCalendar-based, single API call per visible range)
     await page.goto('/calview');
     await page.waitForTimeout(3000);
 
-    // CalendarView shows 35 days of DayView cards.
-    // Each DayView fetches done=1 tasks filtered by done_ts date range.
-    // Our task should appear on today's date card.
-    // Find the task description text somewhere in the calendar
-    const taskText = page.locator('.task-calendar').filter({ hasText: taskDesc });
+    // FullCalendar renders events as .fc-event elements
+    const taskText = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(taskText).toBeVisible({ timeout: 10000 });
   });
 
-  test('CAL-02: clicking task in CalendarView opens day view details', async ({ page }) => {
+  test('CAL-02: clicking task in CalendarView opens edit dialog', async ({ page }) => {
     const taskDesc = uniqueName('DayViewTask');
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
@@ -86,11 +83,11 @@ test.describe('Calendar View P1', () => {
     await page.goto('/calview');
     await page.waitForTimeout(3000);
 
-    // Find the task in the calendar
-    const taskText = page.locator('.task-calendar').filter({ hasText: taskDesc });
+    // Find the task event in FullCalendar
+    const taskText = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(taskText).toBeVisible({ timeout: 10000 });
 
-    // Click the task — this opens the TaskEditDialog within the DayView
+    // Click the task — opens TaskEditDialog
     await taskText.click();
 
     // The TaskEditDialog should appear
