@@ -45,7 +45,7 @@ const AreaEdit = () => {
     const domainClose = useConfirmDialog({
         onConfirm: ({ domainId, domainIndex }) => {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newDomainsArray = [...domainsArray];
@@ -66,7 +66,7 @@ const AreaEdit = () => {
     const domainAdd = useConfirmDialog({
         onConfirm: (newDomainName) => {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainName, 'closed': 0}, idToken)
+            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainName, 'closed': 0, 'sort_order': domainsArray.length}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newDomainsArray = [...domainsArray];
@@ -90,11 +90,18 @@ const AreaEdit = () => {
         console.count('useEffect: Read domains REST API data');
 
         // FETCH DOMAINS
-        // QSPs limit fields to minimum: id,domain_name
-        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name`
+        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name,sort_order`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
+                // Sort by sort_order (null values last)
+                result.data.sort((a, b) => {
+                    if (a.sort_order === null && b.sort_order === null) return 0;
+                    if (a.sort_order === null) return 1;
+                    if (b.sort_order === null) return -1;
+                    return a.sort_order - b.sort_order;
+                });
+
                 // Restore working domain from localStorage, fall back to first tab
                 const storedId = getWorkingDomain();
                 let initialTab = 0;

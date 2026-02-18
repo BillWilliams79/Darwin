@@ -14,7 +14,7 @@ import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
 import TaskDragLayer from '../Components/TaskEdit/TaskDragLayer';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
@@ -47,10 +47,16 @@ const TaskPlanView = () => {
     const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
 
+    // Ref to track blue-line insertion index during domain tab drag
+    const domainInsertIndexRef = useRef(null);
+    const setDomainInsertIndex = useCallback((index) => {
+        domainInsertIndexRef.current = index;
+    }, []);
+
     const domainClose = useConfirmDialog({
         onConfirm: ({ domainName, domainId, domainIndex }) => {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newDomainsArray = [...domainsArray];
@@ -71,7 +77,7 @@ const TaskPlanView = () => {
     const domainAdd = useConfirmDialog({
         onConfirm: (newDomainName) => {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainName, 'closed': 0}, idToken)
+            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainName, 'closed': 0, 'sort_order': domainsArray.length}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newDomainsArray = [...domainsArray];
@@ -94,10 +100,18 @@ const TaskPlanView = () => {
 
         console.count('useEffect: Read domains REST API data');
 
-        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name`
+        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name,sort_order`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
+                // Sort by sort_order (null values last)
+                result.data.sort((a, b) => {
+                    if (a.sort_order === null && b.sort_order === null) return 0;
+                    if (a.sort_order === null) return 1;
+                    if (b.sort_order === null) return -1;
+                    return a.sort_order - b.sort_order;
+                });
+
                 // Restore working domain from localStorage, fall back to first tab
                 const storedId = getWorkingDomain();
                 let initialTab = 0;
@@ -138,6 +152,57 @@ const TaskPlanView = () => {
         domainAdd.openDialog();
      }
 
+    const persistDomainOrder = useCallback((didDrop, dragDomainId) => {
+        const insertIndex = domainInsertIndexRef.current;
+        domainInsertIndexRef.current = null;
+
+        if (!didDrop || insertIndex === null) return;
+
+        setDomainsArray(prev => {
+            if (!prev) return prev;
+
+            const dragIndex = prev.findIndex(d => d.id === dragDomainId);
+            if (dragIndex < 0) return prev;
+
+            // Adjust insert index: if dragging rightward, removing the item shifts indices left
+            const adjustedIndex = insertIndex > dragIndex ? insertIndex - 1 : insertIndex;
+            if (adjustedIndex === dragIndex) return prev;
+
+            const updated = [...prev];
+            const [moved] = updated.splice(dragIndex, 1);
+            updated.splice(adjustedIndex, 0, moved);
+
+            // Track active tab by domain ID
+            const currentTabIndex = parseInt(activeTab);
+            if (currentTabIndex >= 0 && currentTabIndex < prev.length) {
+                const activeDomainId = prev[currentTabIndex].id;
+                const newIndex = updated.findIndex(d => d.id === activeDomainId);
+                if (newIndex >= 0 && newIndex !== currentTabIndex) {
+                    setActiveTab(newIndex);
+                }
+            }
+
+            // Renumber sort_order and persist
+            const renumbered = updated.map((dom, idx) => ({ ...dom, sort_order: idx }));
+            const restDataArray = renumbered.map(dom => ({ 'id': dom.id, 'sort_order': dom.sort_order }));
+
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'PUT', restDataArray, idToken)
+                .then(result => {
+                    if ((result.httpStatus.httpStatus === 200) ||
+                        (result.httpStatus.httpStatus === 204)) {
+                        console.log('domain tab sort order saved');
+                    } else {
+                        showError(result, 'Unable to save domain sort order')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to save domain sort order')
+                });
+
+            return renumbered;
+        });
+    }, [activeTab, darwinUri, idToken, showError, setActiveTab]);
+
     return (
         <>
         <TaskDragLayer />
@@ -154,6 +219,10 @@ const TaskPlanView = () => {
                             {domainsArray.map( (domain, domainIndex) =>
                                 <DroppableTab key={domain.id}
                                      domainIndex={domainIndex}
+                                     domainId={domain.id}
+                                     domainName={domain.domain_name}
+                                     setDomainInsertIndex={setDomainInsertIndex}
+                                     persistDomainOrder={persistDomainOrder}
                                      icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                      label={domain.domain_name}
                                      value={domainIndex.toString()}
@@ -192,6 +261,6 @@ const TaskPlanView = () => {
         </>
     );
 
-} 
+}
 
 export default TaskPlanView;
