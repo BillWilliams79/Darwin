@@ -6,9 +6,19 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
+    "@fullcalendar/core": "^6.1.20",
+    "@fullcalendar/daygrid": "^6.1.20",
+    "@fullcalendar/interaction": "^6.1.20",
+    "@fullcalendar/list": "^6.1.20",
+    "@fullcalendar/react": "^6.1.20",
+    "@fullcalendar/timegrid": "^6.1.20",
     "@hello-pangea/dnd": "^18.0.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
+    "@schedule-x/calendar": "^4.1.0",
+    "@schedule-x/events-service": "^4.1.0",
+    "@schedule-x/react": "^4.1.0",
+    "@schedule-x/theme-default": "^4.1.0",
     "crypto-random-string": "^5.0.0",
     "react": "^18.2.0",
     "react-cookie": "^4.1.1",
@@ -16,6 +26,7 @@
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.3.0",
+    "temporal-polyfill": "^0.3.0",
     "zustand": "^5.0.11"
   },
   "scripts": {
