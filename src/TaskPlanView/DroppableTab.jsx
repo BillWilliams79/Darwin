@@ -1,9 +1,9 @@
-import React, { useRef, useEffect } from 'react';
-import { useDrop } from 'react-dnd';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { useDrag, useDrop } from 'react-dnd';
 import Tab from '@mui/material/Tab';
 import { useDragTabStore } from '../stores/useDragTabStore';
 
-const DroppableTab = ({ domainIndex, ...tabProps }) => {
+const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder, ...tabProps }) => {
 
     const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);
 
@@ -12,9 +12,23 @@ const DroppableTab = ({ domainIndex, ...tabProps }) => {
     const firedRef = useRef(false);
     const monitorRef = useRef(null);
 
+    const [{ isDragging }, drag] = useDrag(() => ({
+        type: 'domainTab',
+        item: { domainIndex, domainId, settled: true, movePending: false },
+        collect: (monitor) => ({
+            isDragging: !!monitor.isDragging(),
+        }),
+        end: (_item, monitor) => {
+            persistDomainOrder(monitor.didDrop());
+        },
+    }), [domainIndex, domainId, persistDomainOrder]);
+
     const [{ isOverCurrent }, drop] = useDrop(() => ({
-        accept: ['taskPlan', 'areaCard'],
-        canDrop: (item, monitor) => monitor.getItemType() === 'taskPlan',
+        accept: ['taskPlan', 'areaCard', 'domainTab'],
+        canDrop: (item, monitor) => {
+            const type = monitor.getItemType();
+            return type === 'taskPlan' || type === 'domainTab';
+        },
         drop: (item, monitor) => {
             // Accept task drops to prevent browser snap-back animation.
             // Returning {task: null} tells TaskEdit's end handler this is a cancel.
@@ -23,6 +37,30 @@ const DroppableTab = ({ domainIndex, ...tabProps }) => {
             }
         },
         hover: (item, monitor) => {
+            const type = monitor.getItemType();
+
+            if (type === 'domainTab') {
+                const dragIndex = item.domainIndex;
+                const hoverIndex = domainIndex;
+                if (dragIndex === hoverIndex) {
+                    item.settled = true;
+                    return;
+                }
+                if (item.movePending) return;
+                if (item.settled === false) return;
+
+                moveDomainTab(dragIndex, hoverIndex);
+                item.domainIndex = hoverIndex;
+                item.settled = false;
+
+                item.movePending = true;
+                setTimeout(() => {
+                    item.movePending = false;
+                }, 150);
+                return;
+            }
+
+            // Task/area card hover — delayed tab switch
             monitorRef.current = monitor;
             // Once we've fired for this hover sequence, don't start new timers
             if (firedRef.current) return;
@@ -39,7 +77,7 @@ const DroppableTab = ({ domainIndex, ...tabProps }) => {
         collect: (monitor) => ({
             isOverCurrent: monitor.isOver({ shallow: true }),
         }),
-    }), [domainIndex, onDragTabSwitch]);
+    }), [domainIndex, domainId, onDragTabSwitch, moveDomainTab]);
 
     // Clear timer and reset when hover ends
     useEffect(() => {
@@ -62,14 +100,21 @@ const DroppableTab = ({ domainIndex, ...tabProps }) => {
         };
     }, []);
 
+    // Combine drag and drop refs
+    const combinedRef = useCallback((el) => {
+        drag(el);
+        drop(el);
+    }, [drag, drop]);
+
     return (
         <Tab
-            ref={drop}
+            ref={combinedRef}
             data-testid={`domain-tab-${domainIndex}`}
             {...tabProps}
             sx={{
                 ...tabProps.sx,
-                ...(isOverCurrent && {
+                ...(isDragging && { opacity: 0.4 }),
+                ...(isOverCurrent && !isDragging && {
                     backgroundColor: 'action.hover',
                 }),
             }}
