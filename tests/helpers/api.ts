@@ -45,3 +45,9 @@ export async function apiDelete(table: string, id: number | string, idToken: str
 export function uniqueName(prefix: string): string {
   return `e2e-${Date.now()}-${prefix}`;
 }
+
+/** Click a sort mode option via the card's three-dot menu. */
+export async function clickSortMode(page: Page, areaId: string, mode: 'priority' | 'hand'): Promise<void> {
+  await page.getByTestId(`card-menu-${areaId}`).click();
+  await page.getByTestId(`sort-${mode}-${areaId}`).click();
+}

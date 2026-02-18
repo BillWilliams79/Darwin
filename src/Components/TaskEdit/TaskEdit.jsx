@@ -25,7 +25,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
 
     const { priorityClick, doneClick, descriptionChange, descriptionKeyDown,
         descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
-        sortMode, setCrossCardInsertIndex } = useTaskActions();
+        sortMode, setCrossCardInsertIndex, disableStrikethrough } = useTaskActions();
     const [insertIndicator, setInsertIndicator] = useState(null); // 'above' | 'below' | null
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
@@ -130,8 +130,8 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                     opacity: 0,
                 }),
                  ...(isDragging && sortMode !== 'hand' && { opacity: 0.2 }),
-                 ...(insertIndicator === 'above' && { borderTop: '2px solid', borderTopColor: 'primary.main' }),
-                 ...(insertIndicator === 'below' && { borderBottom: '2px solid', borderBottomColor: 'primary.main' }),
+                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
+                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
             <Checkbox
@@ -167,7 +167,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                         multiline
                         disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(task.done === 1 && {textDecoration: 'line-through'}),}}
+                        sx = {{...(task.done === 1 && !disableStrikethrough && {textDecoration: 'line-through'}),}}
                         size = 'small'
                         /* inputProps={{ tabIndex: `${taskIndex}` }} */
                         slotProps={{ htmlInput: { maxLength: 1024 } }}

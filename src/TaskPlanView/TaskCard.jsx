@@ -19,8 +19,7 @@ import { useDrop, useDrag } from "react-dnd";
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Check from '@mui/icons-material/Check';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -541,34 +540,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 key={`area-${area.id}`}
                      />
                     {area.id !== '' && (
-                        <ToggleButtonGroup
-                            value={sortMode}
-                            exclusive
-                            onChange={changeSortMode}
-                            size="small"
-                            sx={{ height: 30 }}
-                        >
-                            <ToggleButton
-                                value="priority"
-                                data-testid={`sort-priority-${area.id}`}
-                                aria-label="Sort by priority"
-                            >
-                                <Tooltip title="Sort by priority" arrow>
-                                    <FlagIcon fontSize="small" />
-                                </Tooltip>
-                            </ToggleButton>
-                            <ToggleButton
-                                value="hand"
-                                data-testid={`sort-hand-${area.id}`}
-                                aria-label="Sort by hand"
-                            >
-                                <Tooltip title="Sort by hand" arrow>
-                                    <SwapVertIcon fontSize="small" />
-                                </Tooltip>
-                            </ToggleButton>
-                        </ToggleButtonGroup>
-                    )}
-                    {area.id !== '' && (
                         <>
                             <Tooltip title="Card options" arrow>
                                 <IconButton
@@ -587,6 +558,23 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                             >
+                                <MenuItem
+                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'priority'); }}
+                                    data-testid={`sort-priority-${area.id}`}
+                                >
+                                    <ListItemIcon><FlagIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>Sort by Priority</ListItemText>
+                                    {sortMode === 'priority' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                </MenuItem>
+                                <MenuItem
+                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
+                                    data-testid={`sort-hand-${area.id}`}
+                                >
+                                    <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>Sort by Hand</ListItemText>
+                                    {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                </MenuItem>
+                                <Divider />
                                 <MenuItem
                                     onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
                                     data-testid={`menu-close-area-${area.id}`}
