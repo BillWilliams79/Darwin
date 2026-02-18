@@ -97,7 +97,6 @@ test.describe.serial('Task Management P1', () => {
 
     // Create a done task with done_ts set to today (so it appears in CalendarView)
     const now = new Date();
-    // Set to noon today for visibility in the calendar
     now.setHours(12, 0, 0, 0);
     const doneTs = now.toISOString().slice(0, 19);
 
@@ -108,13 +107,12 @@ test.describe.serial('Task Management P1', () => {
     const taskId = result[0].id;
     createdTaskIds.push(taskId);
 
-    // Navigate to CalendarView
+    // Navigate to CalendarView (FullCalendar-based)
     await page.goto('/calview');
     await page.waitForTimeout(2000);
 
-    // Find the task description text in the calendar
-    // CalendarTask renders a Typography with the description, clicking it opens TaskEditDialog
-    const taskText = page.locator('.task-calendar').filter({ hasText: taskDesc });
+    // Find the task event in FullCalendar
+    const taskText = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(taskText).toBeVisible({ timeout: 10000 });
 
     // Click the task to open TaskEditDialog
@@ -132,19 +130,18 @@ test.describe.serial('Task Management P1', () => {
 
     // Edit the description
     await dialogDescField.fill(updatedDesc);
-    // Trigger save via blur (the onBlur handler in DayView's descriptionOnBlur)
     await dialogDescField.blur();
     await page.waitForTimeout(500);
 
-    // Close the dialog
+    // Close the dialog — triggers refetch via taskApiToggle
     await dialog.getByRole('button', { name: 'Close Dialog' }).click();
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
 
-    // Wait for re-render after dialog closes (it toggles taskApiToggle)
+    // Wait for refetch after dialog closes
     await page.waitForTimeout(1500);
 
-    // Verify the updated description appears in the calendar
-    const updatedText = page.locator('.task-calendar').filter({ hasText: updatedDesc });
+    // Verify the updated description appears in FullCalendar
+    const updatedText = page.locator('.fc-event').filter({ hasText: updatedDesc });
     await expect(updatedText).toBeVisible({ timeout: 5000 });
   });
 
