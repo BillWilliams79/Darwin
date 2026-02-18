@@ -18,6 +18,8 @@ const LogoutLink = () => {
     removeCookie('idToken', { path: '/' });
     removeCookie('accessToken', { path: '/' });
     removeCookie('profile', { path: '/' });
+    // Clear working domain preference
+    localStorage.removeItem('darwin_working_domain');
 
     window.location = buildLogoutUrl();
     return null;

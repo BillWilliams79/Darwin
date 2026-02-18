@@ -3,6 +3,7 @@ import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect} from 'react';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
 import { useApiTrigger } from '../hooks/useApiTrigger';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -38,6 +39,8 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     const [taskCounts, setTaskCounts] = useState({});
 
     const showError = useSnackBarStore(s => s.showError);
+    const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
+    const workingDomainId = useWorkingDomainStore(s => s.domainId);
 
     // cardSettings state
     const domainDelete = useConfirmDialog({
@@ -246,7 +249,13 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         </TableHead>
                         <TableBody>
                         { domainsArray.map((domain, domainIndex) => (
-                            <TableRow key={domain.id}>
+                            <TableRow key={domain.id}
+                                      data-testid={domain.id ? `domain-row-${domain.id}` : 'domain-row-new'}
+                                      onClick={() => domain.id && setWorkingDomain(domain.id)}
+                                      sx={{
+                                          cursor: domain.id ? 'pointer' : 'default',
+                                          backgroundColor: domain.id && String(domain.id) === workingDomainId ? 'action.selected' : 'inherit',
+                                      }}>
                                 <TableCell> 
                                     <TextField variant="outlined"
                                                value={domain.domain_name || ''}
