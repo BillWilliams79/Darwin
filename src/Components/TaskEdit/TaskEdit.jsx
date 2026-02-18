@@ -130,8 +130,8 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                     opacity: 0,
                 }),
                  ...(isDragging && sortMode !== 'hand' && { opacity: 0.2 }),
-                 ...(insertIndicator === 'above' && { borderTop: '2px solid', borderTopColor: 'primary.main' }),
-                 ...(insertIndicator === 'below' && { borderBottom: '2px solid', borderBottomColor: 'primary.main' }),
+                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
+                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
             <Checkbox
