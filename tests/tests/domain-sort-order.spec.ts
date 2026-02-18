@@ -128,8 +128,9 @@ test.describe.serial('Domain Sort Order', () => {
     }
 
     // TabFirst (sort_order=0) should appear before TabSecond (sort_order=1)
-    const idxFirst = tabLabels.findIndex(l => l.includes(nameFirst));
-    const idxSecond = tabLabels.findIndex(l => l.includes(nameSecond));
+    // MUI Tab applies text-transform: uppercase, so innerText() returns uppercase
+    const idxFirst = tabLabels.findIndex(l => l.toLowerCase().includes(nameFirst.toLowerCase()));
+    const idxSecond = tabLabels.findIndex(l => l.toLowerCase().includes(nameSecond.toLowerCase()));
 
     expect(idxFirst).toBeGreaterThan(-1);
     expect(idxSecond).toBeGreaterThan(-1);
@@ -214,8 +215,8 @@ test.describe.serial('Domain Sort Order', () => {
       tabLabels.push(await tabs.nth(i).innerText());
     }
 
-    // Filter to just our test domains
-    const planOrder = names.filter(n => tabLabels.some(l => l.includes(n)));
+    // Filter to just our test domains (MUI Tab text-transform: uppercase)
+    const planOrder = names.filter(n => tabLabels.some(l => l.toLowerCase().includes(n.toLowerCase())));
 
     // Both views should show same order: ConsistA, ConsistB, ConsistC
     expect(editOrder).toEqual(names);
