@@ -1,0 +1,14 @@
+/* Allow event content to wrap to 2 lines instead of FullCalendar's default single-line truncation */
+.fc-daygrid-event {
+    white-space: normal !important;
+    overflow: visible !important;
+}
+
+.fc-daygrid-event-harness {
+    min-height: unset !important;
+    margin-bottom: 3px;
+}
+
+.fc-event-main {
+    overflow: visible !important;
+}

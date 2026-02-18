@@ -15,7 +15,7 @@ import HomePage from './HomePage/HomePage';
 import LoginLink from './Components/LoginLink/LoginLink';
 import LoggedIn from './LoggedIn/LoggedIn';
 import TaskPlanView from './TaskPlanView/TaskPlanView';
-import CalendarView from './CalendarView/CalendarView';
+import CalendarFC from './CalendarFC/CalendarFC';
 import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
 import Profile from './NavBar/Profile';
@@ -42,7 +42,7 @@ root.render(
                                                              <TaskPlanView />
                                                          </AuthenticatedRoute>} />
                     <Route path="calview"      element= {<AuthenticatedRoute>
-                                                             <CalendarView />
+                                                             <CalendarFC />
                                                          </AuthenticatedRoute>} />
                     <Route path="areaedit"     element= {<AuthenticatedRoute>
                                                              <AreaEdit />
