@@ -6,6 +6,7 @@ import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
+import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
 import { useApiTrigger } from '../hooks/useApiTrigger';
 
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
@@ -43,6 +44,8 @@ const TaskPlanView = () => {
     const setActiveTab = useDragTabStore(s => s.setActiveTab);
 
     const showError = useSnackBarStore(s => s.showError);
+    const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
+    const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
 
     const domainClose = useConfirmDialog({
         onConfirm: ({ domainName, domainId, domainIndex }) => {
@@ -95,15 +98,30 @@ const TaskPlanView = () => {
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
-                // Tab bookeeping
-                // TODO: store and retrieve in browswer persistent storage
-                setActiveTab(0);
+                // Restore working domain from localStorage, fall back to first tab
+                const storedId = getWorkingDomain();
+                let initialTab = 0;
+                if (storedId) {
+                    const idx = result.data.findIndex(d => String(d.id) === storedId);
+                    if (idx >= 0) initialTab = idx;
+                }
+                setActiveTab(initialTab);
                 setDomainsArray(result.data);
             }).catch(error => {
                 showError(error, 'Unable to read Domain info from database')
             });
 
     }, [domainApiTrigger, profile, idToken, darwinUri]);
+
+    // Persist working domain whenever active tab changes
+    useEffect(() => {
+        if (domainsArray && domainsArray.length > 0) {
+            const tabIndex = parseInt(activeTab);
+            if (tabIndex >= 0 && tabIndex < domainsArray.length) {
+                setWorkingDomain(domainsArray[tabIndex].id);
+            }
+        }
+    }, [activeTab, domainsArray]);
 
     const changeActiveTab = (event, newValue) => {
         // The tab with value 9999 is the add new tab button, hence no change
