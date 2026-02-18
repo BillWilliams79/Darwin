@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode } from '../helpers/api';
 
 test.describe.serial('Sort Order Verification', () => {
   let idToken: string;
@@ -289,8 +289,8 @@ test.describe.serial('Sort Order Verification', () => {
     const priorityDescs = await getDescs();
     expect(priorityDescs[0]).toBe(priTask);
 
-    // Switch to hand-sort mode
-    await page.getByTestId(`sort-hand-${areaId}`).click();
+    // Switch to hand-sort mode via card menu
+    await clickSortMode(page, areaId, 'hand');
     await page.waitForTimeout(500);
 
     // In hand-sort mode: sort_order=0 (noPriTask) should be first
@@ -432,8 +432,8 @@ test.describe.serial('Sort Order Verification', () => {
     const handDescs = await getDescs();
     expect(handDescs).toEqual([noPri1, noPri2, priTask]);
 
-    // Switch to priority mode
-    await page.getByTestId(`sort-priority-${areaId}`).click();
+    // Switch to priority mode via card menu
+    await clickSortMode(page, areaId, 'priority');
     await page.waitForTimeout(500);
 
     // In priority mode: priority task should jump to first position
