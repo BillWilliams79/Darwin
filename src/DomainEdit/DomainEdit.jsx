@@ -11,6 +11,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
+import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -19,13 +20,10 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 
 import Box from '@mui/material/Box';
-import { Checkbox, Typography } from '@mui/material';
-import { TextField } from '@mui/material';
+import { Typography } from '@mui/material';
 
-import IconButton from '@mui/material/IconButton';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SavingsIcon from '@mui/icons-material/Savings';
 import DomainDeleteDialog from './DomainDeleteDialog';
+import DomainTableRow from './DomainTableRow';
 
 const DomainEdit = ( { domain, domainIndex } ) => {
 
@@ -34,7 +32,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
     const [domainsArray, setDomainsArray] = useState()
     const [domainApiTrigger, triggerDomainRefresh] = useApiTrigger();
-    
+
     const [areaCounts, setAreaCounts] = useState({});
     const [taskCounts, setTaskCounts] = useState({});
 
@@ -67,14 +65,13 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         console.count('useEffect: Read domains REST API data');
 
         // FETCH DOMAINS
-        // QSPs limit fields to minimum: id,domain_name
-        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&fields=id,domain_name,closed`
+        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&fields=id,domain_name,closed,sort_order`
 
         call_rest_api(domainUri, 'GET', '', idToken)
             .then(result => {
                 let newDomainArray = result.data;
-                newDomainArray.sort((domainA, domainB) => domainClosedSort(domainA, domainB));
-                newDomainArray.push({'id':'', 'domain_name':'', 'closed': 0, 'creator_fk': profile.userName });
+                newDomainArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
+                newDomainArray.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
                 setDomainsArray(result.data);
 
                 // Fetch areas and task counts in parallel
@@ -151,17 +148,20 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
         let uri = `${darwinUri}/domains`;
 
-        call_rest_api(uri, 'POST', {...domainsArray[domainIndex]}, idToken)
+        let newDomainsArray = [...domainsArray];
+        newDomainsArray[domainIndex].sort_order = calculateSortOrder(newDomainsArray, domainIndex, newDomainsArray[domainIndex].closed);
+
+        call_rest_api(uri, 'POST', {...newDomainsArray[domainIndex]}, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     // 200 => record added to database and returned in body
                     // show snackbar, place new data in table and created another blank element
 
-                    let newDomainsArray = [...domainsArray];
-                    newDomainsArray[domainIndex] = {...result.data[0]};
-                    newDomainsArray.sort((domainA, domainB) => domainClosedSort(domainA, domainB));
-                    newDomainsArray.push({'id':'', 'domain_name':'', 'closed': 0, 'creator_fk': profile.userName });
-                    setDomainsArray(newDomainsArray);
+                    let freshDomainsArray = [...domainsArray];
+                    freshDomainsArray[domainIndex] = {...result.data[0]};
+                    freshDomainsArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
+                    freshDomainsArray.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
+                    setDomainsArray(freshDomainsArray);
 
                     // update the areaCounts and taskCounts data
                     let newAreaCounts = {...areaCounts};
@@ -188,12 +188,15 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
         // invert closed, re-sort domain array for the card, update state.
         let newDomainsArray = [...domainsArray]
-        newDomainsArray[domainIndex].closed = newDomainsArray[domainIndex].closed ? 0 : 1;
+        let newClosed = newDomainsArray[domainIndex].closed ? 0 : 1;
+        newDomainsArray[domainIndex].closed = newClosed;
 
         // for domains already in the db, update db
         if (domainId !== '') {
+            let newSortOrder = calculateSortOrder(newDomainsArray, domainIndex, newClosed);
+
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': newDomainsArray[domainIndex].closed}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         showError(result, 'Unable to close domain')
@@ -203,31 +206,94 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 }
             );
         }
-        
+
         // Only after database is updated, sort domains and update state
-        newDomainsArray.sort((domainA, domainB) => domainClosedSort(domainA, domainB));
-        setDomainsArray(newDomainsArray);        
+        newDomainsArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
+        setDomainsArray(newDomainsArray);
     }
 
     const clickDomainDelete = (event, domainId, domainName) => {
         domainDelete.openDialog({ domainName, domainId, tasksCount: taskCounts[domainId] });
     }
 
-    const domainClosedSort = (domainA, domainB) => {
+    const domainSortByClosedThenSortOrder = (domainA, domainB) => {
         // leave blank domain in place at bottom of list
         if (domainA.id === '') return 0;
         if (domainB.id === '') return -1;
 
-        if (domainA.closed === domainB.closed) {
-            return 0;
-        } else if (domainA.closed > domainB.closed) {
-            return 1;
-        } else {
-            return -1;
+        // if both domains are open, sort by sort_order
+        if ((domainA.closed === 0) && (domainB.closed === 0)) {
+            if (domainA.sort_order === domainB.sort_order) return 0;
+            if (domainA.sort_order === null) return 1;
+            if (domainB.sort_order === null) return -1;
+            return domainA.sort_order < domainB.sort_order ? -1 : 1;
         }
+
+        if (domainA.closed === domainB.closed) return 0;
+        return domainA.closed > domainB.closed ? 1 : -1;
     }
 
-   
+    const calculateSortOrder = (domainsArr, index, newClosed) => {
+        // closed domains get NULL sort_order
+        var calcSortOrder = "NULL";
+
+        if (newClosed === 0) {
+            // find the current max sort order, open domains get appended at end
+            calcSortOrder = domainsArr.reduce((previous, current) => {
+                if (current.sort_order === null) return previous;
+                return (previous > current.sort_order) ? previous : current.sort_order;
+            }, -1);
+            calcSortOrder = calcSortOrder + 1;
+        }
+        // null written to mysql is "NULL", read from mysql is actually a JS null
+        domainsArr[index].sort_order = (calcSortOrder === "NULL") ? null : calcSortOrder;
+        return calcSortOrder;
+    }
+
+    const dragEnd = async (result) => {
+
+        if ((result.destination === null) || (result.reason !== 'DROP')) {
+            return;
+        }
+
+        // mutate the array - relocate the dragged item to the new location
+        var newDomainsArray = [...domainsArray]
+        const [draggedItem] = newDomainsArray.splice(result.source.index, 1);
+        newDomainsArray.splice(result.destination.index, 0, draggedItem);
+
+        // brute force renumbering of the sort values post drag
+        newDomainsArray = newDomainsArray.map((dom, index) => {
+            if ((dom.id !== '') && (dom.closed !== 1)) {
+                dom.sort_order = index;
+                return dom;
+            } else {
+                return dom;
+            }
+        })
+
+        // update state
+        setDomainsArray(newDomainsArray);
+
+        // filter/map array down to minimum required to update all domains for new sort order
+        var restDataArray = newDomainsArray
+                .filter(dom => ((dom.id !== '') && (dom.sort_order !== null)) ? true : false)
+                .map(dom => ({'id': dom.id, 'sort_order': dom.sort_order}));
+
+        let uri = `${darwinUri}/domains`;
+        call_rest_api(uri, 'PUT', restDataArray, idToken)
+            .then(result => {
+                if ((result.httpStatus.httpStatus === 200) ||
+                    (result.httpStatus.httpStatus === 204)) {
+                    console.log('domain sort order saved');
+                } else {
+                    showError(result, 'Unable to save domain sort order')
+                }
+            }).catch(error => {
+                showError(error, 'Unable to save domain sort order')
+            });
+    }
+
+
     return (
         <>
             <Box className="app-title">
@@ -235,7 +301,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     Domains Editor
                 </Typography>
             </Box>
-            { domainsArray && 
+            { domainsArray &&
                 <Box className="app-edit" sx={{ml:2}}>
                     <Table size='small'>
                         <TableHead>
@@ -247,64 +313,33 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                                 <TableCell></TableCell>
                             </TableRow>
                         </TableHead>
-                        <TableBody>
-                        { domainsArray.map((domain, domainIndex) => (
-                            <TableRow key={domain.id}
-                                      data-testid={domain.id ? `domain-row-${domain.id}` : 'domain-row-new'}
-                                      onClick={() => domain.id && setWorkingDomain(domain.id)}
-                                      sx={{
-                                          cursor: domain.id ? 'pointer' : 'default',
-                                          backgroundColor: domain.id && String(domain.id) === workingDomainId ? 'action.selected' : 'inherit',
-                                      }}>
-                                <TableCell> 
-                                    <TextField variant="outlined"
-                                               value={domain.domain_name || ''}
-                                               name='domain-name'
-                                               onChange= { (event) => changeDomainName(event, domainIndex) }
-                                               onKeyDown = {(event) => keyDownDomainName(event, domainIndex, domain.id)}
-                                               onBlur = {(event) => blurDomainName(event, domainIndex, domain.id)}
-                                               autoComplete='off'
-                                               size = 'small'
-                                               slotProps={{ htmlInput: { maxLength: 32 } }}
-                                               key={`name-${domain.id}`}
-                                     />                                    
-                                </TableCell>
-                                <TableCell> 
-                                    <Checkbox checked = {(domain.closed === 1) ? true : false }
-                                              onClick = {(event) => clickDomainClosed(event, domainIndex, domain.id) }
-                                              key={`checked-${domain.id}`}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant='body1' sx={{textAlign: 'center'}} data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
-                                    {  domain.id === '' ? '' :
-                                        areaCounts[`${domain.id}`] === undefined ? 0 :
-                                          areaCounts[`${domain.id}`] === '' ? '' : areaCounts[`${domain.id}`] }
-                                     </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant='body1' sx={{textAlign: 'center'}} data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
-                                    {  domain.id === '' ? '' :
-                                        taskCounts[`${domain.id}`] === undefined ? 0 :
-                                          taskCounts[`${domain.id}`] === '' ? '' : taskCounts[`${domain.id}`] }
-                                     </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    { domain.id === '' ?
-                                        <IconButton >
-                                            <SavingsIcon />
-                                        </IconButton>
-                                        :
-                                        <IconButton  onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)} >
-                                            <DeleteIcon />
-                                        </IconButton>
-                                    }
-                            </TableCell>
-                            </TableRow>
-                        ))}
-                        </TableBody>
+                        <DragDropContext onDragEnd={dragEnd}>
+                            <Droppable droppableId="domains">
+                                {(provided) => (
+                                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                                    { domainsArray.map((domain, domainIndex) => (
+                                        <DomainTableRow
+                                            key={domain.id}
+                                            domain={domain}
+                                            domainIndex={domainIndex}
+                                            changeDomainName={changeDomainName}
+                                            keyDownDomainName={keyDownDomainName}
+                                            blurDomainName={blurDomainName}
+                                            clickDomainClosed={clickDomainClosed}
+                                            clickDomainDelete={clickDomainDelete}
+                                            areaCounts={areaCounts}
+                                            taskCounts={taskCounts}
+                                            onRowClick={setWorkingDomain}
+                                            isSelected={domain.id && String(domain.id) === workingDomainId}
+                                        />
+                                    ))}
+                                    {provided.placeholder}
+                                    </TableBody>
+                                )}
+                            </Droppable>
+                        </DragDropContext>
                     </Table>
-                </Box>  
+                </Box>
             }
             <DomainDeleteDialog
                 domainDeleteDialogOpen = { domainDelete.dialogOpen }

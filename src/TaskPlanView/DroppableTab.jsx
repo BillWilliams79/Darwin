@@ -1,9 +1,10 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
 import Tab from '@mui/material/Tab';
 import { useDragTabStore } from '../stores/useDragTabStore';
 
-const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder, ...tabProps }) => {
+const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex, persistDomainOrder, ...tabProps }) => {
 
     const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);
 
@@ -11,17 +12,34 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
     const wasOverRef = useRef(false);
     const firedRef = useRef(false);
     const monitorRef = useRef(null);
+    const tabRef = useRef(null);
 
-    const [{ isDragging }, drag] = useDrag(() => ({
+    const [insertIndicator, setInsertIndicator] = useState(null); // 'left' | 'right' | null
+
+    const [{ isDragging }, drag, preview] = useDrag(() => ({
         type: 'domainTab',
-        item: { domainIndex, domainId, settled: true, movePending: false },
+        item: () => {
+            const rect = tabRef.current?.getBoundingClientRect();
+            return {
+                domainIndex,
+                domainId,
+                domainName,
+                sourceWidth: rect?.width || 100,
+                sourceHeight: rect?.height || 48,
+            };
+        },
         collect: (monitor) => ({
             isDragging: !!monitor.isDragging(),
         }),
         end: (_item, monitor) => {
-            persistDomainOrder(monitor.didDrop());
+            persistDomainOrder(monitor.didDrop(), _item.domainId);
         },
-    }), [domainIndex, domainId, persistDomainOrder]);
+    }), [domainIndex, domainId, domainName, persistDomainOrder]);
+
+    // Suppress browser drag ghost — custom drag layer renders preview
+    useEffect(() => {
+        preview(getEmptyImage());
+    }, [preview]);
 
     const [{ isOverCurrent }, drop] = useDrop(() => ({
         accept: ['taskPlan', 'areaCard', 'domainTab'],
@@ -35,28 +53,33 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
             if (monitor.getItemType() === 'taskPlan') {
                 return { task: null };
             }
+            if (monitor.getItemType() === 'domainTab') {
+                return { domainTab: true };
+            }
         },
         hover: (item, monitor) => {
             const type = monitor.getItemType();
 
             if (type === 'domainTab') {
-                const dragIndex = item.domainIndex;
-                const hoverIndex = domainIndex;
-                if (dragIndex === hoverIndex) {
-                    item.settled = true;
+                if (item.domainId === domainId) {
+                    setInsertIndicator(null);
                     return;
                 }
-                if (item.movePending) return;
-                if (item.settled === false) return;
 
-                moveDomainTab(dragIndex, hoverIndex);
-                item.domainIndex = hoverIndex;
-                item.settled = false;
+                const clientOffset = monitor.getClientOffset();
+                if (!clientOffset || !tabRef.current) return;
 
-                item.movePending = true;
-                setTimeout(() => {
-                    item.movePending = false;
-                }, 150);
+                const hoverRect = tabRef.current.getBoundingClientRect();
+                const hoverClientX = clientOffset.x - hoverRect.left;
+                const hoverMiddleX = (hoverRect.right - hoverRect.left) / 2;
+
+                if (hoverClientX < hoverMiddleX) {
+                    setInsertIndicator('left');
+                    setDomainInsertIndex(domainIndex);
+                } else {
+                    setInsertIndicator('right');
+                    setDomainInsertIndex(domainIndex + 1);
+                }
                 return;
             }
 
@@ -77,9 +100,9 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
         collect: (monitor) => ({
             isOverCurrent: monitor.isOver({ shallow: true }),
         }),
-    }), [domainIndex, domainId, onDragTabSwitch, moveDomainTab]);
+    }), [domainIndex, domainId, onDragTabSwitch, setDomainInsertIndex]);
 
-    // Clear timer and reset when hover ends
+    // Clear insert indicator when hover ends
     useEffect(() => {
         if (wasOverRef.current && !isOverCurrent) {
             if (hoverTimerRef.current !== null) {
@@ -87,6 +110,7 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
                 hoverTimerRef.current = null;
             }
             firedRef.current = false;
+            setInsertIndicator(null);
         }
         wasOverRef.current = isOverCurrent;
     }, [isOverCurrent]);
@@ -102,6 +126,7 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
 
     // Combine drag and drop refs
     const combinedRef = useCallback((el) => {
+        tabRef.current = el;
         drag(el);
         drop(el);
     }, [drag, drop]);
@@ -113,9 +138,20 @@ const DroppableTab = ({ domainIndex, domainId, moveDomainTab, persistDomainOrder
             {...tabProps}
             sx={{
                 ...tabProps.sx,
-                ...(isDragging && { opacity: 0.4 }),
-                ...(isOverCurrent && !isDragging && {
-                    backgroundColor: 'action.hover',
+                ...(isDragging && {
+                    width: 0,
+                    minWidth: 0,
+                    padding: 0,
+                    overflow: 'hidden',
+                    opacity: 0,
+                }),
+                ...(insertIndicator === 'left' && {
+                    borderLeft: '3px solid',
+                    borderLeftColor: 'primary.main',
+                }),
+                ...(insertIndicator === 'right' && {
+                    borderRight: '3px solid',
+                    borderRightColor: 'primary.main',
                 }),
             }}
         />
