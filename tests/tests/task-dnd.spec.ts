@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode } from '../helpers/api';
 import { dragAndDrop } from '../helpers/react-dnd-drag';
 
 test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
@@ -182,7 +182,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await resetSortOrder();
     await goToTestDomain(page);
 
-    await page.getByTestId(`sort-hand-${area1Id}`).click();
+    await clickSortMode(page, area1Id, 'hand');
     await page.waitForTimeout(500);
 
     let order = await getTaskDescriptions(page, area1Id);
@@ -210,7 +210,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await resetSortOrder();
     await goToTestDomain(page);
 
-    await page.getByTestId(`sort-hand-${area1Id}`).click();
+    await clickSortMode(page, area1Id, 'hand');
     await page.waitForTimeout(500);
 
     const source = page.getByTestId(`task-${task2Id}`);
@@ -239,8 +239,8 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     await goToTestDomain(page);
 
-    await page.getByTestId(`sort-priority-${area1Id}`).click();
-    await page.getByTestId(`sort-priority-${area2Id}`).click();
+    await clickSortMode(page, area1Id, 'priority');
+    await clickSortMode(page, area2Id, 'priority');
     await page.waitForTimeout(500);
 
     const area1Before = await getTaskCount(page, area1Id);
@@ -278,8 +278,8 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     await goToTestDomain(page);
 
-    await page.getByTestId(`sort-priority-${area1Id}`).click();
-    await page.getByTestId(`sort-hand-${area2Id}`).click();
+    await clickSortMode(page, area1Id, 'priority');
+    await clickSortMode(page, area2Id, 'hand');
     await page.waitForTimeout(500);
 
     const area2Before = await getTaskCount(page, area2Id);
