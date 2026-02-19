@@ -53,7 +53,14 @@ const CalendarFC = () => {
     // Derive FullCalendar events from tasksArray
     const events = useMemo(() =>
         tasksArray.map(task => {
-            const start = task.done_ts ? task.done_ts.replace(' ', 'T') : null;
+            const start = task.done_ts
+                ? (() => {
+                    const d = new Date(task.done_ts.replace(' ', 'T') + 'Z');
+                    return d.getFullYear() + '-' +
+                        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(d.getDate()).padStart(2, '0');
+                })()
+                : null;
             return {
                 id: String(task.id),
                 title: task.description,
