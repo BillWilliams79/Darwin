@@ -526,7 +526,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 variant="standard"
                                 value={area.area_name || ''}
                                 name='area-name'
-                                /*label={((area.area_name !== '') && (area.id !== '')) ? '' : 'New Area Name'}*/
+                                placeholder={area.id === '' ? 'Add new area' : undefined}
                                 onChange= { (event) => areaChange(event, areaIndex) }
                                 onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
                                 onBlur = {(event) => areaOnBlur(event, areaIndex, area.id)}
@@ -563,7 +563,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                     data-testid={`sort-priority-${area.id}`}
                                 >
                                     <ListItemIcon><FlagIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Sort by Priority</ListItemText>
+                                    <ListItemText>Priority Sort</ListItemText>
                                     {sortMode === 'priority' && <Check fontSize="small" sx={{ ml: 1 }} />}
                                 </MenuItem>
                                 <MenuItem
@@ -571,7 +571,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                     data-testid={`sort-hand-${area.id}`}
                                 >
                                     <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Sort by Hand</ListItemText>
+                                    <ListItemText>Hand Sort</ListItemText>
                                     {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
                                 </MenuItem>
                                 <Divider />
