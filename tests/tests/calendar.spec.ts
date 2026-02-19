@@ -103,4 +103,48 @@ test.describe('Calendar View P1', () => {
     await dialog.getByRole('button', { name: 'Close Dialog' }).click();
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
   });
+
+  test('CAL-09: day view navigation shows no phantom tasks', async ({ page }) => {
+    const taskDesc = uniqueName('PhantomTest');
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create a done task 3 days ago
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    threeDaysAgo.setHours(12, 0, 0, 0);
+    const doneTs = threeDaysAgo.toISOString().slice(0, 19);
+
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 1, done_ts: doneTs,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create done task');
+    createdTaskIds.push(result[0].id);
+
+    // Navigate to CalendarView and switch to Day view on the task's date
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+
+    // Switch to Day view
+    await page.getByRole('button', { name: 'Day', exact: true }).click();
+    await page.waitForTimeout(1000);
+
+    // Navigate to the task's date — go back 3 days via prev button
+    for (let i = 0; i < 3; i++) {
+      await page.getByRole('button', { name: /prev/i }).click();
+      await page.waitForTimeout(500);
+    }
+
+    // Verify task is visible on its day
+    const taskEvent = page.locator('.fc-event').filter({ hasText: taskDesc });
+    await expect(taskEvent).toBeVisible({ timeout: 10000 });
+
+    // Click next to advance to a day with no test tasks
+    await page.getByRole('button', { name: /next/i }).click();
+    await page.waitForTimeout(2000);
+
+    // The phantom-task bug would show events briefly then clear them.
+    // After settling, this day should have no events matching our test task.
+    const phantomEvent = page.locator('.fc-event').filter({ hasText: taskDesc });
+    await expect(phantomEvent).toHaveCount(0, { timeout: 5000 });
+  });
 });

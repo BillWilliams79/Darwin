@@ -90,7 +90,14 @@ const CalendarFC = () => {
     }, [darwinUri, profile, idToken]);
 
     const handleDatesSet = useCallback((dateInfo) => {
+        const prev = dateRangeRef.current;
+        if (prev
+            && prev.start.getTime() === dateInfo.start.getTime()
+            && prev.end.getTime() === dateInfo.end.getTime()) {
+            return;
+        }
         dateRangeRef.current = { start: dateInfo.start, end: dateInfo.end };
+        setTasksArray([]);
         fetchTasks(dateInfo.start, dateInfo.end);
     }, [fetchTasks]);
 
