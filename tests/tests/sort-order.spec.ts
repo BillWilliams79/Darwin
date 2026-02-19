@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode, navigateToDomainEdit, getAllDomainNames } from '../helpers/api';
 
 test.describe.serial('Sort Order Verification', () => {
   let idToken: string;
@@ -27,6 +27,8 @@ test.describe.serial('Sort Order Verification', () => {
   });
 
   test('DOM-05: closed domains sort after open domains in DomainEdit', async ({ page }) => {
+    // DomainEdit renders 1000+ accumulated test domains with DnD — needs extra time
+    test.setTimeout(90_000);
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const openDom1 = uniqueName('OpenA');
     const openDom2 = uniqueName('OpenB');
@@ -52,16 +54,10 @@ test.describe.serial('Sort Order Verification', () => {
     createdDomainIds.push(r3[0].id);
 
     // Navigate to DomainEdit
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    // Read all domain names in order from the table
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const count = await allNameFields.count();
-    const domainNames: string[] = [];
-    for (let i = 0; i < count; i++) {
-      domainNames.push(await allNameFields.nth(i).inputValue());
-    }
+    // Read all domain names in order using in-browser evaluation (fast with 1000+ domains)
+    const domainNames = await getAllDomainNames(page);
 
     // Find the positions of our test domains
     const closedIdx = domainNames.indexOf(closedDom);
