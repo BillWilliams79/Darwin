@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, navigateToDomainEdit, waitForDomainTable, findDomainIndex, getAllDomainNames } from '../helpers/api';
 
 test.describe('Domain Management P1', () => {
+  // DomainEdit renders 1000+ accumulated test domains with DnD — needs extra time.
+  // DOM-03 does navigate + reload (two full page loads at ~45s each), so 180s.
+  test.setTimeout(180_000);
+
   let idToken: string;
   const createdDomainIds: string[] = [];
 
@@ -34,48 +38,27 @@ test.describe('Domain Management P1', () => {
     const domainId = result[0].id;
 
     // Navigate to DomainEdit
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    // Find the row with our domain name — each domain is a table row with a TextField
-    const nameField = page.locator(`input[name="domain-name"]`).filter({ has: page.locator(`[value="${domainName}"]`) });
-
-    // Fall back: find all domain-name inputs and locate the one with our value
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const count = await allNameFields.count();
-    let targetField = null;
-    for (let i = 0; i < count; i++) {
-      const val = await allNameFields.nth(i).inputValue();
-      if (val === domainName) {
-        targetField = allNameFields.nth(i);
-        break;
-      }
-    }
-    expect(targetField).not.toBeNull();
+    // Find the row with our domain name using in-browser evaluation (fast with 1000+ domains)
+    const idx = await findDomainIndex(page, domainName);
+    expect(idx).toBeGreaterThan(-1);
+    const targetField = page.locator('input[name="domain-name"]').nth(idx);
 
     // Clear and type new name
-    await targetField!.fill(updatedName);
-    await targetField!.blur();
+    await targetField.fill(updatedName);
+    await targetField.blur();
 
     // Wait for PUT to complete
     await page.waitForTimeout(1000);
 
     // Verify persists on reload
     await page.reload();
-    await page.waitForSelector('table', { timeout: 10000 });
+    await waitForDomainTable(page);
 
-    // Find the field with the updated name
-    const allFieldsAfter = page.locator('input[name="domain-name"]');
-    const countAfter = await allFieldsAfter.count();
-    let foundUpdated = false;
-    for (let i = 0; i < countAfter; i++) {
-      const val = await allFieldsAfter.nth(i).inputValue();
-      if (val === updatedName) {
-        foundUpdated = true;
-        break;
-      }
-    }
-    expect(foundUpdated).toBe(true);
+    // Find the field with the updated name using in-browser evaluation
+    const updatedIdx = await findDomainIndex(page, updatedName);
+    expect(updatedIdx).toBeGreaterThan(-1);
   });
 
   test('DOM-04: hard delete domain', async ({ page }) => {
@@ -90,25 +73,15 @@ test.describe('Domain Management P1', () => {
     // Don't add to cleanup — we're deleting it in the test
 
     // Navigate to DomainEdit
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    // Find the row with our domain name
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const count = await allNameFields.count();
-    let targetRow = null;
-    for (let i = 0; i < count; i++) {
-      const val = await allNameFields.nth(i).inputValue();
-      if (val === domainName) {
-        // The row is the closest <tr> ancestor
-        targetRow = allNameFields.nth(i).locator('xpath=ancestor::tr');
-        break;
-      }
-    }
-    expect(targetRow).not.toBeNull();
+    // Find the row with our domain name using in-browser evaluation
+    const idx = await findDomainIndex(page, domainName);
+    expect(idx).toBeGreaterThan(-1);
+    const targetRow = page.locator('input[name="domain-name"]').nth(idx).locator('xpath=ancestor::tr');
 
     // Click the delete button (last cell's button in the row)
-    await targetRow!.locator('td:last-child button').click();
+    await targetRow.locator('td:last-child button').click();
 
     // DomainDeleteDialog should appear
     const deleteDialog = page.getByRole('dialog');
@@ -120,16 +93,7 @@ test.describe('Domain Management P1', () => {
 
     // Verify domain row is removed from the table
     await page.waitForTimeout(1000);
-    const allFieldsAfter = page.locator('input[name="domain-name"]');
-    const countAfter = await allFieldsAfter.count();
-    let foundDeleted = false;
-    for (let i = 0; i < countAfter; i++) {
-      const val = await allFieldsAfter.nth(i).inputValue();
-      if (val === domainName) {
-        foundDeleted = true;
-        break;
-      }
-    }
-    expect(foundDeleted).toBe(false);
+    const deletedIdx = await findDomainIndex(page, domainName);
+    expect(deletedIdx).toBe(-1);
   });
 });
