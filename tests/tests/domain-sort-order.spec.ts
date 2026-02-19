@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, navigateToDomainEdit, getAllDomainNames } from '../helpers/api';
 
 test.describe.serial('Domain Sort Order', () => {
+  // DomainEdit renders 1000+ accumulated test domains with DnD — needs extra time
+  test.setTimeout(90_000);
+
   let idToken: string;
   const createdDomainIds: string[] = [];
 
@@ -42,15 +45,10 @@ test.describe.serial('Domain Sort Order', () => {
     ], idToken);
 
     // Navigate to DomainEdit and verify order
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const count = await allNameFields.count();
-    const domainNames: string[] = [];
-    for (let i = 0; i < count; i++) {
-      domainNames.push(await allNameFields.nth(i).inputValue());
-    }
+    // Read all domain names using in-browser evaluation (fast with 1000+ domains)
+    const domainNames = await getAllDomainNames(page);
 
     // SortC (sort_order=0) should appear before SortB (1) before SortA (2)
     const idxC = domainNames.indexOf(names[2]);
@@ -76,16 +74,10 @@ test.describe.serial('Domain Sort Order', () => {
     createdDomainIds.push(r[0].id);
 
     // Navigate to DomainEdit
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    // The new domain should be visible somewhere in the list
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const count = await allNameFields.count();
-    const domainNames: string[] = [];
-    for (let i = 0; i < count; i++) {
-      domainNames.push(await allNameFields.nth(i).inputValue());
-    }
+    // Read all domain names using in-browser evaluation (fast with 1000+ domains)
+    const domainNames = await getAllDomainNames(page);
 
     const idx = domainNames.indexOf(newDomName);
     expect(idx).toBeGreaterThan(-1);
@@ -191,15 +183,10 @@ test.describe.serial('Domain Sort Order', () => {
     }
 
     // Check order in DomainEdit
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
-    const allNameFields = page.locator('input[name="domain-name"]');
-    const fieldCount = await allNameFields.count();
-    const domainEditNames: string[] = [];
-    for (let i = 0; i < fieldCount; i++) {
-      domainEditNames.push(await allNameFields.nth(i).inputValue());
-    }
+    // Read all domain names using in-browser evaluation (fast with 1000+ domains)
+    const domainEditNames = await getAllDomainNames(page);
 
     // Filter to just our test domains
     const editOrder = names.filter(n => domainEditNames.includes(n));
