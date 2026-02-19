@@ -13,6 +13,7 @@ import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
 
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 import ReportIcon from '@mui/icons-material/Report';
@@ -134,30 +135,34 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                  ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
-            <Checkbox
-                checked = {task.priority ? true : false}
-                onClick = {() => priorityClick(taskIndex, task.id)}
-                icon={<ReportGmailerrorredOutlinedIcon />}
-                checkedIcon={<ReportIcon />}
-                disabled = {areaId !== '' ? false : areaName === '' ? true : false}
-                key={`priority-${task.id}`}
-                sx = {{maxWidth: "25px",
-                       maxHeight: "25px",
-                       mr: "2px",
-                }}
-            />
-            <Checkbox
-                checked = {task.done ? true : false}
-                onClick = {() => doneClick(taskIndex, task.id)}
-                icon={<CheckCircleOutlineIcon />}
-                checkedIcon={<CheckCircleIcon />}
-                disabled = {areaId !== '' ? false : areaName === '' ? true : false}
-                key={`done-${task.id}`}
-                sx = {{maxWidth: "25px",
-                       maxHeight: "25px",
-                       mr: "2px",
-                }}
-            /> 
+            <Tooltip title={task.priority ? "Clear Priority" : "Set Priority"} arrow>
+                <Checkbox
+                    checked = {task.priority ? true : false}
+                    onClick = {() => priorityClick(taskIndex, task.id)}
+                    icon={<ReportGmailerrorredOutlinedIcon />}
+                    checkedIcon={<ReportIcon />}
+                    disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                    key={`priority-${task.id}`}
+                    sx = {{maxWidth: "25px",
+                           maxHeight: "25px",
+                           mr: "2px",
+                    }}
+                />
+            </Tooltip>
+            <Tooltip title={task.done ? "Mark Open" : "Mark Complete"} arrow>
+                <Checkbox
+                    checked = {task.done ? true : false}
+                    onClick = {() => doneClick(taskIndex, task.id)}
+                    icon={<CheckCircleOutlineIcon />}
+                    checkedIcon={<CheckCircleIcon />}
+                    disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                    key={`done-${task.id}`}
+                    sx = {{maxWidth: "25px",
+                           maxHeight: "25px",
+                           mr: "2px",
+                    }}
+                />
+            </Tooltip> 
             <TextField variant="outlined"
                         value={task.description || ''}
                         name='description'
@@ -174,23 +179,27 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                         key={`description-${task.id}`}
              />
             { task.id === '' ?
-                <IconButton key={`savings-${task.id}`}
-                            disabled = {areaId !== '' ? false : areaName === '' ? true : false}
-                            sx = {{maxWidth: "25px",
-                                   maxHeight: "25px",
-                            }}
-                >
-                    <SavingsIcon key={`savings1-${task.id}`}/>
-                </IconButton>
+                <Tooltip title="New task" arrow>
+                    <IconButton key={`savings-${task.id}`}
+                                disabled = {areaId !== '' ? false : areaName === '' ? true : false}
+                                sx = {{maxWidth: "25px",
+                                       maxHeight: "25px",
+                                }}
+                    >
+                        <SavingsIcon key={`savings1-${task.id}`}/>
+                    </IconButton>
+                </Tooltip>
                 :
-                <IconButton  onClick={(event) => deleteClick(event, task.id)}
-                             key={`delete-${task.id}`}
-                             sx = {{maxWidth: "25px",
-                                    maxHeight: "25px",
-                             }}
-                >
-                    <DeleteIcon key={`delete1-${task.id}`} />
-                </IconButton>
+                <Tooltip title="Delete task" arrow>
+                    <IconButton  onClick={(event) => deleteClick(event, task.id)}
+                                 key={`delete-${task.id}`}
+                                 sx = {{maxWidth: "25px",
+                                        maxHeight: "25px",
+                                 }}
+                    >
+                        <DeleteIcon key={`delete1-${task.id}`} />
+                    </IconButton>
+                </Tooltip>
             }
         </Box>
     )

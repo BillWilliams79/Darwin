@@ -18,6 +18,7 @@ import React, { useState, useEffect, useContext, useRef, useCallback } from 'rea
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
@@ -223,13 +224,13 @@ const TaskPlanView = () => {
                                      domainName={domain.domain_name}
                                      setDomainInsertIndex={setDomainInsertIndex}
                                      persistDomainOrder={persistDomainOrder}
-                                     icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                     icon={<Tooltip title="Close domain" arrow><CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/></Tooltip>}
                                      label={domain.domain_name}
                                      value={domainIndex.toString()}
                                      iconPosition="end" />
                             )}
                             <Tab key={'add-domain'}
-                                 icon={<AddIcon onClick={addDomain}/>}
+                                 icon={<Tooltip title="Add domain" arrow><AddIcon onClick={addDomain}/></Tooltip>}
                                  iconPosition="start"
                                  value={9999} // this value is used in changeActiveTab()
                             />
