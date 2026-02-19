@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { getIdToken, apiCall, apiDelete, uniqueName, navigateToDomainEdit, waitForDomainTable } from '../helpers/api';
 
 test.describe.serial('Domain Counts', () => {
+  // DomainEdit renders 1000+ accumulated test domains with DnD — needs extra time.
+  // DOM-07 does navigate + reload (two full page loads at ~45s each), so 180s.
+  test.setTimeout(180_000);
+
   let idToken: string;
   const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
@@ -31,8 +35,7 @@ test.describe.serial('Domain Counts', () => {
   });
 
   test('DOM-06: verify Areas and Tasks column headers', async ({ page }) => {
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
     // "Areas" and "Tasks" headers should exist
     const headers = page.locator('thead th');
@@ -54,8 +57,7 @@ test.describe.serial('Domain Counts', () => {
     createdDomainIds.push(domainId);
 
     // Navigate and verify 0/0 counts
-    await page.goto('/domainedit');
-    await page.waitForSelector('table', { timeout: 10000 });
+    await navigateToDomainEdit(page);
 
     const areaCount = page.getByTestId(`area-count-${domainId}`);
     const taskCount = page.getByTestId(`task-count-${domainId}`);
@@ -94,7 +96,7 @@ test.describe.serial('Domain Counts', () => {
 
     // Reload and verify updated counts
     await page.reload();
-    await page.waitForSelector('table', { timeout: 10000 });
+    await waitForDomainTable(page);
 
     await expect(areaCount).toHaveText('2');
     await expect(taskCount).toHaveText('5');
