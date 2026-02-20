@@ -522,11 +522,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
               }}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
+                    <Tooltip title={area.id === '' && !area.area_name ? 'Add new area' : ''} arrow>
                     <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
                                 variant="standard"
                                 value={area.area_name || ''}
                                 name='area-name'
-                                /*label={((area.area_name !== '') && (area.id !== '')) ? '' : 'New Area Name'}*/
                                 onChange= { (event) => areaChange(event, areaIndex) }
                                 onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
                                 onBlur = {(event) => areaOnBlur(event, areaIndex, area.id)}
@@ -539,6 +539,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 }}
                                 key={`area-${area.id}`}
                      />
+                    </Tooltip>
                     {area.id !== '' && (
                         <>
                             <Tooltip title="Card options" arrow>
