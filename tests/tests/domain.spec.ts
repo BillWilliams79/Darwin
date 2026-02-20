@@ -14,10 +14,10 @@ test.describe('Domain Management', () => {
   });
 
   test.afterAll(async () => {
-    // Close all test domains created during tests
+    // Hard-delete test domains (ON DELETE CASCADE handles child areas/tasks)
     for (const id of createdDomainIds) {
       try {
-        await apiCall('domains', 'PUT', [{ id, closed: 1 }], idToken);
+        await apiDelete('domains', id, idToken);
       } catch { /* best-effort cleanup */ }
     }
   });

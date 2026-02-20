@@ -25,13 +25,8 @@ test.describe.serial('Cancel Drag', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of createdTaskIds) {
-      try { await apiDelete('tasks', id, idToken); } catch { /* best-effort */ }
-    }
-    for (const id of createdAreaIds) {
-      try { await apiDelete('areas', id, idToken); } catch { /* best-effort */ }
-    }
-    try { await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken); } catch {}
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
   });
 
   test('DND-01: cancel area reorder in AreaEdit fires no PUT', async ({ page }) => {
