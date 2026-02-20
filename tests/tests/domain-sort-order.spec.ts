@@ -16,8 +16,9 @@ test.describe.serial('Domain Sort Order', () => {
   });
 
   test.afterAll(async () => {
+    // Hard-delete test domains (ON DELETE CASCADE handles child areas/tasks)
     for (const id of createdDomainIds) {
-      try { await apiCall('domains', 'PUT', [{ id, closed: 1 }], idToken); } catch { /* best-effort */ }
+      try { await apiDelete('domains', id, idToken); } catch { /* best-effort */ }
     }
   });
 
