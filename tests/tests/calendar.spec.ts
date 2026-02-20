@@ -33,11 +33,8 @@ test.describe('Calendar View P1', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of createdTaskIds) {
-      try { await apiDelete('tasks', id, idToken); } catch { /* best-effort */ }
-    }
-    try { await apiDelete('areas', testAreaId, idToken); } catch {}
-    try { await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken); } catch {}
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
   });
 
   test('CAL-01: done tasks appear in CalendarView', async ({ page }) => {

@@ -15,14 +15,9 @@ test.describe.serial('Sort Order Verification', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of createdTaskIds) {
-      try { await apiDelete('tasks', id, idToken); } catch { /* best-effort */ }
-    }
-    for (const id of createdAreaIds) {
-      try { await apiDelete('areas', id, idToken); } catch { /* best-effort */ }
-    }
+    // Hard-delete test domains (ON DELETE CASCADE handles child areas/tasks)
     for (const id of createdDomainIds) {
-      try { await apiCall('domains', 'PUT', [{ id, closed: 1 }], idToken); } catch { /* best-effort */ }
+      try { await apiDelete('domains', id, idToken); } catch { /* best-effort */ }
     }
   });
 

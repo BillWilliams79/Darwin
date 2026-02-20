@@ -84,13 +84,8 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of [task0Id, task1Id, task2Id, a2TaskId, ...extraTaskIds]) {
-      try { await apiDelete('tasks', id, idToken); } catch { /* best-effort */ }
-    }
-    for (const id of [area1Id, area2Id]) {
-      try { await apiDelete('areas', id, idToken); } catch { /* best-effort */ }
-    }
-    try { await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken); } catch {}
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
   });
 
   async function goToTestDomain(page: any) {

@@ -27,12 +27,8 @@ test.describe.serial('Area Management', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of createdAreaIds) {
-      try { await apiDelete('areas', id, idToken); } catch { /* best-effort */ }
-    }
-    try {
-      await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken);
-    } catch { /* best-effort */ }
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch { /* best-effort */ }
   });
 
   /** Navigate to TaskPlanView, select the test domain tab, return the visible panel. */
