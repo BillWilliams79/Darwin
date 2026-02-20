@@ -8,6 +8,6 @@ export const AUTH_CONFIG = {
     clientId: '8s82usrcfe58mllbceiavfcd2', // Replace after creating public app client in Cognito Console
     domain: 'darwin2.auth.us-west-1.amazoncognito.com',
     scopes: ['email', 'openid'],
-    redirectSignIn: import.meta.env.VITE_LOGIN_REDIRECT,
-    redirectSignOut: import.meta.env.VITE_LOGOUT_REDIRECT,
+    redirectSignIn: `${window.location.origin}/loggedin/`,
+    redirectSignOut: `${window.location.origin}/`,
 };
