@@ -42,13 +42,8 @@ test.describe('Task Management', () => {
   });
 
   test.afterAll(async () => {
-    // Clean up: delete tasks → areas → close domain
-    for (const id of createdTaskIds) {
-      try { await apiDelete('tasks', id, idToken); } catch { /* best-effort */ }
-    }
-    try { await apiDelete('areas', testAreaId, idToken); } catch {}
-    try { await apiDelete('areas', testArea2Id, idToken); } catch {}
-    try { await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken); } catch {}
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
   });
 
   /** Navigate to TaskPlanView and select the test domain tab. */

@@ -24,12 +24,8 @@ test.describe.serial('Area Management P1', () => {
   });
 
   test.afterAll(async () => {
-    for (const id of createdAreaIds) {
-      try { await apiDelete('areas', id, idToken); } catch { /* best-effort */ }
-    }
-    try {
-      await apiCall('domains', 'PUT', [{ id: testDomainId, closed: 1 }], idToken);
-    } catch { /* best-effort */ }
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch { /* best-effort */ }
   });
 
   test('AREA-04: update area name', async ({ page }) => {
@@ -369,9 +365,8 @@ test.describe.serial('Area Management P1', () => {
       await page.waitForTimeout(1500);
       await expect(page.getByTestId(`area-card-${areaId}`)).toBeVisible({ timeout: 5000 });
     } finally {
-      // Cleanup: delete area2 and close domain2
-      if (area2Id) try { await apiDelete('areas', area2Id, idToken); } catch {}
-      try { await apiCall('domains', 'PUT', [{ id: domain2Id, closed: 1 }], idToken); } catch {}
+      // Cleanup: hard-delete domain2 (CASCADE handles area2)
+      try { await apiDelete('domains', domain2Id, idToken); } catch {}
     }
   });
 });
