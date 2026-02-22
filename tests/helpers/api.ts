@@ -1,6 +1,7 @@
 import { Page } from '@playwright/test';
 
-const DARWIN_API = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/darwin';
+const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin';
+const DARWIN_API = `https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/${TEST_DATABASE}`;
 
 /** Extract the idToken from the browser context cookies. */
 export async function getIdToken(page: Page): Promise<string> {
