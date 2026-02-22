@@ -23,8 +23,11 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
   let a2TaskId: string;
   const a2TaskDesc = uniqueName('A2T');
 
-  // Extra tasks created during individual tests (for cleanup)
-  const extraTaskIds: string[] = [];
+  // Cross-card tasks (created in beforeAll to avoid mid-test Lambda timeouts)
+  let crossTask1Id: string;
+  const crossTask1Desc = uniqueName('Cross1');
+  let crossTask2Id: string;
+  const crossTask2Desc = uniqueName('Cross2');
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -81,6 +84,21 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     }, idToken) as Array<{ id: string }>;
     if (!a2t?.length) throw new Error('Failed to create A2Task');
     a2TaskId = a2t[0].id;
+
+    // Cross-card tasks for DND-05 and DND-06 (created here to avoid mid-test Lambda timeouts)
+    const ct1 = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: crossTask1Desc, area_fk: area1Id,
+      priority: 0, done: 0, sort_order: 10,
+    }, idToken) as Array<{ id: string }>;
+    if (!ct1?.length) throw new Error('Failed to create CrossTask1');
+    crossTask1Id = ct1[0].id;
+
+    const ct2 = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: crossTask2Desc, area_fk: area1Id,
+      priority: 0, done: 0, sort_order: 11,
+    }, idToken) as Array<{ id: string }>;
+    if (!ct2?.length) throw new Error('Failed to create CrossTask2');
+    crossTask2Id = ct2[0].id;
   });
 
   test.afterAll(async () => {
@@ -167,7 +185,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     const card = page.getByTestId(`area-card-${area1Id}`);
     await expect(card.getByTestId(`task-${task0Id}`)).toBeVisible();
-    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(3);
+    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(5);
     await assertNoHiddenTasks(page, area1Id);
   });
 
@@ -181,7 +199,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await page.waitForTimeout(500);
 
     let order = await getTaskDescriptions(page, area1Id);
-    expect(order).toEqual([task0Desc, task1Desc, task2Desc]);
+    expect(order).toEqual([task0Desc, task1Desc, task2Desc, crossTask1Desc, crossTask2Desc]);
 
     const source = page.getByTestId(`task-${task0Id}`);
     const target = page.getByTestId(`task-${task2Id}`);
@@ -190,11 +208,11 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     // Verify in-memory reorder
     order = await getTaskDescriptions(page, area1Id);
-    expect(order).toEqual([task1Desc, task2Desc, task0Desc]);
+    expect(order).toEqual([task1Desc, task2Desc, task0Desc, crossTask1Desc, crossTask2Desc]);
 
-    // Task count still 3 (no duplicates)
+    // Task count still 5 (no duplicates — 3 original + 2 cross-card tasks)
     const card = page.getByTestId(`area-card-${area1Id}`);
-    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(3);
+    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(5);
 
     await assertNoHiddenTasks(page, area1Id);
   });
@@ -214,44 +232,33 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await page.waitForTimeout(1500);
 
     const card = page.getByTestId(`area-card-${area1Id}`);
-    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(3);
+    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(5);
     await assertNoHiddenTasks(page, area1Id);
   });
 
   // ─── DND-05: Cross-card priority sort ─────────────────────────────────
 
   test('DND-05: Cross-card drag in priority-sort mode still works', async ({ page }) => {
-    const sub = process.env.E2E_TEST_COGNITO_SUB!;
-
-    const crossDesc = uniqueName('Cross1');
-    const ct = await apiCall('tasks', 'POST', {
-      creator_fk: sub, description: crossDesc, area_fk: area1Id,
-      priority: 0, done: 0, sort_order: 10,
-    }, idToken) as Array<{ id: string }>;
-    if (!ct?.length) throw new Error('Failed to create cross-card task');
-    const crossTaskId = ct[0].id;
-    extraTaskIds.push(crossTaskId);
-
     await goToTestDomain(page);
 
     await clickSortMode(page, area1Id, 'priority');
     await clickSortMode(page, area2Id, 'priority');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     const area1Before = await getTaskCount(page, area1Id);
     const area2Before = await getTaskCount(page, area2Id);
 
-    const sourceTask = page.getByTestId(`task-${crossTaskId}`);
+    const sourceTask = page.getByTestId(`task-${crossTask1Id}`);
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
     await dragAndDrop(page, sourceTask, targetCard);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
-    await expect(area2Card.getByTestId(`task-${crossTaskId}`)).toBeVisible({ timeout: 5000 });
+    await expect(area2Card.getByTestId(`task-${crossTask1Id}`)).toBeVisible({ timeout: 5000 });
 
     const area1Card = page.getByTestId(`area-card-${area1Id}`);
-    await expect(area1Card.getByTestId(`task-${crossTaskId}`)).not.toBeVisible();
+    await expect(area1Card.getByTestId(`task-${crossTask1Id}`)).not.toBeVisible();
 
     expect(await getTaskCount(page, area1Id)).toBe(area1Before - 1);
     expect(await getTaskCount(page, area2Id)).toBe(area2Before + 1);
@@ -260,40 +267,29 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
   // ─── DND-06: Cross-card to hand-sorted target ────────────────────────
 
   test('DND-06: Cross-card drag to hand-sorted target inserts correctly', async ({ page }) => {
-    const sub = process.env.E2E_TEST_COGNITO_SUB!;
-
-    const crossDesc = uniqueName('Cross2');
-    const ct = await apiCall('tasks', 'POST', {
-      creator_fk: sub, description: crossDesc, area_fk: area1Id,
-      priority: 0, done: 0, sort_order: 11,
-    }, idToken) as Array<{ id: string }>;
-    if (!ct?.length) throw new Error('Failed to create cross-card task');
-    const crossTaskId = ct[0].id;
-    extraTaskIds.push(crossTaskId);
-
     await goToTestDomain(page);
 
     await clickSortMode(page, area1Id, 'priority');
     await clickSortMode(page, area2Id, 'hand');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     const area2Before = await getTaskCount(page, area2Id);
 
-    const sourceTask = page.getByTestId(`task-${crossTaskId}`);
+    const sourceTask = page.getByTestId(`task-${crossTask2Id}`);
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
     await dragAndDrop(page, sourceTask, targetCard);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
-    await expect(area2Card.getByTestId(`task-${crossTaskId}`)).toBeVisible({ timeout: 5000 });
+    await expect(area2Card.getByTestId(`task-${crossTask2Id}`)).toBeVisible({ timeout: 5000 });
 
     const area1Card = page.getByTestId(`area-card-${area1Id}`);
-    await expect(area1Card.getByTestId(`task-${crossTaskId}`)).not.toBeVisible();
+    await expect(area1Card.getByTestId(`task-${crossTask2Id}`)).not.toBeVisible();
 
     expect(await getTaskCount(page, area2Id)).toBe(area2Before + 1);
 
-    const allCrossTask = page.locator(`[data-testid="task-${crossTaskId}"]`);
+    const allCrossTask = page.locator(`[data-testid="task-${crossTask2Id}"]`);
     await expect(allCrossTask).toHaveCount(1);
   });
 });

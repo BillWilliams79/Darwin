@@ -316,22 +316,27 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             setTasksArray(final);
         } else {
             // Priority-sorted target or no specific position: append to bottom
+            // Optimistic UI: update immediately, roll back on failure
             const maxSortOrder = Math.max(0, ...tasksArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
             const newSortOrder = maxSortOrder + 1;
 
+            var newTasksArray = [...tasksArray];
+            task.sort_order = newSortOrder;
+            task.area_fk = parseInt(area.id);
+            newTasksArray.push(task);
+            newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
+            setTasksArray(newTasksArray);
+
             call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id, 'sort_order': newSortOrder }], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-                        var newTasksArray = [...tasksArray];
-                        task.sort_order = newSortOrder;
-                        newTasksArray.push(task);
-                        newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
-                        setTasksArray(newTasksArray);
-                    } else {
-                        showError(result, "Unable to change task's area")
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        // Roll back optimistic update
+                        setTasksArray(prev => prev.filter(t => t.id !== task.id));
+                        showError(result, "Unable to change task's area");
                     }
                 }).catch(error => {
-                    showError(error, "Unable to change task's area")
+                    setTasksArray(prev => prev.filter(t => t.id !== task.id));
+                    showError(error, "Unable to change task's area");
                 });
         }
 
