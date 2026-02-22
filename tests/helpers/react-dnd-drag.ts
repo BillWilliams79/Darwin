@@ -5,6 +5,9 @@ import { Page, Locator } from '@playwright/test';
  *
  * Fires the full event sequence: dragstart → dragenter → dragover (×3) → drop → dragend
  * using a shared DataTransfer object (required by react-dnd).
+ *
+ * Async pauses between events allow HTML5Backend's requestAnimationFrame-scheduled
+ * hover processing to fire, preventing stale drop-target tracking.
  */
 export async function dragAndDrop(page: Page, source: Locator, target: Locator): Promise<void> {
   const sourceBox = await source.boundingBox();
@@ -23,8 +26,10 @@ export async function dragAndDrop(page: Page, source: Locator, target: Locator):
     y: targetBox.y + targetBox.height / 2,
   };
 
+  // Fire events with async pauses so HTML5Backend's RAF-based hover processing can run
   await page.evaluate(
-    ({ src, tgt }) => {
+    async ({ src, tgt }) => {
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       const dataTransfer = new DataTransfer();
 
       const sourceEl = document.elementFromPoint(src.x, src.y);
@@ -46,11 +51,19 @@ export async function dragAndDrop(page: Page, source: Locator, target: Locator):
       }
 
       fire(sourceEl, 'dragstart', src.x, src.y);
+      await delay(50);
+
       fire(targetEl, 'dragenter', tgt.x, tgt.y);
+      await delay(50);
+
       // react-dnd needs multiple dragover events to register a valid hover
       fire(targetEl, 'dragover', tgt.x, tgt.y);
+      await delay(50);
       fire(targetEl, 'dragover', tgt.x, tgt.y);
+      await delay(50);
       fire(targetEl, 'dragover', tgt.x, tgt.y);
+      await delay(50);
+
       fire(targetEl, 'drop', tgt.x, tgt.y);
       fire(sourceEl, 'dragend', src.x, src.y);
     },
