@@ -30,7 +30,6 @@ import FlagIcon from '@mui/icons-material/Flag';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
-import Tooltip from '@mui/material/Tooltip';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
@@ -522,7 +521,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
               }}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
-                    <Tooltip title={area.id === '' && !area.area_name ? 'Add new area' : ''} arrow>
                     <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
                                 variant="standard"
                                 value={area.area_name || ''}
@@ -540,18 +538,15 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 }}
                                 key={`area-${area.id}`}
                      />
-                    </Tooltip>
                     {area.id !== '' && (
                         <>
-                            <Tooltip title="Card options" arrow>
-                                <IconButton
-                                    onClick={handleMenuOpen}
-                                    data-testid={`card-menu-${area.id}`}
-                                    size="small"
-                                >
-                                    <MoreVertIcon />
-                                </IconButton>
-                            </Tooltip>
+                            <IconButton
+                                onClick={handleMenuOpen}
+                                data-testid={`card-menu-${area.id}`}
+                                size="small"
+                            >
+                                <MoreVertIcon />
+                            </IconButton>
                             <Menu
                                 anchorEl={menuAnchorEl}
                                 open={menuOpen}
