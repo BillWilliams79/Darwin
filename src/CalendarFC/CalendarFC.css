@@ -25,6 +25,11 @@
     padding-bottom: 0.2em;
 }
 
+/* Remove focus shadow left behind after mouse click on nav buttons */
+.fc .fc-button:focus {
+    box-shadow: none !important;
+}
+
 /* Today button — mid-gray between inactive and active */
 .fc .fc-today-button {
     background-color: #9e9e9e !important;
