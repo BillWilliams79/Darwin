@@ -20,37 +20,42 @@ const Profile = () => {
                 Profile
             </Typography>
         </Box >
-        <Box className="app-content" sx={{ margin: 2}}>
+        <Box className="app-content" sx={{ margin: 2, display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 400 }}>
             <TextField  label="Name"
                         value = { profile.name }
                         id= "Name"
                         key="Name"
                         variant= "outlined"
-                        size = 'small' />
+                        size = 'small'
+                        disabled />
             <TextField  label="E-mail"
                         value = { profile.email }
                         id= "email"
                         key="email"
                         variant= "outlined"
-                        size = 'small' />
+                        size = 'small'
+                        disabled />
             <TextField  label="Region"
                         value = { profile.region }
                         id= "region"
                         key="region"
                         variant= "outlined"
-                        size = 'small' />
+                        size = 'small'
+                        disabled />
             <TextField  label="User Pool ID"
                         value = { profile.userPoolId }
                         id= "userPoolId"
                         key="userPoolId"
                         variant= "outlined"
-                        size = 'small' />
+                        size = 'small'
+                        disabled />
             <TextField  label="Cognito Identifier"
                         value = { profile.userName }
                         id= "userName"
                         key="userName"
                         variant= "outlined"
-                        size = 'small' />
+                        size = 'small'
+                        disabled />
         </Box>
         </>
     )
