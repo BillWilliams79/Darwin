@@ -53,6 +53,21 @@ const TaskPlanView = () => {
         domainInsertIndexRef.current = index;
     }, []);
 
+    const renameDomain = useCallback((domainId, newName) => {
+        const uri = `${darwinUri}/domains`;
+        call_rest_api(uri, 'PUT', [{ id: domainId, domain_name: newName }], idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    setDomainsArray(prev => prev.map(d =>
+                        d.id === domainId ? { ...d, domain_name: newName } : d
+                    ));
+                } else {
+                    showError(result, 'Unable to rename domain');
+                }
+            })
+            .catch(error => showError(error, 'Unable to rename domain'));
+    }, [darwinUri, idToken, showError]);
+
     const domainClose = useConfirmDialog({
         onConfirm: ({ domainName, domainId, domainIndex }) => {
             let uri = `${darwinUri}/domains`;
@@ -223,6 +238,7 @@ const TaskPlanView = () => {
                                      domainName={domain.domain_name}
                                      setDomainInsertIndex={setDomainInsertIndex}
                                      persistDomainOrder={persistDomainOrder}
+                                     renameDomain={renameDomain}
                                      icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                      label={domain.domain_name}
                                      value={domainIndex.toString()}

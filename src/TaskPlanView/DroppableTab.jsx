@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import Tab from '@mui/material/Tab';
+import InputBase from '@mui/material/InputBase';
 import { useDragTabStore } from '../stores/useDragTabStore';
 
-const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex, persistDomainOrder, ...tabProps }) => {
+const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex, persistDomainOrder, renameDomain, ...tabProps }) => {
 
     const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);
 
@@ -14,10 +15,36 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
     const monitorRef = useRef(null);
     const tabRef = useRef(null);
 
+    // Inline editing state
+    const [editing, setEditing] = useState(false);
+    const [editValue, setEditValue] = useState(domainName);
+    const editingRef = useRef(false);
+    const longPressTimerRef = useRef(null);
+
     const [insertIndicator, setInsertIndicator] = useState(null); // 'left' | 'right' | null
+
+    const enterEditMode = useCallback(() => {
+        setEditValue(domainName);
+        setEditing(true);
+        editingRef.current = true;
+    }, [domainName]);
+
+    const exitEditMode = useCallback(() => {
+        setEditing(false);
+        editingRef.current = false;
+    }, []);
+
+    const saveAndExit = useCallback(() => {
+        const trimmed = editValue.trim();
+        if (trimmed && trimmed !== domainName) {
+            renameDomain(domainId, trimmed);
+        }
+        exitEditMode();
+    }, [editValue, domainName, renameDomain, domainId, exitEditMode]);
 
     const [{ isDragging }, drag, preview] = useDrag(() => ({
         type: 'domainTab',
+        canDrag: () => !editingRef.current,
         item: () => {
             const rect = tabRef.current?.getBoundingClientRect();
             return {
@@ -121,6 +148,9 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
             if (hoverTimerRef.current !== null) {
                 clearTimeout(hoverTimerRef.current);
             }
+            if (longPressTimerRef.current !== null) {
+                clearTimeout(longPressTimerRef.current);
+            }
         };
     }, []);
 
@@ -131,11 +161,81 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
         drop(el);
     }, [drag, drop]);
 
+    // Double-click handler for desktop editing
+    const handleDoubleClick = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        enterEditMode();
+    }, [enterEditMode]);
+
+    // Long-press handlers for mobile editing
+    const handleTouchStart = useCallback((e) => {
+        longPressTimerRef.current = setTimeout(() => {
+            longPressTimerRef.current = null;
+            enterEditMode();
+        }, 500);
+    }, [enterEditMode]);
+
+    const handleTouchEnd = useCallback(() => {
+        if (longPressTimerRef.current !== null) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    }, []);
+
+    const handleTouchMove = useCallback((e) => {
+        if (longPressTimerRef.current !== null) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    }, []);
+
+    // Suppress context menu when editing (mobile long-press)
+    const handleContextMenu = useCallback((e) => {
+        if (editing) {
+            e.preventDefault();
+        }
+    }, [editing]);
+
+    // Build the label — either InputBase (editing) or plain text
+    const tabLabel = editing ? (
+        <InputBase
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveAndExit();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    exitEditMode();
+                }
+            }}
+            onBlur={saveAndExit}
+            onFocus={(e) => e.target.select()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            autoFocus
+            inputProps={{
+                maxLength: 32,
+                style: { padding: 0, fontSize: 'inherit', textAlign: 'center', textTransform: 'inherit' },
+                'data-testid': `domain-tab-edit-${domainIndex}`,
+            }}
+            sx={{ fontSize: 'inherit' }}
+        />
+    ) : domainName;
+
     return (
         <Tab
             ref={combinedRef}
             data-testid={`domain-tab-${domainIndex}`}
             {...tabProps}
+            label={tabLabel}
+            onDoubleClick={handleDoubleClick}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
+            onContextMenu={handleContextMenu}
             sx={{
                 ...tabProps.sx,
                 ...(isDragging && {
