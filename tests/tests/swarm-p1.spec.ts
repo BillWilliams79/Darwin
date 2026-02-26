@@ -16,12 +16,12 @@ test.describe('Swarm P1 — Navigation', () => {
     await expect(tabs.first()).toBeVisible();
   });
 
-  test('SWM-03: /swarm renders area cards within active tab', async ({ page }) => {
+  test('SWM-03: /swarm renders content area (projects or empty state)', async ({ page }) => {
     await page.goto('/swarm');
-    await page.waitForSelector('[role="tabpanel"]', { timeout: 10000 });
-    // The active tabpanel should be visible
-    const activePanel = page.locator('[role="tabpanel"]:not([hidden])');
-    await expect(activePanel).toBeVisible();
+    // Either a tabpanel (projects exist) or the empty-state message should appear
+    const tabpanel = page.locator('[role="tabpanel"]:not([hidden])');
+    const emptyState = page.getByText('No projects yet');
+    await expect(tabpanel.or(emptyState)).toBeVisible({ timeout: 10000 });
   });
 
 });
