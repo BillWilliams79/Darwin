@@ -57,11 +57,19 @@
     grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
 }
 
+.card.swarm-card {
+    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+}
+
 .task {
     display: grid;
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
     background: white;
+}
+
+.task.priority-row {
+    grid-template-columns: auto 1fr auto;
 }
 
 .app-navbar{
