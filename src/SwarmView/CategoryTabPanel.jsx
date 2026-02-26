@@ -386,7 +386,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
                  sx={{ p: 3 }}
             >
                 { categoriesArray &&
-                    <Box className="card" ref={panelDrop}>
+                    <Box className="card swarm-card" ref={panelDrop}>
                         { categoriesArray.map((category, categoryIndex) => (
                             <CategoryCard {...{key: category.id,
                                            category,
