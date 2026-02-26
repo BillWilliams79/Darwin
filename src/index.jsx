@@ -21,6 +21,10 @@ import DomainEdit from './DomainEdit/DomainEdit';
 import Profile from './NavBar/Profile';
 import Error404 from './Error404/Error404';
 import LogoutLink from './Components/LogoutLink/LogoutLink';
+import SwarmView from './SwarmView/SwarmView';
+import PriorityDetail from './SwarmView/detail/PriorityDetail';
+import SessionsView from './SwarmView/SessionsView';
+import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -52,6 +56,18 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="profile"      element= {<AuthenticatedRoute>
                                                              <Profile />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm"        element= {<AuthenticatedRoute>
+                                                             <SwarmView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/priority/:id" element= {<AuthenticatedRoute>
+                                                             <PriorityDetail />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/sessions" element= {<AuthenticatedRoute>
+                                                             <SessionsView />
+                                                         </AuthenticatedRoute>} />
+<Route path="swarm/session/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmSessionDetail />
                                                          </AuthenticatedRoute>} />
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
