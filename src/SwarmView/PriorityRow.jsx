@@ -110,7 +110,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
     }, [drag, priorityDrop]);
 
     return (
-        <Box className="task"
+        <Box className="task priority-row"
              data-testid={priority.id === '' ? 'priority-template' : `priority-${priority.id}`}
              key={`box-${priority.id}`}
              ref={priority.id === '' ? null :
