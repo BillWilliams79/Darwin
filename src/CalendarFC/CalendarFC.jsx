@@ -22,6 +22,8 @@ const CalendarFC = () => {
     const calendarRef = useRef(null);
     const dateRangeRef = useRef(null);
 
+    const [calendarTitle, setCalendarTitle] = useState('');
+
     // Task data — full objects, same shape as original calendar
     const [tasksArray, setTasksArray] = useState([]);
     const [taskApiToggle, setTaskApiToggle] = useState(false);
@@ -99,6 +101,9 @@ const CalendarFC = () => {
     const handleDatesSet = useCallback((dateInfo) => {
         dateRangeRef.current = { start: dateInfo.start, end: dateInfo.end };
         fetchTasks(dateInfo.start, dateInfo.end);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const d = dateInfo.view.currentStart;
+        setCalendarTitle(`${months[d.getMonth()]} '${String(d.getFullYear()).slice(-2)} Completed Tasks`);
     }, [fetchTasks]);
 
     // Refetch when dialog closes (taskApiToggle changes)
@@ -207,20 +212,29 @@ const CalendarFC = () => {
 
     return (
         <>
-            <Box className="app-title">
-                <Typography variant="h4" sx={{ ml: 2 }}>
-                    Completed Tasks Calendar
+            <Box sx={{ px: 2, pb: 2, pt: '18pt', position: 'relative' }}>
+                <Typography sx={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: '18pt',
+                    textAlign: 'center',
+                    lineHeight: '28px',
+                    fontFamily: "'Roboto', sans-serif",
+                    fontSize: '1.3em',
+                    fontWeight: 500,
+                    pointerEvents: 'none',
+                }}>
+                    {calendarTitle}
                 </Typography>
-            </Box>
-            <Box sx={{ p: 2 }}>
                 <FullCalendar
                     ref={calendarRef}
                     plugins={[dayGridPlugin, interactionPlugin]}
                     initialView="dayGridMonth"
                     headerToolbar={{
-                        left: 'prev,next today',
-                        center: 'title',
-                        right: 'dayGridMonth,dayGridWeek,dayGridDay',
+                        left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay',
+                        center: '',
+                        right: '',
                     }}
                     buttonText={{
                         today: 'Today',

@@ -1,6 +1,5 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import ProfileDrawer from './ProfileDrawer';
 
 import React, {useContext} from 'react';
 import { Link } from "react-router-dom"
@@ -19,7 +18,13 @@ const NavBar = () => {
                spacing={1}
                alignItems={{xs: 'center', md: 'flex-start'}}
         >
-          <PedalBikeIcon sx={{ color: '#E91E63' }} />
+          {idToken ? (
+            <Link to="/profile" style={{ display: 'flex' }}>
+              <PedalBikeIcon sx={{ color: '#E91E63' }} />
+            </Link>
+          ) : (
+            <PedalBikeIcon sx={{ color: '#E91E63' }} />
+          )}
           <Link className="nav-title" to="/">
             Darwin
           </Link>
@@ -30,9 +35,6 @@ const NavBar = () => {
                 <Link className="nav-link" to="/areaedit"> Areas </Link>
                 <Link className="nav-link" to="/swarm"> Swarm </Link>
                 <Link className="nav-link" to="/swarm/sessions"> Sessions </Link>
-                {idToken &&
-                    <ProfileDrawer/>
-                }
               </>
         </Stack>
     </AppBar>

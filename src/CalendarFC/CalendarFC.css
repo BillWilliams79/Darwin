@@ -12,3 +12,61 @@
 .fc-event-main {
     overflow: visible !important;
 }
+
+/* Match navbar Roboto font across calendar controls */
+.fc .fc-button,
+.fc .fc-col-header-cell-cushion {
+    font-family: 'Roboto', sans-serif;
+}
+
+/* Tighter button profile */
+.fc .fc-button {
+    padding-top: 0.2em;
+    padding-bottom: 0.2em;
+}
+
+/* Remove focus shadow left behind after mouse click on nav buttons */
+.fc .fc-button:focus {
+    box-shadow: none !important;
+}
+
+/* Today button — mid-gray between inactive and active */
+.fc .fc-today-button {
+    background-color: #9e9e9e !important;
+    border-color: #8e8e8e !important;
+    color: white !important;
+}
+
+.fc .fc-today-button:disabled {
+    background-color: #bdbdbd !important;
+    border-color: #aaa !important;
+    color: white !important;
+    opacity: 0.8 !important;
+}
+
+
+/* Segmented toggle — active view button (pressed in) */
+.fc .fc-dayGridMonth-button.fc-button-active,
+.fc .fc-dayGridWeek-button.fc-button-active,
+.fc .fc-dayGridDay-button.fc-button-active {
+    background-color: #616161 !important;
+    border-color: #515151 !important;
+    color: white !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Segmented toggle — inactive view buttons (raised) */
+.fc .fc-dayGridMonth-button:not(.fc-button-active),
+.fc .fc-dayGridWeek-button:not(.fc-button-active),
+.fc .fc-dayGridDay-button:not(.fc-button-active) {
+    background-color: #f5f5f5 !important;
+    border-color: #ccc !important;
+    color: #555 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+
+.fc .fc-dayGridMonth-button:not(.fc-button-active):hover,
+.fc .fc-dayGridWeek-button:not(.fc-button-active):hover,
+.fc .fc-dayGridDay-button:not(.fc-button-active):hover {
+    background-color: #e0e0e0 !important;
+}
