@@ -30,7 +30,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm start',
-    url: 'https://localhost:3000',
+    url: baseURL,
     ignoreHTTPSErrors: true,
     reuseExistingServer: !process.env.CI,
     cwd: '..',
