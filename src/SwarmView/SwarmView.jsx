@@ -10,6 +10,7 @@ import { useApiTrigger } from '../hooks/useApiTrigger';
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
 import CategoryTabPanel from './CategoryTabPanel';
+import PriorityDragLayer from './PriorityDragLayer';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -192,6 +193,7 @@ const SwarmView = () => {
             :
             <CircularProgress/>
         }
+        <PriorityDragLayer />
         </>
     );
 
