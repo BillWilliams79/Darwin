@@ -38,8 +38,8 @@ const HomePage = () => {
              :
                 <Typography key="logout"
                             variant="body1"
-                            component="a"
-                            href="logout"
+                            component={Link}
+                            to="/logout"
                             sx={{marginBottom: 0 }} >
                     Logout
                 </Typography>
