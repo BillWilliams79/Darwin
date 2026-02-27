@@ -266,7 +266,7 @@ test.describe('Calendar View P1', () => {
 
     // Calendar container and title should render
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Completed Tasks Calendar')).toBeVisible();
+    await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
 
     // Navigate 3 months into the future — guaranteed no done tasks
     await page.locator('.fc-next-button').click();
@@ -278,7 +278,7 @@ test.describe('Calendar View P1', () => {
 
     // Calendar still renders correctly with no events
     await expect(page.locator('.fc')).toBeVisible();
-    await expect(page.getByText('Completed Tasks Calendar')).toBeVisible();
+    await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Week', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Day', exact: true })).toBeVisible();
