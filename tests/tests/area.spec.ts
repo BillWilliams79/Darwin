@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { pangeaDragAndDrop } from '../helpers/pangea-dnd-drag';
 
 test.describe.serial('Area Management', () => {
   let idToken: string;
@@ -115,10 +116,7 @@ test.describe.serial('Area Management', () => {
     await expect(areaCard).not.toBeVisible({ timeout: 5000 });
   });
 
-  // @hello-pangea/dnd keyboard DnD requires active browser focus, which fails
-  // when Playwright runs multiple headless browsers in parallel.
-  // Passes in isolation (single worker) but not in full parallel suite.
-  test.skip('AREA-03: DnD reorder areas in AreaEdit (@hello-pangea/dnd keyboard)', async ({ page }) => {
+  test('AREA-03: DnD reorder areas in AreaEdit (@hello-pangea/dnd mouse)', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const areaName1 = uniqueName('First');
     const areaName2 = uniqueName('Second');
@@ -152,17 +150,8 @@ test.describe.serial('Area Management', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // @hello-pangea/dnd keyboard DnD: focus → Space (lift) → ArrowUp (move) → Space (drop)
-    // Generous waits needed — under parallel worker load, @hello-pangea/dnd
-    // animations and keyboard listener setup require more time.
-    await secondRow.focus();
-    await page.waitForTimeout(500);
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(1000);
-    await page.keyboard.press('ArrowUp');
-    await page.waitForTimeout(1000);
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(1500);
+    // Mouse-based DnD: reliable under parallel Playwright execution
+    await pangeaDragAndDrop(page, secondRow, firstRow);
 
     // Verify order changed: Second should now be above First
     const afterFirstY = (await firstRow.boundingBox())!.y;
