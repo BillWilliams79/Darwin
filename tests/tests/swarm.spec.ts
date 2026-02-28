@@ -145,15 +145,15 @@ test.describe('Swarm View', () => {
 
   test('SWM-18: Session detail shows priority link — click navigates', async ({ page }) => {
     await page.goto(`/swarm/session/${testSessionId}`);
-    await expect(page.getByTestId('session-priority-link')).toBeVisible({ timeout: 10000 });
-    await page.getByTestId('session-priority-link').click();
+    await expect(page.getByTestId('source-priority-link')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('source-priority-link').click();
     await expect(page).toHaveURL(new RegExp(`/swarm/priority/${testPriorityId}`));
   });
 
   test('SWM-19: Session detail shows GitHub issue link for issue source_ref', async ({ page }) => {
     await page.goto(`/swarm/session/${testIssueSessionId}`);
-    await expect(page.getByTestId('session-issue-link')).toBeVisible({ timeout: 10000 });
-    const href = await page.getByTestId('session-issue-link').getAttribute('href');
+    await expect(page.getByTestId('source-issue-link')).toBeVisible({ timeout: 10000 });
+    const href = await page.getByTestId('source-issue-link').getAttribute('href');
     expect(href).toContain('github.com/BillWilliams79/Darwin/issues/8');
   });
 
@@ -162,6 +162,16 @@ test.describe('Swarm View', () => {
     await expect(page.getByTestId('sessions-datagrid')).toBeVisible({ timeout: 10000 });
     // The DataGrid should contain our test session's task_name (.first() for prior-run orphans)
     await expect(page.getByText('e2e-test-task').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('SWM-22: SessionsView Source column shows issue link', async ({ page }) => {
+    await page.goto('/swarm/sessions');
+    await expect(page.getByTestId('sessions-datagrid')).toBeVisible({ timeout: 10000 });
+    // The Source column should render a clickable issue link for the issue-sourced session
+    const issueLink = page.getByTestId('sessions-datagrid').getByTestId('source-issue-link').first();
+    await expect(issueLink).toBeVisible({ timeout: 10000 });
+    const href = await issueLink.getAttribute('href');
+    expect(href).toContain('github.com/BillWilliams79/Darwin/issues/8');
   });
 
   test('SWM-21: Back to Swarm navigation works', async ({ page }) => {

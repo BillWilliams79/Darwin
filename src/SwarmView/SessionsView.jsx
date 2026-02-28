@@ -5,6 +5,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
+import { renderSourceRef } from './repoGitHubMap.jsx';
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -23,7 +24,7 @@ const swarmStatusColor = (status) => {
     }
 };
 
-const sessionColumns = [
+const getSessionColumns = (navigate) => [
     { field: 'id',           headerName: 'ID',          width: 70 },
     {
         field: 'swarm_status',
@@ -37,6 +38,12 @@ const sessionColumns = [
     },
     { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
     { field: 'title',        headerName: 'Title',       width: 250 },
+    {
+        field: 'source_ref',
+        headerName: 'Source',
+        width: 140,
+        renderCell: (params) => renderSourceRef(params.value, navigate),
+    },
     { field: 'branch',       headerName: 'Branch',      width: 200 },
     {
         field: 'pr_url',
@@ -102,7 +109,7 @@ const SessionsView = () => {
                 <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
                         rows={sessionsArray}
-                        columns={sessionColumns}
+                        columns={getSessionColumns(navigate)}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{
                             toolbar: {
