@@ -5,10 +5,10 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 
+import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Link from '@mui/material/Link';
 import { CircularProgress, Typography } from '@mui/material';
 
 const swarmStatusColor = (status) => {
@@ -20,14 +20,6 @@ const swarmStatusColor = (status) => {
         case 'completed':  return 'success';
         default:           return 'default';
     }
-};
-
-const repoGitHubMap = {
-    'darwin':  'BillWilliams79/Darwin',
-    'sql':     'BillWilliams79/DarwinSQL',
-    'rest':    'BillWilliams79/AWS-Lambda-REST-API',
-    'cognito': 'BillWilliams79/AWS-Lambda-Cognito-User-Confirmation',
-    'jwt':     'BillWilliams79/AWS-JWT-Verification',
 };
 
 const SwarmSessionDetail = () => {
@@ -104,28 +96,7 @@ const SwarmSessionDetail = () => {
                     <Typography variant="subtitle2" color="text.secondary">Source</Typography>
                     <Typography variant="body2" component="div" data-testid="session-source">
                         {session.source_type}
-                        {session.source_ref && (() => {
-                            const priorityMatch = session.source_ref.match(/^priority:(\d+)$/);
-                            if (priorityMatch) {
-                                return <> — <Link component="button" variant="body2"
-                                        onClick={() => navigate(`/swarm/priority/${priorityMatch[1]}`)}
-                                        data-testid="session-priority-link">
-                                        Priority #{priorityMatch[1]}
-                                    </Link></>;
-                            }
-                            const issueMatch = session.source_ref.match(/^(.+)#(\d+)$/);
-                            if (issueMatch) {
-                                const ghRepo = repoGitHubMap[issueMatch[1]];
-                                if (ghRepo) {
-                                    return <> — <Link href={`https://github.com/${ghRepo}/issues/${issueMatch[2]}`}
-                                            target="_blank" rel="noopener noreferrer"
-                                            data-testid="session-issue-link">
-                                            {session.source_ref}
-                                        </Link></>;
-                                }
-                            }
-                            return ` — ${session.source_ref}`;
-                        })()}
+                        {session.source_ref && <> — {renderSourceRef(session.source_ref, navigate)}</>}
                     </Typography>
                 </Box>
             }
