@@ -3,6 +3,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import React, { useState, useEffect, useContext } from 'react';
@@ -10,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import { CircularProgress, Typography } from '@mui/material';
+import { CircularProgress, Typography, FormControlLabel, Switch } from '@mui/material';
 
 const swarmStatusColor = (status) => {
     switch (status) {
@@ -71,6 +72,12 @@ const SessionsView = () => {
 
     const [sessionsArray, setSessionsArray] = useState(null);
     const showError = useSnackBarStore(s => s.showError);
+    const showClosedSessions = useShowClosedStore(s => s.showClosedSessions);
+    const toggleShowClosedSessions = useShowClosedStore(s => s.toggleShowClosedSessions);
+
+    const filteredSessions = sessionsArray && !showClosedSessions
+        ? sessionsArray.filter(s => s.swarm_status !== 'completed')
+        : sessionsArray;
 
     useEffect(() => {
         const sessionsUri = `${darwinUri}/swarm_sessions?creator_fk=${profile.userName}`;
@@ -94,14 +101,22 @@ const SessionsView = () => {
 
     return (
         <Box sx={{ gridArea: 'content', p: 3 }}>
-            <Typography variant="h5" gutterBottom>Swarm Sessions</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <Typography variant="h5" sx={{ flex: 1 }}>Swarm Sessions</Typography>
+                <FormControlLabel
+                    control={<Switch checked={showClosedSessions} onChange={toggleShowClosedSessions} size="small" />}
+                    label="Show Completed"
+                    data-testid="toggle-show-closed-sessions"
+                    sx={{ mr: 1 }}
+                />
+            </Box>
 
             {sessionsArray === null ? (
                 <CircularProgress />
             ) : (
                 <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
-                        rows={sessionsArray}
+                        rows={filteredSessions}
                         columns={sessionColumns}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{

@@ -16,7 +16,7 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
@@ -34,9 +34,16 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
             call_rest_api(uri, 'PUT', [{'id': categoryId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        let newCategoriesArray = [...categoriesArray];
-                        newCategoriesArray = newCategoriesArray.filter(cat => cat.id !== categoryId );
-                        setCategoriesArray(newCategoriesArray);
+                        if (showClosed) {
+                            let newCategoriesArray = categoriesArray.map(cat =>
+                                cat.id === categoryId ? { ...cat, closed: 1, sort_order: null } : cat
+                            );
+                            setCategoriesArray(newCategoriesArray);
+                        } else {
+                            let newCategoriesArray = [...categoriesArray];
+                            newCategoriesArray = newCategoriesArray.filter(cat => cat.id !== categoryId );
+                            setCategoriesArray(newCategoriesArray);
+                        }
                     } else {
                         showError(result, `Unable to close ${categoryName}`)
                     }
@@ -67,7 +74,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
     // READ categories for this project
     useEffect( () => {
 
-        let categoryUri = `${darwinUri}/categories?creator_fk=${profile.userName}&closed=0&project_fk=${project.id}&fields=id,category_name,project_fk,sort_order,sort_mode,creator_fk`;
+        let categoryUri = `${darwinUri}/categories?creator_fk=${profile.userName}&project_fk=${project.id}&fields=id,category_name,project_fk,sort_order,sort_mode,creator_fk`
+            + (showClosed ? '' : '&closed=0');
 
         call_rest_api(categoryUri, 'GET', '', idToken)
             .then(result => {
@@ -92,7 +100,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
             });
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [categoryApiTrigger]);
+    }, [categoryApiTrigger, showClosed]);
 
     const updateCategory = (event, categoryIndex, categoryId) => {
 
@@ -400,7 +408,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab } ) => {
                                            moveCard,
                                            persistCategoryOrder: persistCategoryOrder,
                                            removeCategory,
-                                           isTemplate: category.id === '',}}/>
+                                           isTemplate: category.id === '',
+                                           showClosed,}}/>
                         ))}
                     </Box>
                 }
