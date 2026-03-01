@@ -32,7 +32,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed }) => {
 
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
 
@@ -98,7 +98,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // READ priorities for this category
     useEffect( () => {
 
-        let priorityUri = `${darwinUri}/priorities?creator_fk=${profile.userName}&closed=0&category_fk=${category.id}&fields=id,title,in_progress,closed,category_fk,sort_order,completed_at`
+        let priorityUri = `${darwinUri}/priorities?creator_fk=${profile.userName}&category_fk=${category.id}&fields=id,title,in_progress,closed,category_fk,sort_order,completed_at`
+            + (showClosed ? '' : '&closed=0')
 
         call_rest_api(priorityUri, 'GET', '', idToken)
             .then(result => {
@@ -160,7 +161,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             });
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [priorityApiTrigger]);
+    }, [priorityApiTrigger, showClosed]);
 
     const [{ isOver }, drop] = useDrop(() => ({
 
