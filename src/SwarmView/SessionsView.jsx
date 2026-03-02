@@ -37,13 +37,23 @@ const getSessionColumns = (navigate) => [
                   data-testid="chip-swarm-status" />
         ),
     },
-    { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
     { field: 'title',        headerName: 'Title',       width: 250 },
+    { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
     {
         field: 'source_ref',
         headerName: 'Source',
         width: 140,
         renderCell: (params) => renderSourceRef(params.value, navigate),
+    },
+    {
+        field: 'dev_server_port',
+        headerName: 'Dev Server',
+        width: 100,
+        renderCell: (params) => params.value
+            ? <Chip label={params.value} size="small" color="primary"
+                    onClick={(e) => { e.stopPropagation(); navigate('/devservers'); }}
+                    data-testid="chip-dev-server-port" />
+            : '—',
     },
     { field: 'branch',       headerName: 'Branch',      width: 200 },
     {
@@ -78,13 +88,18 @@ const SessionsView = () => {
     const navigate = useNavigate();
 
     const [sessionsArray, setSessionsArray] = useState(null);
+    const [devServerMap, setDevServerMap] = useState({});
     const showError = useSnackBarStore(s => s.showError);
     const showClosedSessions = useShowClosedStore(s => s.showClosedSessions);
     const toggleShowClosedSessions = useShowClosedStore(s => s.toggleShowClosedSessions);
 
-    const filteredSessions = sessionsArray && !showClosedSessions
-        ? sessionsArray.filter(s => s.swarm_status !== 'completed')
-        : sessionsArray;
+    const enrichedSessions = sessionsArray
+        ? sessionsArray.map(s => ({ ...s, dev_server_port: devServerMap[s.id] || null }))
+        : null;
+
+    const filteredSessions = enrichedSessions && !showClosedSessions
+        ? enrichedSessions.filter(s => s.swarm_status !== 'completed')
+        : enrichedSessions;
 
     useEffect(() => {
         const sessionsUri = `${darwinUri}/swarm_sessions?creator_fk=${profile.userName}`;
@@ -103,6 +118,17 @@ const SessionsView = () => {
                     showError(error, 'Unable to read swarm sessions');
                 }
             });
+
+        const devServersUri = `${darwinUri}/dev_servers?creator_fk=${profile.userName}`;
+
+        call_rest_api(devServersUri, 'GET', '', idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    const map = {};
+                    result.data.forEach(ds => { if (ds.session_fk) map[ds.session_fk] = ds.port; });
+                    setDevServerMap(map);
+                }
+            }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
