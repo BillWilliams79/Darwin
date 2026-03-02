@@ -9,24 +9,22 @@ import { usePriorityActions } from '../hooks/usePriorityActions';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import ToggleButton from '@mui/material/ToggleButton';
 import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
-import RocketIcon from '@mui/icons-material/Rocket';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
-import FlightLandIcon from '@mui/icons-material/FlightLand';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HotelIcon from '@mui/icons-material/Hotel';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 
 const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
-    const { inProgressClick, closedClick, titleChange, titleKeyDown,
+    const { inProgressClick, closedClick, scheduledClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
         sortMode, setCrossCardInsertIndex, sessionStatusMap } = usePriorityActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
@@ -109,6 +107,23 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         priorityDrop(node);
     }, [drag, priorityDrop]);
 
+    // Determine status for indicator
+    const sessionStatus = sessionStatusMap && sessionStatusMap[priority.id];
+    const isRunning = !!(priority.in_progress || sessionStatus);
+    const getStatusIcon = () => {
+        if (priority.id === '') return null;
+        if (priority.closed) {
+            return <Tooltip title="Completed"><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
+        }
+        if (sessionStatus) {
+            return <Tooltip title={sessionStatus}><RocketLaunchIcon sx={{ fontSize: 18, color: 'primary.main' }} /></Tooltip>;
+        }
+        if (priority.in_progress) {
+            return <Tooltip title="In Progress"><RocketLaunchIcon sx={{ fontSize: 18, color: 'primary.main' }} /></Tooltip>;
+        }
+        return <Tooltip title="Not Started"><HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} /></Tooltip>;
+    };
+
     return (
         <Box className="task priority-row"
              data-testid={priority.id === '' ? 'priority-template' : `priority-${priority.id}`}
@@ -129,26 +144,54 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                  ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
-            <ToggleButtonGroup
-                value={
-                    sessionStatusMap && sessionStatusMap[priority.id]
-                        ? sessionStatusMap[priority.id]
-                        : priority.closed ? 'completed'
-                        : priority.in_progress ? 'active'
-                        : 'idle'
-                }
-                exclusive
-                size="small"
-                key={`status-${priority.id}`}
-                sx={{ height: 28, '& .MuiToggleButton-root': { px: 0.5, py: 0, minWidth: 28 } }}
+            {/* Col 1: Row number */}
+            <Typography
+                variant="body2"
+                sx={{ color: 'text.secondary', textAlign: 'center', minWidth: 24, userSelect: 'none' }}
             >
-                <ToggleButton value="idle" disabled><Tooltip title="Idle"><RocketIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-                <ToggleButton value="starting" disabled><Tooltip title="Starting"><FlightTakeoffIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-                <ToggleButton value="active" disabled><Tooltip title="Active"><RocketLaunchIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-                <ToggleButton value="paused" disabled><Tooltip title="Paused"><HotelIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-                <ToggleButton value="completing" disabled><Tooltip title="Completing"><FlightLandIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-                <ToggleButton value="completed" disabled><Tooltip title="Completed"><AttachMoneyIcon sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
-            </ToggleButtonGroup>
+                {priority.id !== '' ? priorityIndex + 1 : ''}
+            </Typography>
+
+            {/* Col 2: Scheduled toggle — hidden when running, spacer preserves layout */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                {priority.id !== '' && !isRunning ? (
+                    <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"}>
+                        <IconButton
+                            onClick={() => scheduledClick(priorityIndex, priority.id)}
+                            data-testid={`scheduled-toggle-${priority.id}`}
+                            sx={{ maxWidth: 28, maxHeight: 28 }}
+                        >
+                            {priority.scheduled ?
+                                <PlayCircleIcon sx={{ fontSize: 20, color: 'primary.main' }} /> :
+                                <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
+                            }
+                        </IconButton>
+                    </Tooltip>
+                ) : null}
+            </Box>
+
+            {/* Col 3: Details link */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {priority.id !== '' ? (
+                    <Tooltip title="Details">
+                        <IconButton onClick={() => navigate(`/swarm/priority/${priority.id}`)}
+                                    key={`navigate-${priority.id}`}
+                                    sx={{ maxWidth: 25, maxHeight: 25 }}
+                        >
+                            <OpenInNewIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                    </Tooltip>
+                ) : (
+                    <Box sx={{ width: 25 }} />
+                )}
+            </Box>
+
+            {/* Col 4: Status indicator */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                {getStatusIcon()}
+            </Box>
+
+            {/* Col 5: Title */}
             <TextField variant="outlined"
                         value={priority.title || ''}
                         name='title'
@@ -163,7 +206,9 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${priority.id}`}
              />
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
+
+            {/* Col 6: Delete / Savings */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             { priority.id === '' ?
                     <IconButton key={`savings-${priority.id}`}
                                 disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
@@ -174,24 +219,16 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         <SavingsIcon key={`savings1-${priority.id}`}/>
                     </IconButton>
                 :
-                <>
-                    <IconButton onClick={() => navigate(`/swarm/priority/${priority.id}`)}
-                                key={`navigate-${priority.id}`}
-                                sx = {{maxWidth: "25px",
-                                       maxHeight: "25px",
-                                }}
-                    >
-                        <OpenInNewIcon key={`navigate1-${priority.id}`} />
-                    </IconButton>
-                    <IconButton onClick={(event) => deleteClick(event, priority.id)}
-                                key={`delete-${priority.id}`}
-                                sx = {{maxWidth: "25px",
-                                       maxHeight: "25px",
-                                }}
-                    >
-                        <DeleteIcon key={`delete1-${priority.id}`} />
-                    </IconButton>
-                </>
+                    <Tooltip title="Delete priority">
+                        <IconButton onClick={(event) => deleteClick(event, priority.id)}
+                                    key={`delete-${priority.id}`}
+                                    sx = {{maxWidth: "25px",
+                                           maxHeight: "25px",
+                                    }}
+                        >
+                            <DeleteIcon key={`delete1-${priority.id}`} />
+                        </IconButton>
+                    </Tooltip>
             }
             </Box>
         </Box>
