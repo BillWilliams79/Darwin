@@ -1,0 +1,47 @@
+// Centralized query key factory for TanStack Query
+// Ensures consistent keys across queries and invalidations
+
+export const domainKeys = {
+    all: (creatorFk) => ['domains', creatorFk],
+    open: (creatorFk) => ['domains', creatorFk, { closed: 0 }],
+    withClosed: (creatorFk) => ['domains', creatorFk, { withClosed: true }],
+};
+
+export const areaKeys = {
+    all: (creatorFk) => ['areas', creatorFk],
+    byDomain: (creatorFk, domainId) => ['areas', creatorFk, { domainId }],
+    byDomainOpen: (creatorFk, domainId) => ['areas', creatorFk, { domainId, closed: 0 }],
+    byDomainWithClosed: (creatorFk, domainId) => ['areas', creatorFk, { domainId, withClosed: true }],
+};
+
+export const taskKeys = {
+    all: (creatorFk) => ['tasks', creatorFk],
+    byArea: (creatorFk, areaId) => ['tasks', creatorFk, { areaId }],
+    byAreaOpen: (creatorFk, areaId) => ['tasks', creatorFk, { areaId, done: 0 }],
+    done: (creatorFk, dateRange) => ['tasks', creatorFk, { done: 1, dateRange }],
+    counts: (creatorFk) => ['tasks', creatorFk, 'counts'],
+};
+
+export const projectKeys = {
+    all: (creatorFk) => ['projects', creatorFk],
+    open: (creatorFk) => ['projects', creatorFk, { closed: 0 }],
+    withClosed: (creatorFk) => ['projects', creatorFk, { withClosed: true }],
+};
+
+export const categoryKeys = {
+    all: (creatorFk) => ['categories', creatorFk],
+    byProject: (creatorFk, projectId) => ['categories', creatorFk, { projectId }],
+    byProjectOpen: (creatorFk, projectId) => ['categories', creatorFk, { projectId, closed: 0 }],
+    byProjectWithClosed: (creatorFk, projectId) => ['categories', creatorFk, { projectId, withClosed: true }],
+};
+
+export const priorityKeys = {
+    all: (creatorFk) => ['priorities', creatorFk],
+    byCategory: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId }],
+    byCategoryOpen: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, closed: 0 }],
+    byCategoryWithClosed: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, withClosed: true }],
+};
+
+export const sessionKeys = {
+    all: (creatorFk) => ['swarm_sessions', creatorFk],
+};
