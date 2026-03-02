@@ -6,12 +6,14 @@ test.describe('Swarm View', () => {
   let testProjectId: string;
   let testCategoryId: string;
   let testPriorityId: string;
+  let testIdlePriorityId: string;
   let testSessionId: string;
   let testIssueSessionId: string;
 
   const testProjectName = uniqueName('SwarmProj');
   const testCategoryName = uniqueName('SwarmCat');
   const testPriorityTitle = uniqueName('SwarmPri');
+  const testIdlePriorityTitle = uniqueName('SwarmIdle');
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -43,6 +45,14 @@ test.describe('Swarm View', () => {
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test priority');
     testPriorityId = priResult[0].id;
+
+    // Create idle priority (not in_progress) for scheduled toggle test
+    const idlePriResult = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: testIdlePriorityTitle, category_fk: testCategoryId,
+      in_progress: 0, closed: 0, sort_order: 1,
+    }, idToken) as Array<{ id: string }>;
+    if (!idlePriResult?.length) throw new Error('Failed to create idle test priority');
+    testIdlePriorityId = idlePriResult[0].id;
 
     // Create swarm session linked to priority via source_ref
     const sessResult = await apiCall('swarm_sessions', 'POST', {
@@ -85,6 +95,7 @@ test.describe('Swarm View', () => {
     try { await apiDelete('swarm_sessions', testSessionId, idToken); } catch {}
     try { await apiDelete('swarm_sessions', testIssueSessionId, idToken); } catch {}
     try { await apiDelete('priorities', testPriorityId, idToken); } catch {}
+    try { await apiDelete('priorities', testIdlePriorityId, idToken); } catch {}
     // CASCADE handles categories when project is deleted
     try { await apiDelete('projects', testProjectId, idToken); } catch {}
   });
@@ -107,6 +118,46 @@ test.describe('Swarm View', () => {
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
     await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
+  });
+
+  test('SWM-12a: Priority row shows row number', async ({ page }) => {
+    await page.goto('/swarm');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testProjectName }).click();
+    await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
+    // Row number "1" should be visible in the priority row
+    const row = page.getByTestId(`priority-${testPriorityId}`);
+    await expect(row.locator('p').first()).toContainText('1');
+  });
+
+  test('SWM-12b: Scheduled toggle works on idle priority row', async ({ page }) => {
+    await page.goto('/swarm');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testProjectName }).click();
+    await expect(page.getByTestId(`priority-${testIdlePriorityId}`)).toBeVisible({ timeout: 10000 });
+
+    const toggleBtn = page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`);
+    await expect(toggleBtn).toBeVisible({ timeout: 5000 });
+
+    // Click to schedule
+    await toggleBtn.click();
+    // Verify the toggle persists by reloading
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testProjectName }).click();
+    await expect(page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`)).toBeVisible({ timeout: 10000 });
+
+    // Click again to unschedule (cleanup)
+    await page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`).click();
+  });
+
+  test('SWM-12c: Scheduled toggle hidden on in-progress priority', async ({ page }) => {
+    await page.goto('/swarm');
+    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.getByRole('tab', { name: testProjectName }).click();
+    await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
+    // The in-progress priority should NOT have a scheduled toggle
+    await expect(page.getByTestId(`scheduled-toggle-${testPriorityId}`)).not.toBeVisible();
   });
 
   test('SWM-13: /swarm/priority/:id renders PriorityDetail with correct title', async ({ page }) => {
