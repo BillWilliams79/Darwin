@@ -31,6 +31,7 @@ const SwarmSessionDetail = () => {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [devServers, setDevServers] = useState([]);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -49,6 +50,17 @@ const SwarmSessionDetail = () => {
                 showError(error, 'Unable to load swarm session');
                 setLoading(false);
             });
+    }, [id, idToken, darwinUri]);
+
+    useEffect(() => {
+        const devServersUri = `${darwinUri}/dev_servers?session_fk=${id}`;
+
+        call_rest_api(devServersUri, 'GET', '', idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    setDevServers(result.data);
+                }
+            }).catch(() => {});
     }, [id, idToken, darwinUri]);
 
     if (loading) return <CircularProgress />;
@@ -161,6 +173,24 @@ const SwarmSessionDetail = () => {
                     {session.update_ts || '—'}
                 </Typography>
             </Box>
+
+            {devServers.length > 0 &&
+                <Box sx={{ mb: 1, mt: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Dev Servers</Typography>
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }} data-testid="session-dev-servers">
+                        {devServers.map(ds => (
+                            <Chip
+                                key={ds.id}
+                                label={`Port ${ds.port}`}
+                                size="small"
+                                color="primary"
+                                onClick={() => navigate('/devservers')}
+                                data-testid="chip-dev-server-port"
+                            />
+                        ))}
+                    </Box>
+                </Box>
+            }
         </Box>
     );
 };
