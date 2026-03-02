@@ -98,7 +98,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // READ priorities for this category
     useEffect( () => {
 
-        let priorityUri = `${darwinUri}/priorities?creator_fk=${profile.userName}&closed=0&category_fk=${category.id}&fields=id,title,in_progress,closed,category_fk,sort_order,completed_at`
+        let priorityUri = `${darwinUri}/priorities?creator_fk=${profile.userName}&closed=0&category_fk=${category.id}&fields=id,title,in_progress,closed,scheduled,category_fk,sort_order,completed_at`
 
         call_rest_api(priorityUri, 'GET', '', idToken)
             .then(result => {
@@ -121,7 +121,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
                     setPrioritiesArray(sortedPrioritiesArray);
 
                     // Fetch session statuses for these priorities
@@ -152,7 +152,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             }).catch(error => {
                 if (error.httpStatus.httpStatus === 404) {
                     let sortedPrioritiesArray = [];
-                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
                     setPrioritiesArray(sortedPrioritiesArray);
                 } else {
                     showError(error, 'Unable to read priorities')
@@ -377,6 +377,29 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     }
 
+    const scheduledClick = (priorityIndex, priorityId) => {
+
+        let newPrioritiesArray = [...prioritiesArray]
+        newPrioritiesArray[priorityIndex].scheduled = newPrioritiesArray[priorityIndex].scheduled ? 0 : 1;
+
+        if (priorityId !== '') {
+            let uri = `${darwinUri}/priorities`;
+            call_rest_api(uri, 'PUT', [{'id': priorityId, 'scheduled': newPrioritiesArray[priorityIndex].scheduled}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, "Unable to change priority's scheduled flag")
+                    }
+                }).catch(error => {
+                    showError(error, "Unable to change priority's scheduled flag")
+                }
+            );
+        } else if (savingRef.current) {
+            pendingMutationsRef.current.scheduled = newPrioritiesArray[priorityIndex].scheduled;
+        }
+
+        setPrioritiesArray(newPrioritiesArray);
+    }
+
     const updatePriority = (event, priorityIndex, priorityId) => {
 
         const noop = ()=>{};
@@ -433,7 +456,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'category_fk': category.id, 'sort_order': null, 'creator_fk': profile.userName });
+                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null, 'creator_fk': profile.userName });
                     setPrioritiesArray(newPrioritiesArray);
                 } else if (result.httpStatus.httpStatus === 201) {
                     triggerPriorityRefresh();
@@ -558,7 +581,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     )}
                 </Box>
                 { (prioritiesArray) ?
-                    <PriorityActionsContext.Provider value={{ inProgressClick, closedClick, titleChange,
+                    <PriorityActionsContext.Provider value={{ inProgressClick, closedClick, scheduledClick, titleChange,
                         titleKeyDown, titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
                         sortMode, setCrossCardInsertIndex, sessionStatusMap }}>
                         {prioritiesArray.map((priority, priorityIndex) => (
