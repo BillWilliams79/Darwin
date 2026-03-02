@@ -6,6 +6,7 @@ import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
 
+import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -25,13 +26,19 @@ const swarmStatusColor = (status) => {
     }
 };
 
-const sessionColumns = [
+const getSessionColumns = (navigate) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
     { field: 'swarm_status', headerName: 'Status',    width: 110,
       renderCell: (params) => (
           <Chip label={params.value} size="small"
                 color={swarmStatusColor(params.value)} />
       )
+    },
+    {
+        field: 'source_ref',
+        headerName: 'Source',
+        width: 140,
+        renderCell: (params) => renderSourceRef(params.value, navigate),
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
     { field: 'started_at',   headerName: 'Started',   width: 170,
@@ -253,7 +260,7 @@ const PriorityDetail = () => {
                 <Box sx={{ height: 300 }} data-testid="linked-sessions-grid">
                     <DataGrid
                         rows={sessions}
-                        columns={sessionColumns}
+                        columns={getSessionColumns(navigate)}
                         density="compact"
                         disableRowSelectionOnClick
                         onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}
