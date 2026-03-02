@@ -35,6 +35,7 @@ const NavBar = () => {
                 <Link className="nav-link" to="/areaedit"> Areas </Link>
                 <Link className="nav-link" to="/swarm"> Swarm </Link>
                 <Link className="nav-link" to="/swarm/sessions"> Sessions </Link>
+                <Link className="nav-link" to="/devservers"> Dev Servers </Link>
               </>
         </Stack>
     </AppBar>
