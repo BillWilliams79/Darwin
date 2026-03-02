@@ -16,7 +16,8 @@ const TaskEditDialog = ({ taskEditDialogOpen,
                           taskEditInfo,
                           setTaskEditInfo,
                           taskApiToggle,
-                          setTaskApiToggle, }
+                          setTaskApiToggle,
+                          onClose, }
                         ) => {
 
     const { deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed } = useTaskActions();
@@ -26,7 +27,11 @@ const TaskEditDialog = ({ taskEditDialogOpen,
     const closeDialog = () => {
         // on dialog close, trigger data re-read in case items are no longer a priority
         // close the dialog and clear the task context info
-        setTaskApiToggle(taskApiToggle ? false : true);
+        if (onClose) {
+            onClose();
+        } else if (setTaskApiToggle) {
+            setTaskApiToggle(taskApiToggle ? false : true);
+        }
         setTaskEditDialogOpen(false);
         setTaskEditInfo({});
         return;

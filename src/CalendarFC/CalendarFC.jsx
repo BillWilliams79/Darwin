@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useContext, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import './CalendarFC.css';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -10,6 +11,8 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
+import { useTasksDone } from '../hooks/useDataQueries';
+import { taskKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 
 import Box from '@mui/material/Box';
@@ -19,14 +22,29 @@ const CalendarFC = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
+    const queryClient = useQueryClient();
     const calendarRef = useRef(null);
-    const dateRangeRef = useRef(null);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
-    // Task data — full objects, same shape as original calendar
-    const [tasksArray, setTasksArray] = useState([]);
-    const [taskApiToggle, setTaskApiToggle] = useState(false);
+    // Date range state — drives the query key
+    const [dateRange, setDateRange] = useState({ start: null, end: null });
+    const startStr = dateRange.start ? dateRange.start.toISOString().slice(0, 19) : null;
+    const endStr = dateRange.end ? dateRange.end.toISOString().slice(0, 19) : null;
+
+    // TanStack Query — fetch done tasks for the visible date range
+    const { data: serverTasks } = useTasksDone(profile?.userName, startStr, endStr);
+
+    // Task data — derived from query data
+    const tasksArray = serverTasks || [];
+    const [localTasksArray, setLocalTasksArray] = useState([]);
+
+    // Keep local state in sync with server data for TaskActionsContext
+    React.useEffect(() => {
+        if (serverTasks) {
+            setLocalTasksArray(serverTasks);
+        }
+    }, [serverTasks]);
 
     // Dialog state
     const [taskEditDialogOpen, setTaskEditDialogOpen] = useState(false);
@@ -38,7 +56,8 @@ const CalendarFC = () => {
             call_rest_api(`${darwinUri}/tasks`, 'DELETE', { id: taskId }, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        setTasksArray(prev => prev.filter(t => t.id !== taskId));
+                        setLocalTasksArray(prev => prev.filter(t => t.id !== taskId));
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to delete task');
                     }
@@ -54,7 +73,7 @@ const CalendarFC = () => {
 
     // Derive FullCalendar events from tasksArray
     const events = useMemo(() =>
-        tasksArray.map(task => {
+        localTasksArray.map(task => {
             const start = task.done_ts
                 ? (() => {
                     const d = new Date(task.done_ts.replace(' ', 'T') + 'Z');
@@ -74,45 +93,15 @@ const CalendarFC = () => {
             };
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasksArray]);
+    [localTasksArray]);
 
-    // Fetch tasks when visible date range changes
-    const fetchTasks = useCallback((start, end) => {
-        const startStr = start.toISOString().slice(0, 19);
-        const endStr = end.toISOString().slice(0, 19);
-
-        const uri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=1&filter_ts=(done_ts,${startStr},${endStr})&fields=id,priority,done,description,done_ts`;
-
-        call_rest_api(uri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    setTasksArray(result.data);
-                }
-            })
-            .catch(error => {
-                if (error.httpStatus?.httpStatus === 404) {
-                    setTasksArray([]);
-                } else {
-                    console.log('CalendarFC fetch error:', error);
-                }
-            });
-    }, [darwinUri, profile, idToken]);
-
+    // When FullCalendar changes the visible date range
     const handleDatesSet = useCallback((dateInfo) => {
-        dateRangeRef.current = { start: dateInfo.start, end: dateInfo.end };
-        fetchTasks(dateInfo.start, dateInfo.end);
+        setDateRange({ start: dateInfo.start, end: dateInfo.end });
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const d = dateInfo.view.currentStart;
         setCalendarTitle(`${months[d.getMonth()]} '${String(d.getFullYear()).slice(-2)} Completed Tasks`);
-    }, [fetchTasks]);
-
-    // Refetch when dialog closes (taskApiToggle changes)
-    React.useEffect(() => {
-        if (dateRangeRef.current) {
-            fetchTasks(dateRangeRef.current.start, dateRangeRef.current.end);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [taskApiToggle]);
+    }, []);
 
     // Drag and drop — update done_ts when event is dropped on a different day
     const handleEventDrop = useCallback((info) => {
@@ -124,7 +113,7 @@ const CalendarFC = () => {
         call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, done_ts: newDoneTs }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
-                    setTasksArray(prev => prev.map(t =>
+                    setLocalTasksArray(prev => prev.map(t =>
                         String(t.id) === taskId ? { ...t, done_ts: newDoneTs } : t
                     ));
                 } else {
@@ -141,22 +130,22 @@ const CalendarFC = () => {
     // Click to edit — find task in tasksArray by id and open the existing dialog
     const handleEventClick = useCallback((info) => {
         const taskId = info.event.id;
-        const taskIndex = tasksArray.findIndex(t => String(t.id) === taskId);
+        const taskIndex = localTasksArray.findIndex(t => String(t.id) === taskId);
         if (taskIndex !== -1) {
-            setTaskEditInfo({ task: tasksArray[taskIndex], taskIndex });
+            setTaskEditInfo({ task: localTasksArray[taskIndex], taskIndex });
             setTaskEditDialogOpen(true);
         }
-    }, [tasksArray]);
+    }, [localTasksArray]);
 
     // TaskActionsContext callbacks (same as DayView)
     const priorityClick = (taskIndex, taskId) => {
-        let newTasksArray = [...tasksArray];
+        let newTasksArray = [...localTasksArray];
         newTasksArray[taskIndex].priority = newTasksArray[taskIndex].priority ? 0 : 1;
 
         call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, priority: newTasksArray[taskIndex].priority }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
-                    setTasksArray(newTasksArray);
+                    setLocalTasksArray(newTasksArray);
                 } else if (result.httpStatus.httpStatus > 204) {
                     showError(result, "Unable to change task's priority");
                 }
@@ -164,9 +153,9 @@ const CalendarFC = () => {
     };
 
     const doneClick = (taskIndex, taskId) => {
-        let newTasksArray = [...tasksArray];
+        let newTasksArray = [...localTasksArray];
         newTasksArray[taskIndex].done = newTasksArray[taskIndex].done ? 0 : 1;
-        setTasksArray(newTasksArray);
+        setLocalTasksArray(newTasksArray);
 
         call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, done: newTasksArray[taskIndex].done,
             ...(newTasksArray[taskIndex].done === 1
@@ -180,7 +169,7 @@ const CalendarFC = () => {
     };
 
     const updateTask = (event, taskIndex, taskId) => {
-        call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, description: tasksArray[taskIndex].description }], idToken)
+        call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, description: localTasksArray[taskIndex].description }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus > 204) {
                     showError(result, 'Task description not updated, HTTP error');
@@ -189,12 +178,17 @@ const CalendarFC = () => {
     };
 
     const { fieldChange: descriptionChange, fieldKeyDown: descriptionKeyDown, fieldOnBlur: descriptionOnBlur } = useCrudCallbacks({
-        items: tasksArray, setItems: setTasksArray, fieldName: 'description', saveFn: updateTask
+        items: localTasksArray, setItems: setLocalTasksArray, fieldName: 'description', saveFn: updateTask
     });
 
     const deleteClick = (event, taskId) => {
         taskDelete.openDialog({ taskId });
     };
+
+    // Dialog close callback — invalidate queries to refetch
+    const handleDialogClose = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
+    }, [queryClient, profile]);
 
     const renderEventContent = (eventInfo) => (
         <div style={{
@@ -255,7 +249,7 @@ const CalendarFC = () => {
             <TaskActionsContext.Provider value={{
                 priorityClick, doneClick, descriptionChange,
                 descriptionKeyDown, descriptionOnBlur, deleteClick,
-                tasksArray, setTasksArray,
+                tasksArray: localTasksArray, setTasksArray: setLocalTasksArray,
                 deleteDialogOpen: taskDelete.dialogOpen,
                 setDeleteDialogOpen: taskDelete.setDialogOpen,
                 setDeleteId: taskDelete.setInfoObject,
@@ -265,7 +259,7 @@ const CalendarFC = () => {
                 <TaskEditDialog {...{
                     taskEditDialogOpen, setTaskEditDialogOpen,
                     taskEditInfo, setTaskEditInfo,
-                    taskApiToggle, setTaskApiToggle,
+                    onClose: handleDialogClose,
                 }} />
             </TaskActionsContext.Provider>
         </>

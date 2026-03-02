@@ -7,7 +7,8 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useDomains } from '../hooks/useDataQueries';
+import { domainKeys } from '../hooks/useQueryKeys';
 
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
@@ -15,6 +16,7 @@ import AreaTabPanel from './AreaTabPanel';
 import TaskDragLayer from '../Components/TaskEdit/TaskDragLayer';
 
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
@@ -30,14 +32,10 @@ const TaskPlanView = () => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     // Corresponds to crud_app.rest_api table for user, and UI/js index
     const [domainsArray, setDomainsArray] = useState()
-
-    // changing this value triggers useState, re-reads all rest API data
-    // misleading, but true or flase doesn't matter, just flip the value
-    // and set it, the useState is executed
-    const [domainApiTrigger, triggerDomainRefresh] = useApiTrigger();
 
     // Domain Tabs state — from Zustand store
     const activeTab = useDragTabStore(s => s.activeTab);
@@ -46,6 +44,32 @@ const TaskPlanView = () => {
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
+
+    // TanStack Query — fetch open domains
+    const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
+
+    // Seed local state from query data (hybrid pattern — local state owns DnD)
+    useEffect(() => {
+        if (serverDomains) {
+            const sorted = [...serverDomains];
+            sorted.sort((a, b) => {
+                if (a.sort_order === null && b.sort_order === null) return 0;
+                if (a.sort_order === null) return 1;
+                if (b.sort_order === null) return -1;
+                return a.sort_order - b.sort_order;
+            });
+
+            // Restore working domain from localStorage, fall back to first tab
+            const storedId = getWorkingDomain();
+            let initialTab = 0;
+            if (storedId) {
+                const idx = sorted.findIndex(d => String(d.id) === storedId);
+                if (idx >= 0) initialTab = idx;
+            }
+            setActiveTab(initialTab);
+            setDomainsArray(sorted);
+        }
+    }, [serverDomains]);
 
     // Ref to track blue-line insertion index during domain tab drag
     const domainInsertIndexRef = useRef(null);
@@ -80,6 +104,7 @@ const TaskPlanView = () => {
                         if (parseInt(activeTab) === domainIndex ) {
                             setActiveTab(0);
                         }
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to close ${domainName}`)
                     }
@@ -98,8 +123,9 @@ const TaskPlanView = () => {
                         let newDomainsArray = [...domainsArray];
                         newDomainsArray.push(result.data[0]);
                         setDomainsArray(newDomainsArray);
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                     } else if (result.httpStatus.httpStatus === 201) {
-                        triggerDomainRefresh();
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to create ${newDomainName}`)
                     }
@@ -109,38 +135,6 @@ const TaskPlanView = () => {
         },
         defaultInfo: ''
     });
-
-    // READ domains API data for page
-    useEffect( () => {
-
-        console.count('useEffect: Read domains REST API data');
-
-        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&closed=0&fields=id,domain_name,sort_order`
-
-        call_rest_api(domainUri, 'GET', '', idToken)
-            .then(result => {
-                // Sort by sort_order (null values last)
-                result.data.sort((a, b) => {
-                    if (a.sort_order === null && b.sort_order === null) return 0;
-                    if (a.sort_order === null) return 1;
-                    if (b.sort_order === null) return -1;
-                    return a.sort_order - b.sort_order;
-                });
-
-                // Restore working domain from localStorage, fall back to first tab
-                const storedId = getWorkingDomain();
-                let initialTab = 0;
-                if (storedId) {
-                    const idx = result.data.findIndex(d => String(d.id) === storedId);
-                    if (idx >= 0) initialTab = idx;
-                }
-                setActiveTab(initialTab);
-                setDomainsArray(result.data);
-            }).catch(error => {
-                showError(error, 'Unable to read Domain info from database')
-            });
-
-    }, [domainApiTrigger, profile, idToken, darwinUri]);
 
     // Persist working domain whenever active tab changes
     useEffect(() => {

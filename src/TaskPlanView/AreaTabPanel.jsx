@@ -2,10 +2,12 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect, useRef, useCallback} from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useAreas } from '../hooks/useDataQueries';
+import { areaKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
@@ -28,11 +30,27 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [areasArray, setAreasArray] = useState()
-    const [areaApiTrigger, triggerAreaRefresh] = useApiTrigger();
 
     const showError = useSnackBarStore(s => s.showError);
+
+    // TanStack Query — fetch open areas for this domain
+    const { data: serverAreas } = useAreas(profile?.userName, domain.id, { closed: 0 });
+
+    // Seed local state from query data (hybrid pattern — local state owns DnD)
+    useEffect(() => {
+        if (serverAreas && serverAreas.length > 0) {
+            const sorted = [...serverAreas];
+            sorted.sort((areaA, areaB) => areaSortBySortOrder(areaA, areaB));
+            let maxSortOrder = sorted.at(-1).sort_order + 1;
+            sorted.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
+            setAreasArray(sorted);
+        } else if (serverAreas && serverAreas.length === 0) {
+            setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
+        }
+    }, [serverAreas]);
 
     // cardSettings state
     const areaClose = useConfirmDialog({
@@ -44,6 +62,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         let newAreasArray = [...areasArray];
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
+                        queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to close ${areaName}`)
                     }
@@ -62,6 +81,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         let newAreasArray = [...areasArray];
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId);
                         setAreasArray(newAreasArray);
+                        queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to delete ${areaName}`);
                     }
@@ -70,41 +90,6 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                 });
         }
     });
-
-    // READ AREA API data for TabPanel
-    useEffect( () => {
-
-        console.count('useEffect: read all Rest API data');
-
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&closed=0&domain_fk=${domain.id}&fields=id,area_name,domain_fk,sort_order,sort_mode,creator_fk`;
-
-        call_rest_api(areaUri, 'GET', '', idToken)
-            .then(result => {
-                
-                if (result.httpStatus.httpStatus === 200) {
-
-                    // Sort the data, find largest sort order, add template area/card and save the state
-                    result.data.sort((areaA,areaB) => areaSortBySortOrder(areaA, areaB));
-                    let maxSortOrder = result.data.at(-1).sort_order + 1
-                    result.data.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
-                    setAreasArray(result.data);
-
-                } else {
-                    showError(result, 'Unable to read Area data')
-                }
-
-            }).catch(error => {
-                if (error.httpStatus.httpStatus === 404) {
-
-                    // a domain with no areas, still requires a template area
-                    setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
-                } else {
-                    showError(error, 'Unable to read Area data')
-                }
-            });
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [areaApiTrigger]);
 
     const updateArea = (event, areaIndex, areaId) => {
 
@@ -154,12 +139,12 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     let newSortOrder = result.data[0].sort_order + 1;
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': newSortOrder });
                     setAreasArray(newAreasArray);
+                    queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
 
                 } else if (result.httpStatus.httpStatus === 201) {
 
                     // 201 => record added to database but new data not returned in body
-                    // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    triggerAreaRefresh();
+                    queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
 
                 } else {
                     showError(result, `Unable to save new area`)
@@ -454,7 +439,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            removeArea,
                                            isTemplate: area.id === '',}}/>
                         ))}
-                    </Box>  
+                    </Box>
                 }
                 <CardCloseDialog cardSettingsDialogOpen={areaClose.dialogOpen}
                                  setCardSettingsDialogOpen={areaClose.setDialogOpen}
