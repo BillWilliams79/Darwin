@@ -44,4 +44,10 @@ export const priorityKeys = {
 
 export const sessionKeys = {
     all: (creatorFk) => ['swarm_sessions', creatorFk],
+    byId: (sessionId) => ['swarm_sessions', { id: sessionId }],
+};
+
+export const devServerKeys = {
+    all: (creatorFk) => ['dev_servers', creatorFk],
+    bySession: (sessionId) => ['dev_servers', { sessionId }],
 };

@@ -1,9 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import call_rest_api from '../../RestApi/RestApi';
-import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import AuthContext from '../../Context/AuthContext';
-import AppContext from '../../Context/AppContext';
+import { useSession, useDevServersBySession } from '../../hooks/useDataQueries';
 
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -26,44 +23,11 @@ const SwarmSessionDetail = () => {
 
     const { id } = useParams();
     const navigate = useNavigate();
-    const { idToken } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
 
-    const [session, setSession] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [devServers, setDevServers] = useState([]);
+    const { data: session, isLoading } = useSession(id);
+    const { data: devServers = [] } = useDevServersBySession(id);
 
-    const showError = useSnackBarStore(s => s.showError);
-
-    useEffect(() => {
-        const sessionUri = `${darwinUri}/swarm_sessions?id=${id}`;
-
-        call_rest_api(sessionUri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200 && result.data.length > 0) {
-                    setSession(result.data[0]);
-                } else {
-                    showError(result, 'Unable to load swarm session');
-                }
-                setLoading(false);
-            }).catch(error => {
-                showError(error, 'Unable to load swarm session');
-                setLoading(false);
-            });
-    }, [id, idToken, darwinUri]);
-
-    useEffect(() => {
-        const devServersUri = `${darwinUri}/dev_servers?session_fk=${id}`;
-
-        call_rest_api(devServersUri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    setDevServers(result.data);
-                }
-            }).catch(() => {});
-    }, [id, idToken, darwinUri]);
-
-    if (loading) return <CircularProgress />;
+    if (isLoading) return <CircularProgress />;
     if (!session) return <Typography>Session not found.</Typography>;
 
     return (

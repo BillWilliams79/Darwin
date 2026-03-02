@@ -1,11 +1,9 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import AppContext from '../Context/AppContext';
-import call_rest_api from '../RestApi/RestApi';
-import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useDevServers } from '../hooks/useDataQueries';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
@@ -47,38 +45,16 @@ const getDevServerColumns = (navigate) => [
 
 const DevServersView = () => {
 
-    const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
 
-    const [devServersArray, setDevServersArray] = useState(null);
-    const showError = useSnackBarStore(s => s.showError);
-
-    useEffect(() => {
-        const devServersUri = `${darwinUri}/dev_servers?creator_fk=${profile.userName}`;
-
-        call_rest_api(devServersUri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    setDevServersArray(result.data);
-                } else {
-                    setDevServersArray([]);
-                }
-            }).catch(error => {
-                if (error.httpStatus && error.httpStatus.httpStatus === 404) {
-                    setDevServersArray([]);
-                } else {
-                    showError(error, 'Unable to read dev servers');
-                }
-            });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    const { data: devServersArray } = useDevServers(profile?.userName);
 
     return (
         <Box sx={{ gridArea: 'content', p: 3 }}>
             <Typography variant="h5" sx={{ mb: 1 }}>Dev Servers</Typography>
 
-            {devServersArray === null ? (
+            {!devServersArray ? (
                 <CircularProgress />
             ) : (
                 <Box sx={{ height: 600, width: '100%' }} data-testid="dev-servers-datagrid">
