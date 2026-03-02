@@ -9,6 +9,7 @@ import { AppContextProvider } from './Context/AppContext';
 import { CookiesProvider } from 'react-cookie';
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
+import QueryClientSetup from './QueryClient/QueryClientSetup';
 
 import App from './App';
 import HomePage from './HomePage/HomePage';
@@ -30,11 +31,12 @@ import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(
-  <CookiesProvider>
-    <AuthContextProvider>
-      <AppContextProvider>
-        <DndProvider backend={HTML5Backend}>  
-          <Router >
+  <QueryClientSetup>
+    <CookiesProvider>
+      <AuthContextProvider>
+        <AppContextProvider>
+          <DndProvider backend={HTML5Backend}>
+            <Router >
             <div className="app-layout">
               <Routes>
                 <Route path="/"                element= {<App />} >
@@ -74,8 +76,9 @@ root.render(
               </Routes>
             </div>
           </Router>
-        </DndProvider>  
-      </AppContextProvider>  
-    </AuthContextProvider>
-  </CookiesProvider>
+          </DndProvider>
+        </AppContextProvider>
+      </AuthContextProvider>
+    </CookiesProvider>
+  </QueryClientSetup>
 );

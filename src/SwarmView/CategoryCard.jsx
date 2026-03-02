@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query';
 import PriorityRow from './PriorityRow';
 import PriorityDeleteDialog from './PriorityDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { usePriorities, useSessions } from '../hooks/useDataQueries';
+import { priorityKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
@@ -38,9 +40,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [prioritiesArray, setPrioritiesArray] = useState()
-    const [priorityApiTrigger, triggerPriorityRefresh] = useApiTrigger();
     const [sessionStatusMap, setSessionStatusMap] = useState({});
 
     const savingRef = useRef(false);
@@ -86,6 +88,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         let newPrioritiesArray = [...prioritiesArray]
                         newPrioritiesArray = newPrioritiesArray.filter(p => p.id !== priorityId );
                         setPrioritiesArray(newPrioritiesArray);
+                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to delete priority')
                     }
@@ -95,73 +98,68 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     });
 
-    // READ priorities for this category
-    useEffect( () => {
+    // TanStack Query — fetch priorities for this category
+    const { data: serverPriorities } = usePriorities(profile?.userName, category.id, {
+        closed: showClosed ? undefined : 0,
+        enabled: category.id !== '',
+    });
 
-        let priorityUri = `${darwinUri}/priorities?creator_fk=${profile.userName}&category_fk=${category.id}&fields=id,title,in_progress,closed,scheduled,category_fk,sort_order,completed_at`
-            + (showClosed ? '' : '&closed=0')
+    // TanStack Query — fetch sessions for status badges
+    const { data: serverSessions } = useSessions(profile?.userName, {
+        enabled: category.id !== '',
+    });
 
-        call_rest_api(priorityUri, 'GET', '', idToken)
-            .then(result => {
+    // Seed local state from query data (hybrid pattern — local state owns DnD + template)
+    useEffect(() => {
+        if (serverPriorities && serverPriorities.length > 0) {
+            let sortedPrioritiesArray = [...serverPriorities];
 
-                if (result.httpStatus.httpStatus === 200) {
+            // Lazy fill: if any priority has null sort_order, assign sequential values
+            const needsFill = sortedPrioritiesArray.some(t => t.sort_order === null || t.sort_order === undefined);
+            if (needsFill) {
+                sortedPrioritiesArray.sort((a, b) => priorityPrioritySort(a, b));
+                const bulkUpdate = [];
+                sortedPrioritiesArray.forEach((t, idx) => {
+                    t.sort_order = idx;
+                    bulkUpdate.push({ id: t.id, sort_order: idx });
+                });
+                let uri = `${darwinUri}/priorities`;
+                call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
+            }
 
-                    let sortedPrioritiesArray = result.data;
+            sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+            setPrioritiesArray(sortedPrioritiesArray);
+        } else if (serverPriorities && serverPriorities.length === 0) {
+            let sortedPrioritiesArray = [];
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+            setPrioritiesArray(sortedPrioritiesArray);
+        }
+    }, [serverPriorities]);
 
-                    // Lazy fill: if any priority has null sort_order, assign sequential values
-                    const needsFill = sortedPrioritiesArray.some(t => t.sort_order === null || t.sort_order === undefined);
-                    if (needsFill) {
-                        sortedPrioritiesArray.sort((a, b) => priorityPrioritySort(a, b));
-                        const bulkUpdate = [];
-                        sortedPrioritiesArray.forEach((t, idx) => {
-                            t.sort_order = idx;
-                            bulkUpdate.push({ id: t.id, sort_order: idx });
-                        });
-                        let uri = `${darwinUri}/priorities`;
-                        call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
+    // Build session status map from query data
+    useEffect(() => {
+        if (serverSessions && serverSessions.length > 0) {
+            const map = {};
+            serverSessions.forEach(s => {
+                const m = s.source_ref && s.source_ref.match(/^priority:(\d+)$/);
+                if (m) {
+                    const pid = parseInt(m[1]);
+                    if (!map[pid] || s.id > map[pid].id) {
+                        map[pid] = s.swarm_status;
                     }
-
-                    sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
-                    setPrioritiesArray(sortedPrioritiesArray);
-
-                    // Fetch session statuses for these priorities
-                    const priorityIds = sortedPrioritiesArray.filter(p => p.id !== '').map(p => p.id);
-                    if (priorityIds.length > 0) {
-                        call_rest_api(`${darwinUri}/swarm_sessions?creator_fk=${profile.userName}`, 'GET', '', idToken)
-                            .then(sessResult => {
-                                if (sessResult.httpStatus.httpStatus === 200) {
-                                    const map = {};
-                                    sessResult.data.forEach(s => {
-                                        const m = s.source_ref && s.source_ref.match(/^priority:(\d+)$/);
-                                        if (m) {
-                                            const pid = parseInt(m[1]);
-                                            if (!map[pid] || s.id > map[pid].id) {
-                                                map[pid] = s.swarm_status;
-                                            }
-                                        }
-                                    });
-                                    setSessionStatusMap(map);
-                                }
-                            }).catch(() => {});
-                    }
-
-                } else {
-                    showError(result, 'Unable to read priorities')
-                }
-
-            }).catch(error => {
-                if (error.httpStatus.httpStatus === 404) {
-                    let sortedPrioritiesArray = [];
-                    sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
-                    setPrioritiesArray(sortedPrioritiesArray);
-                } else {
-                    showError(error, 'Unable to read priorities')
                 }
             });
+            setSessionStatusMap(map);
+        }
+    }, [serverSessions]);
 
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [priorityApiTrigger, showClosed]);
+    // For template cards (category.id === ''), keep prioritiesArray undefined
+    useEffect(() => {
+        if (category.id === '' && !prioritiesArray) {
+            setPrioritiesArray(undefined);
+        }
+    }, [category.id]);
 
     const [{ isOver }, drop] = useDrop(() => ({
 
@@ -459,8 +457,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     newPrioritiesArray.sort((a, b) => activeSort(a, b));
                     newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null, 'creator_fk': profile.userName });
                     setPrioritiesArray(newPrioritiesArray);
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
-                    triggerPriorityRefresh();
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 } else {
                     showError(result, 'Priority not saved, HTTP error')
                 }

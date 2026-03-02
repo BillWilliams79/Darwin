@@ -6,7 +6,8 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useProjects } from '../hooks/useDataQueries';
+import { projectKeys } from '../hooks/useQueryKeys';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
@@ -14,6 +15,7 @@ import CategoryTabPanel from './CategoryTabPanel';
 import PriorityDragLayer from './PriorityDragLayer';
 
 import React, { useState, useEffect, useContext } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
@@ -26,9 +28,9 @@ const SwarmView = () => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [projectsArray, setProjectsArray] = useState()
-    const [projectApiTrigger, triggerProjectRefresh] = useApiTrigger();
 
     const activeTab = useSwarmTabStore(s => s.activeTab);
     const setActiveTab = useSwarmTabStore(s => s.setActiveTab);
@@ -38,6 +40,33 @@ const SwarmView = () => {
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
     const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
     const toggleShowClosedPriorities = useShowClosedStore(s => s.toggleShowClosedPriorities);
+
+    // TanStack Query — fetch projects (open only or with closed based on toggle)
+    const { data: serverProjects } = useProjects(profile?.userName, {
+        closed: showClosedPriorities ? undefined : 0,
+    });
+
+    // Seed local state from query data
+    useEffect(() => {
+        if (serverProjects) {
+            const sorted = [...serverProjects];
+            sorted.sort((a, b) => {
+                if (a.sort_order === null && b.sort_order === null) return 0;
+                if (a.sort_order === null) return 1;
+                if (b.sort_order === null) return -1;
+                return a.sort_order - b.sort_order;
+            });
+
+            const storedId = getWorkingProject();
+            let initialTab = 0;
+            if (storedId) {
+                const idx = sorted.findIndex(d => String(d.id) === storedId);
+                if (idx >= 0) initialTab = idx;
+            }
+            setActiveTab(initialTab);
+            setProjectsArray(sorted);
+        }
+    }, [serverProjects]);
 
     const projectClose = useConfirmDialog({
         onConfirm: ({ projectName, projectId, projectIndex }) => {
@@ -58,6 +87,7 @@ const SwarmView = () => {
                                 setActiveTab(0);
                             }
                         }
+                        queryClient.invalidateQueries({ queryKey: projectKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to close ${projectName}`)
                     }
@@ -76,8 +106,9 @@ const SwarmView = () => {
                         let newProjectsArray = [...projectsArray];
                         newProjectsArray.push(result.data[0]);
                         setProjectsArray(newProjectsArray);
+                        queryClient.invalidateQueries({ queryKey: projectKeys.all(profile.userName) });
                     } else if (result.httpStatus.httpStatus === 201) {
-                        triggerProjectRefresh();
+                        queryClient.invalidateQueries({ queryKey: projectKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to create ${newProjectName}`)
                     }
@@ -87,39 +118,6 @@ const SwarmView = () => {
         },
         defaultInfo: ''
     });
-
-    // READ projects
-    useEffect( () => {
-
-        let projectUri = `${darwinUri}/projects?creator_fk=${profile.userName}&fields=id,project_name,sort_order`
-            + (showClosedPriorities ? '' : '&closed=0')
-
-        call_rest_api(projectUri, 'GET', '', idToken)
-            .then(result => {
-                result.data.sort((a, b) => {
-                    if (a.sort_order === null && b.sort_order === null) return 0;
-                    if (a.sort_order === null) return 1;
-                    if (b.sort_order === null) return -1;
-                    return a.sort_order - b.sort_order;
-                });
-
-                const storedId = getWorkingProject();
-                let initialTab = 0;
-                if (storedId) {
-                    const idx = result.data.findIndex(d => String(d.id) === storedId);
-                    if (idx >= 0) initialTab = idx;
-                }
-                setActiveTab(initialTab);
-                setProjectsArray(result.data);
-            }).catch(error => {
-                if (error.httpStatus && error.httpStatus.httpStatus === 404) {
-                    setProjectsArray([]);
-                } else {
-                    showError(error, 'Unable to read Project info from database');
-                }
-            });
-
-    }, [projectApiTrigger, profile, idToken, darwinUri, showClosedPriorities]);
 
     // Persist working project whenever active tab changes
     useEffect(() => {

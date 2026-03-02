@@ -4,6 +4,7 @@ import varDump from '../classifier/classifier';
 import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useCookies } from 'react-cookie';
 import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/authService';
+import { setAuthToken } from '../RestApi/RestApi';
 
 const AuthContext = createContext({});
 
@@ -48,6 +49,11 @@ export const AuthContextProvider = ({ children }) => {
             }
         }, refreshMs);
     }, []);
+
+    // Keep module-level auth token in sync for TanStack Query hooks
+    useEffect(() => {
+        setAuthToken(idToken);
+    }, [idToken]);
 
     // On mount, attempt silent refresh using the refresh token cookie.
     // This handles page reload (F5) — tokens are in memory so they're gone,

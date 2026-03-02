@@ -3,6 +3,10 @@ import varDump from '../classifier/classifier';
 // make this a rest api call library that has no UI side effects.
 // eventually replace with react-router or similar
 
+// Module-level auth token — set by AuthContext, used as fallback when idToken arg omitted
+let _authToken = null;
+export const setAuthToken = (token) => { _authToken = token; };
+
 const call_rest_api = async (url, method, body, idToken) => {
 
     //varDump({url, method, body, idToken}, 'call_rest_api parameters');
@@ -17,8 +21,9 @@ const call_rest_api = async (url, method, body, idToken) => {
     };
     fetchInit['body'] = (body) ? JSON.stringify(body) : null;
 
-    if (idToken) {
-        fetchInit['headers']['Authorization'] = idToken;
+    const token = idToken || _authToken;
+    if (token) {
+        fetchInit['headers']['Authorization'] = token;
     }
 
     // STEP 2, perform fetch and catch the http status not between 200 and 499

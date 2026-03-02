@@ -2,11 +2,13 @@
 import varDump from '../classifier/classifier';
 
 import React, { useState, useEffect, useContext, useRef, useCallback} from 'react'
+import { useQueryClient } from '@tanstack/react-query';
 import TaskEdit from '../Components/TaskEdit/TaskEdit';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useTasks } from '../hooks/useDataQueries';
+import { taskKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
@@ -42,10 +44,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     // Array of task objects
     const [tasksArray, setTasksArray] = useState()
-    const [taskApiTrigger, triggerTaskRefresh] = useApiTrigger();
 
     // Guards against race condition: priority/done clicks during in-flight POST
     const savingRef = useRef(false);
@@ -53,6 +55,46 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     // Sort mode: 'priority' (default) or 'hand' — persisted in DB (areas.sort_mode)
     const [sortMode, setSortMode] = useState(area.sort_mode || 'priority');
+
+    // TanStack Query — fetch open tasks for this area
+    const { data: serverTasks } = useTasks(profile?.userName, area.id, {
+        enabled: area.id !== '',
+    });
+
+    // Seed local state from query data (hybrid pattern — local state owns DnD + template)
+    useEffect(() => {
+        if (serverTasks && serverTasks.length > 0) {
+            let sortedTasksArray = [...serverTasks];
+
+            // Lazy fill: if any real task has null sort_order, assign sequential values and persist
+            const needsFill = sortedTasksArray.some(t => t.sort_order === null || t.sort_order === undefined);
+            if (needsFill) {
+                sortedTasksArray.sort((a, b) => taskPrioritySort(a, b));
+                const bulkUpdate = [];
+                sortedTasksArray.forEach((t, idx) => {
+                    t.sort_order = idx;
+                    bulkUpdate.push({ id: t.id, sort_order: idx });
+                });
+                let uri = `${darwinUri}/tasks`;
+                call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
+            }
+
+            sortedTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
+            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
+            setTasksArray(sortedTasksArray);
+        } else if (serverTasks && serverTasks.length === 0) {
+            let sortedTasksArray = [];
+            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
+            setTasksArray(sortedTasksArray);
+        }
+    }, [serverTasks]);
+
+    // For template cards (area.id === ''), set up empty tasks array
+    useEffect(() => {
+        if (area.id === '' && !tasksArray) {
+            setTasksArray(undefined);
+        }
+    }, [area.id]);
 
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return; // MUI ToggleButtonGroup sends null when clicking already-selected
@@ -95,6 +137,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                         let newTasksArray = [...tasksArray]
                         newTasksArray = newTasksArray.filter(task => task.id !== taskId );
                         setTasksArray(newTasksArray);
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to delete task')
                     }
@@ -103,61 +146,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                 });
         }
     });
-
-
-    // READ Task API data for card
-    useEffect( () => {
-
-        console.count('useEffect: read task API data for a given area');
-
-        // FETCH TASKS: filter for creator, done=0 and area.id
-        let taskUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=0&area_fk=${area.id}&fields=id,priority,done,description,area_fk,sort_order`
-
-        call_rest_api(taskUri, 'GET', '', idToken)
-            .then(result => {
-
-                if (result.httpStatus.httpStatus === 200) {
-
-                    // 200 = data successfully returned. Sort the tasks, add the blank and update state.
-                    let sortedTasksArray = result.data;
-
-                    // Lazy fill: if any real task has null sort_order, assign sequential values and persist
-                    const needsFill = sortedTasksArray.some(t => t.sort_order === null || t.sort_order === undefined);
-                    if (needsFill) {
-                        // Sort by priority first to establish initial hand-sort order
-                        sortedTasksArray.sort((a, b) => taskPrioritySort(a, b));
-                        const bulkUpdate = [];
-                        sortedTasksArray.forEach((t, idx) => {
-                            t.sort_order = idx;
-                            bulkUpdate.push({ id: t.id, sort_order: idx });
-                        });
-                        let uri = `${darwinUri}/tasks`;
-                        call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
-                    }
-
-                    sortedTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
-                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
-                    setTasksArray(sortedTasksArray);
-
-                } else {
-                    showError(result, 'Unable to read tasks')
-                }
-
-
-            }).catch(error => {
-                if (error.httpStatus.httpStatus === 404) {
-
-                    // 404 = no tasks currently in this area, so we can add the blank and be done
-                    let sortedTasksArray = [];
-                    sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
-                    setTasksArray(sortedTasksArray);
-                } else {
-                    showError(error, 'Unable to read tasks')
-                }
-            });
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [taskApiTrigger]);
 
     const [{ isOver }, drop] = useDrop(() => ({
 
@@ -365,7 +353,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             // Template task with POST in-flight: queue for follow-up PUT
             pendingMutationsRef.current.priority = newTasksArray[taskIndex].priority;
         }
-        
+
         // Only after database is updated, tasks and update state
         newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
         setTasksArray(newTasksArray);
@@ -467,10 +455,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
                     newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'sort_order': null, 'creator_fk': profile.userName });
                     setTasksArray(newTasksArray);
+                    queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
-                    // flip read_rest_api state to initiate full data retrieval
-                    triggerTaskRefresh();
+                    queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                 } else {
                     showError(result, 'Task not saved, HTTP error')
                 }
