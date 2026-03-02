@@ -1,13 +1,11 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import AppContext from '../Context/AppContext';
-import call_rest_api from '../RestApi/RestApi';
-import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useSessions, useDevServers } from '../hooks/useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { renderSourceRef } from './repoGitHubMap.jsx';
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
@@ -83,15 +81,20 @@ const getSessionColumns = (navigate) => [
 
 const SessionsView = () => {
 
-    const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
 
-    const [sessionsArray, setSessionsArray] = useState(null);
-    const [devServerMap, setDevServerMap] = useState({});
-    const showError = useSnackBarStore(s => s.showError);
+    const { data: sessionsArray } = useSessions(profile?.userName);
+    const { data: devServersData } = useDevServers(profile?.userName);
     const showClosedSessions = useShowClosedStore(s => s.showClosedSessions);
     const toggleShowClosedSessions = useShowClosedStore(s => s.toggleShowClosedSessions);
+
+    const devServerMap = useMemo(() => {
+        if (!devServersData) return {};
+        const map = {};
+        devServersData.forEach(ds => { if (ds.session_fk) map[ds.session_fk] = ds.port; });
+        return map;
+    }, [devServersData]);
 
     const enrichedSessions = sessionsArray
         ? sessionsArray.map(s => ({ ...s, dev_server_port: devServerMap[s.id] || null }))
@@ -100,37 +103,6 @@ const SessionsView = () => {
     const filteredSessions = enrichedSessions && !showClosedSessions
         ? enrichedSessions.filter(s => s.swarm_status !== 'completed')
         : enrichedSessions;
-
-    useEffect(() => {
-        const sessionsUri = `${darwinUri}/swarm_sessions?creator_fk=${profile.userName}`;
-
-        call_rest_api(sessionsUri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    setSessionsArray(result.data);
-                } else {
-                    setSessionsArray([]);
-                }
-            }).catch(error => {
-                if (error.httpStatus && error.httpStatus.httpStatus === 404) {
-                    setSessionsArray([]);
-                } else {
-                    showError(error, 'Unable to read swarm sessions');
-                }
-            });
-
-        const devServersUri = `${darwinUri}/dev_servers?creator_fk=${profile.userName}`;
-
-        call_rest_api(devServersUri, 'GET', '', idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
-                    const map = {};
-                    result.data.forEach(ds => { if (ds.session_fk) map[ds.session_fk] = ds.port; });
-                    setDevServerMap(map);
-                }
-            }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
     return (
         <Box sx={{ gridArea: 'content', p: 3 }}>
@@ -144,7 +116,7 @@ const SessionsView = () => {
                 />
             </Box>
 
-            {sessionsArray === null ? (
+            {!sessionsArray ? (
                 <CircularProgress />
             ) : (
                 <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">

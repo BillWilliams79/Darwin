@@ -2,8 +2,10 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect} from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useAreas, useTaskCounts } from '../hooks/useDataQueries';
+import { areaKeys, taskKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
@@ -27,12 +29,41 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [areasArray, setAreasArray] = useState();
     const [taskCounts, setTaskCounts] = useState({});
-    const [areaApiTrigger, triggerAreaRefresh] = useApiTrigger();
- 
+
     const showError = useSnackBarStore(s => s.showError);
+
+    // TanStack Query — fetch areas for this domain (open + closed) and task counts
+    const { data: serverAreas } = useAreas(profile?.userName, domain.id, {
+        fields: 'id,area_name,closed,sort_order',
+    });
+    const { data: serverTaskCounts } = useTaskCounts(profile?.userName);
+
+    // Seed local state from query data
+    useEffect(() => {
+        if (serverAreas) {
+            const sorted = [...serverAreas];
+            sorted.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
+            sorted.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName, 'sort_order': null });
+            setAreasArray(sorted);
+        } else if (serverAreas && serverAreas.length === 0) {
+            setAreasArray([{'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName }]);
+        }
+    }, [serverAreas]);
+
+    // Compute task counts from query data
+    useEffect(() => {
+        if (serverTaskCounts) {
+            const newTaskCounts = {};
+            serverTaskCounts.forEach((countData) => {
+                newTaskCounts[countData.area_fk] = countData['count(*)'];
+            });
+            setTaskCounts(newTaskCounts);
+        }
+    }, [serverTaskCounts]);
 
     // cardSettings state
     const areaDelete = useConfirmDialog({
@@ -44,6 +75,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         let newAreasArray = [...areasArray]
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
+                        queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to delete area')
                     }
@@ -52,51 +84,6 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                 });
         }
     });
-
-    // READ AREA API data for TabPanel
-    useEffect( () => {
-
-        console.count('useEffect: read all Rest API data');
-
-        let areaUri = `${darwinUri}/areas?creator_fk=${profile.userName}&domain_fk=${domain.id}&fields=id,area_name,closed,sort_order`;
-
-        call_rest_api(areaUri, 'GET', '', idToken)
-            .then(result => {
-                // retrieve counts from rest API using &fields=count(*), group_by_field syntax
-                let uri = `${darwinUri}/tasks?creator_fk=${profile.userName}&fields=count(*),area_fk`;
-                call_rest_api(uri, 'GET', '', idToken)
-                    .then(result => {
-                        // count(*) returns an array of dict with format {group_by_field, count(*)}
-                        // reformat to dictionary: taskcounts.area_fk = count(*)
-                        let newTaskCounts = {};
-                        // eslint-disable-next-line array-callback-return
-                        result.data.map( (countData) => {
-                            newTaskCounts[countData.area_fk] = countData['count(*)']; 
-                        })
-
-                        setTaskCounts(newTaskCounts);
-        
-                    }).catch(error => {
-                        showError(error, 'Unable to retrieve task counts')
-                    });
-
-                let newAreasArray = result.data;
-                newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
-                newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName, 'sort_order': null });
-                setAreasArray(newAreasArray);
-
-            }).catch(error => {
-                if (error.httpStatus.httpStatus === 404) {
-                    let newAreasArray = [];
-                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName });
-                    setAreasArray(newAreasArray);
-                } else {
-                    showError(error, `Unable to read area data for domain ${domain.id}`)
-                }
-            });
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [areaApiTrigger]);
 
     const restUpdateAreaName = (areaIndex, areaId) => {
 
@@ -155,10 +142,11 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     newTaskCounts[result.data[0].id] = 0;
                     setTaskCounts(newTaskCounts);
 
+                    queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
+
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
-                    // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    triggerAreaRefresh();
+                    queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
                 } else {
                     showError(result, `Unable to save new area`)
                 }
@@ -184,7 +172,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
         // calculate correct sort order and returns the value.
         // if the value is null, it will be API/mySQL NULL string
         var newSortOrder = calculateSortOrder(newAreasArray, areaIndex, newClosed);
-        
+
         // Update database
         let uri = `${darwinUri}/areas`;
         call_rest_api(uri, 'PUT', [{'id': areaId, 'closed': newClosed, 'sort_order': newSortOrder}], idToken)
@@ -199,7 +187,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
         // Only after database is updated, sort areas and update state
         newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
-        setAreasArray(newAreasArray);        
+        setAreasArray(newAreasArray);
     }
 
     const clickAreaDelete = (event, areaId, areaName) => {
@@ -258,14 +246,14 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
     }
 
     const dragEnd = async (result) => {
-        
+
         if ((result.destination === null) ||
             (result.reason !== 'DROP')) {
             // dropped out of area or was cancelled
             return;
         }
 
-        // mutate the array - relocate the dragged item to the new location    
+        // mutate the array - relocate the dragged item to the new location
         var newAreasArray = [...areasArray]
         const [draggedArray] = newAreasArray.splice(result.source.index, 1);
         newAreasArray.splice(result.destination.index, 0, draggedArray);
@@ -307,14 +295,14 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
             }).catch(error => {
                 showError(error, `Unable to save area sort order`)
             });
- 
+
         return;
     }
 
     return (
         <>
             <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)} sx={{ p: 3 }} >
-                { areasArray && 
+                { areasArray &&
                     <Box>
                         <Table size='small'>
                             <TableHead>
@@ -347,7 +335,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                 </Droppable>
                             </DragDropContext>
                         </Table>
-                    </Box>  
+                    </Box>
                 }
             </Box>
             <AreaDeleteDialog

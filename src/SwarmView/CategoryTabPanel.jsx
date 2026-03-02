@@ -1,8 +1,10 @@
 import React, {useState, useContext, useEffect, useRef, useCallback} from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import CategoryCard from './CategoryCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useCategories } from '../hooks/useDataQueries';
+import { categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
@@ -22,11 +24,29 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [categoriesArray, setCategoriesArray] = useState()
-    const [categoryApiTrigger, triggerCategoryRefresh] = useApiTrigger();
 
     const showError = useSnackBarStore(s => s.showError);
+
+    // TanStack Query — fetch categories for this project
+    const { data: serverCategories } = useCategories(profile?.userName, project.id, {
+        closed: showClosed ? undefined : 0,
+    });
+
+    // Seed local state from query data
+    useEffect(() => {
+        if (serverCategories && serverCategories.length > 0) {
+            const sorted = [...serverCategories];
+            sorted.sort((a, b) => categorySortBySortOrder(a, b));
+            let maxSortOrder = sorted.at(-1).sort_order + 1;
+            sorted.push({'id':'', 'category_name':'', 'project_fk': project.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
+            setCategoriesArray(sorted);
+        } else if (serverCategories && serverCategories.length === 0) {
+            setCategoriesArray([{'id':'', 'category_name':'', 'project_fk': project.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
+        }
+    }, [serverCategories]);
 
     const categoryClose = useConfirmDialog({
         onConfirm: ({ categoryName, categoryId }) => {
@@ -44,6 +64,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                             newCategoriesArray = newCategoriesArray.filter(cat => cat.id !== categoryId );
                             setCategoriesArray(newCategoriesArray);
                         }
+                        queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to close ${categoryName}`)
                     }
@@ -62,6 +83,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                         let newCategoriesArray = [...categoriesArray];
                         newCategoriesArray = newCategoriesArray.filter(cat => cat.id !== categoryId);
                         setCategoriesArray(newCategoriesArray);
+                        queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                     } else {
                         showError(result, `Unable to delete ${categoryName}`);
                     }
@@ -70,37 +92,6 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                 });
         }
     });
-
-    // READ categories for this project
-    useEffect( () => {
-
-        let categoryUri = `${darwinUri}/categories?creator_fk=${profile.userName}&project_fk=${project.id}&fields=id,category_name,project_fk,sort_order,sort_mode,creator_fk`
-            + (showClosed ? '' : '&closed=0');
-
-        call_rest_api(categoryUri, 'GET', '', idToken)
-            .then(result => {
-
-                if (result.httpStatus.httpStatus === 200) {
-
-                    result.data.sort((a,b) => categorySortBySortOrder(a, b));
-                    let maxSortOrder = result.data.at(-1).sort_order + 1
-                    result.data.push({'id':'', 'category_name':'', 'project_fk': project.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
-                    setCategoriesArray(result.data);
-
-                } else {
-                    showError(result, 'Unable to read Category data')
-                }
-
-            }).catch(error => {
-                if (error.httpStatus.httpStatus === 404) {
-                    setCategoriesArray([{'id':'', 'category_name':'', 'project_fk': project.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
-                } else {
-                    showError(error, 'Unable to read Category data')
-                }
-            });
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [categoryApiTrigger, showClosed]);
 
     const updateCategory = (event, categoryIndex, categoryId) => {
 
@@ -141,8 +132,9 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                     let newSortOrder = result.data[0].sort_order + 1;
                     newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'creator_fk': profile.userName, 'sort_order': newSortOrder });
                     setCategoriesArray(newCategoriesArray);
+                    queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
-                    triggerCategoryRefresh();
+                    queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                 } else {
                     showError(result, `Unable to save new category`)
                 }

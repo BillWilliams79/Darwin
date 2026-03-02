@@ -2,9 +2,11 @@
 import varDump from '../classifier/classifier';
 
 import React, {useState, useContext, useEffect} from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
-import { useApiTrigger } from '../hooks/useApiTrigger';
+import { useDomains, useAllAreas, useTaskCounts } from '../hooks/useDataQueries';
+import { domainKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
@@ -29,9 +31,9 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
 
     const [domainsArray, setDomainsArray] = useState()
-    const [domainApiTrigger, triggerDomainRefresh] = useApiTrigger();
 
     const [areaCounts, setAreaCounts] = useState({});
     const [taskCounts, setTaskCounts] = useState({});
@@ -39,6 +41,47 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     const showError = useSnackBarStore(s => s.showError);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
     const workingDomainId = useWorkingDomainStore(s => s.domainId);
+
+    // TanStack Query — fetch all domains (open + closed), areas, and task counts
+    const { data: serverDomains } = useDomains(profile?.userName, {
+        fields: 'id,domain_name,closed,sort_order',
+    });
+    const { data: serverAreas } = useAllAreas(profile?.userName);
+    const { data: serverTaskCounts } = useTaskCounts(profile?.userName);
+
+    // Seed local state from query data
+    useEffect(() => {
+        if (serverDomains) {
+            const sorted = [...serverDomains];
+            sorted.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
+            sorted.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
+            setDomainsArray(sorted);
+        }
+    }, [serverDomains]);
+
+    // Compute area and task counts from query data
+    useEffect(() => {
+        if (serverAreas) {
+            const newAreaCounts = {};
+            const areaToDomain = {};
+            serverAreas.forEach((area) => {
+                areaToDomain[String(area.id)] = area.domain_fk;
+                newAreaCounts[area.domain_fk] = (newAreaCounts[area.domain_fk] || 0) + 1;
+            });
+            setAreaCounts(newAreaCounts);
+
+            if (serverTaskCounts) {
+                const newTaskCounts = {};
+                serverTaskCounts.forEach((taskCount) => {
+                    const domainFk = areaToDomain[String(taskCount.area_fk)];
+                    if (domainFk !== undefined) {
+                        newTaskCounts[domainFk] = (newTaskCounts[domainFk] || 0) + taskCount['count(*)'];
+                    }
+                });
+                setTaskCounts(newTaskCounts);
+            }
+        }
+    }, [serverAreas, serverTaskCounts]);
 
     // cardSettings state
     const domainDelete = useConfirmDialog({
@@ -50,6 +93,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         let newDomainsArray = [...domainsArray]
                         newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
                         setDomainsArray(newDomainsArray);
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to delete domain')
                     }
@@ -58,56 +102,6 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 });
         }
     });
-
-    // READ domains API data for page
-    useEffect( () => {
-
-        console.count('useEffect: Read domains REST API data');
-
-        // FETCH DOMAINS
-        let domainUri = `${darwinUri}/domains?creator_fk=${profile.userName}&fields=id,domain_name,closed,sort_order`
-
-        call_rest_api(domainUri, 'GET', '', idToken)
-            .then(result => {
-                let newDomainArray = result.data;
-                newDomainArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
-                newDomainArray.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
-                setDomainsArray(result.data);
-
-                // Fetch areas and task counts in parallel
-                const areasUri = `${darwinUri}/areas?creator_fk=${profile.userName}&fields=id,domain_fk`;
-                const tasksUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&fields=count(*),area_fk`;
-
-                Promise.all([
-                    call_rest_api(areasUri, 'GET', '', idToken).catch(() => ({ data: [] })),
-                    call_rest_api(tasksUri, 'GET', '', idToken).catch(() => ({ data: [] })),
-                ]).then(([areasResult, tasksResult]) => {
-                    // Area counts: count areas per domain_fk
-                    const newAreaCounts = {};
-                    const areaToDomain = {};
-                    areasResult.data.forEach((area) => {
-                        // String keys ensure consistent lookup regardless of API number/string types
-                        areaToDomain[String(area.id)] = area.domain_fk;
-                        newAreaCounts[area.domain_fk] = (newAreaCounts[area.domain_fk] || 0) + 1;
-                    });
-                    setAreaCounts(newAreaCounts);
-
-                    // Task counts: map area_fk → domain_fk, sum per domain
-                    const newTaskCounts = {};
-                    tasksResult.data.forEach((taskCount) => {
-                        const domainFk = areaToDomain[String(taskCount.area_fk)];
-                        if (domainFk !== undefined) {
-                            newTaskCounts[domainFk] = (newTaskCounts[domainFk] || 0) + taskCount['count(*)'];
-                        }
-                    });
-                    setTaskCounts(newTaskCounts);
-                });
-            }).catch(error => {
-                varDump(error, `UseEffect: error retrieving Domains: ${error}`);
-            });
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [domainApiTrigger]);
 
     const restUpdateDomainName = (domainIndex, domainId) => {
 
@@ -172,10 +166,11 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     newTaskCounts[result.data[0].id] = 0;
                     setTaskCounts(newTaskCounts);
 
+                    queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+
                 } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
-                    // show snackbar and flip read_rest_api state to initiate full data retrieval
-                    triggerDomainRefresh();
+                    queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                 } else {
                     showError(result, 'Unable to update domain')
                 }
