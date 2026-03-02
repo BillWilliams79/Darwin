@@ -5,6 +5,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
+import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { useApiTrigger } from '../hooks/useApiTrigger';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
@@ -19,7 +20,7 @@ import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
-import { CircularProgress, Tabs } from '@mui/material';
+import { CircularProgress, Tabs, FormControlLabel, Switch } from '@mui/material';
 
 const SwarmView = () => {
 
@@ -35,6 +36,8 @@ const SwarmView = () => {
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingProject = useWorkingProjectStore(s => s.getWorkingProject);
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
+    const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
+    const toggleShowClosedPriorities = useShowClosedStore(s => s.toggleShowClosedPriorities);
 
     const projectClose = useConfirmDialog({
         onConfirm: ({ projectName, projectId, projectIndex }) => {
@@ -42,11 +45,18 @@ const SwarmView = () => {
             call_rest_api(uri, 'PUT', [{'id': projectId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        let newProjectsArray = [...projectsArray];
-                        newProjectsArray = newProjectsArray.filter(project => project.id !== projectId );
-                        setProjectsArray(newProjectsArray);
-                        if (parseInt(activeTab) === projectIndex ) {
-                            setActiveTab(0);
+                        if (showClosedPriorities) {
+                            let newProjectsArray = projectsArray.map(project =>
+                                project.id === projectId ? { ...project, closed: 1, sort_order: null } : project
+                            );
+                            setProjectsArray(newProjectsArray);
+                        } else {
+                            let newProjectsArray = [...projectsArray];
+                            newProjectsArray = newProjectsArray.filter(project => project.id !== projectId );
+                            setProjectsArray(newProjectsArray);
+                            if (parseInt(activeTab) === projectIndex ) {
+                                setActiveTab(0);
+                            }
                         }
                     } else {
                         showError(result, `Unable to close ${projectName}`)
@@ -81,7 +91,8 @@ const SwarmView = () => {
     // READ projects
     useEffect( () => {
 
-        let projectUri = `${darwinUri}/projects?creator_fk=${profile.userName}&closed=0&fields=id,project_name,sort_order`
+        let projectUri = `${darwinUri}/projects?creator_fk=${profile.userName}&fields=id,project_name,sort_order`
+            + (showClosedPriorities ? '' : '&closed=0')
 
         call_rest_api(projectUri, 'GET', '', idToken)
             .then(result => {
@@ -108,7 +119,7 @@ const SwarmView = () => {
                 }
             });
 
-    }, [projectApiTrigger, profile, idToken, darwinUri]);
+    }, [projectApiTrigger, profile, idToken, darwinUri, showClosedPriorities]);
 
     // Persist working project whenever active tab changes
     useEffect(() => {
@@ -149,13 +160,14 @@ const SwarmView = () => {
             :
             <>
             <Box className="app-content-planpage">
-                    <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
                          className="app-content-tabs"
                     >
                         <Tabs value={activeTab.toString()}
                               onChange={changeActiveTab}
                               variant="scrollable"
-                              scrollButtons="auto" >
+                              scrollButtons="auto"
+                              sx={{ flex: 1 }} >
                             {projectsArray.map( (project, projectIndex) =>
                                 <Tab key={project.id}
                                      icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
@@ -169,12 +181,19 @@ const SwarmView = () => {
                                  value={9999}
                             />
                         </Tabs>
+                        <FormControlLabel
+                            control={<Switch checked={showClosedPriorities} onChange={toggleShowClosedPriorities} size="small" />}
+                            label="Show Closed"
+                            data-testid="toggle-show-closed-priorities"
+                            sx={{ ml: 1, mr: 1, whiteSpace: 'nowrap' }}
+                        />
                     </Box>
                         {   projectsArray.map( (project, projectIndex) =>
                                 <CategoryTabPanel key={project.id}
                                               project = {project}
                                               projectIndex = {projectIndex}
-                                              activeTab = {activeTab}>
+                                              activeTab = {activeTab}
+                                              showClosed = {showClosedPriorities}>
                                 </CategoryTabPanel>
                             )
                         }
