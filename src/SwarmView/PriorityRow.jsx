@@ -153,7 +153,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             </Typography>
 
             {/* Col 2: Scheduled toggle — hidden when running, spacer preserves layout */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+            <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {priority.id !== '' && !isRunning ? (
                     <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"}>
                         <IconButton
