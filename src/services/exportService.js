@@ -6,11 +6,11 @@ import call_rest_api from '../RestApi/RestApi';
  */
 export async function fetchExportData(darwinUri, userName, idToken, profile) {
     const [domainsRes, areasRes, tasksRes, prioritiesRes, sessionsRes] = await Promise.all([
-        call_rest_api(`${darwinUri}/domains?creator_fk=${userName}`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/areas?creator_fk=${userName}`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/tasks?creator_fk=${userName}`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/priorities?creator_fk=${userName}`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/swarm_sessions?creator_fk=${userName}`, 'GET', '', idToken),
+        call_rest_api(`${darwinUri}/domains`, 'GET', '', idToken),
+        call_rest_api(`${darwinUri}/areas`, 'GET', '', idToken),
+        call_rest_api(`${darwinUri}/tasks`, 'GET', '', idToken),
+        call_rest_api(`${darwinUri}/priorities`, 'GET', '', idToken),
+        call_rest_api(`${darwinUri}/swarm_sessions`, 'GET', '', idToken),
     ]);
 
     const domains = domainsRes.data || [];

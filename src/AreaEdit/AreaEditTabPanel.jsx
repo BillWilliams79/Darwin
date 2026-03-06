@@ -47,10 +47,10 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
         if (serverAreas) {
             const sorted = [...serverAreas];
             sorted.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
-            sorted.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName, 'sort_order': null });
+            sorted.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'sort_order': null });
             setAreasArray(sorted);
         } else if (serverAreas && serverAreas.length === 0) {
-            setAreasArray([{'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id), 'creator_fk': profile.userName }]);
+            setAreasArray([{'id':'', 'area_name':'', 'closed': 0, 'domain_fk': parseInt(domain.id) }]);
         }
     }, [serverAreas]);
 
@@ -134,7 +134,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     // show snackbar, place new data in table and created another blank element
                     newAreasArray[areaIndex] = {...result.data[0]};
                     newAreasArray.sort((areaA, areaB) => areaSortByClosedThenSortOrder(areaA, areaB));
-                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': null });
+                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'sort_order': null });
                     setAreasArray(newAreasArray);
 
                     // update the taskCounts data

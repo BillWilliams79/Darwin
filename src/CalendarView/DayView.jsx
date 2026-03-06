@@ -92,7 +92,7 @@ const DayView = (date) => {
 
         // FETCH TASKS: filter for creator, done=1 and props.date
         // QSPs limit fields to minimum: id,description
-        let taskUri = `${darwinUri}/tasks?creator_fk=${profile.userName}&done=1&filter_ts=(done_ts,${startDateString},${endDateString})&fields=id,priority,done,description`
+        let taskUri = `${darwinUri}/tasks?done=1&filter_ts=(done_ts,${startDateString},${endDateString})&fields=id,priority,done,description`
 
          call_rest_api(taskUri, 'GET', '', idToken)
             .then(result => {
