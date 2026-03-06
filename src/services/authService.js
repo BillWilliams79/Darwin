@@ -84,6 +84,7 @@ export async function refreshTokens(refreshToken) {
 export function parseIdToken(jwt) {
     const payload = JSON.parse(atob(jwt.split('.')[1]));
     return {
+        id: payload['cognito:username'],
         userName: payload['cognito:username'],
         email: payload.email,
         sub: payload.sub,
