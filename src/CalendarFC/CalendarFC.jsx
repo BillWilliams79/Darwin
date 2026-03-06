@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useContext, useRef, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import './CalendarFC.css';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -11,29 +12,37 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
-import { useTasksDone } from '../hooks/useDataQueries';
+import { useTasksDone, usePrioritiesDone } from '../hooks/useDataQueries';
 import { taskKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
 const CalendarFC = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
     const calendarRef = useRef(null);
 
     const [calendarTitle, setCalendarTitle] = useState('');
+
+    // Toggle mode: 'tasks' or 'priorities'
+    const [mode, setMode] = useState('tasks');
+    const isTasksMode = mode === 'tasks';
 
     // Date range state — drives the query key
     const [dateRange, setDateRange] = useState({ start: null, end: null });
     const startStr = dateRange.start ? dateRange.start.toISOString().slice(0, 19) : null;
     const endStr = dateRange.end ? dateRange.end.toISOString().slice(0, 19) : null;
 
-    // TanStack Query — fetch done tasks for the visible date range
-    const { data: serverTasks } = useTasksDone(profile?.userName, startStr, endStr);
+    // TanStack Query — fetch done tasks or completed priorities based on mode
+    const { data: serverTasks } = useTasksDone(profile?.userName, startStr, endStr, { enabled: isTasksMode });
+    const { data: serverPriorities } = usePrioritiesDone(profile?.userName, startStr, endStr, { enabled: !isTasksMode });
 
     // Task data — derived from query data
     const tasksArray = serverTasks || [];
@@ -69,39 +78,63 @@ const CalendarFC = () => {
         }
     });
 
-    const eventColor = 'WhiteSmoke';
+    const taskEventColor = 'WhiteSmoke';
+    const priorityEventColor = '#E3F2FD';
 
-    // Derive FullCalendar events from tasksArray
-    const events = useMemo(() =>
-        localTasksArray.map(task => {
-            const start = task.done_ts
-                ? (() => {
-                    const d = new Date(task.done_ts.replace(' ', 'T') + 'Z');
-                    return d.getFullYear() + '-' +
-                        String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                        String(d.getDate()).padStart(2, '0');
-                })()
-                : null;
-            return {
+    // Convert a timestamp string to a YYYY-MM-DD date string
+    const tsToDateStr = (ts) => {
+        const d = new Date(ts.replace(' ', 'T') + 'Z');
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    };
+
+    // Derive FullCalendar events from tasks or priorities based on mode
+    const events = useMemo(() => {
+        if (isTasksMode) {
+            return localTasksArray.map(task => ({
                 id: String(task.id),
                 title: task.description,
-                start,
+                start: task.done_ts ? tsToDateStr(task.done_ts) : null,
                 allDay: true,
-                backgroundColor: eventColor,
-                borderColor: eventColor,
+                backgroundColor: taskEventColor,
+                borderColor: taskEventColor,
                 textColor: '#333',
-            };
-        }),
+            }));
+        }
+        return (serverPriorities || []).map(priority => ({
+            id: String(priority.id),
+            title: priority.title,
+            start: priority.completed_at ? tsToDateStr(priority.completed_at) : null,
+            allDay: true,
+            backgroundColor: priorityEventColor,
+            borderColor: priorityEventColor,
+            textColor: '#333',
+            classNames: ['fc-priority-event'],
+        }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [localTasksArray]);
+    }, [isTasksMode, localTasksArray, serverPriorities]);
+
+    // Build title from a date and the current mode
+    const titleSuffix = isTasksMode ? 'Completed Tasks' : 'Completed Priorities';
+    const buildTitle = useCallback((d, suffix) => {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${months[d.getMonth()]} '${String(d.getFullYear()).slice(-2)} ${suffix}`;
+    }, []);
 
     // When FullCalendar changes the visible date range
     const handleDatesSet = useCallback((dateInfo) => {
         setDateRange({ start: dateInfo.start, end: dateInfo.end });
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const d = dateInfo.view.currentStart;
-        setCalendarTitle(`${months[d.getMonth()]} '${String(d.getFullYear()).slice(-2)} Completed Tasks`);
-    }, []);
+        setCalendarTitle(buildTitle(dateInfo.view.currentStart, titleSuffix));
+    }, [buildTitle, titleSuffix]);
+
+    // Update title when mode changes (FullCalendar doesn't re-fire datesSet)
+    React.useEffect(() => {
+        const api = calendarRef.current?.getApi();
+        if (api) {
+            setCalendarTitle(buildTitle(api.view.currentStart, titleSuffix));
+        }
+    }, [titleSuffix, buildTitle]);
 
     // Drag and drop — update done_ts when event is dropped on a different day
     const handleEventDrop = useCallback((info) => {
@@ -136,6 +169,11 @@ const CalendarFC = () => {
             setTaskEditDialogOpen(true);
         }
     }, [localTasksArray]);
+
+    // Click priority event — navigate to single priority view
+    const handlePriorityClick = useCallback((info) => {
+        navigate(`/swarm/priority/${info.event.id}`);
+    }, [navigate]);
 
     // TaskActionsContext callbacks (same as DayView)
     const priorityClick = (taskIndex, taskId) => {
@@ -190,6 +228,10 @@ const CalendarFC = () => {
         queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
     }, [queryClient, profile]);
 
+    const handleModeChange = (event, newMode) => {
+        if (newMode !== null) setMode(newMode);
+    };
+
     const renderEventContent = (eventInfo) => (
         <div style={{
             display: '-webkit-box',
@@ -221,6 +263,22 @@ const CalendarFC = () => {
                 }}>
                     {calendarTitle}
                 </Typography>
+                <ToggleButtonGroup
+                    value={mode}
+                    exclusive
+                    onChange={handleModeChange}
+                    size="small"
+                    data-testid="calendar-mode-toggle"
+                    sx={{
+                        position: 'absolute',
+                        right: 16,
+                        top: '18pt',
+                        zIndex: 1,
+                    }}
+                >
+                    <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
+                    <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
+                </ToggleButtonGroup>
                 <FullCalendar
                     ref={calendarRef}
                     plugins={[dayGridPlugin, interactionPlugin]}
@@ -237,31 +295,33 @@ const CalendarFC = () => {
                         day: 'Day',
                     }}
                     events={events}
-                    editable={true}
+                    editable={isTasksMode}
                     datesSet={handleDatesSet}
-                    eventDrop={handleEventDrop}
-                    eventClick={handleEventClick}
+                    eventDrop={isTasksMode ? handleEventDrop : undefined}
+                    eventClick={isTasksMode ? handleEventClick : handlePriorityClick}
                     eventContent={renderEventContent}
                     height="auto"
                 />
             </Box>
 
-            <TaskActionsContext.Provider value={{
-                priorityClick, doneClick, descriptionChange,
-                descriptionKeyDown, descriptionOnBlur, deleteClick,
-                tasksArray: localTasksArray, setTasksArray: setLocalTasksArray,
-                deleteDialogOpen: taskDelete.dialogOpen,
-                setDeleteDialogOpen: taskDelete.setDialogOpen,
-                setDeleteId: taskDelete.setInfoObject,
-                setDeleteConfirmed: taskDelete.setConfirmed,
-                disableStrikethrough: true,
-            }}>
-                <TaskEditDialog {...{
-                    taskEditDialogOpen, setTaskEditDialogOpen,
-                    taskEditInfo, setTaskEditInfo,
-                    onClose: handleDialogClose,
-                }} />
-            </TaskActionsContext.Provider>
+            {isTasksMode && (
+                <TaskActionsContext.Provider value={{
+                    priorityClick, doneClick, descriptionChange,
+                    descriptionKeyDown, descriptionOnBlur, deleteClick,
+                    tasksArray: localTasksArray, setTasksArray: setLocalTasksArray,
+                    deleteDialogOpen: taskDelete.dialogOpen,
+                    setDeleteDialogOpen: taskDelete.setDialogOpen,
+                    setDeleteId: taskDelete.setInfoObject,
+                    setDeleteConfirmed: taskDelete.setConfirmed,
+                    disableStrikethrough: true,
+                }}>
+                    <TaskEditDialog {...{
+                        taskEditDialogOpen, setTaskEditDialogOpen,
+                        taskEditInfo, setTaskEditInfo,
+                        onClose: handleDialogClose,
+                    }} />
+                </TaskActionsContext.Provider>
+            )}
         </>
     );
 };
