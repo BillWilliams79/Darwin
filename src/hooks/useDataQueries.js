@@ -194,6 +194,20 @@ export function useSession(sessionId, { enabled = true } = {}) {
     });
 }
 
+export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,title,completed_at', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/priorities?creator_fk=${creatorFk}&closed=1&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
+    const queryKey = priorityKeys.done(creatorFk, `${startStr}_${endStr}`);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
+    });
+}
+
 export function useDevServers(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);

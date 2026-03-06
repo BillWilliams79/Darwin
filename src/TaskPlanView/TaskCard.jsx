@@ -37,7 +37,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate, autoFocusTemplate, clearAutoFocusTemplate }) => {
 
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
 
@@ -52,6 +52,15 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     // Guards against race condition: priority/done clicks during in-flight POST
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+
+    // Focus template task description when this is a newly created area
+    useEffect(() => {
+        if (autoFocusTemplate && tasksArray && cardRef.current) {
+            const textarea = cardRef.current.querySelector('[data-testid="task-template"] [name="description"]');
+            if (textarea) textarea.focus();
+            clearAutoFocusTemplate();
+        }
+    }, [autoFocusTemplate, tasksArray]);
 
     // Sort mode: 'priority' (default) or 'hand' — persisted in DB (areas.sort_mode)
     const [sortMode, setSortMode] = useState(area.sort_mode || 'priority');
