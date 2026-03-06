@@ -40,6 +40,7 @@ export const priorityKeys = {
     byCategory: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId }],
     byCategoryOpen: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, closed: 0 }],
     byCategoryWithClosed: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, withClosed: true }],
+    done: (creatorFk, dateRange) => ['priorities', creatorFk, { closed: 1, dateRange }],
 };
 
 export const sessionKeys = {
