@@ -1,6 +1,7 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
 import { useDevServers } from '../hooks/useDataQueries';
+import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import React, { useContext } from 'react';
@@ -14,7 +15,7 @@ import Stack from '@mui/material/Stack';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography } from '@mui/material';
 
-const getDevServerColumns = (navigate) => [
+const getDevServerColumns = (navigate, timezone) => [
     { field: 'id',             headerName: 'ID',        width: 70 },
     {
         field: 'port',
@@ -43,11 +44,11 @@ const getDevServerColumns = (navigate) => [
         field: 'started_at',
         headerName: 'Started',
         width: 170,
-        valueFormatter: (value) => value ? new Date(value).toLocaleString() : '—',
+        valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
     },
 ];
 
-const DevServerCard = ({ server, navigate }) => {
+const DevServerCard = ({ server, navigate, timezone }) => {
     const workspaceName = server.workspace_path
         ? server.workspace_path.split('/').pop()
         : '—';
@@ -75,7 +76,7 @@ const DevServerCard = ({ server, navigate }) => {
                         PID {server.pid}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                        {server.started_at ? new Date(server.started_at).toLocaleDateString() : ''}
+                        {server.started_at ? formatDate(server.started_at, timezone) : ''}
                     </Typography>
                 </Stack>
             </CardContent>
@@ -107,7 +108,7 @@ const DevServersView = () => {
                         <Typography color="text.secondary" sx={{ p: 2 }}>No dev servers</Typography>
                     ) : (
                         sortedServers.map(server => (
-                            <DevServerCard key={server.id} server={server} navigate={navigate} />
+                            <DevServerCard key={server.id} server={server} navigate={navigate} timezone={profile?.timezone} />
                         ))
                     )}
                 </Box>
@@ -115,7 +116,7 @@ const DevServersView = () => {
                 <Box sx={{ height: 600, width: '100%' }} data-testid="dev-servers-datagrid">
                     <DataGrid
                         rows={devServersArray}
-                        columns={getDevServerColumns(navigate)}
+                        columns={getDevServerColumns(navigate, profile?.timezone)}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{
                             toolbar: {
