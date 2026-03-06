@@ -9,6 +9,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
@@ -81,21 +82,13 @@ const CalendarFC = () => {
     const taskEventColor = 'WhiteSmoke';
     const priorityEventColor = '#E3F2FD';
 
-    // Convert a timestamp string to a YYYY-MM-DD date string
-    const tsToDateStr = (ts) => {
-        const d = new Date(ts.replace(' ', 'T') + 'Z');
-        return d.getFullYear() + '-' +
-            String(d.getMonth() + 1).padStart(2, '0') + '-' +
-            String(d.getDate()).padStart(2, '0');
-    };
-
     // Derive FullCalendar events from tasks or priorities based on mode
     const events = useMemo(() => {
         if (isTasksMode) {
             return localTasksArray.map(task => ({
                 id: String(task.id),
                 title: task.description,
-                start: task.done_ts ? tsToDateStr(task.done_ts) : null,
+                start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
                 allDay: true,
                 backgroundColor: taskEventColor,
                 borderColor: taskEventColor,
@@ -105,7 +98,7 @@ const CalendarFC = () => {
         return (serverPriorities || []).map(priority => ({
             id: String(priority.id),
             title: priority.title,
-            start: priority.completed_at ? tsToDateStr(priority.completed_at) : null,
+            start: priority.completed_at ? toLocaleDateString(priority.completed_at, profile?.timezone) : null,
             allDay: true,
             backgroundColor: priorityEventColor,
             borderColor: priorityEventColor,
@@ -113,7 +106,7 @@ const CalendarFC = () => {
             classNames: ['fc-priority-event'],
         }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, localTasksArray, serverPriorities]);
+    }, [isTasksMode, localTasksArray, serverPriorities, profile?.timezone]);
 
     // Build title from a date and the current mode
     const titleSuffix = isTasksMode ? 'Completed Tasks' : 'Completed Priorities';

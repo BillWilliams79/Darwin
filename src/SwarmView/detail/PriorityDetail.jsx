@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
@@ -14,24 +15,32 @@ import TextField from '@mui/material/TextField';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import { CircularProgress, Typography } from '@mui/material';
+import Tooltip from '@mui/material/Tooltip';
+import IconButton from '@mui/material/IconButton';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import HotelIcon from '@mui/icons-material/Hotel';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 
-const swarmStatusColor = (status) => {
+const swarmStatusChipProps = (status) => {
     switch (status) {
-        case 'starting':   return 'info';
-        case 'active':     return 'primary';
-        case 'paused':     return 'warning';
-        case 'completing': return 'info';
-        case 'completed':  return 'success';
-        default:           return 'default';
+        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
+        case 'starting':   return { color: 'info' };
+        case 'completing': return { color: 'info' };
+        case 'completed':  return { color: 'success' };
+        default:           return { color: 'default' };
     }
 };
 
-const getSessionColumns = (navigate) => [
+const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
     { field: 'swarm_status', headerName: 'Status',    width: 110,
       renderCell: (params) => (
           <Chip label={params.value} size="small"
-                color={swarmStatusColor(params.value)} />
+                {...swarmStatusChipProps(params.value)} />
       )
     },
     {
@@ -42,16 +51,17 @@ const getSessionColumns = (navigate) => [
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
     { field: 'started_at',   headerName: 'Started',   width: 170,
-      valueFormatter: (value) => value ? new Date(value).toLocaleDateString() : '—' },
+      valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
     { field: 'completed_at', headerName: 'Completed', width: 120,
-      valueFormatter: (value) => value ? new Date(value).toLocaleDateString() : '—' },
+      valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
 ];
 
 const PriorityDetail = () => {
 
     const { id } = useParams();
     const navigate = useNavigate();
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
 
     const [priority, setPriority] = useState(null);
@@ -122,10 +132,10 @@ const PriorityDetail = () => {
         if (priority) saveField('description', priority.description || '');
     };
 
-    const handleInProgressToggle = () => {
-        const newVal = priority.in_progress ? 0 : 1;
-        setPriority(prev => ({ ...prev, in_progress: newVal }));
-        saveField('in_progress', newVal);
+    const handleScheduledToggle = () => {
+        const newVal = priority.scheduled ? 0 : 1;
+        setPriority(prev => ({ ...prev, scheduled: newVal }));
+        saveField('scheduled', newVal);
     };
 
     const handleClosedToggle = () => {
@@ -183,17 +193,48 @@ const PriorityDetail = () => {
             />
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
-                <FormControlLabel
-                    control={
-                        <Switch
-                            checked={priority.in_progress === 1}
-                            onChange={handleInProgressToggle}
-                            color="warning"
-                        />
-                    }
-                    label="In Progress"
-                    data-testid="toggle-in-progress"
-                />
+                {(() => {
+                    const activeStatuses = ['starting', 'active', 'completing'];
+                    const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
+                    const isDisabled = hasActiveSession || priority.closed === 1;
+                    const button = (
+                        <IconButton
+                            onClick={handleScheduledToggle}
+                            disabled={isDisabled}
+                            data-testid="toggle-scheduled"
+                        >
+                            {priority.scheduled ?
+                                <PlayCircleIcon sx={{ fontSize: 28, color: isDisabled ? 'text.disabled' : 'primary.main' }} /> :
+                                <PlayCircleOutlineIcon sx={{ fontSize: 28, color: 'text.disabled' }} />
+                            }
+                        </IconButton>
+                    );
+                    return isDisabled ? button : (
+                        <Tooltip title={priority.scheduled ? "Scheduled for Swarm-Start" : "Schedule for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
+                            {button}
+                        </Tooltip>
+                    );
+                })()}
+                {(() => {
+                    const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
+                    const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
+                    const label = priority.closed ? "Completed" :
+                        hasPausedSession ? "Paused" :
+                        hasActiveSession || priority.in_progress ? "In Progress" :
+                        "Not Started";
+                    const icon = priority.closed ?
+                        <CheckCircleIcon sx={{ fontSize: 24, color: 'success.main' }} /> :
+                        hasPausedSession ?
+                            <PauseCircleIcon sx={{ fontSize: 24, color: '#f0d000' }} /> :
+                            hasActiveSession || priority.in_progress ?
+                                <RocketLaunchIcon sx={{ fontSize: 24, color: '#4caf50' }} /> :
+                                <HotelIcon sx={{ fontSize: 24, color: 'text.disabled' }} />;
+                    return (
+                        <Tooltip enterDelay={400} enterNextDelay={200} title={label}>
+                            {icon}
+                        </Tooltip>
+                    );
+                })()}
                 <FormControlLabel
                     control={
                         <Switch
@@ -226,28 +267,28 @@ const PriorityDetail = () => {
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Started</Typography>
                 <Typography variant="body2" data-testid="priority-started-at">
-                    {priority.started_at ? new Date(priority.started_at).toLocaleString() : '—'}
+                    {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Completed</Typography>
                 <Typography variant="body2" data-testid="priority-completed-at">
-                    {priority.completed_at ? new Date(priority.completed_at).toLocaleString() : '—'}
+                    {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Created</Typography>
                 <Typography variant="body2" data-testid="priority-create-ts">
-                    {priority.create_ts ? new Date(priority.create_ts).toLocaleString() : '—'}
+                    {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary">Updated</Typography>
                 <Typography variant="body2" data-testid="priority-update-ts">
-                    {priority.update_ts ? new Date(priority.update_ts).toLocaleString() : '—'}
+                    {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
@@ -260,7 +301,7 @@ const PriorityDetail = () => {
                 <Box sx={{ height: 300 }} data-testid="linked-sessions-grid">
                     <DataGrid
                         rows={sessions}
-                        columns={getSessionColumns(navigate)}
+                        columns={getSessionColumns(navigate, timezone)}
                         density="compact"
                         disableRowSelectionOnClick
                         onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}

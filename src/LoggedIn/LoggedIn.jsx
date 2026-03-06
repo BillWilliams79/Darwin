@@ -94,7 +94,9 @@ function LoggedIn() {
                         return call_rest_api(profileUri, 'GET', '', tokens.idToken)
                             .then(result => {
                                 if (result.httpStatus.httpStatus === 200) {
-                                    setProfile(result.data[0]);
+                                    const dbProfile = result.data[0];
+                                    setProfile(dbProfile);
+                                    localStorage.setItem('darwin-profile', JSON.stringify(dbProfile));
                                     // Schedule background token refresh (pass refresh token for the ref)
                                     scheduleRefresh(tokens.expiresIn, tokens.refreshToken);
                                 } else {
@@ -120,7 +122,7 @@ function LoggedIn() {
     return (
         <>
             {(idToken && profile && redirectPath) ?
-                <Navigate to={redirectPath} replace={true} />
+                <Navigate to={profile.timezone == null ? '/setup' : redirectPath} replace={true} />
             :
                 <>
                     {errorMsg ?

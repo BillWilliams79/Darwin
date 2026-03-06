@@ -8,14 +8,14 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import { CircularProgress, Typography } from '@mui/material';
 
-const swarmStatusColor = (status) => {
+const swarmStatusChipProps = (status) => {
     switch (status) {
-        case 'starting':   return 'info';
-        case 'active':     return 'primary';
-        case 'paused':     return 'warning';
-        case 'completing': return 'info';
-        case 'completed':  return 'success';
-        default:           return 'default';
+        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
+        case 'starting':   return { color: 'info' };
+        case 'completing': return { color: 'info' };
+        case 'completed':  return { color: 'success' };
+        default:           return { color: 'default' };
     }
 };
 
@@ -49,7 +49,7 @@ const SwarmSessionDetail = () => {
 
             <Box sx={{ mb: 2 }}>
                 <Chip label={session.swarm_status}
-                      color={swarmStatusColor(session.swarm_status)}
+                      {...swarmStatusChipProps(session.swarm_status)}
                       data-testid="chip-swarm-status" />
             </Box>
 
