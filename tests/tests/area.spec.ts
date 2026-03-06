@@ -79,6 +79,38 @@ test.describe.serial('Area Management', () => {
     if (created) createdAreaIds.push(created.id);
   });
 
+  test('AREA-01b: new area template task gets focus', async ({ page }) => {
+    const areaName = uniqueName('FocusArea');
+    const panel = await goToTestDomain(page);
+
+    const templateCard = panel.getByTestId('area-card-template');
+    await expect(templateCard).toBeVisible({ timeout: 5000 });
+
+    const areaNameField = templateCard.locator('[name="area-name"]');
+    await areaNameField.fill(areaName);
+    await areaNameField.press('Enter');
+
+    // Wait for the new area card to appear with its tasks loaded
+    await page.waitForTimeout(2000);
+
+    // Find the newly created area card (not template) containing our area name
+    const newAreaCard = panel.locator('[data-testid^="area-card-"]:not([data-testid="area-card-template"])').filter({ hasText: areaName });
+    await expect(newAreaCard).toBeVisible({ timeout: 5000 });
+
+    // The template task's description input in the new area should be focused
+    const templateTaskField = newAreaCard.getByTestId('task-template').locator('[name="description"]');
+    await expect(templateTaskField).toBeFocused({ timeout: 3000 });
+
+    // Track for cleanup
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const areas = await apiCall(
+      `areas?creator_fk=${sub}&domain_fk=${testDomainId}&closed=0`,
+      'GET', '', idToken,
+    ) as Array<{ id: string; area_name: string }>;
+    const created = areas?.find(a => a.area_name === areaName);
+    if (created) createdAreaIds.push(created.id);
+  });
+
   test('AREA-02: close area via card menu', async ({ page }) => {
     const areaName = uniqueName('CloseArea');
 
