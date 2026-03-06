@@ -33,6 +33,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
     const queryClient = useQueryClient();
 
     const [areasArray, setAreasArray] = useState()
+    const [newlyCreatedAreaId, setNewlyCreatedAreaId] = useState(null)
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -139,6 +140,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     let newSortOrder = result.data[0].sort_order + 1;
                     newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': newSortOrder });
                     setAreasArray(newAreasArray);
+                    setNewlyCreatedAreaId(result.data[0].id);
                     queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
 
                 } else if (result.httpStatus.httpStatus === 201) {
@@ -437,7 +439,9 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            moveCard,
                                            persistAreaOrder,
                                            removeArea,
-                                           isTemplate: area.id === '',}}/>
+                                           isTemplate: area.id === '',
+                                           autoFocusTemplate: newlyCreatedAreaId !== null && area.id === newlyCreatedAreaId,
+                                           clearAutoFocusTemplate: () => setNewlyCreatedAreaId(null),}}/>
                         ))}
                     </Box>
                 }
