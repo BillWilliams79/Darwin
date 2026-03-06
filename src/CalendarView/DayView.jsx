@@ -5,6 +5,7 @@ import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { TaskActionsContext } from '../hooks/useTaskActions';
+import { formatDateWithOptions } from '../utils/dateFormat';
 
 
 import React, { useState, useEffect, useContext } from 'react'
@@ -85,9 +86,9 @@ const DayView = (date) => {
 
         // set the date and day for the card title
         const date_options = {month: 'short', day: 'numeric'};
-        setCardTitleDate(startDate.toLocaleDateString(undefined, date_options));
+        setCardTitleDate(formatDateWithOptions(startDate.toISOString(), profile?.timezone, date_options));
         const day_options = {weekday: 'long'};
-        setCardTitleDay(startDate.toLocaleDateString(undefined, day_options));
+        setCardTitleDay(formatDateWithOptions(startDate.toISOString(), profile?.timezone, day_options));
 
         // FETCH TASKS: filter for creator, done=1 and props.date
         // QSPs limit fields to minimum: id,description

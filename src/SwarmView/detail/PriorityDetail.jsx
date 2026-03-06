@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
@@ -34,7 +35,7 @@ const swarmStatusChipProps = (status) => {
     }
 };
 
-const getSessionColumns = (navigate) => [
+const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
     { field: 'swarm_status', headerName: 'Status',    width: 110,
       renderCell: (params) => (
@@ -50,16 +51,17 @@ const getSessionColumns = (navigate) => [
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
     { field: 'started_at',   headerName: 'Started',   width: 170,
-      valueFormatter: (value) => value ? new Date(value).toLocaleDateString() : '—' },
+      valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
     { field: 'completed_at', headerName: 'Completed', width: 120,
-      valueFormatter: (value) => value ? new Date(value).toLocaleDateString() : '—' },
+      valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
 ];
 
 const PriorityDetail = () => {
 
     const { id } = useParams();
     const navigate = useNavigate();
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
 
     const [priority, setPriority] = useState(null);
@@ -265,28 +267,28 @@ const PriorityDetail = () => {
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Started</Typography>
                 <Typography variant="body2" data-testid="priority-started-at">
-                    {priority.started_at ? new Date(priority.started_at).toLocaleString() : '—'}
+                    {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Completed</Typography>
                 <Typography variant="body2" data-testid="priority-completed-at">
-                    {priority.completed_at ? new Date(priority.completed_at).toLocaleString() : '—'}
+                    {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Created</Typography>
                 <Typography variant="body2" data-testid="priority-create-ts">
-                    {priority.create_ts ? new Date(priority.create_ts).toLocaleString() : '—'}
+                    {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary">Updated</Typography>
                 <Typography variant="body2" data-testid="priority-update-ts">
-                    {priority.update_ts ? new Date(priority.update_ts).toLocaleString() : '—'}
+                    {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
@@ -299,7 +301,7 @@ const PriorityDetail = () => {
                 <Box sx={{ height: 300 }} data-testid="linked-sessions-grid">
                     <DataGrid
                         rows={sessions}
-                        columns={getSessionColumns(navigate)}
+                        columns={getSessionColumns(navigate, timezone)}
                         density="compact"
                         disableRowSelectionOnClick
                         onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}
