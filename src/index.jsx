@@ -27,6 +27,7 @@ import PriorityDetail from './SwarmView/detail/PriorityDetail';
 import SessionsView from './SwarmView/SessionsView';
 import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
+import SetupWizard from './SetupWizard/SetupWizard';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -71,6 +72,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="setup"      element= {<AuthenticatedRoute>
+                                                             <SetupWizard />
                                                          </AuthenticatedRoute>} />
                     <Route path="devservers" element= {<AuthenticatedRoute>
                                                              <DevServersView />
