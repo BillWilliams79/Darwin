@@ -17,14 +17,14 @@ import Stack from '@mui/material/Stack';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography, FormControlLabel, Switch } from '@mui/material';
 
-const swarmStatusColor = (status) => {
+const swarmStatusChipProps = (status) => {
     switch (status) {
-        case 'starting':   return 'info';
-        case 'active':     return 'primary';
-        case 'paused':     return 'warning';
-        case 'completing': return 'info';
-        case 'completed':  return 'success';
-        default:           return 'default';
+        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
+        case 'starting':   return { color: 'info' };
+        case 'completing': return { color: 'info' };
+        case 'completed':  return { color: 'success' };
+        default:           return { color: 'default' };
     }
 };
 
@@ -36,7 +36,7 @@ const getSessionColumns = (navigate) => [
         width: 120,
         renderCell: (params) => (
             <Chip label={params.value} size="small"
-                  color={swarmStatusColor(params.value)}
+                  {...swarmStatusChipProps(params.value)}
                   data-testid="chip-swarm-status" />
         ),
     },
@@ -90,7 +90,7 @@ const SessionCard = ({ session, navigate }) => (
             <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                     <Chip label={session.swarm_status} size="small"
-                          color={swarmStatusColor(session.swarm_status)}
+                          {...swarmStatusChipProps(session.swarm_status)}
                           data-testid="chip-swarm-status" />
                     <Typography variant="caption" color="text.secondary">
                         #{session.id}

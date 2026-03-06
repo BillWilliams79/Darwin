@@ -18,7 +18,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HotelIcon from '@mui/icons-material/Hotel';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 
 const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categoryName }) => {
@@ -113,15 +114,18 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
     const getStatusIcon = () => {
         if (priority.id === '') return null;
         if (priority.closed) {
-            return <Tooltip title="Completed"><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
+            return <Tooltip title="Completed" enterDelay={400} enterNextDelay={200}><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
+        }
+        if (sessionStatus === 'paused') {
+            return <Tooltip title="Paused" enterDelay={400} enterNextDelay={200}><PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} /></Tooltip>;
         }
         if (sessionStatus) {
-            return <Tooltip title={sessionStatus}><RocketLaunchIcon sx={{ fontSize: 18, color: 'primary.main' }} /></Tooltip>;
+            return <Tooltip title={sessionStatus} enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
         }
         if (priority.in_progress) {
-            return <Tooltip title="In Progress"><RocketLaunchIcon sx={{ fontSize: 18, color: 'primary.main' }} /></Tooltip>;
+            return <Tooltip title="In Progress" enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
         }
-        return <Tooltip title="Not Started"><HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} /></Tooltip>;
+        return <Tooltip title="Not Started" enterDelay={400} enterNextDelay={200}><HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} /></Tooltip>;
     };
 
     return (
@@ -155,7 +159,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             {/* Col 2: Scheduled toggle — hidden when running, spacer preserves layout */}
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {priority.id !== '' && !isRunning ? (
-                    <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"}>
+                    <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
                         <IconButton
                             onClick={() => scheduledClick(priorityIndex, priority.id)}
                             data-testid={`scheduled-toggle-${priority.id}`}
@@ -173,12 +177,12 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             {/* Col 3: Details link */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {priority.id !== '' ? (
-                    <Tooltip title="Details">
+                    <Tooltip title="Details" enterDelay={400} enterNextDelay={200}>
                         <IconButton onClick={() => navigate(`/swarm/priority/${priority.id}`)}
                                     key={`navigate-${priority.id}`}
                                     sx={{ maxWidth: 25, maxHeight: 25 }}
                         >
-                            <OpenInNewIcon sx={{ fontSize: 18 }} />
+                            <SettingsIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                     </Tooltip>
                 ) : (
@@ -219,7 +223,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         <SavingsIcon key={`savings1-${priority.id}`}/>
                     </IconButton>
                 :
-                    <Tooltip title="Delete priority">
+                    <Tooltip title="Delete priority" enterDelay={400} enterNextDelay={200}>
                         <IconButton onClick={(event) => deleteClick(event, priority.id)}
                                     key={`delete-${priority.id}`}
                                     sx = {{maxWidth: "25px",

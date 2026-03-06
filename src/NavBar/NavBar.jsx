@@ -33,7 +33,7 @@ const NavBar = () => {
                 <Link className="nav-link" to="/calview"> Calendar </Link>
                 <Link className="nav-link" to="/domainedit"> Domains </Link>
                 <Link className="nav-link" to="/areaedit"> Areas </Link>
-                <Link className="nav-link" to="/swarm"> Swarm </Link>
+                <Link className="nav-link" to="/swarm"> Roadmap </Link>
                 <Link className="nav-link" to="/swarm/sessions"> Sessions </Link>
                 <Link className="nav-link" to="/devservers"> Dev Servers </Link>
               </>
