@@ -46,10 +46,10 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
             const sorted = [...serverAreas];
             sorted.sort((areaA, areaB) => areaSortBySortOrder(areaA, areaB));
             let maxSortOrder = sorted.at(-1).sort_order + 1;
-            sorted.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', 'creator_fk': profile.userName, });
+            sorted.push({'id':'', 'area_name':'', 'domain_fk': domain.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'priority', });
             setAreasArray(sorted);
         } else if (serverAreas && serverAreas.length === 0) {
-            setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'sort_mode': 'priority', 'creator_fk': profile.userName, }]);
+            setAreasArray([{'id':'', 'area_name':'', 'domain_fk': domain.id, 'sort_order': 1, 'sort_mode': 'priority', }]);
         }
     }, [serverAreas]);
 
@@ -138,7 +138,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     // place new data in table and created another template area
                     newAreasArray[areaIndex] = {...result.data[0]};
                     let newSortOrder = result.data[0].sort_order + 1;
-                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'creator_fk': profile.userName, 'sort_order': newSortOrder });
+                    newAreasArray.push({'id':'', 'area_name':'', 'closed': 0, 'domain_fk': domain.id, 'sort_order': newSortOrder });
                     setAreasArray(newAreasArray);
                     setNewlyCreatedAreaId(result.data[0].id);
                     queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });

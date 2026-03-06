@@ -128,11 +128,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             }
 
             sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setPrioritiesArray(sortedPrioritiesArray);
         } else if (serverPriorities && serverPriorities.length === 0) {
             let sortedPrioritiesArray = [];
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null, 'creator_fk': profile.userName });
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setPrioritiesArray(sortedPrioritiesArray);
         }
     }, [serverPriorities]);
@@ -455,7 +455,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null, 'creator_fk': profile.userName });
+                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
                     setPrioritiesArray(newPrioritiesArray);
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
