@@ -175,9 +175,9 @@ test.describe('Swarm View', () => {
   test('SWM-15: PriorityDetail session chip shows correct status color', async ({ page }) => {
     await page.goto(`/swarm/priority/${testPriorityId}`);
     await expect(page.getByTestId('linked-sessions-grid')).toBeVisible({ timeout: 10000 });
-    // The DataGrid renders a Chip with color="primary" for 'active' status
-    const statusChip = page.getByTestId('linked-sessions-grid').locator('.MuiChip-colorPrimary');
-    await expect(statusChip).toBeVisible({ timeout: 5000 });
+    // 'active' uses custom bgcolor #4caf50
+    const statusChip = page.getByTestId('linked-sessions-grid').locator('.MuiChip-root').first();
+    await expect(statusChip).toHaveCSS('background-color', 'rgb(76, 175, 80)');
   });
 
   test('SWM-16: /swarm/session/:id renders SwarmSessionDetail', async ({ page }) => {
@@ -189,9 +189,9 @@ test.describe('Swarm View', () => {
   test('SWM-17: Session detail shows status chip with correct color', async ({ page }) => {
     await page.goto(`/swarm/session/${testSessionId}`);
     await expect(page.getByTestId('chip-swarm-status')).toBeVisible({ timeout: 10000 });
-    // 'active' maps to color="primary" → MuiChip-colorPrimary class
+    // 'active' uses custom bgcolor #4caf50
     const chip = page.getByTestId('chip-swarm-status');
-    await expect(chip).toHaveClass(/MuiChip-colorPrimary/);
+    await expect(chip).toHaveCSS('background-color', 'rgb(76, 175, 80)');
   });
 
   test('SWM-18: Session detail shows priority link — click navigates', async ({ page }) => {
