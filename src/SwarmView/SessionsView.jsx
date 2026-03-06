@@ -2,6 +2,7 @@ import '../index.css';
 import AuthContext from '../Context/AuthContext';
 import { useSessions, useDevServers } from '../hooks/useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
+import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { renderSourceRef } from './repoGitHubMap.jsx';
@@ -28,7 +29,7 @@ const swarmStatusColor = (status) => {
     }
 };
 
-const getSessionColumns = (navigate) => [
+const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',          width: 70 },
     {
         field: 'swarm_status',
@@ -74,17 +75,17 @@ const getSessionColumns = (navigate) => [
         field: 'started_at',
         headerName: 'Started',
         width: 170,
-        valueFormatter: (value) => value ? new Date(value).toLocaleString() : '—',
+        valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
     },
     {
         field: 'completed_at',
         headerName: 'Completed',
         width: 170,
-        valueFormatter: (value) => value ? new Date(value).toLocaleString() : '—',
+        valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
     },
 ];
 
-const SessionCard = ({ session, navigate }) => (
+const SessionCard = ({ session, navigate, timezone }) => (
     <Card variant="outlined" sx={{ mb: 1 }}>
         <CardActionArea onClick={() => navigate(`/swarm/session/${session.id}`)}>
             <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
@@ -121,7 +122,7 @@ const SessionCard = ({ session, navigate }) => (
                               data-testid="session-pr-url" />
                     )}
                     <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                        {session.started_at ? new Date(session.started_at).toLocaleDateString() : ''}
+                        {session.started_at ? formatDate(session.started_at, timezone) : ''}
                     </Typography>
                 </Stack>
             </CardContent>
@@ -179,7 +180,7 @@ const SessionsView = () => {
                         <Typography color="text.secondary" sx={{ p: 2 }}>No sessions</Typography>
                     ) : (
                         sortedSessions.map(session => (
-                            <SessionCard key={session.id} session={session} navigate={navigate} />
+                            <SessionCard key={session.id} session={session} navigate={navigate} timezone={profile?.timezone} />
                         ))
                     )}
                 </Box>
@@ -187,7 +188,7 @@ const SessionsView = () => {
                 <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
                         rows={filteredSessions}
-                        columns={getSessionColumns(navigate)}
+                        columns={getSessionColumns(navigate, profile?.timezone)}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{
                             toolbar: {

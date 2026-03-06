@@ -38,7 +38,10 @@ export const AuthContextProvider = ({ children }) => {
                 const tokens = await refreshTokensApi(refreshTokenRef.current);
                 setIdToken(tokens.idToken);
                 setAccessToken(tokens.accessToken);
-                setProfile(parseIdToken(tokens.idToken));
+                const jwtProfile = parseIdToken(tokens.idToken);
+                const cached = localStorage.getItem('darwin-profile');
+                const dbProfile = cached ? JSON.parse(cached) : {};
+                setProfile({ ...dbProfile, ...jwtProfile });
                 scheduleRefresh(tokens.expiresIn);
             } catch (e) {
                 console.log('Background token refresh failed:', e.message);
@@ -68,7 +71,11 @@ export const AuthContextProvider = ({ children }) => {
                     const tokens = await refreshTokensApi(refreshToken);
                     setIdToken(tokens.idToken);
                     setAccessToken(tokens.accessToken);
-                    setProfile(parseIdToken(tokens.idToken));
+                    // Merge JWT claims with cached DB profile (preserves timezone, etc.)
+                    const jwtProfile = parseIdToken(tokens.idToken);
+                    const cached = localStorage.getItem('darwin-profile');
+                    const dbProfile = cached ? JSON.parse(cached) : {};
+                    setProfile({ ...dbProfile, ...jwtProfile });
                     scheduleRefresh(tokens.expiresIn);
                     setAuthLoading(false);
                     return;
