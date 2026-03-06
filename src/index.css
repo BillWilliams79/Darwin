@@ -61,6 +61,12 @@
     grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
 }
 
+@media screen and (max-width: 899px) {
+    .card.swarm-card {
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    }
+}
+
 .task {
     display: grid;
     grid-template-columns: auto auto 1fr auto;
@@ -70,6 +76,15 @@
 
 .task.priority-row {
     grid-template-columns: 24px auto auto auto 1fr auto;
+}
+
+@media screen and (max-width: 899px) {
+    .task.priority-row {
+        grid-template-columns: 24px auto auto 1fr auto;
+    }
+    .task.priority-row .priority-scheduled-col {
+        display: none;
+    }
 }
 
 .app-navbar{

@@ -7,7 +7,11 @@ import React, { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography } from '@mui/material';
 
 const getDevServerColumns = (navigate) => [
@@ -43,19 +47,70 @@ const getDevServerColumns = (navigate) => [
     },
 ];
 
+const DevServerCard = ({ server, navigate }) => {
+    const workspaceName = server.workspace_path
+        ? server.workspace_path.split('/').pop()
+        : '—';
+
+    return (
+        <Card variant="outlined" sx={{ mb: 1 }}>
+            <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Chip label={`Port ${server.port}`} size="small" color="primary"
+                          data-testid="chip-dev-server-port" />
+                    {server.session_fk ? (
+                        <Chip label={`Session #${server.session_fk}`} size="small" variant="outlined"
+                              onClick={() => navigate(`/swarm/session/${server.session_fk}`)}
+                              clickable
+                              data-testid="dev-server-session-link" />
+                    ) : (
+                        <Typography variant="caption" color="text.secondary">No session</Typography>
+                    )}
+                </Box>
+                <Typography variant="body2" sx={{ mb: 0.5, wordBreak: 'break-all' }}>
+                    {workspaceName}
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="caption" color="text.secondary">
+                        PID {server.pid}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                        {server.started_at ? new Date(server.started_at).toLocaleDateString() : ''}
+                    </Typography>
+                </Stack>
+            </CardContent>
+        </Card>
+    );
+};
+
 const DevServersView = () => {
 
     const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
+    const isMobile = useMediaQuery('(max-width:899px)');
 
     const { data: devServersArray } = useDevServers(profile?.userName);
 
+    const sortedServers = devServersArray
+        ? [...devServersArray].sort((a, b) => b.id - a.id)
+        : null;
+
     return (
-        <Box sx={{ gridArea: 'content', p: 3 }}>
-            <Typography variant="h5" sx={{ mb: 1 }}>Dev Servers</Typography>
+        <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
+            <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ mb: 1 }}>Dev Servers</Typography>
 
             {!devServersArray ? (
                 <CircularProgress />
+            ) : isMobile ? (
+                <Box data-testid="dev-servers-datagrid">
+                    {sortedServers.length === 0 ? (
+                        <Typography color="text.secondary" sx={{ p: 2 }}>No dev servers</Typography>
+                    ) : (
+                        sortedServers.map(server => (
+                            <DevServerCard key={server.id} server={server} navigate={navigate} />
+                        ))
+                    )}
+                </Box>
             ) : (
                 <Box sx={{ height: 600, width: '100%' }} data-testid="dev-servers-datagrid">
                     <DataGrid

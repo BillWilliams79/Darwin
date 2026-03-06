@@ -9,7 +9,12 @@ import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
+import Card from '@mui/material/Card';
+import CardActionArea from '@mui/material/CardActionArea';
+import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography, FormControlLabel, Switch } from '@mui/material';
 
 const swarmStatusColor = (status) => {
@@ -79,10 +84,56 @@ const getSessionColumns = (navigate) => [
     },
 ];
 
+const SessionCard = ({ session, navigate }) => (
+    <Card variant="outlined" sx={{ mb: 1 }}>
+        <CardActionArea onClick={() => navigate(`/swarm/session/${session.id}`)}>
+            <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Chip label={session.swarm_status} size="small"
+                          color={swarmStatusColor(session.swarm_status)}
+                          data-testid="chip-swarm-status" />
+                    <Typography variant="caption" color="text.secondary">
+                        #{session.id}
+                    </Typography>
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 0.5 }}>
+                    {session.title || session.task_name || '(untitled)'}
+                </Typography>
+                {session.title && session.task_name && session.task_name !== session.title && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        {session.task_name}
+                    </Typography>
+                )}
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    {session.dev_server_port && (
+                        <Chip label={`Port ${session.dev_server_port}`} size="small" color="primary"
+                              data-testid="chip-dev-server-port" />
+                    )}
+                    {session.worker_count > 0 && (
+                        <Typography variant="caption" color="text.secondary">
+                            {session.worker_count} worker{session.worker_count !== 1 ? 's' : ''}
+                        </Typography>
+                    )}
+                    {session.pr_url && (
+                        <Chip label="PR" size="small" variant="outlined"
+                              component="a" href={session.pr_url} target="_blank" rel="noopener noreferrer"
+                              clickable onClick={(e) => e.stopPropagation()}
+                              data-testid="session-pr-url" />
+                    )}
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                        {session.started_at ? new Date(session.started_at).toLocaleDateString() : ''}
+                    </Typography>
+                </Stack>
+            </CardContent>
+        </CardActionArea>
+    </Card>
+);
+
 const SessionsView = () => {
 
     const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
+    const isMobile = useMediaQuery('(max-width:899px)');
 
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: devServersData } = useDevServers(profile?.userName);
@@ -104,10 +155,14 @@ const SessionsView = () => {
         ? enrichedSessions.filter(s => s.swarm_status !== 'completed')
         : enrichedSessions;
 
+    const sortedSessions = filteredSessions
+        ? [...filteredSessions].sort((a, b) => b.id - a.id)
+        : null;
+
     return (
-        <Box sx={{ gridArea: 'content', p: 3 }}>
+        <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h5" sx={{ flex: 1 }}>Swarm Sessions</Typography>
+                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Swarm Sessions</Typography>
                 <FormControlLabel
                     control={<Switch checked={showClosedSessions} onChange={toggleShowClosedSessions} size="small" />}
                     label="Show Completed"
@@ -118,6 +173,16 @@ const SessionsView = () => {
 
             {!sessionsArray ? (
                 <CircularProgress />
+            ) : isMobile ? (
+                <Box data-testid="sessions-datagrid">
+                    {sortedSessions.length === 0 ? (
+                        <Typography color="text.secondary" sx={{ p: 2 }}>No sessions</Typography>
+                    ) : (
+                        sortedSessions.map(session => (
+                            <SessionCard key={session.id} session={session} navigate={navigate} />
+                        ))
+                    )}
+                </Box>
             ) : (
                 <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
