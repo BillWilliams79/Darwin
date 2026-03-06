@@ -2,6 +2,7 @@ import '../index.css';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
+import { fetchExportData, downloadJson } from '../services/exportService';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
@@ -10,8 +11,10 @@ import React, { useContext, useState, useMemo } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 
 const Profile = () => {
 
@@ -24,6 +27,7 @@ const Profile = () => {
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
     const [saving, setSaving] = useState(false);
+    const [exporting, setExporting] = useState(false);
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
@@ -45,6 +49,20 @@ const Profile = () => {
             })
             .catch(error => showError(error, 'Unable to save profile'))
             .finally(() => setSaving(false));
+    };
+
+    const handleExport = async () => {
+        setExporting(true);
+        try {
+            const data = await fetchExportData(darwinUri, profile.userName, idToken, profile);
+            const date = new Date().toISOString().slice(0, 10);
+            downloadJson(data, `darwin-export-${date}.json`);
+        } catch (err) {
+            console.error('Export failed:', err);
+            showError(err, 'Export failed. Please try again.');
+        } finally {
+            setExporting(false);
+        }
     };
 
     return (
@@ -108,6 +126,15 @@ const Profile = () => {
                     data-testid="profile-save"
                     sx={{ alignSelf: 'flex-start' }}>
                 {saving ? 'Saving...' : 'Save'}
+            </Button>
+            <Button
+                variant="outlined"
+                startIcon={exporting ? <CircularProgress size={20} /> : <FileDownloadOutlinedIcon />}
+                onClick={handleExport}
+                disabled={exporting}
+                data-testid="export-button"
+            >
+                {exporting ? 'Exporting...' : 'Export My Data'}
             </Button>
         </Box>
         </>
