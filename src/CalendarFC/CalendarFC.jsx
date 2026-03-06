@@ -8,6 +8,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
@@ -75,12 +76,7 @@ const CalendarFC = () => {
     const events = useMemo(() =>
         localTasksArray.map(task => {
             const start = task.done_ts
-                ? (() => {
-                    const d = new Date(task.done_ts.replace(' ', 'T') + 'Z');
-                    return d.getFullYear() + '-' +
-                        String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                        String(d.getDate()).padStart(2, '0');
-                })()
+                ? toLocaleDateString(task.done_ts, profile?.timezone)
                 : null;
             return {
                 id: String(task.id),
