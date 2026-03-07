@@ -3,6 +3,8 @@ import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 import { dragAndDrop } from '../helpers/react-dnd-drag';
 
 test.describe('Task Management', () => {
+  // Production can be slow due to Lambda cold starts + many domains
+  test.setTimeout(60000);
   let idToken: string;
   let testDomainId: string;
   let testAreaId: string;
@@ -49,9 +51,10 @@ test.describe('Task Management', () => {
   /** Navigate to TaskPlanView and select the test domain tab. */
   async function goToTestDomain(page: import('@playwright/test').Page) {
     await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
-    await page.waitForTimeout(1000);
+    // Wait for area card to render with tasks loaded (not a fixed timeout)
+    await page.waitForSelector(`[data-testid="area-card-${testAreaId}"] [data-testid^="task-"]`, { timeout: 15000 });
   }
 
   test('TASK-01: create task via template pattern', async ({ page }) => {
@@ -123,7 +126,7 @@ test.describe('Task Management', () => {
 
     // Verify the task disappears after reload (API only fetches done=0)
     await page.reload();
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
     await page.waitForTimeout(1500);
     await expect(taskRow).not.toBeVisible({ timeout: 5000 });
@@ -226,7 +229,7 @@ test.describe('Task Management', () => {
 
     // Verify persists after reload
     await page.reload();
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
     await page.waitForTimeout(1500);
 
