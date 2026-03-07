@@ -64,7 +64,6 @@ test.describe('Swarm View', () => {
       title: 'E2E Test Session',
       pr_url: 'https://github.com/BillWilliams79/Darwin/pull/99',
       swarm_status: 'active',
-      worker_count: 1,
     }, idToken) as Array<{ id: string }>;
     if (!sessResult?.length) throw new Error('Failed to create test swarm session');
     testSessionId = sessResult[0].id;
@@ -83,7 +82,6 @@ test.describe('Swarm View', () => {
       source_ref: 'darwin#8',
       title: 'Fix issue 8',
       swarm_status: 'active',
-      worker_count: 1,
     }, idToken) as Array<{ id: string }>;
     if (!issueResult?.length) throw new Error('Failed to create issue session');
     testIssueSessionId = issueResult[0].id;
