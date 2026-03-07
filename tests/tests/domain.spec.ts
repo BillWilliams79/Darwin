@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
 test.describe('Domain Management', () => {
+  // Production can be slow due to Lambda cold starts + many domains
+  test.setTimeout(60000);
   // Track domains created during tests for cleanup
   const createdDomainIds: string[] = [];
   let idToken: string;
@@ -26,8 +28,8 @@ test.describe('Domain Management', () => {
     const domainName = uniqueName('Domain');
 
     await page.goto('/taskcards');
-    // Wait for domains to load
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    // Wait for domains to load (production can be slow due to Lambda cold starts)
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
 
     // Click the "+" tab to open DomainAddDialog (last tab, has no text — just the add icon)
     await page.locator('[role="tab"]').last().click();
@@ -42,12 +44,12 @@ test.describe('Domain Management', () => {
 
     // Verify dialog closes and domain tab appears
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByRole('tab', { name: domainName })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('tab', { name: domainName })).toBeVisible({ timeout: 10000 });
 
     // Extract domain id from the new tab's area card for cleanup
-    // Navigate to the new domain tab and check for an area-card-template
+    // Navigate to the new domain tab and wait for it to stabilize
     await page.getByRole('tab', { name: domainName }).click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
     // Get the domain ID from the API for cleanup
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
@@ -76,7 +78,7 @@ test.describe('Domain Management', () => {
     }
 
     await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
 
     // The new domain should appear as a tab
     const domainTab = page.getByRole('tab', { name: domainName });
