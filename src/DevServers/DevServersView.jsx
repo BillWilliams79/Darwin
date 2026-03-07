@@ -23,6 +23,8 @@ const getDevServerColumns = (navigate, timezone) => [
         width: 100,
         renderCell: (params) => (
             <Chip label={params.value} size="small" color="primary"
+                  component="a" href={`https://localhost:${params.value}`}
+                  target="_blank" rel="noopener" clickable
                   data-testid="chip-dev-server-port" />
         ),
     },
@@ -58,6 +60,8 @@ const DevServerCard = ({ server, navigate, timezone }) => {
             <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                     <Chip label={`Port ${server.port}`} size="small" color="primary"
+                          component="a" href={`https://localhost:${server.port}`}
+                          target="_blank" rel="noopener" clickable
                           data-testid="chip-dev-server-port" />
                     {server.session_fk ? (
                         <Chip label={`Session #${server.session_fk}`} size="small" variant="outlined"
