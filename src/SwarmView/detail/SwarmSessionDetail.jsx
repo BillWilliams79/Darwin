@@ -148,7 +148,11 @@ const SwarmSessionDetail = () => {
                                 label={`Port ${ds.port}`}
                                 size="small"
                                 color="primary"
-                                onClick={() => navigate('/devservers')}
+                                component="a"
+                                href={`https://localhost:${ds.port}`}
+                                target="_blank"
+                                rel="noopener"
+                                clickable
                                 data-testid="chip-dev-server-port"
                             />
                         ))}
