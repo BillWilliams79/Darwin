@@ -3,6 +3,8 @@ import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode } from '../he
 import { dragAndDrop } from '../helpers/react-dnd-drag';
 
 test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
+  // Production can be slow due to Lambda cold starts + many domains
+  test.setTimeout(60000);
   let idToken: string;
   let testDomainId: string;
   const testDomainName = uniqueName('TaskDnD');
@@ -108,9 +110,10 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
   async function goToTestDomain(page: any) {
     await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
-    await page.waitForTimeout(1500);
+    // Wait for area card to render with tasks loaded (not a fixed timeout)
+    await page.waitForSelector(`[data-testid="area-card-${area1Id}"] [data-testid^="task-"]`, { timeout: 15000 });
   }
 
   async function getTaskDescriptions(page: any, areaId: string): Promise<string[]> {
