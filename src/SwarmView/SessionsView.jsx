@@ -1,7 +1,7 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
 import { useSessions, useDevServers } from '../hooks/useDataQueries';
-import { useShowClosedStore } from '../stores/useShowClosedStore';
+import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
@@ -16,7 +16,7 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { CircularProgress, Typography, FormControlLabel, Switch } from '@mui/material';
+import { CircularProgress, Typography } from '@mui/material';
 
 const swarmStatusChipProps = (status) => {
     switch (status) {
@@ -143,8 +143,8 @@ const SessionsView = () => {
 
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: devServersData } = useDevServers(profile?.userName);
-    const showClosedSessions = useShowClosedStore(s => s.showClosedSessions);
-    const toggleShowClosedSessions = useShowClosedStore(s => s.toggleShowClosedSessions);
+    const sessionStatusFilter = useShowClosedStore(s => s.sessionStatusFilter);
+    const toggleSessionStatus = useShowClosedStore(s => s.toggleSessionStatus);
 
     const devServerMap = useMemo(() => {
         if (!devServersData) return {};
@@ -157,9 +157,9 @@ const SessionsView = () => {
         ? sessionsArray.map(s => ({ ...s, dev_server_port: devServerMap[s.id] || null }))
         : null;
 
-    const filteredSessions = enrichedSessions && !showClosedSessions
-        ? enrichedSessions.filter(s => s.swarm_status !== 'completed')
-        : enrichedSessions;
+    const filteredSessions = enrichedSessions
+        ? enrichedSessions.filter(s => sessionStatusFilter.includes(s.swarm_status))
+        : null;
 
     const sortedSessions = filteredSessions
         ? [...filteredSessions].sort((a, b) => b.id - a.id)
@@ -167,14 +167,30 @@ const SessionsView = () => {
 
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                 <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Swarm Sessions</Typography>
-                <FormControlLabel
-                    control={<Switch checked={showClosedSessions} onChange={toggleShowClosedSessions} size="small" />}
-                    label="Show Completed"
-                    data-testid="toggle-show-closed-sessions"
-                    sx={{ mr: 1 }}
-                />
+                <Stack direction="row" spacing={0.5} data-testid="session-status-filter">
+                    {ALL_SESSION_STATUSES.map(status => {
+                        const selected = sessionStatusFilter.includes(status);
+                        const chipProps = swarmStatusChipProps(status);
+                        return (
+                            <Chip
+                                key={status}
+                                label={status}
+                                size="small"
+                                onClick={() => toggleSessionStatus(status)}
+                                {...(selected ? chipProps : { variant: 'outlined' })}
+                                sx={{
+                                    ...(selected ? chipProps.sx : {}),
+                                    ...(!selected && { opacity: 0.5 }),
+                                    cursor: 'pointer',
+                                    textTransform: 'capitalize',
+                                }}
+                                data-testid={`filter-chip-${status}`}
+                            />
+                        );
+                    })}
+                </Stack>
             </Box>
 
             {!sessionsArray ? (
