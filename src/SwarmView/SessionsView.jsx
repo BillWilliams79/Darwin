@@ -55,7 +55,9 @@ const getSessionColumns = (navigate, timezone) => [
         width: 100,
         renderCell: (params) => params.value
             ? <Chip label={params.value} size="small" color="primary"
-                    onClick={(e) => { e.stopPropagation(); navigate('/devservers'); }}
+                    component="a" href={`https://localhost:${params.value}`}
+                    target="_blank" rel="noopener" clickable
+                    onClick={(e) => e.stopPropagation()}
                     data-testid="chip-dev-server-port" />
             : '—',
     },
@@ -108,6 +110,9 @@ const SessionCard = ({ session, navigate, timezone }) => (
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     {session.dev_server_port && (
                         <Chip label={`Port ${session.dev_server_port}`} size="small" color="primary"
+                              component="a" href={`https://localhost:${session.dev_server_port}`}
+                              target="_blank" rel="noopener" clickable
+                              onClick={(e) => e.stopPropagation()}
                               data-testid="chip-dev-server-port" />
                     )}
                     {session.worker_count > 0 && (
