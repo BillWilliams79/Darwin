@@ -11,25 +11,35 @@ export async function getIdToken(page: Page): Promise<string> {
   return tokenCookie.value;
 }
 
-/** Call the Darwin REST API directly (bypasses the UI). */
+/** Call the Darwin REST API directly (bypasses the UI).
+ *  Retries up to 3 times on server errors (5xx) to handle Lambda cold starts. */
 export async function apiCall(
   table: string,
   method: string,
   body: unknown,
   idToken: string,
+  retries = 3,
 ): Promise<unknown> {
-  const res = await fetch(`${DARWIN_API}/${table}`, {
-    method,
-    headers: { Authorization: idToken },
-    body: method === 'GET' ? undefined : JSON.stringify(body),
-  });
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = await fetch(`${DARWIN_API}/${table}`, {
+      method,
+      headers: { Authorization: idToken },
+      body: method === 'GET' ? undefined : JSON.stringify(body),
+    });
 
-  const text = await res.text();
-  // Lambda responses are single-encoded JSON.
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
+    const text = await res.text();
+
+    if (res.status >= 500 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+      continue;
+    }
+
+    // Lambda responses are single-encoded JSON.
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
   }
 }
 

@@ -233,7 +233,7 @@ test.describe.serial('Task Management P1', () => {
     }
   });
 
-  test('TASK-08: template row controls disabled until parent area saved', async ({ page }) => {
+  test('TASK-08: template area card renders without task rows', async ({ page }) => {
     await goToTestDomain(page);
 
     // Scope to the visible tab panel for the test domain
@@ -243,22 +243,14 @@ test.describe.serial('Task Management P1', () => {
     const templateCard = panel.getByTestId('area-card-template');
     await expect(templateCard).toBeVisible({ timeout: 5000 });
 
-    // The task template inside the unsaved area card should have disabled controls.
-    // TaskEdit checks: disabled = {areaId !== '' ? false : areaName === '' ? true : false}
-    // For template area card: areaId='' and areaName='' → disabled=true
-    const taskTemplate = templateCard.getByTestId('task-template');
-    await expect(taskTemplate).toBeVisible();
+    // Template area cards (area.id === '') don't fetch or render tasks —
+    // tasksArray stays undefined until the area is saved. Verify no task
+    // rows appear inside the template card.
+    const taskRows = templateCard.locator('[data-testid^="task-"]');
+    await expect(taskRows).toHaveCount(0);
 
-    // Check that the priority checkbox is disabled
-    const priorityCheckbox = taskTemplate.getByRole('checkbox').nth(0);
-    await expect(priorityCheckbox).toBeDisabled();
-
-    // Check that the done checkbox is disabled
-    const doneCheckbox = taskTemplate.getByRole('checkbox').nth(1);
-    await expect(doneCheckbox).toBeDisabled();
-
-    // Check that the description field is disabled
-    const descField = taskTemplate.locator('textarea[name="description"], input[name="description"]').first();
-    await expect(descField).toBeDisabled();
+    // The area name field should be empty (placeholder "Add new area")
+    const areaNameField = templateCard.locator('[name="area-name"]');
+    await expect(areaNameField).toHaveValue('');
   });
 });
