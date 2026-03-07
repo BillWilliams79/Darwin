@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Swarm P1 — Navigation', () => {
 
-  test('SWM-01: Swarm nav link navigates to /swarm', async ({ page }) => {
+  test('SWM-01: Roadmap nav link navigates to /swarm', async ({ page }) => {
     await page.goto('/taskcards');
-    await page.getByRole('link', { name: /swarm/i }).click();
+    await page.getByRole('link', { name: /roadmap/i }).click();
     await expect(page).toHaveURL(/\/swarm/);
   });
 

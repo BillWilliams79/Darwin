@@ -153,11 +153,13 @@ test.describe.serial('Area Management', () => {
     const areaName1 = uniqueName('First');
     const areaName2 = uniqueName('Second');
 
+    // Use high sort_order values so these areas are adjacent at the bottom,
+    // avoiding conflicts with areas created by earlier tests in this serial suite.
     const r1 = await apiCall('areas', 'POST', {
-      creator_fk: sub, area_name: areaName1, domain_fk: testDomainId, closed: 0, sort_order: 0,
+      creator_fk: sub, area_name: areaName1, domain_fk: testDomainId, closed: 0, sort_order: 900,
     }, idToken) as Array<{ id: string }>;
     const r2 = await apiCall('areas', 'POST', {
-      creator_fk: sub, area_name: areaName2, domain_fk: testDomainId, closed: 0, sort_order: 1,
+      creator_fk: sub, area_name: areaName2, domain_fk: testDomainId, closed: 0, sort_order: 901,
     }, idToken) as Array<{ id: string }>;
 
     if (r1?.length) createdAreaIds.push(r1[0].id);
@@ -182,8 +184,9 @@ test.describe.serial('Area Management', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // Mouse-based DnD: reliable under parallel Playwright execution
-    await pangeaDragAndDrop(page, secondRow, firstRow);
+    // Mouse-based DnD: target the name cell (first <td>) to avoid hitting
+    // the checkbox column at row center, which captures the mousedown event.
+    await pangeaDragAndDrop(page, secondRow.locator('td').first(), firstRow.locator('td').first());
 
     // Verify order changed: Second should now be above First
     const afterFirstY = (await firstRow.boundingBox())!.y;
