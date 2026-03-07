@@ -18,8 +18,8 @@ test.describe('Navigation', () => {
     await page.getByRole('link', { name: /areas/i }).click();
     await expect(page).toHaveURL(/\/areaedit/);
 
-    // Navigate to Swarm
-    await page.getByRole('link', { name: /^swarm$/i }).click();
+    // Navigate to Roadmap
+    await page.getByRole('link', { name: /^roadmap$/i }).click();
     await expect(page).toHaveURL(/\/swarm$/);
 
     // Navigate to Dev Servers
