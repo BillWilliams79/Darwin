@@ -117,7 +117,7 @@ const TaskPlanView = () => {
     const domainAdd = useConfirmDialog({
         onConfirm: (newDomainName) => {
             let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'domain_name': newDomainName, 'closed': 0, 'sort_order': domainsArray.length}, idToken)
+            call_rest_api(uri, 'POST', {'domain_name': newDomainName, 'closed': 0, 'sort_order': domainsArray.length}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newDomainsArray = [...domainsArray];
