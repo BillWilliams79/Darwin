@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import PriorityRow from './PriorityRow';
 import PriorityDeleteDialog from './PriorityDeleteDialog';
@@ -38,6 +39,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
 
+    const navigate = useNavigate();
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -458,6 +460,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
                     setPrioritiesArray(newPrioritiesArray);
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    navigate(`/swarm/priority/${result.data[0].id}`);
                 } else if (result.httpStatus.httpStatus === 201) {
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 } else {
