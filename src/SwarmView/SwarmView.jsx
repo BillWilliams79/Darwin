@@ -100,7 +100,7 @@ const SwarmView = () => {
     const projectAdd = useConfirmDialog({
         onConfirm: (newProjectName) => {
             let uri = `${darwinUri}/projects`;
-            call_rest_api(uri, 'POST', {'creator_fk': profile.userName, 'project_name': newProjectName, 'closed': 0, 'sort_order': projectsArray.length}, idToken)
+            call_rest_api(uri, 'POST', {'project_name': newProjectName, 'closed': 0, 'sort_order': projectsArray.length}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         let newProjectsArray = [...projectsArray];

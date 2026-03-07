@@ -28,7 +28,7 @@ export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_or
     const { idToken } = useContext(AuthContext);
 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/domains?creator_fk=${creatorFk}&fields=${fields}${closedParam}`;
+    const uri = `${darwinUri}/domains?fields=${fields}${closedParam}`;
     const queryKey = closed === 0 ? domainKeys.open(creatorFk)
         : closed === undefined ? domainKeys.withClosed(creatorFk)
         : domainKeys.all(creatorFk);
@@ -45,7 +45,7 @@ export function useAreas(creatorFk, domainId, { closed, fields = 'id,area_name,d
     const { idToken } = useContext(AuthContext);
 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/areas?creator_fk=${creatorFk}&domain_fk=${domainId}&fields=${fields}${closedParam}`;
+    const uri = `${darwinUri}/areas?domain_fk=${domainId}&fields=${fields}${closedParam}`;
     const queryKey = closed === 0 ? areaKeys.byDomainOpen(creatorFk, domainId)
         : closed === undefined ? areaKeys.byDomainWithClosed(creatorFk, domainId)
         : areaKeys.byDomain(creatorFk, domainId);
@@ -61,7 +61,7 @@ export function useAllAreas(creatorFk, { fields = 'id,domain_fk', enabled = true
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/areas?creator_fk=${creatorFk}&fields=${fields}`;
+    const uri = `${darwinUri}/areas?fields=${fields}`;
 
     return useQuery({
         queryKey: areaKeys.all(creatorFk),
@@ -74,7 +74,7 @@ export function useTasks(creatorFk, areaId, { done = 0, fields = 'id,priority,do
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/tasks?creator_fk=${creatorFk}&done=${done}&area_fk=${areaId}&fields=${fields}`;
+    const uri = `${darwinUri}/tasks?done=${done}&area_fk=${areaId}&fields=${fields}`;
     const queryKey = taskKeys.byAreaOpen(creatorFk, areaId);
 
     return useQuery({
@@ -88,7 +88,7 @@ export function useTasksDone(creatorFk, startStr, endStr, { fields = 'id,priorit
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/tasks?creator_fk=${creatorFk}&done=1&filter_ts=(done_ts,${startStr},${endStr})&fields=${fields}`;
+    const uri = `${darwinUri}/tasks?done=1&filter_ts=(done_ts,${startStr},${endStr})&fields=${fields}`;
     const queryKey = taskKeys.done(creatorFk, `${startStr}_${endStr}`);
 
     return useQuery({
@@ -102,7 +102,7 @@ export function useTaskCounts(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/tasks?creator_fk=${creatorFk}&fields=count(*),area_fk`;
+    const uri = `${darwinUri}/tasks?fields=count(*),area_fk`;
     const queryKey = taskKeys.counts(creatorFk);
 
     return useQuery({
@@ -117,7 +117,7 @@ export function useProjects(creatorFk, { closed, fields = 'id,project_name,sort_
     const { idToken } = useContext(AuthContext);
 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/projects?creator_fk=${creatorFk}&fields=${fields}${closedParam}`;
+    const uri = `${darwinUri}/projects?fields=${fields}${closedParam}`;
     const queryKey = closed === 0 ? projectKeys.open(creatorFk)
         : closed === undefined ? projectKeys.withClosed(creatorFk)
         : projectKeys.all(creatorFk);
@@ -134,7 +134,7 @@ export function useCategories(creatorFk, projectId, { closed, fields = 'id,categ
     const { idToken } = useContext(AuthContext);
 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/categories?creator_fk=${creatorFk}&project_fk=${projectId}&fields=${fields}${closedParam}`;
+    const uri = `${darwinUri}/categories?project_fk=${projectId}&fields=${fields}${closedParam}`;
     const queryKey = closed === 0 ? categoryKeys.byProjectOpen(creatorFk, projectId)
         : closed === undefined ? categoryKeys.byProjectWithClosed(creatorFk, projectId)
         : categoryKeys.byProject(creatorFk, projectId);
@@ -151,7 +151,7 @@ export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,titl
     const { idToken } = useContext(AuthContext);
 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/priorities?creator_fk=${creatorFk}&category_fk=${categoryId}&fields=${fields}${closedParam}`;
+    const uri = `${darwinUri}/priorities?category_fk=${categoryId}&fields=${fields}${closedParam}`;
     const queryKey = closed === 0 ? priorityKeys.byCategoryOpen(creatorFk, categoryId)
         : closed === undefined ? priorityKeys.byCategoryWithClosed(creatorFk, categoryId)
         : priorityKeys.byCategory(creatorFk, categoryId);
@@ -167,7 +167,7 @@ export function useSessions(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/swarm_sessions?creator_fk=${creatorFk}`;
+    const uri = `${darwinUri}/swarm_sessions`;
     const queryKey = sessionKeys.all(creatorFk);
 
     return useQuery({
@@ -198,7 +198,7 @@ export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,ti
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?creator_fk=${creatorFk}&closed=1&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
+    const uri = `${darwinUri}/priorities?closed=1&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
     const queryKey = priorityKeys.done(creatorFk, `${startStr}_${endStr}`);
 
     return useQuery({
@@ -212,7 +212,7 @@ export function useDevServers(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/dev_servers?creator_fk=${creatorFk}`;
+    const uri = `${darwinUri}/dev_servers`;
     const queryKey = devServerKeys.all(creatorFk);
 
     return useQuery({

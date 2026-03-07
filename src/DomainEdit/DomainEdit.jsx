@@ -54,7 +54,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         if (serverDomains) {
             const sorted = [...serverDomains];
             sorted.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
-            sorted.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
+            sorted.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null });
             setDomainsArray(sorted);
         }
     }, [serverDomains]);
@@ -154,7 +154,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     let freshDomainsArray = [...domainsArray];
                     freshDomainsArray[domainIndex] = {...result.data[0]};
                     freshDomainsArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
-                    freshDomainsArray.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null, 'creator_fk': profile.userName });
+                    freshDomainsArray.push({'id':'', 'domain_name':'', 'closed': 0, 'sort_order': null });
                     setDomainsArray(freshDomainsArray);
 
                     // update the areaCounts and taskCounts data

@@ -89,11 +89,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             }
 
             sortedTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
-            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
+            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null });
             setTasksArray(sortedTasksArray);
         } else if (serverTasks && serverTasks.length === 0) {
             let sortedTasksArray = [];
-            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null, 'creator_fk': profile.userName });
+            sortedTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': parseInt(area.id), 'sort_order': null });
             setTasksArray(sortedTasksArray);
         }
     }, [serverTasks]);
@@ -462,7 +462,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     }
 
                     newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
-                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'sort_order': null, 'creator_fk': profile.userName });
+                    newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'sort_order': null });
                     setTasksArray(newTasksArray);
                     queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
