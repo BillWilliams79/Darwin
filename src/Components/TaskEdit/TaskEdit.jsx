@@ -164,6 +164,20 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
                         onChange = {(event) => descriptionChange(event, taskIndex) }
                         onKeyDown = {(event) => descriptionKeyDown(event, taskIndex, task.id)}
                         onBlur = {(event) => descriptionOnBlur(event, taskIndex, task.id)}
+                        onPointerDown={(e) => {
+                            const draggables = [];
+                            let el = e.currentTarget;
+                            while (el) {
+                                if (el.getAttribute('draggable') === 'true') {
+                                    draggables.push(el);
+                                    el.removeAttribute('draggable');
+                                }
+                                el = el.parentElement;
+                            }
+                            document.addEventListener('pointerup', () => {
+                                draggables.forEach(d => d.setAttribute('draggable', 'true'));
+                            }, { once: true });
+                        }}
                         multiline
                         disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                         autoComplete ='off'
