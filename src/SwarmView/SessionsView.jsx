@@ -72,7 +72,6 @@ const getSessionColumns = (navigate, timezone) => [
                  data-testid="session-pr-url">PR</a>
             : '—',
     },
-    { field: 'worker_count', headerName: 'Workers',     width: 80,  type: 'number' },
     {
         field: 'started_at',
         headerName: 'Started',
@@ -114,11 +113,6 @@ const SessionCard = ({ session, navigate, timezone }) => (
                               target="_blank" rel="noopener" clickable
                               onClick={(e) => e.stopPropagation()}
                               data-testid="chip-dev-server-port" />
-                    )}
-                    {session.worker_count > 0 && (
-                        <Typography variant="caption" color="text.secondary">
-                            {session.worker_count} worker{session.worker_count !== 1 ? 's' : ''}
-                        </Typography>
                     )}
                     {session.pr_url && (
                         <Chip label="PR" size="small" variant="outlined"
