@@ -493,6 +493,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     }
 
     const activeSort = (a, b) => {
+        if (a.id === '') return 1;
+        if (b.id === '') return -1;
+        if (a.closed !== b.closed) return a.closed - b.closed;  // open first, closed last
         return sortMode === 'hand' ? priorityHandSort(a, b) : createdSort(a, b);
     }
 
