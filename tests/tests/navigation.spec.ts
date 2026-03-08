@@ -10,12 +10,14 @@ test.describe('Navigation', () => {
     await page.getByRole('link', { name: /calendar/i }).click();
     await expect(page).toHaveURL(/\/calview/);
 
-    // Navigate to Domains
-    await page.getByRole('link', { name: /domains/i }).click();
+    // Navigate to Domains (inside bike menu)
+    await page.getByTestId('bike-menu-button').click();
+    await page.getByRole('menuitem', { name: /domains/i }).click();
     await expect(page).toHaveURL(/\/domainedit/);
 
-    // Navigate to Areas
-    await page.getByRole('link', { name: /areas/i }).click();
+    // Navigate to Areas (inside bike menu)
+    await page.getByTestId('bike-menu-button').click();
+    await page.getByRole('menuitem', { name: /areas/i }).click();
     await expect(page).toHaveURL(/\/areaedit/);
 
     // Navigate to Roadmap (links to /swarm)
