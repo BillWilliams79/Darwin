@@ -9,6 +9,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useCalendarViewStore } from '../stores/useCalendarViewStore';
 import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -30,10 +31,17 @@ const CalendarFC = () => {
     const navigate = useNavigate();
     const calendarRef = useRef(null);
 
+    // Persisted calendar view state
+    const savedViewType = useCalendarViewStore(s => s.viewType);
+    const savedDate = useCalendarViewStore(s => s.currentDate);
+    const savedMode = useCalendarViewStore(s => s.mode);
+    const setCalendarView = useCalendarViewStore(s => s.setCalendarView);
+    const setPersistedMode = useCalendarViewStore(s => s.setMode);
+
     const [calendarTitle, setCalendarTitle] = useState('');
 
     // Toggle mode: 'tasks' or 'priorities'
-    const [mode, setMode] = useState('tasks');
+    const [mode, setMode] = useState(savedMode || 'tasks');
     const isTasksMode = mode === 'tasks';
 
     // Date range state — drives the query key
@@ -119,7 +127,11 @@ const CalendarFC = () => {
     const handleDatesSet = useCallback((dateInfo) => {
         setDateRange({ start: dateInfo.start, end: dateInfo.end });
         setCalendarTitle(buildTitle(dateInfo.view.currentStart, titleSuffix));
-    }, [buildTitle, titleSuffix]);
+        setCalendarView({
+            viewType: dateInfo.view.type,
+            currentDate: dateInfo.view.currentStart.toISOString().slice(0, 10),
+        });
+    }, [buildTitle, titleSuffix, setCalendarView]);
 
     // Update title when mode changes (FullCalendar doesn't re-fire datesSet)
     React.useEffect(() => {
@@ -222,7 +234,10 @@ const CalendarFC = () => {
     }, [queryClient, profile]);
 
     const handleModeChange = (event, newMode) => {
-        if (newMode !== null) setMode(newMode);
+        if (newMode !== null) {
+            setMode(newMode);
+            setPersistedMode(newMode);
+        }
     };
 
     const renderEventContent = (eventInfo) => (
@@ -275,7 +290,8 @@ const CalendarFC = () => {
                 <FullCalendar
                     ref={calendarRef}
                     plugins={[dayGridPlugin, interactionPlugin]}
-                    initialView="dayGridMonth"
+                    initialView={savedViewType || 'dayGridMonth'}
+                    initialDate={savedDate || undefined}
                     headerToolbar={{
                         left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay',
                         center: '',
