@@ -18,9 +18,11 @@
 @media screen and (min-width: 900px) {
     .app-layout.layout-sidebar {
         grid-template-columns: min-content auto;
+        grid-template-rows: auto 1fr;
         grid-template-areas:
           "nav-bar title__"
           "nav-bar content";
+        align-items: start;
       }
 }
 
