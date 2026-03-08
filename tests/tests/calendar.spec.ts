@@ -433,3 +433,149 @@ test.describe('Calendar Priorities', () => {
     expect(page.url()).toContain(`/swarm/priority/${testPriorityId}`);
   });
 });
+
+test.describe('Calendar View Persistence', () => {
+  test.beforeEach(async ({ page }) => {
+    // Clear persisted calendar state before each test
+    await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
+    await page.waitForTimeout(2000);
+  });
+
+  test('CAL-12: view type persists across route navigation', async ({ page }) => {
+    // Default is Month view — switch to Week
+    await page.getByRole('button', { name: 'Week', exact: true }).click();
+    await page.waitForTimeout(1000);
+
+    // Verify Week button is active (fc adds fc-button-active class)
+    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible();
+
+    // Navigate away to a different route
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+
+    // Return to calendar
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+
+    // Week view should be restored
+    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible();
+  });
+
+  test('CAL-13: date persists across navigation', async ({ page }) => {
+    // Get the current title (current month)
+    const initialTitle = await page.getByText(/Completed Tasks$/).textContent();
+
+    // Navigate to previous month
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(1000);
+
+    // Get the new title (previous month)
+    const prevMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(prevMonthTitle).not.toBe(initialTitle);
+
+    // Navigate away
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+
+    // Return to calendar
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+
+    // Should still show previous month, not current month
+    const restoredTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(restoredTitle).toBe(prevMonthTitle);
+  });
+
+  test('CAL-14: mode persists across navigation', async ({ page }) => {
+    // Default is Tasks mode — switch to Priorities
+    const toggle = page.getByTestId('calendar-mode-toggle');
+    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await page.waitForTimeout(1000);
+
+    // Verify Priorities mode is active
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+
+    // Navigate away
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+
+    // Return to calendar
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+
+    // Priorities mode should be restored
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+  });
+
+  test('CAL-15: full page reload preserves all settings', async ({ page }) => {
+    // Switch to Day view
+    await page.getByRole('button', { name: 'Day', exact: true }).click();
+    await page.waitForTimeout(1000);
+
+    // Navigate to previous day
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(1000);
+
+    // Switch to Priorities mode
+    const toggle = page.getByTestId('calendar-mode-toggle');
+    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await page.waitForTimeout(1000);
+
+    // Capture state before reload
+    const titleBeforeReload = await page.getByText(/Completed Priorities$/).textContent();
+
+    // Full page reload
+    await page.reload();
+    await page.waitForTimeout(3000);
+
+    // All settings should be preserved
+    // Day view
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
+    // Priorities mode
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    // Same date
+    const titleAfterReload = await page.getByText(/Completed Priorities$/).textContent();
+    expect(titleAfterReload).toBe(titleBeforeReload);
+  });
+
+  test('CAL-16: Today button works correctly with persistence', async ({ page }) => {
+    // Get current month title
+    const currentMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
+
+    // Navigate 3 months back
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(500);
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(500);
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(1000);
+
+    // Verify we're on a different month
+    const oldMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(oldMonthTitle).not.toBe(currentMonthTitle);
+
+    // Navigate away and back — should still be on old month (persisted)
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+    const restoredTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(restoredTitle).toBe(oldMonthTitle);
+
+    // Click Today button — should return to current month
+    await page.locator('.fc-today-button').click();
+    await page.waitForTimeout(1000);
+    const todayTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(todayTitle).toBe(currentMonthTitle);
+
+    // Navigate away and back — should now persist current month
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+    await page.goto('/calview');
+    await page.waitForTimeout(2000);
+    const finalTitle = await page.getByText(/Completed Tasks$/).textContent();
+    expect(finalTitle).toBe(currentMonthTitle);
+  });
+});
