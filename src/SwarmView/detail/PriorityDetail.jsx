@@ -259,6 +259,7 @@ const PriorityDetail = () => {
                     multiline
                     minRows={3}
                     autoComplete="off"
+                    autoFocus
                     size="small"
                     data-testid="priority-description"
                 />
