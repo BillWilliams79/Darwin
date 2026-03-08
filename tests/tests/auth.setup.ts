@@ -1,5 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
 import { getAuthTokens, buildProfileFromToken } from '../helpers/auth';
+import { cleanupStaleData } from '../helpers/api';
 
 const STORAGE_STATE = '.auth/user.json';
 
@@ -24,6 +25,13 @@ setup('authenticate', async ({ page }) => {
     document.cookie = `accessToken=${accessToken}; path=/; max-age=86100`;
     document.cookie = `profile=${profileCookie}; path=/; max-age=86100`;
   }, { idToken: tokens.idToken, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, profileCookie });
+
+  // Clean up stale E2E data from prior interrupted runs
+  const cleanup = await cleanupStaleData(tokens.idToken);
+  const total = cleanup.domains + cleanup.projects + cleanup.sessions;
+  if (total > 0) {
+    console.log(`Pre-test cleanup: ${cleanup.domains} domains, ${cleanup.projects} projects, ${cleanup.sessions} sessions deleted`);
+  }
 
   // Verify authentication works by loading a protected route
   await page.goto('/taskcards');
