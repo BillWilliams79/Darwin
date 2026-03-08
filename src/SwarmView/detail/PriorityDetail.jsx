@@ -193,9 +193,9 @@ const PriorityDetail = () => {
         <Box sx={{ p: 3, maxWidth: 800 }} data-testid="priority-detail">
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 <Button variant="outlined"
-                        onClick={() => navigate(sessions.length === 1 ? `/swarm/session/${sessions[0].id}` : '/swarm')}
+                        onClick={() => navigate('/swarm')}
                         data-testid="btn-back-to-swarm">
-                    {sessions.length === 1 ? 'Go to Session' : 'Back to Roadmap'}
+                    Back to Roadmap
                 </Button>
             </Box>
 
