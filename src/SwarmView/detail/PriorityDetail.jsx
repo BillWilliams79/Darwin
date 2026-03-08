@@ -172,7 +172,7 @@ const PriorityDetail = () => {
                 <Button variant="outlined"
                         onClick={() => navigate(sessions.length === 1 ? `/swarm/session/${sessions[0].id}` : '/swarm')}
                         data-testid="btn-back-to-swarm">
-                    {sessions.length === 1 ? 'Go to Session' : 'Back to Swarm'}
+                    {sessions.length === 1 ? 'Go to Session' : 'Back to Roadmap'}
                 </Button>
             </Box>
 
