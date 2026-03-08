@@ -84,10 +84,7 @@
 
 @media screen and (max-width: 899px) {
     .task.priority-row {
-        grid-template-columns: 24px auto auto 1fr auto;
-    }
-    .task.priority-row .priority-scheduled-col {
-        display: none;
+        grid-template-columns: 24px auto auto auto 1fr auto;
     }
 }
 
