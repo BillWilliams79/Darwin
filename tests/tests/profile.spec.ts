@@ -7,8 +7,10 @@ test.describe('Profile', () => {
     await page.goto('/taskcards');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
 
-    // Click the bike icon link in the NavBar (Link to="/profile" wrapping PedalBikeIcon)
-    await page.locator('a[href="/profile"]').click();
+    // Open the bike menu (Profile/Domains/Areas are inside it)
+    await page.getByTestId('bike-menu-button').click();
+    // Click the Profile menu item
+    await page.getByRole('menuitem', { name: /profile/i }).click();
 
     // Verify navigation to /profile
     await expect(page).toHaveURL(/\/profile/);
