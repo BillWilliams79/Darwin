@@ -246,7 +246,7 @@ test.describe('Swarm View', () => {
     await expect(page.getByTestId('priority-delete-dialog')).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Delete' }).click();
 
-    await expect(page).toHaveURL('/swarm', { timeout: 10000 });
+    await expect(page).toHaveURL(/\/swarm$/, { timeout: 10000 });
   });
 
 });
