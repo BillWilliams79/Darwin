@@ -90,7 +90,6 @@ export async function fetchExportData(darwinUri, userName, idToken, profile) {
         pr_url: s.pr_url,
         swarm_status: s.swarm_status,
         worktree_path: s.worktree_path,
-        worker_count: s.worker_count,
         started_at: s.started_at,
         create_ts: s.create_ts,
         update_ts: s.update_ts,
