@@ -107,3 +107,65 @@ export async function clickSortMode(page: Page, areaId: string, mode: 'priority'
   await page.getByTestId(`card-menu-${areaId}`).click();
   await page.getByTestId(`sort-${mode}-${areaId}`).click();
 }
+
+/**
+ * Clean up all stale E2E data for the current test user.
+ * Deletes in FK-safe order: priority_sessions → swarm_sessions → projects → domains.
+ * CASCADE handles children (categories/priorities under projects, areas/tasks under domains).
+ * Called once at the start of each test run from auth.setup.ts.
+ */
+export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; sessions: number }> {
+  const sub = process.env.E2E_TEST_COGNITO_SUB;
+  if (!sub) return { domains: 0, projects: 0, sessions: 0 };
+
+  const summary = { domains: 0, projects: 0, sessions: 0 };
+
+  // 1. Fetch and delete swarm_sessions (and their priority_sessions links)
+  try {
+    const sessions = await apiCall(
+      `swarm_sessions?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
+    ) as Array<{ id: string }>;
+    if (Array.isArray(sessions)) {
+      for (const sess of sessions) {
+        try {
+          // Delete priority_sessions linking to this session
+          await fetch(`${DARWIN_API}/priority_sessions`, {
+            method: 'DELETE',
+            headers: { Authorization: idToken },
+            body: JSON.stringify({ session_fk: sess.id }),
+          });
+        } catch { /* best-effort */ }
+        try { await apiDelete('swarm_sessions', sess.id, idToken); } catch { /* best-effort */ }
+      }
+      summary.sessions = sessions.length;
+    }
+  } catch { /* best-effort */ }
+
+  // 2. Fetch and delete projects (CASCADE handles categories → priorities)
+  try {
+    const projects = await apiCall(
+      `projects?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
+    ) as Array<{ id: string }>;
+    if (Array.isArray(projects)) {
+      for (const proj of projects) {
+        try { await apiDelete('projects', proj.id, idToken); } catch { /* best-effort */ }
+      }
+      summary.projects = projects.length;
+    }
+  } catch { /* best-effort */ }
+
+  // 3. Fetch and delete domains (CASCADE handles areas → tasks)
+  try {
+    const domains = await apiCall(
+      `domains?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
+    ) as Array<{ id: string }>;
+    if (Array.isArray(domains)) {
+      for (const dom of domains) {
+        try { await apiDelete('domains', dom.id, idToken); } catch { /* best-effort */ }
+      }
+      summary.domains = domains.length;
+    }
+  } catch { /* best-effort */ }
+
+  return summary;
+}
