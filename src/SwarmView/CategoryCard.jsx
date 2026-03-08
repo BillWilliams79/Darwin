@@ -26,7 +26,7 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
-import FlagIcon from '@mui/icons-material/Flag';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
@@ -50,14 +50,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
 
-    const [sortMode, setSortMode] = useState(category.sort_mode || 'priority');
+    const [sortMode, setSortMode] = useState(category.sort_mode || 'hand');
 
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return;
         setSortMode(newMode);
 
         if (prioritiesArray) {
-            const sortFn = newMode === 'hand' ? priorityHandSort : priorityPrioritySort;
+            const sortFn = newMode === 'hand' ? priorityHandSort : createdSort;
             const sorted = [...prioritiesArray];
             sorted.sort((a, b) => sortFn(a, b));
             setPrioritiesArray(sorted);
@@ -119,7 +119,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             // Lazy fill: if any priority has null sort_order, assign sequential values
             const needsFill = sortedPrioritiesArray.some(t => t.sort_order === null || t.sort_order === undefined);
             if (needsFill) {
-                sortedPrioritiesArray.sort((a, b) => priorityPrioritySort(a, b));
+                sortedPrioritiesArray.sort((a, b) => createdSort(a, b));
                 const bulkUpdate = [];
                 sortedPrioritiesArray.forEach((t, idx) => {
                     t.sort_order = idx;
@@ -478,11 +478,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         priorityDelete.openDialog({priorityId});
     }
 
-    const priorityPrioritySort = (a, b) => {
+    const createdSort = (a, b) => {
         if (a.id === '') return 1;
         if (b.id === '') return -1;
-        if (a.in_progress === b.in_progress) return 0;
-        return a.in_progress > b.in_progress ? -1 : 1;
+        return a.id - b.id;
     }
 
     const priorityHandSort = (a, b) => {
@@ -494,7 +493,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     }
 
     const activeSort = (a, b) => {
-        return sortMode === 'hand' ? priorityHandSort(a, b) : priorityPrioritySort(a, b);
+        return sortMode === 'hand' ? priorityHandSort(a, b) : createdSort(a, b);
     }
 
     return (
@@ -543,20 +542,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                             >
                                 <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'priority'); }}
-                                    data-testid={`sort-priority-${category.id}`}
-                                >
-                                    <ListItemIcon><FlagIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Priority Sort</ListItemText>
-                                    {sortMode === 'priority' && <Check fontSize="small" sx={{ ml: 1 }} />}
-                                </MenuItem>
-                                <MenuItem
                                     onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
                                     data-testid={`sort-hand-${category.id}`}
                                 >
                                     <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>Hand Sort</ListItemText>
                                     {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                </MenuItem>
+                                <MenuItem
+                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'created'); }}
+                                    data-testid={`sort-created-${category.id}`}
+                                >
+                                    <ListItemIcon><AccessTimeIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>Created Sort</ListItemText>
+                                    {sortMode === 'created' && <Check fontSize="small" sx={{ ml: 1 }} />}
                                 </MenuItem>
                                 <Divider />
                                 <MenuItem
