@@ -20,6 +20,8 @@ const LogoutLink = () => {
     removeCookie('profile', { path: '/' });
     // Clear working domain preference
     localStorage.removeItem('darwin_working_domain');
+    // Clear calendar view preference
+    localStorage.removeItem('darwin_calendar_view');
 
     window.location = buildLogoutUrl();
     return null;
