@@ -104,13 +104,6 @@ const SwarmSessionDetail = () => {
             }
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">Worker Count</Typography>
-                <Typography variant="body2" data-testid="session-worker-count">
-                    {session.worker_count}
-                </Typography>
-            </Box>
-
-            <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">Started</Typography>
                 <Typography variant="body2" data-testid="session-started-at">
                     {session.started_at || '—'}
@@ -148,7 +141,11 @@ const SwarmSessionDetail = () => {
                                 label={`Port ${ds.port}`}
                                 size="small"
                                 color="primary"
-                                onClick={() => navigate('/devservers')}
+                                component="a"
+                                href={`https://localhost:${ds.port}`}
+                                target="_blank"
+                                rel="noopener"
+                                clickable
                                 data-testid="chip-dev-server-port"
                             />
                         ))}
