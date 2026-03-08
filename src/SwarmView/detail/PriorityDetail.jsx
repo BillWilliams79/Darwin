@@ -6,6 +6,10 @@ import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
+import { useQueryClient } from '@tanstack/react-query';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import { priorityKeys } from '../../hooks/useQueryKeys';
+import PriorityDeleteDialog from '../PriorityDeleteDialog';
 
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -23,6 +27,7 @@ import HotelIcon from '@mui/icons-material/Hotel';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const swarmStatusChipProps = (status) => {
     switch (status) {
@@ -69,6 +74,24 @@ const PriorityDetail = () => {
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
+
+    const queryClient = useQueryClient();
+
+    const priorityDelete = useConfirmDialog({
+        onConfirm: ({ priorityId }) => {
+            const uri = `${darwinUri}/priorities`;
+            call_rest_api(uri, 'DELETE', { id: priorityId }, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                        navigate('/swarm');
+                    } else {
+                        showError(result, 'Unable to delete priority');
+                    }
+                })
+                .catch(error => showError(error, 'Unable to delete priority'));
+        }
+    });
 
     useEffect(() => {
         const fetchData = async () => {
@@ -246,6 +269,15 @@ const PriorityDetail = () => {
                     label="Closed"
                     data-testid="toggle-closed"
                 />
+                <Tooltip title="Delete priority" enterDelay={400} enterNextDelay={200}>
+                    <IconButton
+                        onClick={() => priorityDelete.openDialog({ priorityId: parseInt(id) })}
+                        data-testid="btn-delete-priority"
+                        sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                    >
+                        <DeleteIcon />
+                    </IconButton>
+                </Tooltip>
             </Box>
 
             <Box sx={{ mb: 2 }}>
@@ -259,6 +291,7 @@ const PriorityDetail = () => {
                     multiline
                     minRows={3}
                     autoComplete="off"
+                    autoFocus
                     size="small"
                     data-testid="priority-description"
                 />
@@ -309,6 +342,13 @@ const PriorityDetail = () => {
                     />
                 </Box>
             )}
+
+            <PriorityDeleteDialog
+                deleteDialogOpen={priorityDelete.dialogOpen}
+                setDeleteDialogOpen={priorityDelete.setDialogOpen}
+                setDeleteId={priorityDelete.setInfoObject}
+                setDeleteConfirmed={priorityDelete.setConfirmed}
+            />
         </Box>
     );
 };
