@@ -31,6 +31,9 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
 
+const isDev = import.meta.env.MODE === 'development';
+const DEV_BORDER = isDev ? '4px solid #FF6B35' : 'none';
+
 const NavBarSidebar = () => {
     const { idToken } = useContext(AuthContext);
     const location = useLocation();
@@ -153,6 +156,7 @@ const NavBarSidebar = () => {
 
         return (
             <>
+                {isDev && <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, height: '4px', bgcolor: '#FF6B35', zIndex: 1300 }} />}
                 <Box
                     className="app-navbar"
                     sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0 }}
@@ -259,7 +263,7 @@ const NavBarSidebar = () => {
             <AppBar
                 position="static"
                 className="app-navbar"
-                sx={{ bgcolor: 'black' }}
+                sx={{ bgcolor: 'black', borderTop: DEV_BORDER }}
             >
                 <Toolbar variant="dense" sx={{ minHeight: 48 }}>
                     <IconButton
