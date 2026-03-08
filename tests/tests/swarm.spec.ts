@@ -230,4 +230,23 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm$/);
   });
 
+  test('SWM-23: PriorityDetail delete button removes priority and navigates to /swarm', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const deleteTitle = uniqueName('DeleteMe');
+    const result = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: deleteTitle, category_fk: testCategoryId,
+      in_progress: 0, closed: 0, sort_order: 99,
+    }, idToken) as Array<{ id: string }>;
+    const deleteId = result[0].id;
+
+    await page.goto(`/swarm/priority/${deleteId}`);
+    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId('btn-delete-priority').click();
+    await expect(page.getByTestId('priority-delete-dialog')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    await expect(page).toHaveURL(/\/swarm$/, { timeout: 10000 });
+  });
+
 });
