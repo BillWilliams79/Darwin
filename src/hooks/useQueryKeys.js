@@ -20,6 +20,11 @@ export const taskKeys = {
     byAreaOpen: (creatorFk, areaId) => ['tasks', creatorFk, { areaId, done: 0 }],
     done: (creatorFk, dateRange) => ['tasks', creatorFk, { done: 1, dateRange }],
     counts: (creatorFk) => ['tasks', creatorFk, 'counts'],
+    priorityByDomain: (creatorFk, domainId, areaIds) => ['tasks', creatorFk, { priorityByDomain: domainId, areaIds }],
+};
+
+export const priorityCardOrderKeys = {
+    byDomain: (creatorFk, domainId) => ['priority_card_order', creatorFk, { domainId }],
 };
 
 export const projectKeys = {

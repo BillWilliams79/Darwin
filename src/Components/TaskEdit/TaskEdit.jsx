@@ -21,7 +21,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
-const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
+const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId, areaName }) => {
 
     const { priorityClick, doneClick, descriptionChange, descriptionKeyDown,
         descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
@@ -31,7 +31,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
     const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: "taskPlan",
+        type: dragType,
         item: () => {
             const rect = rowRef.current?.getBoundingClientRect();
             return {...task, taskIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
@@ -50,14 +50,14 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
         collect: (monitor) => ({
           isDragging: !!monitor.isDragging(),
         }),
-    }),[tasksArray, taskIndex]);
+    }),[tasksArray, taskIndex, dragType]);
 
     useEffect(() => {
         preview(getEmptyImage());
     }, [preview]);
 
     const [{ isTaskOver }, taskDrop] = useDrop(() => ({
-        accept: "taskPlan",
+        accept: dragType,
         canDrop: () => false, // Task rows are hover-only targets; card-level handles all drops
         hover: (dragItem, monitor) => {
             if (sortMode !== 'hand') return;
@@ -84,7 +84,7 @@ const TaskEdit = ({ supportDrag, task, taskIndex, areaId, areaName }) => {
         collect: (monitor) => ({
             isTaskOver: monitor.isOver(),
         }),
-    }), [sortMode, task.id, task.area_fk, taskIndex, setCrossCardInsertIndex]);
+    }), [sortMode, task.id, task.area_fk, taskIndex, setCrossCardInsertIndex, dragType]);
 
     // Clear insertion indicator when drag leaves this task
     useEffect(() => {

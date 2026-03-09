@@ -5,12 +5,14 @@ import React, {useState, useContext, useEffect, useRef, useCallback} from 'react
 import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
+import PriorityCard from './PriorityCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useAreas } from '../hooks/useDataQueries';
 import { areaKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
+import { usePriorityCardStore } from '../stores/usePriorityCardStore';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 import AreaDeleteDialog from '../Components/AreaDeleteDialog/AreaDeleteDialog';
@@ -24,6 +26,9 @@ import Box from '@mui/material/Box';
 const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
+
+    // Priority card store — show state only (toggle lives in TaskPlanView tab bar)
+    const showPriorityCard = usePriorityCardStore(s => s.priorityCards[String(domain.id)]?.show ?? false);
 
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards
@@ -419,6 +424,9 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
         },
     }), [domain.id, areasArray, darwinUri, idToken, clearDragTabSwitch]);
 
+    // Real area IDs (exclude template row) for PriorityCard
+    const realAreaIds = areasArray ? areasArray.filter(a => a.id !== '').map(a => a.id) : [];
+
     return (
             <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)}
                  className="app-content-tabpanel"
@@ -426,6 +434,9 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
             >
                 { areasArray &&
                     <Box className="card" ref={panelDrop}>
+                        {showPriorityCard && realAreaIds.length > 0 && (
+                            <PriorityCard domainId={domain.id} areaIds={realAreaIds} />
+                        )}
                         { areasArray.map((area, areaIndex) => (
                             <TaskCard {...{key: area.id,
                                            area,
