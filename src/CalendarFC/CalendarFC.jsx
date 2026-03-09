@@ -15,8 +15,9 @@ import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
 import { useTasksDone, usePrioritiesDone } from '../hooks/useDataQueries';
-import { taskKeys } from '../hooks/useQueryKeys';
+import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -85,6 +86,12 @@ const CalendarFC = () => {
         if (serverTasks) setLocalTasksArray(serverTasks);
     }, [serverTasks]);
 
+    // ── Priority local state (for drag-drop) ──────────────────────────────────
+    const [localPrioritiesArray, setLocalPrioritiesArray] = useState([]);
+    React.useEffect(() => {
+        if (serverPriorities) setLocalPrioritiesArray(serverPriorities);
+    }, [serverPriorities]);
+
     // ── Dialog state ──────────────────────────────────────────────────────────
     const [taskEditDialogOpen, setTaskEditDialogOpen] = useState(false);
     const [taskEditInfo, setTaskEditInfo] = useState({});
@@ -120,7 +127,7 @@ const CalendarFC = () => {
                 textColor: '#333',
             }));
         }
-        return (serverPriorities || []).map(priority => ({
+        return localPrioritiesArray.map(priority => ({
             id: String(priority.id),
             title: priority.title,
             start: priority.completed_at ? toLocaleDateString(priority.completed_at, profile?.timezone) : null,
@@ -131,7 +138,7 @@ const CalendarFC = () => {
             classNames: ['fc-priority-event'],
         }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, localTasksArray, serverPriorities, profile?.timezone]);
+    }, [isTasksMode, localTasksArray, localPrioritiesArray, profile?.timezone]);
 
     // ── Mobile: group events by date for custom list ──────────────────────────
     const mobileEventsByDate = useMemo(() => {
@@ -277,6 +284,22 @@ const CalendarFC = () => {
             }).catch(error => { info.revert(); showError(error, 'Unable to move task'); });
     }, [darwinUri, idToken, showError]);
 
+    const handlePriorityDrop = useCallback((info) => {
+        const priorityId = info.event.id;
+        const newDate = info.event.start;
+        newDate.setHours(12, 0, 0, 0);
+        const newCompletedAt = newDate.toISOString().slice(0, 19);
+        call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: priorityId, completed_at: newCompletedAt }], idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    setLocalPrioritiesArray(prev => prev.map(p =>
+                        String(p.id) === priorityId ? { ...p, completed_at: newCompletedAt } : p
+                    ));
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                } else { info.revert(); showError(result, 'Unable to move priority'); }
+            }).catch(error => { info.revert(); showError(error, 'Unable to move priority'); });
+    }, [darwinUri, idToken, showError, queryClient, profile]);
+
     const handleEventClick = useCallback((info) => {
         const taskId = info.event.id;
         const taskIndex = localTasksArray.findIndex(t => String(t.id) === taskId);
@@ -302,6 +325,45 @@ const CalendarFC = () => {
     const handleMobilePriorityClick = useCallback((eventId) => {
         navigate(`/swarm/priority/${eventId}`);
     }, [navigate]);
+
+    // ── Mobile drag-and-drop handler ───────────────────────────────────────────
+    const handleMobileDragEnd = useCallback((result) => {
+        const { source, destination, draggableId } = result;
+        if (!destination || source.droppableId === destination.droppableId) return;
+
+        const newDate = destination.droppableId;
+        const newTs = newDate + 'T12:00:00';
+
+        if (isTasksMode) {
+            setLocalTasksArray(prev => prev.map(t =>
+                String(t.id) === draggableId ? { ...t, done_ts: newTs } : t
+            ));
+            call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: draggableId, done_ts: newTs }], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, 'Unable to move task');
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to move task');
+                    queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
+                });
+        } else {
+            setLocalPrioritiesArray(prev => prev.map(p =>
+                String(p.id) === draggableId ? { ...p, completed_at: newTs } : p
+            ));
+            call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: draggableId, completed_at: newTs }], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, 'Unable to move priority');
+                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to move priority');
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                });
+        }
+    }, [isTasksMode, darwinUri, idToken, showError, queryClient, profile]);
 
     // ── TaskActionsContext callbacks ───────────────────────────────────────────
     const priorityClick = (taskIndex, taskId) => {
@@ -380,6 +442,7 @@ const CalendarFC = () => {
                         </ToggleButtonGroup>
                     </Box>
                     {/* Scrollable list */}
+                    <DragDropContext onDragEnd={handleMobileDragEnd}>
                     <Box ref={mobileScrollContainerRef} sx={{ flex: 1, overflowY: 'auto' }}>
                         <div ref={topSentinelRef} style={{ height: 1 }} />
                         {mobileSortedDates.length === 0 ? (
@@ -401,23 +464,40 @@ const CalendarFC = () => {
                                         {date === todayStr ? ' — Today' : ''}
                                     </Typography>
                                 </Box>
-                                {/* Events for the day */}
-                                {mobileEventsByDate[date].map(ev => (
-                                    <Box key={ev.id}
-                                         onClick={() => isTasksMode
-                                             ? handleMobileTaskClick(ev.id)
-                                             : handleMobilePriorityClick(ev.id)}
-                                         sx={{ px: 2, py: 1, borderBottom: '1px solid #f0f0f0',
-                                               cursor: 'pointer', '&:active': { bgcolor: '#f5f5f5' } }}>
-                                        <Typography variant="body2" sx={{ fontSize: '0.9rem', color: '#333' }}>
-                                            {ev.title}
-                                        </Typography>
-                                    </Box>
-                                ))}
+                                {/* Events for the day — droppable zone */}
+                                <Droppable droppableId={date}>
+                                    {(provided) => (
+                                        <div ref={provided.innerRef} {...provided.droppableProps}
+                                             style={{ minHeight: 4 }}>
+                                            {mobileEventsByDate[date].map((ev, i) => (
+                                                <Draggable key={ev.id} draggableId={ev.id} index={i}>
+                                                    {(provided, snapshot) => (
+                                                        <Box ref={provided.innerRef}
+                                                             {...provided.draggableProps}
+                                                             {...provided.dragHandleProps}
+                                                             onClick={() => isTasksMode
+                                                                 ? handleMobileTaskClick(ev.id)
+                                                                 : handleMobilePriorityClick(ev.id)}
+                                                             sx={{ px: 2, py: 1, borderBottom: '1px solid #f0f0f0',
+                                                                   cursor: 'pointer',
+                                                                   bgcolor: snapshot.isDragging ? '#e3f2fd' : 'inherit',
+                                                                   '&:active': { bgcolor: '#f5f5f5' } }}>
+                                                            <Typography variant="body2" sx={{ fontSize: '0.9rem', color: '#333' }}>
+                                                                {ev.title}
+                                                            </Typography>
+                                                        </Box>
+                                                    )}
+                                                </Draggable>
+                                            ))}
+                                            {provided.placeholder}
+                                        </div>
+                                    )}
+                                </Droppable>
                             </Box>
                         ))}
                         <div ref={bottomSentinelRef} style={{ height: 1 }} />
                     </Box>
+                    </DragDropContext>
                 </Box>
             ) : (
                 /* ── Desktop: FullCalendar (unchanged from original) ── */
@@ -444,9 +524,9 @@ const CalendarFC = () => {
                         headerToolbar={{ left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay', center: '', right: '' }}
                         buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
                         events={events}
-                        editable={isTasksMode}
+                        editable
                         datesSet={handleDatesSet}
-                        eventDrop={isTasksMode ? handleEventDrop : undefined}
+                        eventDrop={isTasksMode ? handleEventDrop : handlePriorityDrop}
                         eventClick={isTasksMode ? handleEventClick : handlePriorityClick}
                         eventContent={renderEventContent}
                         height="auto"
