@@ -107,8 +107,6 @@ export async function fetchExportData(darwinUri, userName, idToken, profile) {
             name: profile.name,
             email: profile.email,
             userName: profile.userName,
-            region: profile.region,
-            userPoolId: profile.userPoolId,
         },
         domains: nestedDomains,
         priorities: cleanPriorities,
