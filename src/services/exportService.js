@@ -5,19 +5,24 @@ import call_rest_api from '../RestApi/RestApi';
  * Returns { exportVersion, exportDate, profile, domains[], priorities[], swarmSessions[] }
  */
 export async function fetchExportData(darwinUri, userName, idToken, profile) {
-    const [domainsRes, areasRes, tasksRes, prioritiesRes, sessionsRes] = await Promise.all([
-        call_rest_api(`${darwinUri}/domains`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/areas`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/tasks`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/priorities`, 'GET', '', idToken),
-        call_rest_api(`${darwinUri}/swarm_sessions`, 'GET', '', idToken),
-    ]);
+    // Lambda-Rest returns 404 when a table has no rows — treat as empty array, not error.
+    const safeGet = async (url) => {
+        try {
+            const result = await call_rest_api(url, 'GET', '', idToken);
+            return result.data || [];
+        } catch (e) {
+            if (e.httpStatus?.httpStatus === 404) return [];
+            throw e;
+        }
+    };
 
-    const domains = domainsRes.data || [];
-    const areas = areasRes.data || [];
-    const tasks = tasksRes.data || [];
-    const priorities = prioritiesRes.data || [];
-    const swarmSessions = sessionsRes.data || [];
+    const [domains, areas, tasks, priorities, swarmSessions] = await Promise.all([
+        safeGet(`${darwinUri}/domains`),
+        safeGet(`${darwinUri}/areas`),
+        safeGet(`${darwinUri}/tasks`),
+        safeGet(`${darwinUri}/priorities`),
+        safeGet(`${darwinUri}/swarm_sessions`),
+    ]);
 
     // Group tasks by area_fk
     const tasksByArea = {};
