@@ -145,27 +145,6 @@ const Profile = () => {
                         variant= "outlined"
                         size = 'small'
                         disabled />
-            <TextField  label="Region"
-                        value = { profile.region }
-                        id= "region"
-                        key="region"
-                        variant= "outlined"
-                        size = 'small'
-                        disabled />
-            <TextField  label="User Pool ID"
-                        value = { profile.userPoolId }
-                        id= "userPoolId"
-                        key="userPoolId"
-                        variant= "outlined"
-                        size = 'small'
-                        disabled />
-            <TextField  label="Cognito Identifier"
-                        value = { profile.userName }
-                        id= "userName"
-                        key="userName"
-                        variant= "outlined"
-                        size = 'small'
-                        disabled />
             <Button
                 variant="outlined"
                 startIcon={exporting ? <CircularProgress size={20} /> : <FileDownloadOutlinedIcon />}
