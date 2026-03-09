@@ -54,7 +54,7 @@ const PriorityCard = ({ domainId, areaIds }) => {
     const showError = useSnackBarStore(s => s.showError);
 
     // Sort mode from persisted store (per domain)
-    const sortMode = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.sortMode ?? 'created');
+    const sortMode = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.sortMode ?? 'hand');
     const setSortModeInStore = usePriorityCardStore(s => s.setSortMode);
 
     // Local state
@@ -324,15 +324,15 @@ const PriorityCard = ({ domainId, areaIds }) => {
                         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                     >
-                        <MenuItem onClick={() => changeSortMode('created')} data-testid="priority-card-sort-created">
-                            <ListItemIcon><AccessTimeIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Chronological Sort</ListItemText>
-                            {sortMode === 'created' && <Check fontSize="small" sx={{ ml: 1 }} data-testid="priority-card-sort-created-check" />}
-                        </MenuItem>
                         <MenuItem onClick={() => changeSortMode('hand')} data-testid="priority-card-sort-hand">
                             <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>Hand Sort</ListItemText>
                             {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} data-testid="priority-card-sort-hand-check" />}
+                        </MenuItem>
+                        <MenuItem onClick={() => changeSortMode('created')} data-testid="priority-card-sort-created">
+                            <ListItemIcon><AccessTimeIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Chronological Sort</ListItemText>
+                            {sortMode === 'created' && <Check fontSize="small" sx={{ ml: 1 }} data-testid="priority-card-sort-created-check" />}
                         </MenuItem>
                     </Menu>
                 </Box>

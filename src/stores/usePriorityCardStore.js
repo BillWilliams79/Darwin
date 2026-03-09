@@ -8,7 +8,7 @@ export const usePriorityCardStore = create(
 
             togglePriorityCard: (domainId) => {
                 const key = String(domainId);
-                const current = get().priorityCards[key] || { show: false, sortMode: 'created' };
+                const current = get().priorityCards[key] || { show: false, sortMode: 'hand' };
                 set({
                     priorityCards: {
                         ...get().priorityCards,
@@ -19,7 +19,7 @@ export const usePriorityCardStore = create(
 
             setSortMode: (domainId, mode) => {
                 const key = String(domainId);
-                const current = get().priorityCards[key] || { show: false, sortMode: 'created' };
+                const current = get().priorityCards[key] || { show: false, sortMode: 'hand' };
                 set({
                     priorityCards: {
                         ...get().priorityCards,
@@ -30,7 +30,7 @@ export const usePriorityCardStore = create(
 
             getPriorityCardState: (domainId) => {
                 const key = String(domainId);
-                return get().priorityCards[key] || { show: false, sortMode: 'created' };
+                return get().priorityCards[key] || { show: false, sortMode: 'hand' };
             },
         }),
         {
