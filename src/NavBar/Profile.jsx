@@ -7,6 +7,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
 import React, { useContext, useState, useMemo, useRef, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -15,6 +16,9 @@ import CircularProgress from '@mui/material/CircularProgress';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
+import LoginOutlined from '@mui/icons-material/LoginOutlined';
+import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined';
 
 const Profile = () => {
 
@@ -23,6 +27,7 @@ const Profile = () => {
     const { idToken, profile, setProfile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
+    const navigate = useNavigate();
 
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
@@ -69,6 +74,38 @@ const Profile = () => {
         }
     };
 
+    // Unauthenticated view — login and create account buttons
+    if (!idToken) {
+        return (
+            <>
+            <Box className="app-title" sx={{ ml: 2}}>
+                <Typography variant="h5">
+                    Profile
+                </Typography>
+            </Box>
+            <Box className="app-content" sx={{ margin: 2, display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 400 }}>
+                <Button
+                    variant="contained"
+                    startIcon={<LoginOutlined />}
+                    onClick={() => navigate('/login', { state: { from: { pathname: '/taskcards' } } })}
+                    data-testid="login-button"
+                >
+                    Log In
+                </Button>
+                <Button
+                    variant="outlined"
+                    startIcon={<PersonAddOutlined />}
+                    onClick={() => navigate('/login', { state: { from: { pathname: '/taskcards' }, signup: true } })}
+                    data-testid="create-account-button"
+                >
+                    Create Account
+                </Button>
+            </Box>
+            </>
+        );
+    }
+
+    // Authenticated view — profile fields + export + logout
     return (
         <>
         <Box className="app-title" sx={{ ml: 2}}>
@@ -137,6 +174,15 @@ const Profile = () => {
                 data-testid="export-button"
             >
                 {exporting ? 'Exporting...' : 'Export My Data'}
+            </Button>
+            <Button
+                variant="outlined"
+                startIcon={<LogoutOutlined />}
+                component={Link}
+                to="/logout"
+                data-testid="logout-button"
+            >
+                Log Out
             </Button>
         </Box>
         </>

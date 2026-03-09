@@ -18,6 +18,19 @@ export function buildLoginUrl(state, codeChallenge) {
     return `https://${AUTH_CONFIG.domain}/login?${params}`;
 }
 
+export function buildSignupUrl(state, codeChallenge) {
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: AUTH_CONFIG.clientId,
+        redirect_uri: AUTH_CONFIG.redirectSignIn,
+        scope: AUTH_CONFIG.scopes.join(' '),
+        state: state,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+    });
+    return `https://${AUTH_CONFIG.domain}/signup?${params}`;
+}
+
 export function buildLogoutUrl() {
     const params = new URLSearchParams({
         client_id: AUTH_CONFIG.clientId,
