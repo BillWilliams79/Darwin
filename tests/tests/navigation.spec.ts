@@ -9,14 +9,20 @@ test.describe('Navigation', () => {
     // Navigate to Calendar
     await page.getByRole('link', { name: /calendar/i }).click();
     await expect(page).toHaveURL(/\/calview/);
+    // Wait for FullCalendar root to render before interacting with the bike menu.
+    // networkidle is unreliable on CalendarFC which makes continuous polling API calls.
+    await page.waitForSelector('.fc', { timeout: 10000 });
 
     // Navigate to Domains (inside bike menu)
     await page.getByTestId('bike-menu-button').click();
+    // Wait for the MUI Menu portal to open before clicking a menu item
+    await expect(page.getByRole('menu')).toBeVisible({ timeout: 5000 });
     await page.getByRole('menuitem', { name: /domains/i }).click();
     await expect(page).toHaveURL(/\/domainedit/);
 
     // Navigate to Areas (inside bike menu)
     await page.getByTestId('bike-menu-button').click();
+    await expect(page.getByRole('menu')).toBeVisible({ timeout: 5000 });
     await page.getByRole('menuitem', { name: /areas/i }).click();
     await expect(page).toHaveURL(/\/areaedit/);
 
