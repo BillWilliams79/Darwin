@@ -6,7 +6,7 @@ import { fetchExportData, downloadJson } from '../services/exportService';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useRef, useCallback } from 'react';
 
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -26,30 +26,34 @@ const Profile = () => {
 
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
-    const [saving, setSaving] = useState(false);
     const [exporting, setExporting] = useState(false);
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
 
-    const hasChanges = name !== (profile?.name || '') || timezone !== (profile?.timezone || '');
+    // Ref to track the latest profile values for save comparison
+    const savedNameRef = useRef(profile?.name || '');
+    const savedTimezoneRef = useRef(profile?.timezone || '');
 
-    const handleSave = () => {
-        setSaving(true);
+    const saveProfile = useCallback((newName, newTimezone) => {
+        // Skip if nothing changed from last saved values
+        if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current) return;
+
         const uri = `${darwinUri}/profiles`;
-        call_rest_api(uri, 'PUT', [{ id: profile.id, name, timezone }], idToken)
+        call_rest_api(uri, 'PUT', [{ id: profile.id, name: newName, timezone: newTimezone }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
-                    const updated = { ...profile, name, timezone };
+                    savedNameRef.current = newName;
+                    savedTimezoneRef.current = newTimezone;
+                    const updated = { ...profile, name: newName, timezone: newTimezone };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
                 } else {
                     showError(result, 'Unable to save profile');
                 }
             })
-            .catch(error => showError(error, 'Unable to save profile'))
-            .finally(() => setSaving(false));
-    };
+            .catch(error => showError(error, 'Unable to save profile'));
+    }, [darwinUri, profile, idToken, setProfile, showError]);
 
     const handleExport = async () => {
         setExporting(true);
@@ -76,6 +80,7 @@ const Profile = () => {
             <TextField  label="Name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
+                        onBlur={() => saveProfile(name, timezone)}
                         id="Name"
                         key="Name"
                         variant="outlined"
@@ -84,7 +89,11 @@ const Profile = () => {
             <Autocomplete
                         options={timezoneOptions}
                         value={selectedTimezone}
-                        onChange={(e, newValue) => setTimezone(newValue?.value || '')}
+                        onChange={(e, newValue) => {
+                            const newTz = newValue?.value || '';
+                            setTimezone(newTz);
+                            saveProfile(name, newTz);
+                        }}
                         isOptionEqualToValue={(option, value) => option.value === value.value}
                         renderInput={(params) => (
                             <TextField {...params} label="Timezone" size="small" />
@@ -120,13 +129,6 @@ const Profile = () => {
                         variant= "outlined"
                         size = 'small'
                         disabled />
-            <Button variant="contained"
-                    onClick={handleSave}
-                    disabled={!hasChanges || saving}
-                    data-testid="profile-save"
-                    sx={{ alignSelf: 'flex-start' }}>
-                {saving ? 'Saving...' : 'Save'}
-            </Button>
             <Button
                 variant="outlined"
                 startIcon={exporting ? <CircularProgress size={20} /> : <FileDownloadOutlinedIcon />}

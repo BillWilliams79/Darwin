@@ -39,7 +39,46 @@ test.describe('Profile', () => {
     await expect(page.locator('body')).toContainText('mail');
   });
 
-  test('PROF-03: export button visible and enabled on profile page', async ({ page }) => {
+  test('PROF-03: no save button on profile page', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Save button should not exist — profile auto-saves on blur
+    await expect(page.getByTestId('profile-save')).toHaveCount(0);
+  });
+
+  test('PROF-04: name field auto-saves on blur', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    const nameField = page.getByTestId('profile-name').locator('input');
+    const originalName = await nameField.inputValue();
+
+    // Intercept PUT to profiles to verify auto-save fires on blur
+    const putPromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+
+    // Modify name and blur to trigger auto-save
+    await nameField.fill(originalName + ' Test');
+    await nameField.blur();
+
+    const putRequest = await putPromise;
+    const body = putRequest.postDataJSON();
+    expect(body[0].name).toBe(originalName + ' Test');
+
+    // Restore original name
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    await nameField.fill(originalName);
+    await nameField.blur();
+    await restorePromise;
+  });
+
+  test('PROF-05: export button visible and enabled on profile page', async ({ page }) => {
     await page.goto('/profile');
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
 
@@ -49,7 +88,7 @@ test.describe('Profile', () => {
     await expect(exportButton).toContainText('Export My Data');
   });
 
-  test('PROF-04: export downloads valid JSON with expected structure', async ({ page }) => {
+  test('PROF-06: export downloads valid JSON with expected structure', async ({ page }) => {
     await page.goto('/profile');
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
 
@@ -95,7 +134,7 @@ test.describe('Profile', () => {
     fs.unlinkSync(downloadPath);
   });
 
-  test('PROF-05: export button shows loading state during fetch', async ({ page }) => {
+  test('PROF-07: export button shows loading state during fetch', async ({ page }) => {
     await page.goto('/profile');
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
 
