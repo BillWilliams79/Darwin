@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -219,6 +219,34 @@ export function useDevServers(creatorFk, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/tasks?priority=1&done=0&area_fk=(${areaIds.join(',')})&fields=id,priority,done,description,area_fk,sort_order`;
+    const queryKey = taskKeys.priorityByDomain(creatorFk, domainId, areaIds);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!domainId && areaIds.length > 0 && !!idToken,
+    });
+}
+
+export function usePriorityCardOrder(creatorFk, domainId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/priority_card_order?domain_id=${domainId}&fields=id,task_id,sort_order&sort=sort_order:asc`;
+    const queryKey = priorityCardOrderKeys.byDomain(creatorFk, domainId);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!domainId && !!idToken,
     });
 }
 

@@ -143,6 +143,9 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             call_rest_api(uri, 'DELETE', {'id': taskId}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
+                        // Also clean up any priority_card_order record
+                        call_rest_api(`${darwinUri}/priority_card_order`, 'DELETE',
+                            { domain_id: domainId, task_id: taskId }, idToken);
                         let newTasksArray = [...tasksArray]
                         newTasksArray = newTasksArray.filter(task => task.id !== taskId );
                         setTasksArray(newTasksArray);
@@ -351,13 +354,21 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             let uri = `${darwinUri}/tasks`;
             call_rest_api(uri, 'PUT', [{'id': taskId, 'priority': newTasksArray[taskIndex].priority}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus > 204) {
                         showError(result, "Unable to change task's priority")
+                    } else {
+                        // Invalidate AFTER PUT completes so PriorityCard refetches current server state
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                     }
                 }).catch(error => {
                     showError(error, "Unable to change task's priority")
                 }
             );
+            // If priority was toggled OFF, clean up any priority_card_order record for this domain
+            if (newTasksArray[taskIndex].priority === 0) {
+                call_rest_api(`${darwinUri}/priority_card_order`, 'DELETE',
+                    { domain_id: domainId, task_id: taskId }, idToken);
+            }
         } else if (savingRef.current) {
             // Template task with POST in-flight: queue for follow-up PUT
             pendingMutationsRef.current.priority = newTasksArray[taskIndex].priority;
@@ -382,13 +393,21 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             call_rest_api(uri, 'PUT', [{'id': taskId, 'done': newTasksArray[taskIndex].done,
                           ...(newTasksArray[taskIndex].done === 1 ? {'done_ts': new Date().toISOString()} : {'done_ts': 'NULL'})}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus > 204) {
                         showError(result, "Unable to mark task completed")
+                    } else {
+                        // Invalidate AFTER PUT completes so PriorityCard refetches current server state
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                     }
                 }).catch(error => {
                     showError(error, "Unable to mark task completed")
                 }
             );
+            // If marked done, clean up any priority_card_order record for this domain
+            if (newTasksArray[taskIndex].done === 1) {
+                call_rest_api(`${darwinUri}/priority_card_order`, 'DELETE',
+                    { domain_id: domainId, task_id: taskId }, idToken);
+            }
         } else if (savingRef.current) {
             // Template task with POST in-flight: queue for follow-up PUT
             pendingMutationsRef.current.done = newTasksArray[taskIndex].done;
