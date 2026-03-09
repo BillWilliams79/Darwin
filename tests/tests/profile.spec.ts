@@ -13,10 +13,10 @@ test.describe('Profile', () => {
     // Verify navigation to /profile
     await expect(page).toHaveURL(/\/profile/);
 
-    // Profile.jsx renders 6 TextFields: Name, Timezone (Autocomplete), E-mail, Region, User Pool ID, Cognito Identifier
+    // Profile.jsx renders 3 TextFields: Name, Timezone (Autocomplete), E-mail
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
     const textFields = page.locator('.MuiTextField-root');
-    await expect(textFields).toHaveCount(6);
+    await expect(textFields).toHaveCount(3);
 
     // Verify profile labels are present
     await expect(page.locator('body')).toContainText('Name');
@@ -28,9 +28,9 @@ test.describe('Profile', () => {
     await page.goto('/profile');
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
 
-    // Profile.jsx renders 6 TextFields: Name, Timezone (Autocomplete), E-mail, Region, User Pool ID, Cognito Identifier
+    // Profile.jsx renders 3 TextFields: Name, Timezone (Autocomplete), E-mail
     const textFields = page.locator('.MuiTextField-root');
-    await expect(textFields).toHaveCount(6);
+    await expect(textFields).toHaveCount(3);
 
     // Verify profile labels are present
     await expect(page.locator('body')).toContainText('Name');
