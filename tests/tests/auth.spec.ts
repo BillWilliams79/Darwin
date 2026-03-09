@@ -15,12 +15,14 @@ test.describe('Authentication', () => {
     // Multi-redirect flow through external service needs generous timeout
     test.setTimeout(60_000);
 
-    await page.goto('/');
+    // Unauthenticated / → redirects to /profile which shows Log In button
+    await page.goto('/profile');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait for React app to render before clicking
-    const loginLink = page.getByRole('link', { name: /login/i });
-    await expect(loginLink).toBeVisible({ timeout: 15000 });
-    await loginLink.click();
+    const loginBtn = page.getByTestId('login-button');
+    await expect(loginBtn).toBeVisible({ timeout: 15000 });
+    await loginBtn.click();
 
     // Should redirect to Cognito hosted UI
     await expect(page).toHaveURL(/amazoncognito\.com/, { timeout: 15000 });
@@ -32,11 +34,14 @@ test.describe('Authentication', () => {
     await page.locator('input[name="password"]:visible').fill(process.env.E2E_TEST_PASSWORD!);
     await page.locator('input[name="signInSubmitButton"]:visible').click();
 
-    // Auth code flow: Cognito redirects to /loggedin?code=xxx → token exchange → redirect.
-    // Wait for final authenticated state — avoids race if /loggedin redirect is fast.
-    await expect(page.getByRole('link', { name: /logout/i })).toBeVisible({ timeout: 30000 });
+    // Auth code flow: Cognito redirects to /loggedin?code=xxx → token exchange → /taskcards.
+    // Wait for final authenticated state — URL should NOT be /login or /loggedin.
+    await expect(page).not.toHaveURL(/\/(login|loggedin)/, { timeout: 30000 });
+    // Verify protected route is accessible (Plan view renders domain tabs)
+    await page.waitForSelector('[role="tab"]', { timeout: 15000 });
 
     // Verify in-session navigation to protected route works (SPA navigation, no reload)
+    // Sidebar nav uses ListItemButton (role="link") with label "Plan"
     await page.getByRole('link', { name: /plan/i }).click();
     await expect(page).toHaveURL(/\/taskcards/);
   });

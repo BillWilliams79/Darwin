@@ -7,11 +7,12 @@ test.describe('Authentication P1', () => {
     await page.goto('/taskcards');
     await expect(page).not.toHaveURL(/\/login/, { timeout: 10000 });
 
-    // Navigate to home page to find logout link
-    await page.goto('/');
+    // Navigate to /profile — the logout button lives there in the authenticated view
+    await page.goto('/profile');
+    await page.waitForLoadState('domcontentloaded');
 
-    // The HomePage shows "Logout" as a link when idToken is set
-    const logoutLink = page.getByRole('link', { name: /logout/i });
+    // Profile renders "Log Out" as <Button component={Link}> → <a role="link">
+    const logoutLink = page.getByTestId('logout-button');
     await expect(logoutLink).toBeVisible({ timeout: 5000 });
 
     // LogoutLink component clears refreshToken cookie and redirects to Cognito logout URL.
