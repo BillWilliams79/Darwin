@@ -95,8 +95,10 @@ function LoggedIn() {
                             .then(result => {
                                 if (result.httpStatus.httpStatus === 200) {
                                     const dbProfile = result.data[0];
-                                    setProfile(dbProfile);
-                                    localStorage.setItem('darwin-profile', JSON.stringify(dbProfile));
+                                    const jwtProfile = parseIdToken(tokens.idToken);
+                                    const mergedProfile = { ...dbProfile, ...jwtProfile };
+                                    setProfile(mergedProfile);
+                                    localStorage.setItem('darwin-profile', JSON.stringify(mergedProfile));
                                     // Schedule background token refresh (pass refresh token for the ref)
                                     scheduleRefresh(tokens.expiresIn, tokens.refreshToken);
                                 } else {
