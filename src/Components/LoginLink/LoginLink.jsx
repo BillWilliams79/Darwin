@@ -6,7 +6,7 @@ import { useLocation } from "react-router-dom"
 import cryptoRandomString from 'crypto-random-string';
 import { useCookies } from 'react-cookie';
 import { generateCodeVerifier, generateCodeChallenge, storeCodeVerifier } from '../../services/pkce';
-import { buildLoginUrl } from '../../services/authService';
+import { buildLoginUrl, buildSignupUrl } from '../../services/authService';
 
 const LoginLink = () => {
 
@@ -33,7 +33,8 @@ const LoginLink = () => {
             const codeChallenge = await generateCodeChallenge(codeVerifier);
 
             // Redirect to Cognito hosted UI with auth code + PKCE
-            window.location = buildLoginUrl(csrf, codeChallenge);
+            const isSignup = location?.state?.signup;
+            window.location = isSignup ? buildSignupUrl(csrf, codeChallenge) : buildLoginUrl(csrf, codeChallenge);
         }
         initiateLogin();
         // eslint-disable-next-line react-hooks/exhaustive-deps
