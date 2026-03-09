@@ -8,7 +8,7 @@ import { AuthContextProvider } from './Context/AuthContext'
 import { AppContextProvider } from './Context/AppContext';
 import { CookiesProvider } from 'react-cookie';
 import { DndProvider } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
+import { TouchBackend } from "react-dnd-touch-backend";
 import QueryClientSetup from './QueryClient/QueryClientSetup';
 
 import App from './App';
@@ -37,7 +37,7 @@ root.render(
     <CookiesProvider>
       <AuthContextProvider>
         <AppContextProvider>
-          <DndProvider backend={HTML5Backend}>
+          <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true, delayTouchStart: 150 }}>
             <Router >
             <div className="app-layout">
               <Routes>
