@@ -58,9 +58,7 @@ root.render(
                     <Route path="domainedit"   element= {<AuthenticatedRoute>
                                                              <DomainEdit />
                                                          </AuthenticatedRoute>} />
-                    <Route path="profile"      element= {<AuthenticatedRoute>
-                                                             <Profile />
-                                                         </AuthenticatedRoute>} />
+                    <Route path="profile"      element= {<Profile />} />
                     <Route path="swarm"        element= {<AuthenticatedRoute>
                                                              <SwarmView />
                                                          </AuthenticatedRoute>} />

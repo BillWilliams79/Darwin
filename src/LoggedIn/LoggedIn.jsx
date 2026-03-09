@@ -113,7 +113,7 @@ function LoggedIn() {
             });
 
         // STEP 5: Determine post-login redirect path
-        setRedirectPath(cookies?.redirectPath || "/");
+        setRedirectPath(cookies?.redirectPath || "/taskcards");
         removeCookie('redirectPath', {path: '/', maxAge: 600});
 
         //eslint-disable-next-line react-hooks/exhaustive-deps
