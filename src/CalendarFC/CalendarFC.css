@@ -102,3 +102,22 @@
     text-transform: none !important;
     line-height: 1.5 !important;
 }
+
+@media (max-width: 899px) {
+    /* Adequate touch targets for FC nav buttons */
+    .fc .fc-button {
+        min-height: 36px;
+        padding: 0.3em 0.6em;
+    }
+
+    /* Day numbers in grid — readable size */
+    .fc .fc-daygrid-day-number {
+        font-size: 0.85rem;
+    }
+
+    /* Column headers — compact on narrow screens */
+    .fc .fc-col-header-cell-cushion {
+        font-size: 0.75rem;
+        padding: 4px 2px;
+    }
+}
