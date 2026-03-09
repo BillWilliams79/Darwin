@@ -255,7 +255,7 @@ test.describe.serial('Priority Card', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('PCARD-08: hand sort mode persists across page reload', async ({ page }) => {
+  test('PCARD-08: sort mode persists across page reload', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const taskDesc = uniqueName('PCardHandSort');
 
@@ -267,9 +267,12 @@ test.describe.serial('Priority Card', () => {
     await goToTestDomain(page);
     await showPriorityCard(page);
 
-    // Switch to hand sort
+    // Default is hand sort — verify check indicator visible
     await page.getByTestId(`priority-card-menu-${testDomainId}`).click();
-    await page.getByTestId('priority-card-sort-hand').click();
+    await expect(page.getByTestId('priority-card-sort-hand-check')).toBeVisible();
+
+    // Switch to chronological sort
+    await page.getByTestId('priority-card-sort-created').click();
     await page.waitForTimeout(500);
 
     // Priority card still visible, no crash
@@ -284,10 +287,10 @@ test.describe.serial('Priority Card', () => {
     // Priority card still shown (toggle state persisted)
     await expect(page.getByTestId('priority-card')).toBeVisible({ timeout: 5000 });
 
-    // Open menu — Hand Sort check indicator should be visible (sortMode='hand' persisted)
+    // Open menu — Chronological check indicator should be visible (sortMode='created' persisted)
     await page.getByTestId(`priority-card-menu-${testDomainId}`).click();
-    await expect(page.getByTestId('priority-card-sort-hand')).toBeVisible();
-    await expect(page.getByTestId('priority-card-sort-hand-check')).toBeVisible();
+    await expect(page.getByTestId('priority-card-sort-created')).toBeVisible();
+    await expect(page.getByTestId('priority-card-sort-created-check')).toBeVisible();
 
     await page.keyboard.press('Escape');
   });
