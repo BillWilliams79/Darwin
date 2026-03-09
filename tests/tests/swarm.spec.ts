@@ -87,7 +87,9 @@ test.describe('Swarm View', () => {
     testIssueSessionId = issueResult[0].id;
   });
 
+  // 60s timeout: 6 sequential API deletes on cold Lambda can exceed the 30s default
   test.afterAll(async () => {
+    test.setTimeout(60000);
     // Delete in FK-safe order
     try { await apiDelete('priority_sessions', `${testPriorityId}`, idToken); } catch {}
     try { await apiDelete('swarm_sessions', testSessionId, idToken); } catch {}
