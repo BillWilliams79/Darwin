@@ -24,7 +24,29 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import { CircularProgress, Tabs } from '@mui/material';
+import Tooltip from '@mui/material/Tooltip';
+import IconButton from '@mui/material/IconButton';
+import FlagIcon from '@mui/icons-material/Flag';
 import DroppableTab from './DroppableTab';
+import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+
+// Small component to subscribe to per-domain priority card show state
+const PriorityFlagButton = ({ domainId, togglePriorityCard }) => {
+    const show = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.show ?? false);
+    return (
+        <Tooltip title={show ? 'Hide Priority Card' : 'Show Priority Card'}>
+            <IconButton
+                size="small"
+                onClick={() => togglePriorityCard(domainId)}
+                color={show ? 'primary' : 'default'}
+                data-testid={`priority-card-toggle-${domainId}`}
+                sx={{ flexShrink: 0, mx: 1 }}
+            >
+                <FlagIcon />
+            </IconButton>
+        </Tooltip>
+    );
+};
 
 const TaskPlanView = () => {
 
@@ -44,6 +66,9 @@ const TaskPlanView = () => {
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
+
+    // Priority card toggle (used by PriorityFlagButton via prop)
+    const togglePriorityCard = usePriorityCardStore(s => s.togglePriorityCard);
 
     // TanStack Query — fetch open domains
     const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
@@ -218,32 +243,40 @@ const TaskPlanView = () => {
         {domainsArray ?
             <>
             <Box className="app-content-planpage">
-                    <Box sx={{ borderBottom: 1, borderColor: 'divider' }}
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
                          className="app-content-tabs"
                     >
-                        <Tabs value={activeTab.toString()}
-                              onChange={changeActiveTab}
-                              variant="scrollable"
-                              scrollButtons="auto" >
-                            {domainsArray.map( (domain, domainIndex) =>
-                                <DroppableTab key={domain.id}
-                                     domainIndex={domainIndex}
-                                     domainId={domain.id}
-                                     domainName={domain.domain_name}
-                                     setDomainInsertIndex={setDomainInsertIndex}
-                                     persistDomainOrder={persistDomainOrder}
-                                     renameDomain={renameDomain}
-                                     icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
-                                     label={domain.domain_name}
-                                     value={domainIndex.toString()}
-                                     iconPosition="end" />
-                            )}
-                            <Tab key={'add-domain'}
-                                 icon={<AddIcon onClick={addDomain}/>}
-                                 iconPosition="start"
-                                 value={9999} // this value is used in changeActiveTab()
-                            />
-                        </Tabs>
+                        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto" >
+                                {domainsArray.map( (domain, domainIndex) =>
+                                    <DroppableTab key={domain.id}
+                                         domainIndex={domainIndex}
+                                         domainId={domain.id}
+                                         domainName={domain.domain_name}
+                                         setDomainInsertIndex={setDomainInsertIndex}
+                                         persistDomainOrder={persistDomainOrder}
+                                         renameDomain={renameDomain}
+                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                         label={domain.domain_name}
+                                         value={domainIndex.toString()}
+                                         iconPosition="end" />
+                                )}
+                                <Tab key={'add-domain'}
+                                     icon={<AddIcon onClick={addDomain}/>}
+                                     iconPosition="start"
+                                     value={9999} // this value is used in changeActiveTab()
+                                />
+                            </Tabs>
+                        </Box>
+                        {domainsArray[parseInt(activeTab)] && (() => {
+                            const activeDomainId = domainsArray[parseInt(activeTab)].id;
+                            return (
+                                <PriorityFlagButton domainId={activeDomainId} togglePriorityCard={togglePriorityCard} />
+                            );
+                        })()}
                     </Box>
                         {   domainsArray.map( (domain, domainIndex) =>
                                 <AreaTabPanel key={domain.id}
