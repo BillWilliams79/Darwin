@@ -116,15 +116,15 @@ test.describe('Task Management', () => {
     const checkboxes = taskRow.getByRole('checkbox');
     await checkboxes.nth(1).click();
 
-    // Wait for the PUT to complete
-    await page.waitForTimeout(1000);
+    // Local state marks done=1 immediately — verify the checkbox reflects it
+    // before the PUT + invalidation cycle removes the task from the DOM.
+    await expect(checkboxes.nth(1)).toBeChecked({ timeout: 2000 });
 
-    // The task stays in the local state array with done=1 (shows with strikethrough).
-    // It only disappears after a page refresh when the API re-fetches (done=0 filter).
-    // Verify the done checkbox is now checked.
-    await expect(checkboxes.nth(1)).toBeChecked();
+    // After PUT completes, query invalidation triggers a refetch (done=0 filter).
+    // The task is automatically removed from the card — no reload required.
+    await expect(taskRow).not.toBeVisible({ timeout: 5000 });
 
-    // Verify the task disappears after reload (API only fetches done=0)
+    // Belt-and-suspenders: also confirm task is absent after a full reload
     await page.reload();
     await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
