@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -57,14 +57,15 @@ export function useAreas(creatorFk, domainId, { closed, fields = 'id,area_name,d
     });
 }
 
-export function useAllAreas(creatorFk, { fields = 'id,domain_fk', enabled = true } = {}) {
+export function useAllAreas(creatorFk, { fields = 'id,domain_fk', closed, enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/areas?fields=${fields}`;
+    const closedParam = closed !== undefined ? `&closed=${closed}` : '';
+    const uri = `${darwinUri}/areas?fields=${fields}${closedParam}`;
 
     return useQuery({
-        queryKey: areaKeys.all(creatorFk),
+        queryKey: closed !== undefined ? [...areaKeys.all(creatorFk), { closed }] : areaKeys.all(creatorFk),
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
     });
@@ -261,5 +262,22 @@ export function useDevServersBySession(sessionId, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!sessionId && !!idToken,
+    });
+}
+
+export function useRecurringTasks(creatorFk, {
+    fields = 'id,description,recurrence,anchor_date,area_fk,priority,accumulate,insert_position,active,last_generated',
+    enabled = true
+} = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/recurring_tasks?fields=${fields}`;
+    const queryKey = recurringTaskKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
     });
 }
