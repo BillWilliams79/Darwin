@@ -69,6 +69,14 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         newAreasArray = newAreasArray.filter(area => area.id !== areaId );
                         setAreasArray(newAreasArray);
                         queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
+                        // Pause recurring task definitions for this area
+                        call_rest_api(`${darwinUri}/recurring_tasks?area_fk=${areaId}&fields=id`, 'GET', '', idToken)
+                            .then(rtResult => {
+                                if (rtResult?.data?.length > 0) {
+                                    const updates = rtResult.data.map(rt => ({ id: rt.id, active: 0 }));
+                                    call_rest_api(`${darwinUri}/recurring_tasks`, 'PUT', updates, idToken);
+                                }
+                            });
                     } else {
                         showError(result, `Unable to close ${areaName}`)
                     }
