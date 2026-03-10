@@ -42,7 +42,7 @@ const RecurringAreaCard = ({ area, definitions }) => {
     };
 
     return (
-        <Card raised={true}>
+        <Card raised={true} data-testid={`recurring-area-card-${area.id}`}>
             <CardContent>
                 {/* Card header — identical to TaskCard */}
                 <Box className="card-header" sx={{ marginBottom: 2 }}>
