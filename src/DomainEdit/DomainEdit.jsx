@@ -195,6 +195,22 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         showError(result, 'Unable to close domain')
+                    } else {
+                        // Pause or resume recurring task definitions for all areas in this domain
+                        const areaIds = (serverAreas || [])
+                            .filter(a => String(a.domain_fk) === String(domainId))
+                            .map(a => a.id);
+                        if (areaIds.length > 0) {
+                            call_rest_api(
+                                `${darwinUri}/recurring_tasks?area_fk=(${areaIds.join(',')})&fields=id`,
+                                'GET', '', idToken
+                            ).then(rtResult => {
+                                if (rtResult?.data?.length > 0) {
+                                    const updates = rtResult.data.map(rt => ({ id: rt.id, active: newClosed ? 0 : 1 }));
+                                    call_rest_api(`${darwinUri}/recurring_tasks`, 'PUT', updates, idToken);
+                                }
+                            });
+                        }
                     }
                 }).catch(error => {
                     showError(error, 'Unable to close domain')

@@ -179,6 +179,15 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
             .then(result => {
                 if (result.httpStatus.httpStatus > 200) {
                     showError(result, `Unable to close area`)
+                } else {
+                    // Pause or resume recurring task definitions for this area
+                    call_rest_api(`${darwinUri}/recurring_tasks?area_fk=${areaId}&fields=id`, 'GET', '', idToken)
+                        .then(rtResult => {
+                            if (rtResult?.data?.length > 0) {
+                                const updates = rtResult.data.map(rt => ({ id: rt.id, active: newClosed ? 0 : 1 }));
+                                call_rest_api(`${darwinUri}/recurring_tasks`, 'PUT', updates, idToken);
+                            }
+                        });
                 }
             }).catch(error => {
                 showError(error, `Unable to close area`)

@@ -57,3 +57,8 @@ export const devServerKeys = {
     all: (creatorFk) => ['dev_servers', creatorFk],
     bySession: (sessionId) => ['dev_servers', { sessionId }],
 };
+
+export const recurringTaskKeys = {
+    all: (creatorFk) => ['recurring_tasks', creatorFk],
+    active: (creatorFk) => ['recurring_tasks', creatorFk, { active: 1 }],
+};
