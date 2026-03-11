@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { recurringTaskKeys } from '../hooks/useQueryKeys';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -14,7 +13,6 @@ import CardContent from '@mui/material/CardContent';
 import TextField from '@mui/material/TextField';
 
 import RecurringTaskRow from './RecurringTaskRow';
-import RecurringDeleteDialog from './RecurringDeleteDialog';
 
 const RecurringAreaCard = ({ area, definitions }) => {
     const { idToken, profile } = useContext(AuthContext);
@@ -74,19 +72,11 @@ const RecurringAreaCard = ({ area, definitions }) => {
         invalidate();
     };
 
-    const recurringDelete = useConfirmDialog({
-        onConfirm: (def) => {
-            call_rest_api(`${darwinUri}/recurring_tasks`, 'DELETE', { id: def.id }, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus > 204) { showError(result, 'Unable to delete'); return; }
-                    invalidate();
-                })
-                .catch(error => showError(error, 'Unable to delete'));
-        }
-    });
-
-    const handleDelete = (def) => {
-        recurringDelete.openDialog(def);
+    const handleDelete = async (def) => {
+        if (!window.confirm(`Delete "${def.description}"?`)) return;
+        const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'DELETE', { id: def.id }, idToken);
+        if (result.httpStatus.httpStatus > 204) { showError(result, 'Unable to delete'); return; }
+        invalidate();
     };
 
     return (
@@ -135,11 +125,6 @@ const RecurringAreaCard = ({ area, definitions }) => {
                 />
             </CardContent>
         </Card>
-        <RecurringDeleteDialog open={recurringDelete.dialogOpen}
-                               setOpen={recurringDelete.setDialogOpen}
-                               def={recurringDelete.infoObject}
-                               setConfirmed={recurringDelete.setConfirmed} />
-        </>
     );
 };
 
