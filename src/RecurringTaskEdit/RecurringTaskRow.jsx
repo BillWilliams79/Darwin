@@ -207,7 +207,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             sx={{
                 // Col:  [priority] [accumulate] [active]  [description] [recurrence] [anchor]      [action]
                 display: 'grid',
-                gridTemplateColumns: `25px 25px 25px 1fr 105px ${ANCHOR_WIDTH}px 30px`,
+                gridTemplateColumns: `28px 28px 28px 1fr 105px ${ANCHOR_WIDTH}px 32px`,
                 alignItems: 'center',
                 opacity: rowOpacity,
                 background: 'white',
@@ -217,9 +217,9 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             <Checkbox
                 checked={!!local.priority}
                 onClick={() => handleField('priority')(local.priority ? 0 : 1)}
-                icon={<ReportGmailerrorredOutlinedIcon />}
-                checkedIcon={<ReportIcon />}
-                sx={{ maxWidth: 25, maxHeight: 25, mr: '2px' }}
+                icon={<ReportGmailerrorredOutlinedIcon sx={{ fontSize: 20 }} />}
+                checkedIcon={<ReportIcon sx={{ fontSize: 20 }} />}
+                sx={{ maxWidth: 28, maxHeight: 28, mr: '2px' }}
             />
 
             {/* 2. Accumulate — moved between priority and active */}
@@ -228,11 +228,11 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
                     size="small"
                     onClick={() => handleField('accumulate')(local.accumulate ? 0 : 1)}
                     color={local.accumulate ? 'default' : 'warning'}
-                    sx={{ maxWidth: 25, maxHeight: 25, mr: '2px', p: 0 }}
+                    sx={{ maxWidth: 28, maxHeight: 28, mr: '2px', p: 0 }}
                 >
                     {local.accumulate
-                        ? <LayersIcon sx={{ fontSize: 16 }} />
-                        : <SwapHorizIcon sx={{ fontSize: 16 }} />}
+                        ? <LayersIcon sx={{ fontSize: 20 }} />
+                        : <SwapHorizIcon sx={{ fontSize: 20 }} />}
                 </IconButton>
             </Tooltip>
 
@@ -241,9 +241,9 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
                 checked={!!local.active}
                 onClick={() => { if (!isTemplate) handleField('active')(local.active ? 0 : 1); }}
                 disabled={isTemplate && !hasText}
-                icon={<PauseCircleOutlineIcon />}
-                checkedIcon={<PlayCircleOutlineIcon color={isTemplate ? 'disabled' : 'success'} />}
-                sx={{ maxWidth: 25, maxHeight: 25, mr: '2px' }}
+                icon={<PauseCircleOutlineIcon sx={{ fontSize: 20 }} />}
+                checkedIcon={<PlayCircleOutlineIcon color={isTemplate ? 'disabled' : 'success'} sx={{ fontSize: 20 }} />}
+                sx={{ maxWidth: 28, maxHeight: 28, mr: '2px' }}
             />
 
             {/* 4. Description — identical to TaskEdit */}
@@ -315,21 +315,21 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             {/* 7. Save (template) or Delete (existing) — always in same column */}
             {isTemplate ? (
                 <Tooltip title="Save">
-                    <span>
+                    <span style={{ display: 'flex', justifyContent: 'center' }}>
                         <IconButton
                             size="small"
                             disabled={!hasText}
                             onClick={() => { if (hasText) { descRef.current?.blur(); } }}
-                            sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}
+                            sx={{ maxWidth: 32, maxHeight: 32, p: 0 }}
                         >
-                            <SavingsIcon sx={{ fontSize: 16, opacity: hasText ? 1 : 0.35 }} />
+                            <SavingsIcon sx={{ fontSize: 20, opacity: hasText ? 1 : 0.35 }} />
                         </IconButton>
                     </span>
                 </Tooltip>
             ) : (
                 <Tooltip title="Delete">
-                    <IconButton size="small" onClick={() => onDelete(local)} sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                        <DeleteIcon sx={{ fontSize: 16 }} />
+                    <IconButton size="small" onClick={() => onDelete(local)} sx={{ maxWidth: 32, maxHeight: 32, p: 0 }}>
+                        <DeleteIcon sx={{ fontSize: 20 }} />
                     </IconButton>
                 </Tooltip>
             )}
