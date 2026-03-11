@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
 
 import Box from '@mui/material/Box';
 import Checkbox from '@mui/material/Checkbox';
@@ -67,9 +69,34 @@ const menuItemSx = { py: 0.5 };
 // Fixed width for the anchor area — sized for the widest case (annual: month+day)
 const ANCHOR_WIDTH = 122;
 
-const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete }) => {
+const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete, onRemove }) => {
     const [local, setLocal] = useState(def ? { ...def } : { ...BLANK });
     const descRef = useRef(null);
+    const rowRef = useRef(null);
+    const onRemoveRef = useRef(onRemove);
+    useEffect(() => { onRemoveRef.current = onRemove; }, [onRemove]);
+
+    const [{ isDragging }, drag, preview] = useDrag(() => ({
+        type: 'recurringTask',
+        item: () => {
+            const rect = rowRef.current?.getBoundingClientRect();
+            return { ...local, area_fk: areaId, sourceWidth: rect?.width || 500 };
+        },
+        canDrag: () => !isTemplate,
+        end: (item, monitor) => {
+            const dropResult = monitor.getDropResult();
+            if (dropResult?.def !== null && dropResult?.def !== undefined) {
+                onRemoveRef.current?.(item.id);
+            }
+        },
+        collect: (monitor) => ({
+            isDragging: !!monitor.isDragging(),
+        }),
+    }), [local, areaId, isTemplate]);
+
+    useEffect(() => {
+        preview(getEmptyImage());
+    }, [preview]);
 
     useEffect(() => {
         if (def) setLocal({ ...def });
@@ -131,11 +158,17 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
     const needsDay      = local.recurrence === 'monthly';
     const needsMonthDay = local.recurrence === 'annual';
 
+    const mergedRef = useCallback((node) => {
+        rowRef.current = node;
+        if (!isTemplate) drag(node);
+    }, [drag, isTemplate]);
+
     const hasText    = local.description.trim().length > 0;
-    const rowOpacity = (!isTemplate && !local.active) ? 0.45 : 1;
+    const rowOpacity = isDragging ? 0.2 : (!isTemplate && !local.active) ? 0.45 : 1;
 
     return (
         <Box
+            ref={mergedRef}
             data-testid={isTemplate ? 'recurring-template' : `recurring-${local.id}`}
             sx={{
                 // Col:  [priority] [accumulate] [active]  [description] [recurrence] [anchor]      [action]
@@ -143,6 +176,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
                 gridTemplateColumns: `25px 25px 25px 1fr 105px ${ANCHOR_WIDTH}px 30px`,
                 alignItems: 'center',
                 opacity: rowOpacity,
+                cursor: isTemplate ? 'default' : 'grab',
                 background: 'white',
             }}
         >
