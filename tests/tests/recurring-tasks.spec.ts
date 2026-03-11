@@ -369,12 +369,11 @@ test.describe('Recurring Tasks Management', () => {
     await page.mouse.down();
     await page.waitForTimeout(100);
 
-    // Step 2: hover over domain 2 tab for >500ms — triggers RecurringDroppableTab timer
+    // Step 2: hover over domain 2 tab — triggers RecurringDroppableTab's 500ms timer
     await page.mouse.move(tabBounds.x + tabBounds.width / 2, tabBounds.y + tabBounds.height / 2, { steps: 5 });
-    await page.waitForTimeout(2000); // 500ms timer + 1500ms margin (generous for CI/load)
-
-    // Step 3: wait for tab switch (domain 2 panel becomes visible)
-    await expect(area3Card).toBeVisible({ timeout: 10000 });
+    // Step 3: poll for tab switch — active polling lets the browser process the hover timer
+    // more reliably than waitForTimeout under full-suite parallel load
+    await expect(area3Card).toBeVisible({ timeout: 15000 });
 
     // Step 4: move to area card in domain 2 and drop
     const area3Bounds = await area3Card.boundingBox();
