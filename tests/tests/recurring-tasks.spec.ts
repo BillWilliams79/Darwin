@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
 test.describe('Recurring Tasks Management', () => {
+  test.describe.configure({ mode: 'serial' }); // single worker — beforeAll creates one shared domain
   test.setTimeout(60000);
 
   let idToken: string;
@@ -56,8 +57,8 @@ test.describe('Recurring Tasks Management', () => {
     await goToTestDomain(page);
     const card = page.getByTestId(`recurring-area-card-${testAreaId}`);
     await expect(card).toBeVisible();
-    // Area name is shown in card header
-    await expect(card.locator('input[name="area-name"]')).toHaveValue(testAreaName);
+    // Area name is shown in card header (multiline TextField renders textarea, not input)
+    await expect(card.locator('[name="area-name"]')).toHaveValue(testAreaName);
   });
 
   // -------------------------------------------------------------------------
@@ -114,9 +115,11 @@ test.describe('Recurring Tasks Management', () => {
     await descField.fill('Updated description');
     await descField.press('Tab');
 
-    // Verify persisted via API
-    const updated = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ description: string }>;
-    expect(updated?.[0]?.description).toBe('Updated description');
+    // Poll until PUT completes — avoids race between blur-triggered PUT and immediate GET
+    await expect.poll(async () => {
+      const u = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ description: string }>;
+      return u?.[0]?.description;
+    }, { timeout: 5000 }).toBe('Updated description');
   });
 
   // -------------------------------------------------------------------------
@@ -147,9 +150,87 @@ test.describe('Recurring Tasks Management', () => {
     const activeCheckbox = row.locator('input[type="checkbox"]').nth(1); // 0=priority, 1=active
     await activeCheckbox.click({ force: true });
 
-    // Verify persisted via API
-    const updated = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ active: number }>;
-    expect(updated?.[0]?.active).toBe(0);
+    // Poll until PUT completes
+    await expect.poll(async () => {
+      const u = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ active: number }>;
+      return u?.[0]?.active;
+    }, { timeout: 5000 }).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-05a: Keyboard navigation on recurrence select
+  // -------------------------------------------------------------------------
+  test('REC-05a: keyboard shortcut changes recurrence select', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub,
+      description: 'Keyboard recurrence test',
+      area_fk: testAreaId,
+      recurrence: 'daily',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    await expect(row).toBeVisible();
+
+    // Focus the recurrence select via click→Escape (reliable MUI focus pattern), then press shortcut
+    const recurrenceSelect = row.locator('[role="combobox"]').first();
+    await recurrenceSelect.click();          // opens dropdown
+    await page.keyboard.press('Escape');     // closes dropdown, focus stays on select button
+    await page.keyboard.press('m');          // our onKeyDown handler fires → monthly
+
+    // Poll until PUT completes
+    await expect.poll(async () => {
+      const u = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ recurrence: string }>;
+      return u?.[0]?.recurrence;
+    }, { timeout: 5000 }).toBe('monthly');
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-05b: Keyboard cycling on weekday select (S = Sat, S again = Sun)
+  // -------------------------------------------------------------------------
+  test('REC-05b: keyboard cycling on weekday anchor select', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub,
+      description: 'Weekday cycle test',
+      area_fk: testAreaId,
+      recurrence: 'weekly',
+      anchor_date: '2025-01-06',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    await expect(row).toBeVisible();
+
+    // Second combobox is the weekday anchor select
+    const weekdaySelect = row.locator('[role="combobox"]').nth(1);
+
+    // First S → Saturday: click→Escape to focus the select button, then press key
+    await weekdaySelect.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('s');
+    await expect.poll(async () => {
+      const u = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ anchor_date: string }>;
+      return u?.[0]?.anchor_date?.slice(0, 10);
+    }, { timeout: 5000 }).toBe('2025-01-11');
+
+    // Second S → Sunday: refocus and press S again — cycle ref advances to index 1
+    await weekdaySelect.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('s');
+    await expect.poll(async () => {
+      const u = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ anchor_date: string }>;
+      return u?.[0]?.anchor_date?.slice(0, 10);
+    }, { timeout: 5000 }).toBe('2025-01-12');
   });
 
   // -------------------------------------------------------------------------
