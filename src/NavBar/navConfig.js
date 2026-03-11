@@ -15,8 +15,8 @@ export const NAV_GROUPS = [
 
 export const NAV_LINKS = [
     { path: '/taskcards', label: 'Plan', icon: ViewKanbanIcon, group: 'tasks' },
-    { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
+    { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
     { path: '/swarm', label: 'Roadmap', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
