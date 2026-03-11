@@ -168,12 +168,15 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
     };
 
     const handleDescBlur = () => {
-        if (!local.description.trim()) return;
+        // Read from DOM ref — more reliable than local state in React 18 production
+        // mode where state updates from onChange may not flush before onBlur fires.
+        const description = descRef.current?.value ?? local.description;
+        if (!description.trim()) return;
         if (isTemplate) {
-            onSave({ ...local, area_fk: areaId });
+            onSave({ ...local, area_fk: areaId, description });
             setLocal({ ...BLANK });
         } else {
-            commit({ description: local.description });
+            commit({ description });
         }
     };
 
