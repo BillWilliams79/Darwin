@@ -17,7 +17,8 @@ setup('authenticate', async ({ page }) => {
   try {
     const profileResult = await apiCall(`profiles?id=${encodeURIComponent(cognitoUsername)}`, 'GET', '', tokens.idToken) as Array<Record<string, unknown>>;
     if (Array.isArray(profileResult) && profileResult.length > 0) {
-      fullProfile = profileResult[0];
+      // DB profile lacks userName — AuthContext fallback path needs it for AuthenticatedRoute
+      fullProfile = { ...profileResult[0], userName: cognitoUsername };
       dbProfileJson = JSON.stringify(fullProfile);
     }
   } catch { /* best-effort */ }
@@ -53,7 +54,7 @@ setup('authenticate', async ({ page }) => {
 
   // Verify authentication works by loading a protected route
   await page.goto('/taskcards');
-  await expect(page).not.toHaveURL(/\/login/, { timeout: 10000 });
+  await expect(page).toHaveURL(/\/taskcards/, { timeout: 10000 });
 
   // Save authenticated state for other tests
   await page.context().storageState({ path: STORAGE_STATE });
