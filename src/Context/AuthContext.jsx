@@ -85,9 +85,10 @@ export const AuthContextProvider = ({ children }) => {
             }
             // Fallback: read legacy cookies (supports E2E tests and transition period)
             if (cookies?.idToken && cookies?.profile) {
+                const jwtProfile = parseIdToken(cookies.idToken);   // {id, userName, email, sub}
                 setIdToken(cookies.idToken);
                 setAccessToken(cookies.accessToken);
-                setProfile(cookies.profile);
+                setProfile({ ...cookies.profile, ...jwtProfile });  // JWT claims fill any gaps
             }
             setAuthLoading(false);
         }
