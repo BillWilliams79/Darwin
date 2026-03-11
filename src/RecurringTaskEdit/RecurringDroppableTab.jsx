@@ -21,7 +21,8 @@ const RecurringDroppableTab = ({ domainIndex, ...tabProps }) => {
             if (hoverTimerRef.current !== null) return;
             hoverTimerRef.current = setTimeout(() => {
                 hoverTimerRef.current = null;
-                if (monitorRef.current?.isOver({ shallow: true })) {
+                const isOver = monitorRef.current?.isOver({ shallow: true });
+                if (isOver) {
                     onDragTabSwitch(domainIndex);
                     firedRef.current = true;
                 }
