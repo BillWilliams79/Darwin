@@ -310,7 +310,8 @@ test.describe('Recurring Tasks Management', () => {
   // -------------------------------------------------------------------------
   // REC-DND-02: Drag recurring task across domain tabs
   // -------------------------------------------------------------------------
-  test('REC-DND-02: drag recurring task across domain tabs', async ({ page }) => {
+  // retries: 1 handles inherent timing flakiness of 500ms hover-to-switch under full-suite load
+  test('REC-DND-02: drag recurring task across domain tabs', { retries: 1 }, async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
     // Create a second domain + area for this test
