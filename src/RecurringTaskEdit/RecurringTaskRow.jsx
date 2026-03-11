@@ -41,6 +41,30 @@ const MONTH_OPTIONS = [
 
 const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
+// Keyboard shortcut maps for Select components
+// Recurrence: D=daily, W=weekly, M=monthly, A/Y=annual(yearly)
+const RECURRENCE_KEY_MAP = { d: 'daily', w: 'weekly', m: 'monthly', a: 'annual', y: 'annual' };
+// Weekday: arrays support cycling on repeated keypress. S cycles Sat→Sun.
+const WEEKDAY_KEY_MAP = {
+    m: ['2025-01-06'],                    // Mon
+    t: ['2025-01-07'],                    // Tue
+    w: ['2025-01-08'],                    // Wed
+    h: ['2025-01-09'],                    // Thu
+    f: ['2025-01-10'],                    // Fri
+    s: ['2025-01-11', '2025-01-12'],      // Sat → Sun
+};
+// Annual month: J cycles Jan→Jun→Jul, M cycles Mar→May, A cycles Apr→Aug
+const MONTH_KEY_MAP = {
+    j: [1, 6, 7],   // Jan → Jun → Jul
+    f: [2],          // Feb
+    m: [3, 5],       // Mar → May
+    a: [4, 8],       // Apr → Aug
+    s: [9],          // Sep
+    o: [10],         // Oct
+    n: [11],         // Nov
+    d: [12],         // Dec
+};
+
 const BLANK = {
     description: '',
     recurrence: 'daily',
@@ -70,6 +94,8 @@ const ANCHOR_WIDTH = 122;
 const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete }) => {
     const [local, setLocal] = useState(def ? { ...def } : { ...BLANK });
     const descRef = useRef(null);
+    const weekdayCycleRef = useRef({ key: null, index: 0 });
+    const monthCycleRef   = useRef({ key: null, index: 0 });
 
     useEffect(() => {
         if (def) setLocal({ ...def });
@@ -100,13 +126,57 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
         if (e.key === 'Enter') { e.preventDefault(); descRef.current?.blur(); }
     };
 
+    const handleRecurrenceKeyDown = (e) => {
+        const rec = RECURRENCE_KEY_MAP[e.key.toLowerCase()];
+        if (!rec) return;
+        e.preventDefault();
+        const anchor =
+            rec === 'weekly'  ? '2025-01-06' :
+            rec === 'monthly' ? '2025-01-01' :
+            rec === 'annual'  ? '2025-01-01' :
+            local.anchor_date;
+        setLocal(prev => ({ ...prev, recurrence: rec, anchor_date: anchor }));
+        commit({ recurrence: rec, anchor_date: anchor });
+    };
+
+    const handleWeekdayKeyDown = (e) => {
+        const key = e.key.toLowerCase();
+        const vals = WEEKDAY_KEY_MAP[key];
+        if (!vals) return;
+        e.preventDefault();
+        const prev = weekdayCycleRef.current;
+        const index = prev.key === key ? (prev.index + 1) % vals.length : 0;
+        weekdayCycleRef.current = { key, index };
+        const val = vals[index];
+        setLocal(p => ({ ...p, anchor_date: val }));
+        commit({ anchor_date: val });
+    };
+
+    const handleAnnualMonthKeyDown = (e) => {
+        const key = e.key.toLowerCase();
+        const months = MONTH_KEY_MAP[key];
+        if (!months) return;
+        e.preventDefault();
+        const prev = monthCycleRef.current;
+        const index = prev.key === key ? (prev.index + 1) % months.length : 0;
+        monthCycleRef.current = { key, index };
+        const m = months[index];
+        const d = Math.min(anchorDay, (MONTH_OPTIONS.find(x => x.value === m) || MONTH_OPTIONS[0]).days);
+        const anchor = `2025-${pad(m)}-${pad(d)}`;
+        setLocal(p => ({ ...p, anchor_date: anchor }));
+        commit({ anchor_date: anchor });
+    };
+
     const handleDescBlur = () => {
-        if (!local.description.trim()) return;
+        // Read from DOM ref — more reliable than local state in React 18 production
+        // mode where state updates from onChange may not flush before onBlur fires.
+        const description = descRef.current?.value ?? local.description;
+        if (!description.trim()) return;
         if (isTemplate) {
-            onSave({ ...local, area_fk: areaId });
+            onSave({ ...local, area_fk: areaId, description });
             setLocal({ ...BLANK });
         } else {
-            commit({ description: local.description });
+            commit({ description });
         }
     };
 
@@ -200,6 +270,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             <Select
                 value={local.recurrence}
                 onChange={handleRecurrenceChange}
+                onKeyDown={handleRecurrenceKeyDown}
                 size="small"
                 variant="outlined"
                 sx={{ ...selectSx, width: 105 }}
@@ -214,6 +285,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             {/* 6. Anchor — direct grid child for single selects; Box only for annual pair */}
             {needsWeekday && (
                 <Select value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                    onKeyDown={handleWeekdayKeyDown}
                     size="small" variant="outlined" sx={{ ...selectSx, width: ANCHOR_WIDTH }}>
                     {WEEKDAY_OPTIONS.map(o => <MenuItem key={o.value} value={o.value} sx={menuItemSx}>{o.label}</MenuItem>)}
                 </Select>
@@ -227,6 +299,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             {needsMonthDay && (
                 <Box sx={{ width: ANCHOR_WIDTH, display: 'flex', gap: 0.5 }}>
                     <Select value={anchorMonth} onChange={handleAnnualMonth}
+                        onKeyDown={handleAnnualMonthKeyDown}
                         size="small" variant="outlined" sx={{ ...selectSx, width: 65 }}>
                         {MONTH_OPTIONS.map(m => <MenuItem key={m.value} value={m.value} sx={menuItemSx}>{m.label}</MenuItem>)}
                     </Select>
