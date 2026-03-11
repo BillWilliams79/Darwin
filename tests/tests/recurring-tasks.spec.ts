@@ -370,11 +370,17 @@ test.describe('Recurring Tasks Management', () => {
     await page.waitForTimeout(100);
 
     // Step 2: hover over domain 2 tab — triggers RecurringDroppableTab's 500ms timer.
-    // Use many steps (~50) so the slow movement keeps the mouse over the tab for ~800ms
-    // (50 steps * ~16ms/step), ensuring the 500ms hover timer fires DURING the movement.
-    await page.mouse.move(tabBounds.x + tabBounds.width / 2, tabBounds.y + tabBounds.height / 2, { steps: 50 });
-    // Step 3: poll for tab switch (should already be done by now, generous timeout as safety)
-    await expect(area3Card).toBeVisible({ timeout: 10000 });
+    // Wiggle the mouse over the tab every 100ms for 800ms to ensure hover events keep firing
+    // and the timer actually runs. Plain waitForTimeout can be starved under full-suite load.
+    const tabCx = tabBounds.x + tabBounds.width / 2;
+    const tabCy = tabBounds.y + tabBounds.height / 2;
+    await page.mouse.move(tabCx, tabCy, { steps: 5 });
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(100);
+      await page.mouse.move(tabCx + (i % 2), tabCy); // tiny wiggle keeps hover events flowing
+    }
+    // Step 3: tab should have switched; area3Card visible
+    await expect(area3Card).toBeVisible({ timeout: 5000 });
 
     // Step 4: move to area card in domain 2 and drop
     const area3Bounds = await area3Card.boundingBox();
