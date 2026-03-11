@@ -210,7 +210,10 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             sx={{
                 // Col:  [priority] [accumulate] [active]  [description] [recurrence] [anchor]      [action]
                 display: 'grid',
-                gridTemplateColumns: `28px 28px 28px 1fr 105px ${ANCHOR_WIDTH}px 32px`,
+                gridTemplateColumns: {
+                    xs: `28px 28px 28px 1fr 105px 32px`,
+                    md: `28px 28px 28px 1fr 105px ${ANCHOR_WIDTH}px 32px`,
+                },
                 alignItems: 'center',
                 opacity: rowOpacity,
                 background: 'white',
@@ -274,6 +277,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
                 size="small"
                 variant="outlined"
                 sx={{ ...selectSx, width: 105 }}
+                inputProps={{ 'data-testid': isTemplate ? 'recurring-template-recurrence' : `recurring-${local.id}-recurrence` }}
             >
                 {RECURRENCE_OPTIONS.map(opt => (
                     <MenuItem key={opt} value={opt} sx={menuItemSx}>
@@ -286,33 +290,35 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete 
             {needsWeekday && (
                 <Select value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
                     onKeyDown={handleWeekdayKeyDown}
-                    size="small" variant="outlined" sx={{ ...selectSx, width: ANCHOR_WIDTH }}>
+                    size="small" variant="outlined"
+                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
                     {WEEKDAY_OPTIONS.map(o => <MenuItem key={o.value} value={o.value} sx={menuItemSx}>{o.label}</MenuItem>)}
                 </Select>
             )}
             {needsDay && (
                 <Select value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
-                    size="small" variant="outlined" sx={{ ...selectSx, width: ANCHOR_WIDTH }}>
+                    size="small" variant="outlined"
+                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
                     {DAY_OPTIONS.map(d => <MenuItem key={d} value={`2025-01-${pad(d)}`} sx={menuItemSx}>{d}</MenuItem>)}
                 </Select>
             )}
             {needsMonthDay && (
-                <Box sx={{ width: ANCHOR_WIDTH, display: 'flex', gap: 0.5 }}>
+                <Box sx={{ width: { xs: 105, md: ANCHOR_WIDTH }, display: 'flex', gap: 0.5, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
                     <Select value={anchorMonth} onChange={handleAnnualMonth}
                         onKeyDown={handleAnnualMonthKeyDown}
-                        size="small" variant="outlined" sx={{ ...selectSx, width: 65 }}>
+                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 57, md: 65 } }}>
                         {MONTH_OPTIONS.map(m => <MenuItem key={m.value} value={m.value} sx={menuItemSx}>{m.label}</MenuItem>)}
                     </Select>
                     <Select value={anchorDay} onChange={handleAnnualDay}
-                        size="small" variant="outlined" sx={{ ...selectSx, width: 53 }}>
+                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 44, md: 53 } }}>
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d =>
                             <MenuItem key={d} value={d} sx={menuItemSx}>{d}</MenuItem>)}
                     </Select>
                 </Box>
             )}
-            {/* daily: no anchor — placeholder keeps grid column count correct */}
+            {/* daily: no anchor — placeholder keeps grid column count correct on desktop */}
             {!needsWeekday && !needsDay && !needsMonthDay && (
-                <Box sx={{ width: ANCHOR_WIDTH }} />
+                <Box sx={{ width: ANCHOR_WIDTH, display: { xs: 'none', md: 'block' } }} />
             )}
 
             {/* 7. Save (template) or Delete (existing) — always in same column */}
