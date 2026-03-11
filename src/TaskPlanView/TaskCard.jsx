@@ -499,7 +499,8 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     }
 
     const deleteClick = (event, taskId) => {
-        taskDelete.openDialog({taskId});
+        const task = tasksArray?.find(t => t.id === taskId);
+        taskDelete.openDialog({ taskId, description: task?.description || '', priority: task?.priority, done: task?.done });
     }
 
     const taskPrioritySort = (taskA, taskB) => {
@@ -631,10 +632,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     area.id  === '' ? '' : <CircularProgress/>
                 }
             </CardContent>
-            <TaskDeleteDialog deleteDialogOpen = {taskDelete.dialogOpen}
-                              setDeleteDialogOpen = {taskDelete.setDialogOpen}
-                              setDeleteId = {taskDelete.setInfoObject}
-                              setDeleteConfirmed = {taskDelete.setConfirmed} />
+            <TaskDeleteDialog deleteDialogOpen={taskDelete.dialogOpen}
+                              setDeleteDialogOpen={taskDelete.setDialogOpen}
+                              setDeleteId={taskDelete.setInfoObject}
+                              setDeleteConfirmed={taskDelete.setConfirmed}
+                              task={taskDelete.infoObject} />
         </Card>
     )
 }
