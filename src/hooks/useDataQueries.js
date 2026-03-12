@@ -209,6 +209,20 @@ export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,ti
     });
 }
 
+export function useAllPriorities(creatorFk, { fields = 'id,title', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/priorities?fields=${fields}`;
+    const queryKey = priorityKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
 export function useDevServers(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
