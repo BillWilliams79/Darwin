@@ -167,6 +167,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
     const moveCard = useCallback((fromIndex, toIndex) => {
         setCategoriesArray(prev => {
             if (!prev) return prev;
+            if (prev[toIndex]?.id === '') return prev;
             if (categoriesBeforeDrag.current === null) {
                 categoriesBeforeDrag.current = prev;
             }
@@ -201,6 +202,13 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                 }
                 return cat;
             });
+
+            // Ensure template is always last
+            const templateIdx = updated.findIndex(a => a.id === '');
+            if (templateIdx >= 0 && templateIdx !== updated.length - 1) {
+                const [tmpl] = updated.splice(templateIdx, 1);
+                updated.push(tmpl);
+            }
 
             let uri = `${darwinUri}/categories`;
             call_rest_api(uri, 'PUT', restDataArray, idToken)
