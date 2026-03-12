@@ -1,8 +1,8 @@
-import React, { useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { recurringTaskKeys } from '../hooks/useQueryKeys';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -13,7 +13,6 @@ import CardContent from '@mui/material/CardContent';
 import TextField from '@mui/material/TextField';
 
 import RecurringTaskRow from './RecurringTaskRow';
-import RecurringDeleteDialog from './RecurringDeleteDialog';
 
 const RecurringAreaCard = ({ area, definitions }) => {
     const { idToken, profile } = useContext(AuthContext);
@@ -23,6 +22,43 @@ const RecurringAreaCard = ({ area, definitions }) => {
 
     const invalidate = () =>
         queryClient.invalidateQueries({ queryKey: recurringTaskKeys.all(profile.userName) });
+
+    // Hybrid local state: TanStack Query seeds via useEffect; local state owns DnD
+    const [localDefs, setLocalDefs] = useState(definitions);
+    useEffect(() => { setLocalDefs(definitions); }, [definitions]);
+
+    const handleRemove = useCallback((defId) => {
+        setLocalDefs(prev => prev.filter(d => d.id !== defId));
+    }, []);
+
+    const [{ isOver }, drop] = useDrop(() => ({
+        accept: ['recurringTask'],
+        drop: (item) => {
+            if (String(item.area_fk) === String(area.id)) return { def: null }; // same card, no-op
+
+            // Optimistic: add def to this card immediately
+            setLocalDefs(prev => [...prev, { ...item, area_fk: parseInt(area.id) }]);
+
+            call_rest_api(`${darwinUri}/recurring_tasks`, 'PUT', [{ id: item.id, area_fk: area.id }], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus > 204) {
+                        setLocalDefs(prev => prev.filter(d => d.id !== item.id));
+                        showError(result, 'Unable to move recurring task');
+                    } else {
+                        invalidate();
+                    }
+                })
+                .catch(error => {
+                    setLocalDefs(prev => prev.filter(d => d.id !== item.id));
+                    showError(error, 'Unable to move recurring task');
+                });
+
+            return { def: item.id };
+        },
+        collect: (monitor) => ({
+            isOver: monitor.isOver(),
+        }),
+    }), [area, darwinUri, idToken, showError, queryClient, profile]);
 
     const handleSave = async (formData) => {
         const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'POST', formData, idToken);
@@ -36,24 +72,19 @@ const RecurringAreaCard = ({ area, definitions }) => {
         invalidate();
     };
 
-    const recurringDelete = useConfirmDialog({
-        onConfirm: (def) => {
-            call_rest_api(`${darwinUri}/recurring_tasks`, 'DELETE', { id: def.id }, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus > 204) { showError(result, 'Unable to delete'); return; }
-                    invalidate();
-                })
-                .catch(error => showError(error, 'Unable to delete'));
-        }
-    });
-
-    const handleDelete = (def) => {
-        recurringDelete.openDialog(def);
+    const handleDelete = async (def) => {
+        if (!window.confirm(`Delete "${def.description}"?`)) return;
+        const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'DELETE', { id: def.id }, idToken);
+        if (result.httpStatus.httpStatus > 204) { showError(result, 'Unable to delete'); return; }
+        invalidate();
     };
 
     return (
-        <>
-        <Card raised={true} data-testid={`recurring-area-card-${area.id}`}>
+        <Card raised={true} ref={drop} data-testid={`recurring-area-card-${area.id}`}
+              sx={{
+                  border: isOver ? '2px solid' : '2px solid transparent',
+                  borderColor: isOver ? 'primary.main' : 'transparent',
+              }}>
             <CardContent>
                 {/* Card header — identical to TaskCard */}
                 <Box className="card-header" sx={{ marginBottom: 2 }}>
@@ -72,7 +103,7 @@ const RecurringAreaCard = ({ area, definitions }) => {
                 </Box>
 
                 {/* Recurring task rows */}
-                {definitions.map(def => (
+                {localDefs.map(def => (
                     <RecurringTaskRow
                         key={def.id}
                         def={def}
@@ -80,6 +111,7 @@ const RecurringAreaCard = ({ area, definitions }) => {
                         isTemplate={false}
                         onUpdate={handleUpdate}
                         onDelete={handleDelete}
+                        onRemove={handleRemove}
                     />
                 ))}
 
@@ -93,11 +125,6 @@ const RecurringAreaCard = ({ area, definitions }) => {
                 />
             </CardContent>
         </Card>
-        <RecurringDeleteDialog open={recurringDelete.dialogOpen}
-                               setOpen={recurringDelete.setDialogOpen}
-                               def={recurringDelete.infoObject}
-                               setConfirmed={recurringDelete.setConfirmed} />
-        </>
     );
 };
 
