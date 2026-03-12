@@ -1,19 +1,27 @@
-import React, { useState, useContext } from 'react';
+import React, { useEffect, useContext } from 'react';
 import { useDomains, useAllAreas, useRecurringTasks } from '../hooks/useDataQueries';
+import { useDragTabStore } from '../stores/useDragTabStore';
 import AuthContext from '../Context/AuthContext';
 
 import '../index.css';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
-import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 
 import RecurringAreaCard from './RecurringAreaCard';
+import RecurringDroppableTab from './RecurringDroppableTab';
+import RecurringTaskDragLayer from './RecurringTaskDragLayer';
 
 const RecurringPlanView = () => {
     const { profile } = useContext(AuthContext);
-    const [activeTab, setActiveTab] = useState(0);
+    const activeTab = useDragTabStore(s => s.activeTab);
+    const setActiveTab = useDragTabStore(s => s.setActiveTab);
+
+    // Reset tab to 0 when this view mounts (store may hold state from TaskPlanView)
+    useEffect(() => {
+        setActiveTab(0);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const { data: domains } = useDomains(profile?.userName, { closed: 0 });
     const { data: allAreas } = useAllAreas(profile?.userName, {
@@ -49,8 +57,10 @@ const RecurringPlanView = () => {
     if (!domains || isLoading) return <CircularProgress sx={{ m: 4 }} />;
 
     return (
+        <>
+        <RecurringTaskDragLayer />
         <Box className="app-content-planpage">
-            {/* Domain tabs — read-only, same visual as plan page */}
+            {/* Domain tabs — droppable for recurring task hover-to-switch */}
             <Box sx={{ borderBottom: 1, borderColor: 'divider' }} className="app-content-tabs">
                 <Tabs
                     value={activeTab}
@@ -59,7 +69,12 @@ const RecurringPlanView = () => {
                     scrollButtons="auto"
                 >
                     {sortedDomains.map((domain, idx) => (
-                        <Tab key={domain.id} label={domain.domain_name} value={idx} />
+                        <RecurringDroppableTab
+                            key={domain.id}
+                            label={domain.domain_name}
+                            value={idx}
+                            domainIndex={idx}
+                        />
                     ))}
                 </Tabs>
             </Box>
@@ -93,6 +108,7 @@ const RecurringPlanView = () => {
                 </Box>
             ))}
         </Box>
+        </>
     );
 };
 
