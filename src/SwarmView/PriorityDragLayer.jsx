@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useDragLayer } from 'react-dnd';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -26,6 +26,11 @@ const PriorityDragLayer = () => {
         currentOffset: monitor.getSourceClientOffset(),
         isDragging: monitor.isDragging(),
     }));
+
+    useEffect(() => {
+        document.body.style.userSelect = isDragging ? 'none' : '';
+        return () => { document.body.style.userSelect = ''; };
+    }, [isDragging]);
 
     if (!isDragging || !currentOffset || itemType !== 'priorityRow') {
         return null;
