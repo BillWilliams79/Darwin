@@ -37,7 +37,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate, autoFocusTemplate, clearAutoFocusTemplate }) => {
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate, autoFocusTemplate, clearAutoFocusTemplate, batchReady = true }) => {
 
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
 
@@ -65,9 +65,11 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     // Sort mode: 'priority' (default) or 'hand' — persisted in DB (areas.sort_mode)
     const [sortMode, setSortMode] = useState(area.sort_mode || 'priority');
 
-    // TanStack Query — fetch open tasks for this area
+    // TanStack Query — fetch open tasks for this area.
+    // Gated by batchReady: AreaTabPanel seeds the cache from a batch query first,
+    // then flips batchReady=true so this hook finds a cache hit instead of fetching.
     const { data: serverTasks } = useTasks(profile?.userName, area.id, {
-        enabled: area.id !== '',
+        enabled: area.id !== '' && batchReady,
     });
 
     // Seed local state from query data (hybrid pattern — local state owns DnD + template)
@@ -235,8 +237,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     const addTaskToArea = (task) => {
 
-        console.log('addTaskToArea called');
-
         // Read insert index FIRST (before any early returns clear it)
         const insertIndex = crossCardInsertIndexRef.current;
         crossCardInsertIndexRef.current = null;
@@ -278,6 +278,10 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                     });
 
                 setTasksArray(updated);
+                queryClient.setQueryData(
+                    taskKeys.byAreaOpen(profile?.userName, area.id),
+                    updated.filter(t => t.id !== '')
+                );
             }
             // Return task: null so drag source's end handler knows this was same-card
             return { task: null };
@@ -285,6 +289,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
         // STEP 2: is a drop to a new card, update task with new data via API
         let taskUri = `${darwinUri}/tasks`;
+        const sourceAreaId = String(task.area_fk); // save before mutation
 
         if (sortMode === 'hand' && insertIndex !== null) {
             // Hand-sorted target: insert at the tracked position
@@ -313,6 +318,17 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             const final = [...realTasks];
             if (template) final.push(template);
             setTasksArray(final);
+            queryClient.setQueryData(
+                taskKeys.byAreaOpen(profile?.userName, area.id),
+                final.filter(t => t.id !== '')
+            );
+            const srcCache = queryClient.getQueryData(taskKeys.byAreaOpen(profile?.userName, sourceAreaId));
+            if (Array.isArray(srcCache)) {
+                queryClient.setQueryData(
+                    taskKeys.byAreaOpen(profile?.userName, sourceAreaId),
+                    srcCache.filter(t => String(t.id) !== String(task.id))
+                );
+            }
         } else {
             // Priority-sorted target or no specific position: append to bottom
             // Optimistic UI: update immediately, roll back on failure
@@ -325,6 +341,17 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             newTasksArray.push(task);
             newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
             setTasksArray(newTasksArray);
+            queryClient.setQueryData(
+                taskKeys.byAreaOpen(profile?.userName, area.id),
+                newTasksArray.filter(t => t.id !== '')
+            );
+            const srcCache = queryClient.getQueryData(taskKeys.byAreaOpen(profile?.userName, sourceAreaId));
+            if (Array.isArray(srcCache)) {
+                queryClient.setQueryData(
+                    taskKeys.byAreaOpen(profile?.userName, sourceAreaId),
+                    srcCache.filter(t => String(t.id) !== String(task.id))
+                );
+            }
 
             call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id, 'sort_order': newSortOrder }], idToken)
                 .then(result => {

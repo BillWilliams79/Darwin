@@ -7,7 +7,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
-import { useDomains } from '../hooks/useDataQueries';
+import { useDomains, useAllAreas } from '../hooks/useDataQueries';
 import { domainKeys } from '../hooks/useQueryKeys';
 
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
@@ -70,8 +70,12 @@ const TaskPlanView = () => {
     // Priority card toggle (used by PriorityFlagButton via prop)
     const togglePriorityCard = usePriorityCardStore(s => s.togglePriorityCard);
 
-    // TanStack Query — fetch open domains
+    // TanStack Query — fetch open domains and all open areas in parallel
     const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
+    const { data: allAreas } = useAllAreas(profile?.userName, {
+        fields: 'id,area_name,domain_fk,sort_order,sort_mode,creator_fk,closed',
+        closed: 0,
+    });
 
     // Seed local state from query data (hybrid pattern — local state owns DnD)
     useEffect(() => {
@@ -282,7 +286,8 @@ const TaskPlanView = () => {
                                 <AreaTabPanel key={domain.id}
                                               domain = {domain}
                                               domainIndex = {domainIndex}
-                                              activeTab = {activeTab}>
+                                              activeTab = {activeTab}
+                                              allAreas = {allAreas}>
                                 </AreaTabPanel>
                             )
                         }
