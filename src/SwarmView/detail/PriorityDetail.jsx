@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -28,6 +28,8 @@ import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
+import NorthIcon from '@mui/icons-material/North';
+import SouthIcon from '@mui/icons-material/South';
 
 const swarmStatusChipProps = (status) => {
     switch (status) {
@@ -61,6 +63,19 @@ const getSessionColumns = (navigate, timezone) => [
       valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
 ];
 
+const siblingHandSort = (a, b) => {
+    const aOrder = a.sort_order ?? Infinity;
+    const bOrder = b.sort_order ?? Infinity;
+    return aOrder - bOrder;
+};
+
+const siblingCreatedSort = (a, b) => a.id - b.id;
+
+const siblingActiveSort = (sortMode, a, b) => {
+    if (a.closed !== b.closed) return a.closed - b.closed;
+    return sortMode === 'hand' ? siblingHandSort(a, b) : siblingCreatedSort(a, b);
+};
+
 const PriorityDetail = () => {
 
     const { id } = useParams();
@@ -71,6 +86,8 @@ const PriorityDetail = () => {
 
     const [priority, setPriority] = useState(null);
     const [sessions, setSessions] = useState([]);
+    const [siblings, setSiblings] = useState([]);
+    const [sibSortMode, setSibSortMode] = useState('hand');
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
@@ -108,15 +125,21 @@ const PriorityDetail = () => {
                 const p = result.data[0];
                 setPriority(p);
 
-                // Fetch sessions linked via source_ref="priority:<id>"
-                try {
-                    const sessionsUri = `${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`;
-                    const sessionsResult = await call_rest_api(sessionsUri, 'GET', '', idToken);
-                    if (sessionsResult.httpStatus.httpStatus === 200 && sessionsResult.data.length > 0) {
-                        setSessions(sessionsResult.data);
-                    }
-                } catch {
-                    // 404 or error — no linked sessions
+                // Fetch sessions, siblings, and category sort_mode in parallel
+                const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
+                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,closed,sort_order`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
+                ]);
+
+                if (sessionsResult?.httpStatus?.httpStatus === 200 && sessionsResult.data.length > 0) {
+                    setSessions(sessionsResult.data);
+                }
+                if (siblingsResult?.httpStatus?.httpStatus === 200 && siblingsResult.data.length > 0) {
+                    setSiblings(siblingsResult.data);
+                }
+                if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
+                    setSibSortMode(categoryResult.data[0].sort_mode || 'hand');
                 }
             } catch (error) {
                 showError(error, 'Unable to load priority');
@@ -186,6 +209,20 @@ const PriorityDetail = () => {
             });
     };
 
+    const sortedSiblings = useMemo(() => {
+        if (!siblings.length) return [];
+        return [...siblings].sort((a, b) => siblingActiveSort(sibSortMode, a, b));
+    }, [siblings, sibSortMode]);
+
+    const currentIndex = useMemo(() => {
+        const idNum = parseInt(id);
+        return sortedSiblings.findIndex(s => parseInt(s.id) === idNum);
+    }, [sortedSiblings, id]);
+
+    const prevId = currentIndex > 0 ? sortedSiblings[currentIndex - 1]?.id : null;
+    const nextId = currentIndex >= 0 && currentIndex < sortedSiblings.length - 1 ? sortedSiblings[currentIndex + 1]?.id : null;
+    const displayIndex = currentIndex >= 0 ? currentIndex + 1 : null;
+
     if (loading) return <CircularProgress />;
     if (!priority) return <Typography>Priority not found.</Typography>;
 
@@ -199,21 +236,28 @@ const PriorityDetail = () => {
                 </Button>
             </Box>
 
-            <TextField
-                variant="standard"
-                value={priority.title || ''}
-                onChange={(e) => setPriority(prev => ({ ...prev, title: e.target.value }))}
-                onBlur={handleTitleBlur}
-                onKeyDown={handleTitleKeyDown}
-                fullWidth
-                autoComplete="off"
-                slotProps={{
-                    input: { style: { fontSize: 24, fontWeight: 500 } },
-                    htmlInput: { maxLength: 256 }
-                }}
-                sx={{ mb: 2 }}
-                data-testid="priority-title"
-            />
+            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
+                <Typography
+                    data-testid="priority-index"
+                    sx={{ fontSize: 24, fontWeight: 500, color: 'text.secondary', lineHeight: 1.4, pb: '3px', whiteSpace: 'nowrap' }}
+                >
+                    {displayIndex !== null ? `${displayIndex}.` : ''}
+                </Typography>
+                <TextField
+                    variant="standard"
+                    value={priority.title || ''}
+                    onChange={(e) => setPriority(prev => ({ ...prev, title: e.target.value }))}
+                    onBlur={handleTitleBlur}
+                    onKeyDown={handleTitleKeyDown}
+                    fullWidth
+                    autoComplete="off"
+                    slotProps={{
+                        input: { style: { fontSize: 24, fontWeight: 500 } },
+                        htmlInput: { maxLength: 256 }
+                    }}
+                    data-testid="priority-title"
+                />
+            </Box>
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
                 {(() => {
@@ -269,6 +313,30 @@ const PriorityDetail = () => {
                     label="Closed"
                     data-testid="toggle-closed"
                 />
+                <Tooltip title="Previous priority" enterDelay={400}>
+                    <span>
+                        <IconButton
+                            onClick={() => navigate(`/swarm/priority/${prevId}`)}
+                            disabled={!prevId}
+                            data-testid="btn-prev-priority"
+                            sx={{ maxWidth: 25, maxHeight: 25 }}
+                        >
+                            <NorthIcon />
+                        </IconButton>
+                    </span>
+                </Tooltip>
+                <Tooltip title="Next priority" enterDelay={400}>
+                    <span>
+                        <IconButton
+                            onClick={() => navigate(`/swarm/priority/${nextId}`)}
+                            disabled={!nextId}
+                            data-testid="btn-next-priority"
+                            sx={{ maxWidth: 25, maxHeight: 25 }}
+                        >
+                            <SouthIcon />
+                        </IconButton>
+                    </span>
+                </Tooltip>
                 <Tooltip title="Delete priority" enterDelay={400} enterNextDelay={200}>
                     <IconButton
                         onClick={() => priorityDelete.openDialog({ priorityId: parseInt(id) })}
@@ -281,7 +349,7 @@ const PriorityDetail = () => {
             </Box>
 
             <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary">Description</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
                 <TextField
                     variant="outlined"
                     value={priority.description || ''}
@@ -298,28 +366,35 @@ const PriorityDetail = () => {
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">Started</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>ID</Typography>
+                <Typography variant="body2" data-testid="priority-id">
+                    {priority.id}
+                </Typography>
+            </Box>
+
+            <Box sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Started</Typography>
                 <Typography variant="body2" data-testid="priority-started-at">
                     {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">Completed</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Completed</Typography>
                 <Typography variant="body2" data-testid="priority-completed-at">
                     {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">Created</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Created</Typography>
                 <Typography variant="body2" data-testid="priority-create-ts">
                     {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary">Updated</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Updated</Typography>
                 <Typography variant="body2" data-testid="priority-update-ts">
                     {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
                 </Typography>
