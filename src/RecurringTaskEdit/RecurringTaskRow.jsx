@@ -292,7 +292,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
                 variant="outlined"
                 value={local.description || ''}
                 name="description"
-                placeholder={isTemplate ? 'Add recurring task…' : ''}
+                placeholder={isTemplate ? 'Add recurring…' : ''}
                 onChange={(e) => setLocal(prev => ({ ...prev, description: e.target.value }))}
                 onKeyDown={handleDescKeyDown}
                 onBlur={handleDescBlur}
@@ -308,6 +308,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
                 value={local.recurrence}
                 onChange={handleRecurrenceChange}
                 onKeyDown={handleRecurrenceKeyDown}
+                disabled={isTemplate && !hasText}
                 size="small"
                 variant="outlined"
                 sx={{ ...selectSx, width: 105 }}
