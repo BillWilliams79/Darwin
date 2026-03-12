@@ -160,6 +160,8 @@ const PriorityDetail = () => {
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     showError(result, `Unable to update ${field}`);
+                } else {
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 }
             }).catch(error => {
                 showError(error, `Unable to update ${field}`);
@@ -206,6 +208,8 @@ const PriorityDetail = () => {
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     showError(result, 'Unable to update closed status');
+                } else {
+                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 }
             }).catch(error => {
                 showError(error, 'Unable to update closed status');
