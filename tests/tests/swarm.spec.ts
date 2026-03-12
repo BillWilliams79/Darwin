@@ -232,6 +232,32 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm$/);
   });
 
+  test('SWM-24: priority detail shows numerical index', async ({ page }) => {
+    await page.goto(`/swarm/priority/${testPriorityId}`);
+    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+    const indexEl = page.getByTestId('priority-index');
+    await expect(indexEl).toBeVisible({ timeout: 10000 });
+    await expect(indexEl).toContainText('1.');
+  });
+
+  test('SWM-25: up/down navigation between priorities', async ({ page }) => {
+    // Navigate to first priority — prev disabled, next enabled
+    await page.goto(`/swarm/priority/${testPriorityId}`);
+    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+
+    // Wait for siblings to load (next becomes enabled)
+    await expect(page.getByTestId('btn-next-priority')).not.toBeDisabled({ timeout: 10000 });
+    await expect(page.getByTestId('btn-prev-priority')).toBeDisabled();
+
+    // Navigate to next priority
+    await page.getByTestId('btn-next-priority').click();
+    await expect(page).toHaveURL(new RegExp(`/swarm/priority/${testIdlePriorityId}`), { timeout: 10000 });
+
+    // Now at last priority — prev enabled, next disabled
+    await expect(page.getByTestId('btn-prev-priority')).not.toBeDisabled({ timeout: 10000 });
+    await expect(page.getByTestId('btn-next-priority')).toBeDisabled();
+  });
+
   test('SWM-23: PriorityDetail delete button removes priority and navigates to /swarm', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const deleteTitle = uniqueName('DeleteMe');
