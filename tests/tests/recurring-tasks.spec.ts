@@ -407,6 +407,99 @@ test.describe('Recurring Tasks Management', () => {
   });
 
   // -------------------------------------------------------------------------
+  // REC-DND-03: Drag recurring task → tab switch → drop on tab → tab reverts
+  // -------------------------------------------------------------------------
+  // retries: 1 handles inherent timing flakiness of 500ms hover-to-switch under full-suite load
+  test('REC-DND-03: cancelled cross-domain drag reverts tab to original domain', { retries: 1 }, async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create a second domain + area so there is a droppable tab to hover over
+    const domain4Name = uniqueName('RecDomain4');
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: domain4Name, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create second test domain');
+    const testDomain4Id = domResult[0].id;
+
+    const area4Name = uniqueName('RecArea4');
+    const areaResult = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: area4Name, domain_fk: testDomain4Id, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!areaResult?.length) throw new Error('Failed to create area in second domain');
+    const testArea4Id = areaResult[0].id;
+
+    // Create a recurring def in the original test domain's area
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub,
+      description: 'DnD cancelled cross-domain task',
+      area_fk: testAreaId,
+      recurrence: 'daily',
+      active: 1,
+      accumulate: 1,
+      priority: 0,
+      insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task for REC-DND-03');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await page.goto('/recurring');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+    await page.getByRole('tab', { name: testDomainName }).first().click();
+    await page.waitForSelector(`[data-testid="recurring-area-card-${testAreaId}"]`, { timeout: 15000 });
+
+    const sourceRow = page.getByTestId(`recurring-${defId}`);
+    await expect(sourceRow).toBeVisible();
+
+    const targetTab = page.getByRole('tab', { name: domain4Name }).first();
+    await expect(targetTab).toBeVisible();
+
+    // area4Card becomes visible when the tab switch fires
+    const area4Card = page.getByTestId(`recurring-area-card-${testArea4Id}`);
+    // area1Card is visible only when we're on the original domain
+    const area1Card = page.getByTestId(`recurring-area-card-${testAreaId}`);
+
+    const srcBounds = await sourceRow.boundingBox();
+    const tabBounds = await targetTab.boundingBox();
+    if (!srcBounds || !tabBounds) throw new Error('Could not get bounding boxes');
+
+    // Step 1: start drag
+    await page.mouse.move(srcBounds.x + 12, srcBounds.y + 12);
+    await page.mouse.down();
+    await page.waitForTimeout(100);
+    await page.mouse.move(srcBounds.x + 25, srcBounds.y + 12, { steps: 3 });
+    await page.waitForTimeout(100);
+
+    // Step 2: hover over domain 4 tab until tab switch fires (area4Card appears)
+    const tabCx = tabBounds.x + tabBounds.width / 2;
+    const tabCy = tabBounds.y + tabBounds.height / 2;
+    await page.mouse.move(tabCx, tabCy, { steps: 20 });
+    const deadline = Date.now() + 6000;
+    let tabSwitched = false;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(50);
+      await page.mouse.move(tabCx + ((Date.now() % 3) - 1), tabCy, { steps: 2 });
+      if (await area4Card.isVisible()) { tabSwitched = true; break; }
+    }
+    if (!tabSwitched) await expect(area4Card).toBeVisible({ timeout: 2000 });
+
+    // Step 3: drop ON the tab itself (not a card) — cancelled drop
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+
+    // Tab should revert to original domain — area1Card visible, area4Card hidden
+    await expect(area1Card).toBeVisible({ timeout: 5000 });
+    await expect(area4Card).not.toBeVisible();
+
+    // Verify via API that area_fk was NOT changed
+    const check = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ area_fk: number | string }>;
+    expect(String(check?.[0]?.area_fk)).toBe(String(testAreaId));
+
+    // Cleanup domain 4 (cascade handles area)
+    try { await apiDelete('domains', testDomain4Id, idToken); } catch {}
+  });
+
+  // -------------------------------------------------------------------------
   // REC-05: Delete recurring task
   // -------------------------------------------------------------------------
   test('REC-05: delete recurring task', async ({ page }) => {
