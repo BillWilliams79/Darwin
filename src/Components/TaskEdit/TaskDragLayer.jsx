@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useDragLayer } from 'react-dnd';
 import Box from '@mui/material/Box';
 import Checkbox from '@mui/material/Checkbox';
@@ -28,6 +28,11 @@ const TaskDragLayer = () => {
         currentOffset: monitor.getSourceClientOffset(),
         isDragging: monitor.isDragging(),
     }));
+
+    useEffect(() => {
+        document.body.style.userSelect = isDragging ? 'none' : '';
+        return () => { document.body.style.userSelect = ''; };
+    }, [isDragging]);
 
     if (!isDragging || !currentOffset) {
         return null;
