@@ -85,6 +85,18 @@ export function useTasks(creatorFk, areaId, { done = 0, fields = 'id,priority,do
     });
 }
 
+export function useBatchTasks(creatorFk, areaIds, { fields = 'id,priority,done,description,area_fk,sort_order', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const sorted = [...areaIds].sort((a, b) => a - b);
+    const uri = `${darwinUri}/tasks?done=0&area_fk=(${sorted.join(',')})&fields=${fields}`;
+    return useQuery({
+        queryKey: [...taskKeys.all(creatorFk), 'batch', sorted.join(',')],
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && areaIds.length > 0 && !!idToken,
+    });
+}
+
 export function useTasksDone(creatorFk, startStr, endStr, { fields = 'id,priority,done,description,done_ts', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
@@ -130,6 +142,20 @@ export function useProjects(creatorFk, { closed, fields = 'id,project_name,sort_
     });
 }
 
+export function useAllCategories(creatorFk, { fields = 'id,project_fk', closed, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const closedParam = closed !== undefined ? `&closed=${closed}` : '';
+    const uri = `${darwinUri}/categories?fields=${fields}${closedParam}`;
+
+    return useQuery({
+        queryKey: closed !== undefined ? [...categoryKeys.all(creatorFk), { closed }] : categoryKeys.all(creatorFk),
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
 export function useCategories(creatorFk, projectId, { closed, fields = 'id,category_name,project_fk,sort_order,sort_mode,creator_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
@@ -161,6 +187,19 @@ export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,titl
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!categoryId && !!idToken,
+    });
+}
+
+export function useBatchPriorities(creatorFk, categoryIds, { closed, fields = 'id,title,in_progress,closed,scheduled,category_fk,sort_order,completed_at', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const sorted = [...categoryIds].sort((a, b) => a - b);
+    const closedParam = closed !== undefined ? `&closed=${closed}` : '';
+    const uri = `${darwinUri}/priorities?category_fk=(${sorted.join(',')})&fields=${fields}${closedParam}`;
+    return useQuery({
+        queryKey: [...priorityKeys.all(creatorFk), 'batch', sorted.join(','), { closed }],
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && categoryIds.length > 0 && !!idToken,
     });
 }
 

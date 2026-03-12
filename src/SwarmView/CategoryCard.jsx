@@ -35,7 +35,7 @@ import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, batchReady = true }) => {
 
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
 
@@ -100,10 +100,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     });
 
-    // TanStack Query — fetch priorities for this category
+    // TanStack Query — fetch priorities for this category.
+    // Gated by batchReady: CategoryTabPanel seeds the cache from a batch query first,
+    // then flips batchReady=true so this hook finds a cache hit instead of fetching.
     const { data: serverPriorities } = usePriorities(profile?.userName, category.id, {
         closed: showClosed ? undefined : 0,
-        enabled: category.id !== '',
+        enabled: category.id !== '' && batchReady,
     });
 
     // TanStack Query — fetch sessions for status badges

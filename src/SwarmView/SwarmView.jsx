@@ -6,7 +6,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
-import { useProjects } from '../hooks/useDataQueries';
+import { useProjects, useAllCategories } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
@@ -41,8 +41,12 @@ const SwarmView = () => {
     const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
     const toggleShowClosedPriorities = useShowClosedStore(s => s.toggleShowClosedPriorities);
 
-    // TanStack Query — fetch projects (open only or with closed based on toggle)
+    // TanStack Query — fetch projects and all categories in parallel
     const { data: serverProjects } = useProjects(profile?.userName, {
+        closed: showClosedPriorities ? undefined : 0,
+    });
+    const { data: allCategories } = useAllCategories(profile?.userName, {
+        fields: 'id,category_name,project_fk,sort_order,sort_mode,creator_fk,closed',
         closed: showClosedPriorities ? undefined : 0,
     });
 
@@ -191,7 +195,8 @@ const SwarmView = () => {
                                               project = {project}
                                               projectIndex = {projectIndex}
                                               activeTab = {activeTab}
-                                              showClosed = {showClosedPriorities}>
+                                              showClosed = {showClosedPriorities}
+                                              allCategories = {allCategories}>
                                 </CategoryTabPanel>
                             )
                         }

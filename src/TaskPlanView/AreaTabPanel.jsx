@@ -7,8 +7,8 @@ import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
 import PriorityCard from './PriorityCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useAreas } from '../hooks/useDataQueries';
-import { areaKeys } from '../hooks/useQueryKeys';
+import { useAreas, useBatchTasks } from '../hooks/useDataQueries';
+import { areaKeys, taskKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
@@ -23,7 +23,7 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
+const AreaTabPanel = ( { domain, domainIndex, activeTab, allAreas } ) => {
 
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
@@ -42,8 +42,34 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const showError = useSnackBarStore(s => s.showError);
 
-    // TanStack Query — fetch open areas for this domain
+    // Per-domain fetch — always enabled (original behaviour, owns areasArray lifecycle)
     const { data: serverAreas } = useAreas(profile?.userName, domain.id, { closed: 0 });
+
+    // allAreas (pre-fetched in parallel by TaskPlanView) lets us compute areaIds early
+    // so useBatchTasks can fire before per-domain useAreas resolves.
+    const earlyDomainAreas = allAreas
+        ? allAreas.filter(a => String(a.domain_fk) === String(domain.id))
+        : null;
+    const areaIds = (earlyDomainAreas ?? serverAreas ?? []).filter(a => a.id !== '').map(a => a.id);
+
+    const { data: batchTasks, isError: batchError } = useBatchTasks(profile?.userName, areaIds, {
+        enabled: areaIds.length > 0,
+    });
+
+    // Seed per-area React Query cache from the batch result.
+    // Re-runs on every batchTasks change so mutations that call invalidateQueries
+    // propagate correctly through the cache to TaskCard's serverTasks.
+    useEffect(() => {
+        if (!batchTasks || !areaIds.length) return;
+        areaIds.forEach(areaId => {
+            const tasksForArea = batchTasks.filter(t => String(t.area_fk) === String(areaId));
+            queryClient.setQueryData(taskKeys.byAreaOpen(profile?.userName, areaId), tasksForArea);
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [batchTasks]);
+
+    // Gate useTasks in TaskCard until the batch fetch has settled (success or error).
+    const batchReady = areaIds.length === 0 || !!batchTasks || batchError;
 
     // Seed local state from query data (hybrid pattern — local state owns DnD)
     useEffect(() => {
@@ -460,7 +486,8 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            removeArea,
                                            isTemplate: area.id === '',
                                            autoFocusTemplate: newlyCreatedAreaId !== null && area.id === newlyCreatedAreaId,
-                                           clearAutoFocusTemplate: () => setNewlyCreatedAreaId(null),}}/>
+                                           clearAutoFocusTemplate: () => setNewlyCreatedAreaId(null),
+                                           batchReady,}}/>
                         ))}
                     </Box>
                 }
