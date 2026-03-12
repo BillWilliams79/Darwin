@@ -63,6 +63,9 @@ const RecurringAreaCard = ({ area, definitions }) => {
     const handleSave = async (formData) => {
         const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'POST', formData, idToken);
         if (result.httpStatus.httpStatus > 201) { showError(result, 'Unable to create'); return; }
+        if (result.data?.[0]) {
+            setLocalDefs(prev => [...prev, result.data[0]]);
+        }
         invalidate();
     };
 

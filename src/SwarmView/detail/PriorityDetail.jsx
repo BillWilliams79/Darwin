@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import { useShowClosedStore } from '../../stores/useShowClosedStore';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
@@ -91,6 +92,7 @@ const PriorityDetail = () => {
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
+    const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
 
     const queryClient = useQueryClient();
 
@@ -126,9 +128,10 @@ const PriorityDetail = () => {
                 setPriority(p);
 
                 // Fetch sessions, siblings, and category sort_mode in parallel
+                const siblingClosedFilter = showClosedPriorities ? '' : '&closed=0';
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,closed,sort_order`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,closed,sort_order${siblingClosedFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -149,7 +152,7 @@ const PriorityDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri]);
+    }, [id, idToken, darwinUri, showClosedPriorities]);
 
     const saveField = (field, value) => {
         let uri = `${darwinUri}/priorities`;
