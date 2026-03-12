@@ -43,12 +43,19 @@ export const AuthContextProvider = ({ children }) => {
                 const dbProfile = cached ? JSON.parse(cached) : {};
                 setProfile({ ...dbProfile, ...jwtProfile });
                 scheduleRefresh(tokens.expiresIn);
+                const exp = Date.now() + tokens.expiresIn * 1000;
+                sessionStorage.setItem('darwin-id-token', tokens.idToken);
+                sessionStorage.setItem('darwin-access-token', tokens.accessToken);
+                sessionStorage.setItem('darwin-token-expiry', String(exp));
             } catch (e) {
                 console.log('Background token refresh failed:', e.message);
                 // Tokens expired — user will be redirected to login on next navigation
                 setIdToken(null);
                 setAccessToken(null);
                 setProfile(null);
+                sessionStorage.removeItem('darwin-id-token');
+                sessionStorage.removeItem('darwin-access-token');
+                sessionStorage.removeItem('darwin-token-expiry');
             }
         }, refreshMs);
     }, []);
@@ -63,12 +70,34 @@ export const AuthContextProvider = ({ children }) => {
     // but the refresh token cookie survives and can re-acquire them.
     useEffect(() => {
         async function silentRefresh() {
-            // Primary path: use refresh token cookie to silently re-acquire tokens
             const refreshToken = cookies?.refreshToken;
+
+            // Fast path: serve from sessionStorage cache (skips Cognito round-trip ~1.9s)
+            const cachedId = sessionStorage.getItem('darwin-id-token');
+            const cachedExpiry = sessionStorage.getItem('darwin-token-expiry');
+            const BUFFER_MS = 5 * 60 * 1000;
+            if (cachedId && cachedExpiry && Date.now() < parseInt(cachedExpiry) - BUFFER_MS) {
+                const cachedAccess = sessionStorage.getItem('darwin-access-token');
+                setIdToken(cachedId);
+                setAccessToken(cachedAccess);
+                const jwtProfile = parseIdToken(cachedId);
+                const dbProfile = localStorage.getItem('darwin-profile');
+                setProfile({ ...(dbProfile ? JSON.parse(dbProfile) : {}), ...jwtProfile });
+                const remainingMs = parseInt(cachedExpiry) - Date.now();
+                scheduleRefresh(Math.floor(remainingMs / 1000), refreshToken);
+                setAuthLoading(false);
+                return;
+            }
+
+            // Primary path: use refresh token cookie to silently re-acquire tokens
             if (refreshToken) {
                 refreshTokenRef.current = refreshToken;
                 try {
                     const tokens = await refreshTokensApi(refreshToken);
+                    const absoluteExpiry = Date.now() + tokens.expiresIn * 1000;
+                    sessionStorage.setItem('darwin-id-token', tokens.idToken);
+                    sessionStorage.setItem('darwin-access-token', tokens.accessToken);
+                    sessionStorage.setItem('darwin-token-expiry', String(absoluteExpiry));
                     setIdToken(tokens.idToken);
                     setAccessToken(tokens.accessToken);
                     // Merge JWT claims with cached DB profile (preserves timezone, etc.)
@@ -81,6 +110,9 @@ export const AuthContextProvider = ({ children }) => {
                     return;
                 } catch (e) {
                     console.log('Silent refresh failed:', e.message);
+                    sessionStorage.removeItem('darwin-id-token');
+                    sessionStorage.removeItem('darwin-access-token');
+                    sessionStorage.removeItem('darwin-token-expiry');
                 }
             }
             // Fallback: read legacy cookies (supports E2E tests and transition period)

@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import CategoryCard from './CategoryCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useCategories } from '../hooks/useDataQueries';
-import { categoryKeys } from '../hooks/useQueryKeys';
+import { useCategories, useBatchPriorities } from '../hooks/useDataQueries';
+import { categoryKeys, priorityKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
@@ -18,7 +18,7 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) => {
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, allCategories } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
@@ -30,10 +30,40 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
 
     const showError = useSnackBarStore(s => s.showError);
 
-    // TanStack Query — fetch categories for this project
+    // Per-project fetch — always enabled (original behaviour, owns categoriesArray lifecycle)
     const { data: serverCategories } = useCategories(profile?.userName, project.id, {
         closed: showClosed ? undefined : 0,
     });
+
+    // allCategories (pre-fetched in parallel by SwarmView) lets us compute categoryIds early
+    // so useBatchPriorities can fire before per-project useCategories resolves.
+    const earlyProjectCategories = allCategories
+        ? allCategories.filter(c => String(c.project_fk) === String(project.id))
+        : null;
+    const closed = showClosed ? undefined : 0;
+    const categoryIds = (earlyProjectCategories ?? serverCategories ?? []).filter(c => c.id !== '').map(c => c.id);
+
+    const { data: batchPriorities, isError: batchError } = useBatchPriorities(profile?.userName, categoryIds, {
+        closed,
+        enabled: categoryIds.length > 0,
+    });
+
+    // Seed per-category React Query cache from the batch result.
+    // Re-runs on every batchPriorities change so mutations propagate correctly.
+    useEffect(() => {
+        if (!batchPriorities || !categoryIds.length) return;
+        categoryIds.forEach(categoryId => {
+            const priForCategory = batchPriorities.filter(p => String(p.category_fk) === String(categoryId));
+            const key = closed === 0
+                ? priorityKeys.byCategoryOpen(profile?.userName, categoryId)
+                : priorityKeys.byCategoryWithClosed(profile?.userName, categoryId);
+            queryClient.setQueryData(key, priForCategory);
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [batchPriorities]);
+
+    // Gate usePriorities in CategoryCard until the batch fetch has settled.
+    const batchReady = categoryIds.length === 0 || !!batchPriorities || batchError;
 
     // Seed local state from query data
     useEffect(() => {
@@ -401,7 +431,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                                            persistCategoryOrder: persistCategoryOrder,
                                            removeCategory,
                                            isTemplate: category.id === '',
-                                           showClosed,}}/>
+                                           showClosed,
+                                           batchReady,}}/>
                         ))}
                     </Box>
                 }
