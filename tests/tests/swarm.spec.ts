@@ -258,6 +258,42 @@ test.describe('Swarm View', () => {
     await expect(page.getByTestId('btn-next-priority')).toBeDisabled();
   });
 
+  test('SWM-26: navigation does not enter closed priorities when Show Closed is off', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create a closed priority after the two open ones
+    const closedResult = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: uniqueName('ClosedNav'), category_fk: testCategoryId,
+      in_progress: 0, closed: 1, sort_order: 99,
+    }, idToken) as Array<{ id: string }>;
+    const closedPriorityId = closedResult[0].id;
+
+    try {
+      // Ensure Show Closed is OFF (default) by navigating to /swarm first
+      await page.goto('/swarm');
+      const showClosedToggle = page.getByTestId('toggle-show-closed-priorities');
+      await showClosedToggle.waitFor({ timeout: 10000 });
+      const isChecked = await showClosedToggle.locator('input[type="checkbox"]').isChecked();
+      if (isChecked) {
+        await showClosedToggle.locator('input[type="checkbox"]').click();
+      }
+
+      // Navigate to the idle priority (sort_order=1, second open item — last open item)
+      await page.goto(`/swarm/priority/${testIdlePriorityId}`);
+      await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+
+      // Wait for siblings to load
+      await page.waitForTimeout(1000);
+
+      // prev should be enabled (first open priority exists before this one)
+      await expect(page.getByTestId('btn-prev-priority')).not.toBeDisabled({ timeout: 5000 });
+      // next should be DISABLED because the only next item is closed and Show Closed is off
+      await expect(page.getByTestId('btn-next-priority')).toBeDisabled({ timeout: 5000 });
+    } finally {
+      try { await apiDelete('priorities', closedPriorityId, idToken); } catch {}
+    }
+  });
+
   test('SWM-23: PriorityDetail delete button removes priority and navigates to /swarm', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const deleteTitle = uniqueName('DeleteMe');
