@@ -251,6 +251,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
                 opacity: rowOpacity,
                 cursor: isTemplate ? 'default' : 'grab',
                 background: 'white',
+                mb: isTemplate ? 0 : 1,
             }}
         >
             {/* 1. Priority — ReportGmailerrorredOutlinedIcon / ReportIcon (same as TaskEdit) */}

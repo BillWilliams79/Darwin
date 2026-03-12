@@ -94,7 +94,10 @@ const RecurringPlanView = () => {
                         <Box sx={{
                             display: 'grid',
                             gap: '12px',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(500px, 1fr))',
+                            gridTemplateColumns: {
+                                xs: 'repeat(auto-fill, minmax(300px, 1fr))',
+                                md: 'repeat(auto-fill, minmax(500px, 1fr))',
+                            },
                         }}>
                             {areasForDomain(domain.id).map(area => (
                                 <RecurringAreaCard
