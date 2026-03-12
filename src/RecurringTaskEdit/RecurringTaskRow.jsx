@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 
+import { useDragTabStore } from '../stores/useDragTabStore';
+
 import Box from '@mui/material/Box';
 import Checkbox from '@mui/material/Checkbox';
 import IconButton from '@mui/material/IconButton';
@@ -102,6 +104,9 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
     const weekdayCycleRef = useRef({ key: null, index: 0 });
     const monthCycleRef   = useRef({ key: null, index: 0 });
 
+    const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
+    const clearDragTabSwitch  = useDragTabStore(s => s.clearDragTabSwitch);
+
     const [{ isDragging }, drag, preview] = useDrag(() => ({
         type: 'recurringTask',
         item: () => {
@@ -112,7 +117,10 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
         end: (item, monitor) => {
             const dropResult = monitor.getDropResult();
             if (dropResult?.def !== null && dropResult?.def !== undefined) {
+                clearDragTabSwitch();
                 onRemoveRef.current?.(item.id);
+            } else {
+                revertDragTabSwitch();
             }
         },
         collect: (monitor) => ({
