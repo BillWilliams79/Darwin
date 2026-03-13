@@ -530,6 +530,7 @@ const CalendarFC = () => {
                         eventClick={isTasksMode ? handleEventClick : handlePriorityClick}
                         eventContent={renderEventContent}
                         height="auto"
+                        fixedWeekCount={false}
                     />
                 </Box>
             )}
