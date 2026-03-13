@@ -475,7 +475,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     }
 
     const deleteClick = (event, priorityId) => {
-        priorityDelete.openDialog({priorityId});
+        const priority = prioritiesArray?.find(p => p.id === priorityId);
+        priorityDelete.openDialog({
+            priorityId,
+            title: priority?.title || '',
+            scheduled: priority?.scheduled || 0,
+            in_progress: priority?.in_progress || 0,
+            closed: priority?.closed || 0,
+        });
     }
 
     const createdSort = (a, b) => {
@@ -602,7 +609,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             <PriorityDeleteDialog deleteDialogOpen = {priorityDelete.dialogOpen}
                               setDeleteDialogOpen = {priorityDelete.setDialogOpen}
                               setDeleteId = {priorityDelete.setInfoObject}
-                              setDeleteConfirmed = {priorityDelete.setConfirmed} />
+                              setDeleteConfirmed = {priorityDelete.setConfirmed}
+                              priority = {priorityDelete.infoObject} />
         </Card>
     )
 }
