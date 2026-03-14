@@ -199,21 +199,22 @@ test.describe('Calendar View P1', () => {
     await page.goto('/calview');
     await page.waitForTimeout(3000);
 
-    // Month view (default) — task visible
+    // Month view (default) — task visible as fc-event
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(event).toBeVisible({ timeout: 10000 });
 
-    // Switch to week view
+    // Switch to week view — still fc-event
     await page.getByRole('button', { name: 'Week', exact: true }).click();
     await page.waitForTimeout(2000);
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
 
-    // Switch to day view
+    // Switch to day view — custom DayView renders (no .fc-event); task text in day-view
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await page.waitForTimeout(2000);
-    await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(3000);
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('day-view').getByText(taskDesc)).toBeVisible({ timeout: 10000 });
 
-    // Switch back to month view
+    // Switch back to month view — fc-event visible again
     await page.getByRole('button', { name: 'Month', exact: true }).click();
     await page.waitForTimeout(2000);
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
@@ -605,5 +606,118 @@ test.describe('Calendar View Persistence', () => {
     await page.waitForTimeout(2000);
     const finalTitle = await page.getByText(/Completed Tasks$/).textContent();
     expect(finalTitle).toBe(currentMonthTitle);
+  });
+});
+
+test.describe('DayView', () => {
+  let idToken: string;
+  let testDomainId: string;
+  let testAreaId: string;
+  const testDomainName = uniqueName('DVDom');
+  const testAreaName = uniqueName('DVArea');
+  const createdTaskIds: string[] = [];
+
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    idToken = await getIdToken(page);
+    await context.close();
+
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: testDomainName, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create domain');
+    testDomainId = domResult[0].id;
+
+    const areaResult = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: testAreaName, domain_fk: testDomainId, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!areaResult?.length) throw new Error('Failed to create area');
+    testAreaId = areaResult[0].id;
+  });
+
+  test.beforeEach(async ({ page }) => {
+    // Always start from month view with fresh state
+    await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
+    await page.waitForTimeout(2000);
+  });
+
+  test.afterAll(async () => {
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
+  });
+
+  test('CAL-17: clicking date cell opens DayView', async ({ page }) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Click today's date cell in the month grid
+    const dateCell = page.locator(`td[data-date="${todayStr}"]`).first();
+    await expect(dateCell).toBeVisible({ timeout: 5000 });
+    await dateCell.click();
+    await page.waitForTimeout(2000);
+
+    // DayView should be visible; FullCalendar grid hidden
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
+    await expect(page.locator('.fc-view-harness')).not.toBeVisible();
+  });
+
+  test('CAL-18: DayView shows task grouped under domain/area', async ({ page }) => {
+    const taskDesc = uniqueName('DVTask');
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const doneTs = today.toISOString().slice(0, 19);
+    const todayStr = today.toISOString().slice(0, 10);
+
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 1, done_ts: doneTs,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create task');
+    createdTaskIds.push(result[0].id);
+
+    // Navigate to calendar; Prev → Today ensures FullCalendar anchors on today, then Day
+    await page.goto('/calview');
+    await page.waitForTimeout(3000);
+    await page.locator('.fc-prev-button').click();
+    await page.waitForTimeout(300);
+    await page.locator('.fc-today-button').click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Day', exact: true }).click();
+    await page.waitForTimeout(3000);
+
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+
+    // Task description, domain name, and area name should all appear
+    await expect(page.getByTestId('day-view').getByText(taskDesc)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('day-view').getByText(testDomainName)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('day-view').getByText(testAreaName)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('CAL-19: DayView persists day view across navigation', async ({ page }) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    await page.goto('/calview');
+    await page.waitForTimeout(3000);
+    const dateCell = page.locator(`td[data-date="${todayStr}"]`).first();
+    await dateCell.click();
+    await page.waitForTimeout(2000);
+
+    // Verify day view is active
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+
+    // Navigate away and back
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+    await page.goto('/calview');
+    await page.waitForTimeout(3000);
+
+    // Should still be in day view (savedViewType persisted)
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
   });
 });
