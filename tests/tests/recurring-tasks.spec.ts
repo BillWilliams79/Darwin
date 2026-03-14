@@ -86,6 +86,14 @@ test.describe('Recurring Tasks Management', () => {
     const testId = await newRow.getAttribute('data-testid');
     const newId = testId?.replace('recurring-', '') ?? '';
     if (newId) createdDefIds.push(newId);
+
+    // Verify default accumulate=0 (replace mode, not stack)
+    if (newId) {
+      await expect.poll(async () => {
+        const u = await apiCall(`recurring_tasks?id=${newId}`, 'GET', '', idToken) as Array<{ accumulate: number }>;
+        return u?.[0]?.accumulate;
+      }, { timeout: 5000 }).toBe(0);
+    }
   });
 
   // -------------------------------------------------------------------------
