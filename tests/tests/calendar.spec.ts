@@ -285,6 +285,34 @@ test.describe('Calendar View P1', () => {
     await expect(page.locator('.fc-event')).toHaveCount(0);
   });
 
+  test('CAL-17: priority tasks render with green background', async ({ page }) => {
+    const taskDesc = uniqueName('CalPriTask');
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const doneTs = today.toISOString().slice(0, 19);
+
+    // Create a done task with priority=1
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId,
+      priority: 1, done: 1, done_ts: doneTs,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create priority task');
+    createdTaskIds.push(result[0].id);
+
+    await page.goto('/calview');
+    await page.waitForTimeout(3000);
+
+    // Find the priority task event
+    const event = page.locator('.fc-event').filter({ hasText: taskDesc });
+    await expect(event).toBeVisible({ timeout: 10000 });
+
+    // Verify green background colour applied via FullCalendar inline style
+    const bgColor = await event.evaluate(el => (el as HTMLElement).style.backgroundColor);
+    expect(bgColor).toBe('rgb(232, 245, 233)'); // #E8F5E9
+  });
+
   test('CAL-08: prev/next navigation fetches new data', async ({ page }) => {
     const taskDesc = uniqueName('CalNav');
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
