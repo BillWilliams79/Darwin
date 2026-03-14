@@ -257,7 +257,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
                 alignItems: 'center',
                 opacity: rowOpacity,
                 cursor: isTemplate ? 'default' : 'grab',
-                background: 'white',
+                bgcolor: 'background.paper',
                 mb: isTemplate ? 0 : 1,
             }}
         >

@@ -100,7 +100,7 @@ const RecurringDeleteDialog = ({ open, setOpen, def, setConfirmed }) => {
                             border: '1px solid',
                             borderColor: 'divider',
                             borderRadius: 1,
-                            background: 'white',
+                            bgcolor: 'background.paper',
                             overflow: 'hidden',
                         }}>
                             <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

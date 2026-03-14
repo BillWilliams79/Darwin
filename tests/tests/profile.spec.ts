@@ -171,6 +171,97 @@ test.describe('Profile', () => {
     expect(Array.isArray(firstDomain.areas)).toBe(true);
   });
 
+  test('PROF-07a: appearance selector visible on profile page', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    const toggle = page.getByTestId('profile-theme-toggle');
+    await expect(toggle).toBeVisible();
+    // Should show Light and Dark options
+    await expect(toggle).toContainText('Light');
+    await expect(toggle).toContainText('Dark');
+  });
+
+  test('PROF-07b: dark mode toggle adds darwin-dark class to body', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Click the Dark thumbnail (second child of the toggle container)
+    const toggle = page.getByTestId('profile-theme-toggle');
+    const darkOption = toggle.locator('> div').nth(1);
+    await darkOption.click();
+
+    // Body should have darwin-dark class
+    await expect(page.locator('body')).toHaveClass(/darwin-dark/);
+
+    // Switch back to light
+    const lightOption = toggle.locator('> div').nth(0);
+    await lightOption.click();
+    await expect(page.locator('body')).not.toHaveClass(/darwin-dark/);
+  });
+
+  test('PROF-07c: dark mode persists after page reload', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Enable dark mode
+    const toggle = page.getByTestId('profile-theme-toggle');
+    const darkOption = toggle.locator('> div').nth(1);
+    await darkOption.click();
+    await expect(page.locator('body')).toHaveClass(/darwin-dark/);
+
+    // Verify localStorage was set
+    const stored = await page.evaluate(() => localStorage.getItem('darwin-theme'));
+    expect(stored).toBe('dark');
+
+    // Reload page — ThemeWrapper reads localStorage synchronously on mount
+    await page.reload();
+    await page.waitForSelector('[data-testid="profile-theme-toggle"]', { timeout: 10000 });
+
+    // Dark mode should persist (from localStorage → useState init → useEffect)
+    await expect(page.locator('body')).toHaveClass(/darwin-dark/, { timeout: 10000 });
+
+    // Restore light mode for other tests
+    const toggle2 = page.getByTestId('profile-theme-toggle');
+    const lightOption = toggle2.locator('> div').nth(0);
+    await lightOption.click();
+    await expect(page.locator('body')).not.toHaveClass(/darwin-dark/);
+  });
+
+  test('PROF-07d: dark mode toggle auto-saves to DB', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Intercept PUT to verify theme_mode is saved
+    const putPromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+
+    // Click dark mode
+    const toggle = page.getByTestId('profile-theme-toggle');
+    const darkOption = toggle.locator('> div').nth(1);
+    await darkOption.click();
+
+    const putRequest = await putPromise;
+    const body = putRequest.postDataJSON();
+    expect(body[0].theme_mode).toBe('dark');
+
+    // Wait for PUT response so savedThemeModeRef updates to 'dark'
+    await putRequest.response();
+
+    // Restore to light — savedThemeModeRef is now 'dark', so 'light' triggers a new PUT
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    const lightOption = toggle.locator('> div').nth(0);
+    await lightOption.click();
+    const restoreRequest = await restorePromise;
+    const restoreBody = restoreRequest.postDataJSON();
+    expect(restoreBody[0].theme_mode).toBe('light');
+  });
+
   test('PROF-07: export button shows loading state during fetch', async ({ page }) => {
     // Mock all export API calls. domains/swarm_sessions return 404 when empty (E2E user
     // has no data after cleanup), causing the export to fail on the unmodified production code.
