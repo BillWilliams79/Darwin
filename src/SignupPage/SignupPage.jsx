@@ -32,6 +32,11 @@ const fieldSx = {
     },
     '& .MuiInputLabel-root': { color: TEXT_DIM },
     '& .MuiInputLabel-root.Mui-focused': { color: ACCENT },
+    '& input:-webkit-autofill, & input:-webkit-autofill:hover, & input:-webkit-autofill:focus': {
+        WebkitBoxShadow: `0 0 0 100px ${CARD_BG} inset`,
+        WebkitTextFillColor: '#fff',
+        caretColor: '#fff',
+    },
 };
 
 const primaryBtnSx = {
