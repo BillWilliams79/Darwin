@@ -4,9 +4,12 @@ import varDump from '../classifier/classifier';
 import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useCookies } from 'react-cookie';
 import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/authService';
-import { setAuthToken } from '../RestApi/RestApi';
+import call_rest_api, { setAuthToken } from '../RestApi/RestApi';
 
 const AuthContext = createContext({});
+
+// 90 days in seconds
+const REFRESH_TOKEN_MAX_AGE = 90 * 24 * 3600;
 
 // Context Provider for Authorization, Login and Profiles.
 // Tokens live in memory (React state). The refresh token cookie
@@ -15,7 +18,7 @@ export const AuthContextProvider = ({ children }) => {
 
     console.count('AuthContext initialized');
 
-    const [cookies] = useCookies(['refreshToken', 'idToken', 'accessToken', 'profile']);
+    const [cookies, setCookie, removeCookie] = useCookies(['refreshToken', 'idToken', 'accessToken', 'profile']);
 
     const [idToken, setIdToken] = useState(null);
     const [accessToken, setAccessToken] = useState(null);
@@ -97,6 +100,63 @@ export const AuthContextProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // loginWithTokens — called by LoginPage after SRP auth completes.
+    // Mirrors LoggedIn.jsx's post-exchange logic: validates JWT, fetches profile,
+    // sets React state, stores refresh token cookie, schedules background refresh.
+    // Returns the merged profile so the caller can navigate based on timezone presence.
+    const loginWithTokens = useCallback(async (tokens, darwinUri) => {
+        // Store refresh token in a Secure cookie for session persistence across reloads
+        setCookie('refreshToken', tokens.refreshToken, {
+            path: '/',
+            maxAge: REFRESH_TOKEN_MAX_AGE,
+            secure: true,
+            sameSite: 'strict',
+        });
+
+        // Set tokens in React state (memory only)
+        setIdToken(tokens.idToken);
+        setAccessToken(tokens.accessToken);
+
+        // Validate ID token via Lambda-JWT
+        const jwtUri = `${darwinUri}/jwt`;
+        const jwtResult = await call_rest_api(jwtUri, 'POST', { idToken: tokens.idToken }, tokens.idToken);
+
+        // Fetch user profile from DB
+        const profileUri = `${darwinUri}/profiles?id=${jwtResult.data['username']}`;
+        const profileResult = await call_rest_api(profileUri, 'GET', '', tokens.idToken);
+
+        let mergedProfile = null;
+        if (profileResult.httpStatus.httpStatus === 200) {
+            const dbProfile = profileResult.data[0];
+            const jwtProfile = parseIdToken(tokens.idToken);
+            mergedProfile = { ...dbProfile, ...jwtProfile };
+            setProfile(mergedProfile);
+            localStorage.setItem('darwin-profile', JSON.stringify(mergedProfile));
+        }
+
+        // Schedule background token refresh
+        scheduleRefresh(tokens.expiresIn, tokens.refreshToken);
+
+        return mergedProfile;
+    }, [setCookie, scheduleRefresh]);
+
+    // logout — called by LogoutPage. Clears cookies, React state, and local storage.
+    const logout = useCallback(() => {
+        clearTimeout(refreshTimerRef.current);
+        refreshTokenRef.current = null;
+        removeCookie('refreshToken', { path: '/', secure: true, sameSite: 'strict' });
+        // Clear legacy cookies (E2E tests and transition period)
+        removeCookie('idToken', { path: '/' });
+        removeCookie('accessToken', { path: '/' });
+        removeCookie('profile', { path: '/' });
+        // Clear working preferences
+        localStorage.removeItem('darwin_working_domain');
+        localStorage.removeItem('darwin_calendar_view');
+        setIdToken(null);
+        setAccessToken(null);
+        setProfile(null);
+    }, [removeCookie]);
+
     return (
         <AuthContext.Provider value={{
             idToken, setIdToken,
@@ -104,6 +164,8 @@ export const AuthContextProvider = ({ children }) => {
             profile, setProfile,
             authLoading,
             scheduleRefresh,
+            loginWithTokens,
+            logout,
         }} >
             {children}
         </AuthContext.Provider>

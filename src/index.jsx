@@ -13,7 +13,9 @@ import QueryClientSetup from './QueryClient/QueryClientSetup';
 
 import App from './App';
 import HomePage from './HomePage/HomePage';
-import LoginLink from './Components/LoginLink/LoginLink';
+import LoginPage from './LoginPage/LoginPage';
+import SignupPage from './SignupPage/SignupPage';
+import LogoutPage from './LogoutPage/LogoutPage';
 import LoggedIn from './LoggedIn/LoggedIn';
 import TaskPlanView from './TaskPlanView/TaskPlanView';
 import CalendarFC from './CalendarFC/CalendarFC';
@@ -21,7 +23,6 @@ import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
 import Profile from './NavBar/Profile';
 import Error404 from './Error404/Error404';
-import LogoutLink from './Components/LogoutLink/LogoutLink';
 import SwarmView from './SwarmView/SwarmView';
 import PriorityDetail from './SwarmView/detail/PriorityDetail';
 import SessionsView from './SwarmView/SessionsView';
@@ -44,8 +45,9 @@ root.render(
               <Routes>
                 <Route path="/"                element= {<App />} >
                     <Route index               element= {<HomePage />} />
-                    <Route path="login"        element= {<LoginLink/>} />
-                    <Route path="logout"       element= {<LogoutLink/>} />
+                    <Route path="login"        element= {<LoginPage />} />
+                    <Route path="signup"       element= {<SignupPage />} />
+                    <Route path="logout"       element= {<LogoutPage />} />
                     <Route path="loggedin"     element= {<LoggedIn />} />
                     <Route path="taskcards"    element= {<AuthenticatedRoute>
                                                              <TaskPlanView />
