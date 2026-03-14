@@ -27,9 +27,10 @@ test.describe('Authentication', () => {
     // Should be on the custom login page (not Cognito hosted UI)
     await expect(page).toHaveURL(/\/login/, { timeout: 5000 });
 
-    // Fill Darwin custom login form
-    await page.getByTestId('login-email').fill(process.env.E2E_TEST_USERNAME!);
-    await page.getByTestId('login-password').fill(process.env.E2E_TEST_PASSWORD!);
+    // Fill Darwin custom login form.
+    // MUI TextField puts data-testid on the wrapper div — use .locator('input') to reach the actual input.
+    await page.getByTestId('login-email').locator('input').fill(process.env.E2E_TEST_USERNAME!);
+    await page.getByTestId('login-password').locator('input').fill(process.env.E2E_TEST_PASSWORD!);
     await page.getByTestId('login-submit').click();
 
     // SRP auth → loginWithTokens → JWT validate → profile fetch → navigate to /taskcards
