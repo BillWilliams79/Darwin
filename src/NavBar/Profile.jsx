@@ -95,7 +95,7 @@ const Profile = () => {
                 <Button
                     variant="outlined"
                     startIcon={<PersonAddOutlined />}
-                    onClick={() => navigate('/login', { state: { from: { pathname: '/taskcards' }, signup: true } })}
+                    onClick={() => navigate('/signup')}
                     data-testid="create-account-button"
                 >
                     Create Account
