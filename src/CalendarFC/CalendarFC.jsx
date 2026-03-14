@@ -18,6 +18,7 @@ import { useTasksDone, usePrioritiesDone } from '../hooks/useDataQueries';
 import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import DayView from './DayView';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -74,7 +75,7 @@ const CalendarFC = () => {
     const { data: serverTasks }      = useTasksDone(profile?.userName,
         isMobile ? mobileStartStr : startStr,
         isMobile ? mobileEndStr   : endStr,
-        { enabled: isTasksMode });
+        { enabled: isTasksMode, fields: 'id,priority,done,description,done_ts,area_fk' });
     const { data: serverPriorities } = usePrioritiesDone(profile?.userName,
         isMobile ? mobileStartStr : startStr,
         isMobile ? mobileEndStr   : endStr,
@@ -268,6 +269,10 @@ const CalendarFC = () => {
         const api = calendarRef.current?.getApi();
         if (api) setCalendarTitle(buildTitle(api.view.currentStart, titleSuffix));
     }, [titleSuffix, buildTitle]);
+
+    const handleDateClick = useCallback((info) => {
+        calendarRef.current?.getApi().changeView('dayGridDay', info.dateStr);
+    }, []);
 
     const handleEventDrop = useCallback((info) => {
         const taskId = info.event.id;
@@ -500,39 +505,56 @@ const CalendarFC = () => {
                     </DragDropContext>
                 </Box>
             ) : (
-                /* ── Desktop: FullCalendar (unchanged from original) ── */
-                <Box sx={{ px: 2, pb: 2, pt: '18pt', position: 'relative' }}>
-                    <Typography sx={{
-                        position: 'absolute', left: 0, right: 0, top: '18pt',
-                        textAlign: 'center', lineHeight: '28px',
-                        fontFamily: "'Roboto',sans-serif", fontSize: '1.3em', fontWeight: 500,
-                        pointerEvents: 'none',
+                /* ── Desktop ── */
+                <>
+                    {/* FullCalendar: always visible; only calendar grid is hidden in day view */}
+                    <Box sx={{
+                        px: 2,
+                        pb: savedViewType === 'dayGridDay' ? 0 : 2,
+                        pt: '18pt',
+                        position: 'relative',
+                        '& .fc-view-harness': { display: savedViewType === 'dayGridDay' ? 'none' : 'block' },
                     }}>
-                        {calendarTitle}
-                    </Typography>
-                    <ToggleButtonGroup value={mode} exclusive onChange={handleModeChange}
-                                       size="small" data-testid="calendar-mode-toggle"
-                                       sx={{ position: 'absolute', right: 16, top: '18pt', zIndex: 1 }}>
-                        <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
-                        <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
-                    </ToggleButtonGroup>
-                    <FullCalendar
-                        ref={calendarRef}
-                        plugins={[dayGridPlugin, interactionPlugin]}
-                        initialView={desktopView}
-                        initialDate={savedDate || undefined}
-                        headerToolbar={{ left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay', center: '', right: '' }}
-                        buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
-                        events={events}
-                        editable
-                        datesSet={handleDatesSet}
-                        eventDrop={isTasksMode ? handleEventDrop : handlePriorityDrop}
-                        eventClick={isTasksMode ? handleEventClick : handlePriorityClick}
-                        eventContent={renderEventContent}
-                        height="auto"
-                        fixedWeekCount={false}
-                    />
-                </Box>
+                        <Typography sx={{
+                            position: 'absolute', left: 0, right: 0, top: '18pt',
+                            textAlign: 'center', lineHeight: '28px',
+                            fontFamily: "'Roboto',sans-serif", fontSize: '1.3em', fontWeight: 500,
+                            pointerEvents: 'none',
+                        }}>
+                            {calendarTitle}
+                        </Typography>
+                        <ToggleButtonGroup value={mode} exclusive onChange={handleModeChange}
+                                           size="small" data-testid="calendar-mode-toggle"
+                                           sx={{ position: 'absolute', right: 16, top: '18pt', zIndex: 1 }}>
+                            <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
+                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
+                        </ToggleButtonGroup>
+                        <FullCalendar
+                            ref={calendarRef}
+                            plugins={[dayGridPlugin, interactionPlugin]}
+                            initialView={desktopView}
+                            initialDate={savedDate || undefined}
+                            headerToolbar={{ left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay', center: '', right: '' }}
+                            buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+                            events={events}
+                            editable
+                            datesSet={handleDatesSet}
+                            dateClick={handleDateClick}
+                            eventDrop={isTasksMode ? handleEventDrop : handlePriorityDrop}
+                            eventClick={isTasksMode ? handleEventClick : handlePriorityClick}
+                            eventContent={renderEventContent}
+                            height="auto"
+                            fixedWeekCount={false}
+                        />
+                    </Box>
+                    {/* DayView content renders below the FullCalendar toolbar */}
+                    {savedViewType === 'dayGridDay' && (
+                        <DayView
+                            localTasksArray={localTasksArray}
+                            timezone={profile?.timezone}
+                        />
+                    )}
+                </>
             )}
 
             {isTasksMode && (
