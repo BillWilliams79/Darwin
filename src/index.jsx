@@ -39,7 +39,7 @@ root.render(
       <AuthContextProvider>
         <AppContextProvider>
           <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true, delayTouchStart: 150 }}>
-            <Router >
+            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <div className="app-layout">
               <Routes>
                 <Route path="/"                element= {<App />} >
