@@ -29,6 +29,9 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 // Module-level: session scroll memory for mobile (survives remount, cleared on page reload)
 let mobileScrollDate = null;
 
+// Priority task highlight — green bg, bold dark green text
+const PRIORITY_STYLE = { bg: '#E8F5E9', border: '#66BB6A', textColor: '#2E7D32' };
+
 // Helper: date string 'YYYY-MM-DD' offset by N months from today
 const monthOffset = (n) => {
     const d = new Date();
@@ -117,15 +120,19 @@ const CalendarFC = () => {
 
     const events = useMemo(() => {
         if (isTasksMode) {
-            return localTasksArray.map(task => ({
-                id: String(task.id),
-                title: task.description,
-                start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
-                allDay: true,
-                backgroundColor: taskEventColor,
-                borderColor: taskEventColor,
-                textColor: '#333',
-            }));
+            return localTasksArray.map(task => {
+                const isHigh = task.priority === 1;
+                return {
+                    id: String(task.id),
+                    title: task.description,
+                    start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
+                    allDay: true,
+                    backgroundColor: isHigh ? PRIORITY_STYLE.bg : taskEventColor,
+                    borderColor:     isHigh ? PRIORITY_STYLE.border : taskEventColor,
+                    textColor:       isHigh ? PRIORITY_STYLE.textColor : '#333',
+                    extendedProps: { priority: task.priority },
+                };
+            });
         }
         return localPrioritiesArray.map(priority => ({
             id: String(priority.id),
@@ -409,16 +416,20 @@ const CalendarFC = () => {
     };
 
     // Desktop FullCalendar event renderer
-    const renderEventContent = (eventInfo) => (
-        <div style={{
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-            overflow: 'hidden', lineHeight: 1.3,
-            fontSize: 'clamp(0.7rem, 2.5vw, 0.85rem)',
-            fontFamily: '"Roboto","Helvetica","Arial",sans-serif',
-        }}>
-            {eventInfo.event.title}
-        </div>
-    );
+    const renderEventContent = (eventInfo) => {
+        const isHigh = isTasksMode && eventInfo.event.extendedProps.priority === 1;
+        return (
+            <div style={{
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                overflow: 'hidden', lineHeight: 1.3,
+                fontSize: 'clamp(0.7rem, 2.5vw, 0.85rem)',
+                fontFamily: '"Roboto","Helvetica","Arial",sans-serif',
+                fontWeight: isHigh ? 700 : 'normal',
+            }}>
+                {eventInfo.event.title}
+            </div>
+        );
+    };
 
     const desktopView = savedViewType && !savedViewType.startsWith('list') ? savedViewType : 'dayGridMonth';
 
@@ -480,9 +491,18 @@ const CalendarFC = () => {
                                                                  : handleMobilePriorityClick(ev.id)}
                                                              sx={{ px: 2, py: 1, borderBottom: '1px solid #f0f0f0',
                                                                    cursor: 'pointer',
-                                                                   bgcolor: snapshot.isDragging ? '#e3f2fd' : 'inherit',
+                                                                   bgcolor: snapshot.isDragging ? '#e3f2fd'
+                                                                       : (isTasksMode && ev.extendedProps?.priority === 1)
+                                                                           ? PRIORITY_STYLE.bg
+                                                                           : 'inherit',
                                                                    '&:active': { bgcolor: '#f5f5f5' } }}>
-                                                            <Typography variant="body2" sx={{ fontSize: '0.9rem', color: '#333' }}>
+                                                            <Typography variant="body2" sx={{
+                                                                fontSize: '0.9rem',
+                                                                color: (isTasksMode && ev.extendedProps?.priority === 1)
+                                                                    ? PRIORITY_STYLE.textColor : '#333',
+                                                                fontWeight: (isTasksMode && ev.extendedProps?.priority === 1)
+                                                                    ? 700 : 'normal',
+                                                            }}>
                                                                 {ev.title}
                                                             </Typography>
                                                         </Box>
