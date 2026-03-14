@@ -430,7 +430,7 @@ const CalendarFC = () => {
                 <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)' }}>
                     {/* Controls: Today + mode toggle */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                               px: 2, py: 1, borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
+                               px: 2, pt: 2, pb: 1, borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
                         <Button onClick={() => scrollToDate(todayStr, 'smooth')} size="small" variant="outlined"
                                 sx={{ textTransform: 'none', fontFamily: 'Roboto,sans-serif', minWidth: 60 }}>
                             Today
