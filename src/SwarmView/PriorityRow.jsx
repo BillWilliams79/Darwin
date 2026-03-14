@@ -158,22 +158,29 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                 {priority.id !== '' ? priorityIndex + 1 : ''}
             </Typography>
 
-            {/* Col 2: Scheduled toggle — hidden when running, spacer preserves layout */}
+            {/* Col 2: Scheduled toggle — hidden only when closed, disabled when session is active */}
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {priority.id !== '' && !isRunning ? (
-                    <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
+                {priority.id !== '' && !priority.closed ? (() => {
+                    const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
+                    const btn = (
                         <IconButton
                             onClick={() => scheduledClick(priorityIndex, priority.id)}
+                            disabled={isActiveSession}
                             data-testid={`scheduled-toggle-${priority.id}`}
                             sx={{ maxWidth: 28, maxHeight: 28 }}
                         >
                             {priority.scheduled ?
-                                <PlayCircleIcon sx={{ fontSize: 20, color: 'primary.main' }} /> :
+                                <PlayCircleIcon sx={{ fontSize: 20, color: isActiveSession ? 'text.disabled' : 'primary.main' }} /> :
                                 <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
                             }
                         </IconButton>
-                    </Tooltip>
-                ) : null}
+                    );
+                    return isActiveSession ? btn : (
+                        <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
+                            {btn}
+                        </Tooltip>
+                    );
+                })() : null}
             </Box>
 
             {/* Col 3: Details link */}
