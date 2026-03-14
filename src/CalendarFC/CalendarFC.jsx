@@ -7,6 +7,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
+import ThemeContext from '../Theme/ThemeContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCalendarViewStore } from '../stores/useCalendarViewStore';
@@ -31,7 +32,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 let mobileScrollDate = null;
 
 // Priority task highlight — green bg, bold dark green text
-const PRIORITY_STYLE = { bg: '#E8F5E9', border: '#66BB6A', textColor: '#2E7D32' };
+const PRIORITY_STYLE_LIGHT = { bg: '#E8F5E9', border: '#66BB6A', textColor: '#2E7D32' };
+const PRIORITY_STYLE_DARK  = { bg: '#2e3b2e', border: '#4a7a4a', textColor: '#81c784' };
 
 // Helper: date string 'YYYY-MM-DD' offset by N months from today
 const monthOffset = (n) => {
@@ -43,6 +45,8 @@ const monthOffset = (n) => {
 const CalendarFC = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const { themeMode } = useContext(ThemeContext);
+    const isDark = themeMode === 'dark';
     const showError = useSnackBarStore(s => s.showError);
     const queryClient = useQueryClient();
     const navigate = useNavigate();
@@ -116,8 +120,9 @@ const CalendarFC = () => {
     });
 
     // ── Events (shared FullCalendar format, reused for mobile grouping) ───────
-    const taskEventColor     = 'WhiteSmoke';
-    const priorityEventColor = '#E3F2FD';
+    const PRIORITY_STYLE = isDark ? PRIORITY_STYLE_DARK : PRIORITY_STYLE_LIGHT;
+    const taskEventColor     = isDark ? '#3a3632' : 'WhiteSmoke';
+    const priorityEventColor = isDark ? '#2a3545' : '#E3F2FD';
 
     const events = useMemo(() => {
         if (isTasksMode) {
@@ -130,7 +135,7 @@ const CalendarFC = () => {
                     allDay: true,
                     backgroundColor: isHigh ? PRIORITY_STYLE.bg : taskEventColor,
                     borderColor:     isHigh ? PRIORITY_STYLE.border : taskEventColor,
-                    textColor:       isHigh ? PRIORITY_STYLE.textColor : '#333',
+                    textColor:       isHigh ? PRIORITY_STYLE.textColor : (isDark ? '#d9d0c4' : '#333'),
                     extendedProps: { priority: task.priority },
                 };
             });
@@ -142,11 +147,11 @@ const CalendarFC = () => {
             allDay: true,
             backgroundColor: priorityEventColor,
             borderColor: priorityEventColor,
-            textColor: '#333',
+            textColor: isDark ? '#d9d0c4' : '#333',
             classNames: ['fc-priority-event'],
         }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, localTasksArray, localPrioritiesArray, profile?.timezone]);
+    }, [isTasksMode, localTasksArray, localPrioritiesArray, profile?.timezone, isDark]);
 
     // ── Mobile: group events by date for custom list ──────────────────────────
     const mobileEventsByDate = useMemo(() => {
@@ -446,7 +451,7 @@ const CalendarFC = () => {
                 <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)' }}>
                     {/* Controls: Today + mode toggle */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                               px: 2, pt: 2, pb: 1, borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
+                               px: 2, pt: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
                         <Button onClick={() => scrollToDate(todayStr, 'smooth')} size="small" variant="outlined"
                                 sx={{ textTransform: 'none', fontFamily: 'Roboto,sans-serif', minWidth: 60 }}>
                             Today
@@ -469,9 +474,9 @@ const CalendarFC = () => {
                             <Box key={date} data-date={date}>
                                 {/* Day header */}
                                 <Box sx={{
-                                    bgcolor: date === todayStr ? '#e8f5e9' : '#f5f5f5',
+                                    bgcolor: date === todayStr ? 'success.light' : 'action.hover',
                                     px: 2, py: 0.75,
-                                    borderBottom: '1px solid #ddd',
+                                    borderBottom: '1px solid', borderColor: 'divider',
                                     position: 'sticky', top: 0, zIndex: 1,
                                 }}>
                                     <Typography variant="body2" fontWeight={600}>
@@ -494,17 +499,17 @@ const CalendarFC = () => {
                                                              onClick={() => isTasksMode
                                                                  ? handleMobileTaskClick(ev.id)
                                                                  : handleMobilePriorityClick(ev.id)}
-                                                             sx={{ px: 2, py: 1, borderBottom: '1px solid #f0f0f0',
+                                                             sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
                                                                    cursor: 'pointer',
-                                                                   bgcolor: snapshot.isDragging ? '#e3f2fd'
+                                                                   bgcolor: snapshot.isDragging ? 'action.selected'
                                                                        : (isTasksMode && ev.extendedProps?.priority === 1)
                                                                            ? PRIORITY_STYLE.bg
                                                                            : 'inherit',
-                                                                   '&:active': { bgcolor: '#f5f5f5' } }}>
+                                                                   '&:active': { bgcolor: 'action.hover' } }}>
                                                             <Typography variant="body2" sx={{
                                                                 fontSize: '0.9rem',
                                                                 color: (isTasksMode && ev.extendedProps?.priority === 1)
-                                                                    ? PRIORITY_STYLE.textColor : '#333',
+                                                                    ? PRIORITY_STYLE.textColor : 'text.primary',
                                                                 fontWeight: (isTasksMode && ev.extendedProps?.priority === 1)
                                                                     ? 700 : 'normal',
                                                             }}>
