@@ -64,7 +64,7 @@ const TaskDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, 
                             border: '1px solid',
                             borderColor: 'divider',
                             borderRadius: 1,
-                            background: 'white',
+                            bgcolor: 'background.paper',
                         }}>
                             <Typography variant="body2">{task.description}</Typography>
                         </Box>
