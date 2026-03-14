@@ -74,7 +74,6 @@ const BLANK = {
     recurrence: 'daily',
     anchor_date: '2025-01-06',
     priority: 0,
-    accumulate: 1,
     insert_position: 'bottom',
     active: 1,
 };
