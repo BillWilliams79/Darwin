@@ -22,8 +22,6 @@ import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined';
 
 const Profile = () => {
 
-    console.count('Profile Render');
-
     const { idToken, profile, setProfile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
@@ -67,7 +65,6 @@ const Profile = () => {
             const date = new Date().toISOString().slice(0, 10);
             downloadJson(data, `darwin-export-${date}.json`);
         } catch (err) {
-            console.error('Export failed:', err);
             showError(err, 'Export failed. Please try again.');
         } finally {
             setExporting(false);

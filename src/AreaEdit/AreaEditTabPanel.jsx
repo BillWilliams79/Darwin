@@ -296,7 +296,6 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     // database value is changed only with a 200 response
                     // or no change was required with a 204 respone
                     // so only then show snackbar
-                    console.log('sort order saved');
                 } else {
 
                     showError(result, `Unable to save area sort order`)

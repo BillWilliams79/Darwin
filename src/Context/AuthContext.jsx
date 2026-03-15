@@ -16,8 +16,6 @@ const REFRESH_TOKEN_MAX_AGE = 90 * 24 * 3600;
 // enables silent re-authentication on page reload.
 export const AuthContextProvider = ({ children }) => {
 
-    console.count('AuthContext initialized');
-
     const [cookies, setCookie, removeCookie] = useCookies(['refreshToken', 'idToken', 'accessToken', 'profile']);
 
     const [idToken, setIdToken] = useState(null);
@@ -47,7 +45,6 @@ export const AuthContextProvider = ({ children }) => {
                 setProfile({ ...dbProfile, ...jwtProfile });
                 scheduleRefresh(tokens.expiresIn);
             } catch (e) {
-                console.log('Background token refresh failed:', e.message);
                 // Tokens expired — user will be redirected to login on next navigation
                 setIdToken(null);
                 setAccessToken(null);
@@ -83,7 +80,7 @@ export const AuthContextProvider = ({ children }) => {
                     setAuthLoading(false);
                     return;
                 } catch (e) {
-                    console.log('Silent refresh failed:', e.message);
+                    // Silent refresh failed — fall through to legacy cookie path
                 }
             }
             // Fallback: read legacy cookies (supports E2E tests and transition period)

@@ -31,7 +31,6 @@ const call_rest_api = async (url, method, body, idToken) => {
         //varDump({url, fetchInit}, 'Call Fetch Parameters: call_rest_api');
         var response = await fetch(url, fetchInit)
     } catch (error) {
-        console.log(`call_rest_api failed with following message: ${error}`);
         const errorReturn = {
             data: {},
             httpStatus: { httpMethod: fetchInit.method,

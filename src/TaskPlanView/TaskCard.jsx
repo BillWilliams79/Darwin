@@ -235,8 +235,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     const addTaskToArea = (task) => {
 
-        console.log('addTaskToArea called');
-
         // Read insert index FIRST (before any early returns clear it)
         const insertIndex = crossCardInsertIndexRef.current;
         crossCardInsertIndexRef.current = null;
@@ -623,7 +621,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                         descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
                         sortMode, setCrossCardInsertIndex }}>
                         {tasksArray.map((task, taskIndex) => (
-                            <TaskEdit {...{key: task.id, supportDrag: true, task, taskIndex,
+                            <TaskEdit key={task.id} {...{supportDrag: true, task, taskIndex,
                                 areaId: area.id, areaName: area.area_name }}
                             />
                         ))}

@@ -6,7 +6,6 @@ import { buildLogoutUrl } from '../../services/authService';
 
 const LogoutLink = () => {
 
-    console.count('logout link called');
     // Logout Link clears the refresh token cookie and redirects to Cognito logout.
     // Access/ID tokens are in memory (React state) and will be lost on navigation.
 
