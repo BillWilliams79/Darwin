@@ -289,6 +289,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
             .then(result => {
                 if ((result.httpStatus.httpStatus === 200) ||
                     (result.httpStatus.httpStatus === 204)) {
+                    queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                 } else {
                     showError(result, 'Unable to save domain sort order')
                 }
