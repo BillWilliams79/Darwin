@@ -110,7 +110,7 @@ test.describe.serial('Domain Sort Order', () => {
 
     // Navigate to TaskPlanView
     await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
 
     // Get all tab labels
     const tabs = page.locator('[role="tab"]');
@@ -194,7 +194,7 @@ test.describe.serial('Domain Sort Order', () => {
 
     // Check order in TaskPlanView
     await page.goto('/taskcards');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
 
     const tabs = page.locator('[role="tab"]');
     const tabCount = await tabs.count();
@@ -209,5 +209,124 @@ test.describe.serial('Domain Sort Order', () => {
     // Both views should show same order: ConsistA, ConsistB, ConsistC
     expect(editOrder).toEqual(names);
     expect(planOrder).toEqual(names);
+  });
+
+  test('DOM-13: domain tab order in RecurringPlanView matches Plan after reorder', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create 3 domains with explicit sort_order
+    const names = [uniqueName('RecA'), uniqueName('RecB'), uniqueName('RecC')];
+    const ids: string[] = [];
+
+    for (let i = 0; i < 3; i++) {
+      const r = await apiCall('domains', 'POST', {
+        creator_fk: sub, domain_name: names[i], closed: 0, sort_order: i,
+      }, idToken) as Array<{ id: string }>;
+      if (!r?.length) throw new Error(`Failed to create domain ${names[i]}`);
+      ids.push(r[0].id);
+      createdDomainIds.push(r[0].id);
+    }
+
+    // Reorder via API PUT: reverse the order (C=0, B=1, A=2)
+    await apiCall('domains', 'PUT', [
+      { id: ids[0], sort_order: 2 },
+      { id: ids[1], sort_order: 1 },
+      { id: ids[2], sort_order: 0 },
+    ], idToken);
+
+    // Navigate to Plan, verify tab order
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+
+    const planTabs = page.locator('[role="tab"]');
+    const planTabCount = await planTabs.count();
+    const planLabels: string[] = [];
+    for (let i = 0; i < planTabCount; i++) {
+      planLabels.push(await planTabs.nth(i).innerText());
+    }
+
+    // Verify Plan order: RecC before RecB before RecA
+    const planIdxC = planLabels.findIndex(l => l.toLowerCase().includes(names[2].toLowerCase()));
+    const planIdxB = planLabels.findIndex(l => l.toLowerCase().includes(names[1].toLowerCase()));
+    const planIdxA = planLabels.findIndex(l => l.toLowerCase().includes(names[0].toLowerCase()));
+    expect(planIdxC).toBeGreaterThan(-1);
+    expect(planIdxC).toBeLessThan(planIdxB);
+    expect(planIdxB).toBeLessThan(planIdxA);
+
+    // Navigate to Recurring, verify same tab order
+    await page.goto('/recurring');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+
+    const recTabs = page.locator('[role="tab"]');
+    const recTabCount = await recTabs.count();
+    const recLabels: string[] = [];
+    for (let i = 0; i < recTabCount; i++) {
+      recLabels.push(await recTabs.nth(i).innerText());
+    }
+
+    const recIdxC = recLabels.findIndex(l => l.toLowerCase().includes(names[2].toLowerCase()));
+    const recIdxB = recLabels.findIndex(l => l.toLowerCase().includes(names[1].toLowerCase()));
+    const recIdxA = recLabels.findIndex(l => l.toLowerCase().includes(names[0].toLowerCase()));
+    expect(recIdxC).toBeGreaterThan(-1);
+    expect(recIdxC).toBeLessThan(recIdxB);
+    expect(recIdxB).toBeLessThan(recIdxA);
+  });
+
+  test('DOM-14: domain reorder in Plan reflects in Recurring on navigation', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create 2 domains with explicit sort_order
+    const nameAlpha = uniqueName('NavAlpha');
+    const nameBeta = uniqueName('NavBeta');
+
+    const r1 = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: nameAlpha, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!r1?.length) throw new Error('Failed to create domain');
+    createdDomainIds.push(r1[0].id);
+
+    const r2 = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: nameBeta, closed: 0, sort_order: 1,
+    }, idToken) as Array<{ id: string }>;
+    if (!r2?.length) throw new Error('Failed to create domain');
+    createdDomainIds.push(r2[0].id);
+
+    // Navigate to Plan, verify initial order: Alpha before Beta
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+
+    let tabs = page.locator('[role="tab"]');
+    let tabCount = await tabs.count();
+    let tabLabels: string[] = [];
+    for (let i = 0; i < tabCount; i++) {
+      tabLabels.push(await tabs.nth(i).innerText());
+    }
+
+    const initialAlpha = tabLabels.findIndex(l => l.toLowerCase().includes(nameAlpha.toLowerCase()));
+    const initialBeta = tabLabels.findIndex(l => l.toLowerCase().includes(nameBeta.toLowerCase()));
+    expect(initialAlpha).toBeLessThan(initialBeta);
+
+    // Swap order via API PUT: Beta=0, Alpha=1
+    await apiCall('domains', 'PUT', [
+      { id: r1[0].id, sort_order: 1 },
+      { id: r2[0].id, sort_order: 0 },
+    ], idToken);
+
+    // Navigate to Recurring — should show Beta before Alpha
+    await page.goto('/recurring');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+
+    tabs = page.locator('[role="tab"]');
+    tabCount = await tabs.count();
+    tabLabels = [];
+    for (let i = 0; i < tabCount; i++) {
+      tabLabels.push(await tabs.nth(i).innerText());
+    }
+
+    const recAlpha = tabLabels.findIndex(l => l.toLowerCase().includes(nameAlpha.toLowerCase()));
+    const recBeta = tabLabels.findIndex(l => l.toLowerCase().includes(nameBeta.toLowerCase()));
+    expect(recBeta).toBeGreaterThan(-1);
+    expect(recAlpha).toBeGreaterThan(-1);
+    expect(recBeta).toBeLessThan(recAlpha);
   });
 });

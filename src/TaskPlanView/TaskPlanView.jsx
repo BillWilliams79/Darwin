@@ -190,6 +190,8 @@ const TaskPlanView = () => {
 
         if (!didDrop || insertIndex === null) return;
 
+        let restDataArray = null;
+
         setDomainsArray(prev => {
             if (!prev) return prev;
 
@@ -214,25 +216,29 @@ const TaskPlanView = () => {
                 }
             }
 
-            // Renumber sort_order and persist
+            // Renumber sort_order
             const renumbered = updated.map((dom, idx) => ({ ...dom, sort_order: idx }));
-            const restDataArray = renumbered.map(dom => ({ 'id': dom.id, 'sort_order': dom.sort_order }));
+            restDataArray = renumbered.map(dom => ({ 'id': dom.id, 'sort_order': dom.sort_order }));
 
+            return renumbered;
+        });
+
+        // Persist and invalidate cache outside the state updater
+        if (restDataArray) {
             let uri = `${darwinUri}/domains`;
             call_rest_api(uri, 'PUT', restDataArray, idToken)
                 .then(result => {
                     if ((result.httpStatus.httpStatus === 200) ||
                         (result.httpStatus.httpStatus === 204)) {
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                     } else {
                         showError(result, 'Unable to save domain sort order')
                     }
                 }).catch(error => {
                     showError(error, 'Unable to save domain sort order')
                 });
-
-            return renumbered;
-        });
-    }, [activeTab, darwinUri, idToken, showError, setActiveTab]);
+        }
+    }, [activeTab, darwinUri, idToken, showError, setActiveTab, queryClient, profile]);
 
     return (
         <>
