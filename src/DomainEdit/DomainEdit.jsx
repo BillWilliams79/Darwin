@@ -15,12 +15,6 @@ import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-
 import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
@@ -313,42 +307,60 @@ const DomainEdit = ( { domain, domainIndex } ) => {
             </Box>
             { domainsArray &&
                 <Box className="app-edit" sx={{ml:2}}>
-                    <Table size='small'>
-                        <TableHead>
-                            <TableRow key = 'TableHead'>
-                                <TableCell> Name </TableCell>
-                                <TableCell> Closed </TableCell>
-                                <TableCell sx={{textAlign: 'center'}}> Areas </TableCell>
-                                <TableCell sx={{textAlign: 'center'}}> Tasks </TableCell>
-                                <TableCell></TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <DragDropContext onDragEnd={dragEnd}>
-                            <Droppable droppableId="domains">
-                                {(provided) => (
-                                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
-                                    { domainsArray.map((domain, domainIndex) => (
-                                        <DomainTableRow
-                                            key={domain.id}
-                                            domain={domain}
-                                            domainIndex={domainIndex}
-                                            changeDomainName={changeDomainName}
-                                            keyDownDomainName={keyDownDomainName}
-                                            blurDomainName={blurDomainName}
-                                            clickDomainClosed={clickDomainClosed}
-                                            clickDomainDelete={clickDomainDelete}
-                                            areaCounts={areaCounts}
-                                            taskCounts={taskCounts}
-                                            onRowClick={setWorkingDomain}
-                                            isSelected={domain.id && String(domain.id) === workingDomainId}
-                                        />
-                                    ))}
-                                    {provided.placeholder}
-                                    </TableBody>
-                                )}
-                            </Droppable>
-                        </DragDropContext>
-                    </Table>
+                    <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                        <Box sx={{ width: 220, px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
+                        <Box sx={{ width: 70, textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
+                        <Box sx={{ width: 60, textAlign: 'center' }}><Typography variant="subtitle2">Areas</Typography></Box>
+                        <Box sx={{ width: 60, textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
+                        <Box sx={{ width: 48 }} />
+                    </Box>
+                    <DragDropContext onDragEnd={dragEnd}>
+                        <Droppable droppableId="domains">
+                            {(provided) => (
+                                <Box {...provided.droppableProps} ref={provided.innerRef}>
+                                { domainsArray
+                                    .filter(d => d.closed === 0 && d.id !== '')
+                                    .map((domain, idx) => (
+                                    <DomainTableRow
+                                        key={domain.id}
+                                        domain={domain}
+                                        domainIndex={idx}
+                                        changeDomainName={changeDomainName}
+                                        keyDownDomainName={keyDownDomainName}
+                                        blurDomainName={blurDomainName}
+                                        clickDomainClosed={clickDomainClosed}
+                                        clickDomainDelete={clickDomainDelete}
+                                        areaCounts={areaCounts}
+                                        taskCounts={taskCounts}
+                                        onRowClick={setWorkingDomain}
+                                        isSelected={domain.id && String(domain.id) === workingDomainId}
+                                        isDraggable
+                                    />
+                                ))}
+                                {provided.placeholder}
+                                </Box>
+                            )}
+                        </Droppable>
+                    </DragDropContext>
+                    { domainsArray
+                        .filter(d => d.closed === 1 || d.id === '')
+                        .map((domain) => (
+                        <DomainTableRow
+                            key={domain.id || 'template'}
+                            domain={domain}
+                            domainIndex={domainsArray.indexOf(domain)}
+                            changeDomainName={changeDomainName}
+                            keyDownDomainName={keyDownDomainName}
+                            blurDomainName={blurDomainName}
+                            clickDomainClosed={clickDomainClosed}
+                            clickDomainDelete={clickDomainDelete}
+                            areaCounts={areaCounts}
+                            taskCounts={taskCounts}
+                            onRowClick={setWorkingDomain}
+                            isSelected={domain.id && String(domain.id) === workingDomainId}
+                            isDraggable={false}
+                        />
+                    ))}
                 </Box>
             }
             <DomainDeleteDialog

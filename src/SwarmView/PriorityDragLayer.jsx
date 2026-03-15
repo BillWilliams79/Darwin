@@ -46,7 +46,7 @@ const PriorityDragLayer = () => {
                 transformOrigin: 'top left',
                 width: item?.sourceWidth || 300,
                 opacity: 0.75,
-                background: '#fff',
+                bgcolor: 'background.paper',
                 boxShadow: 3,
                 borderRadius: 1,
             }}>

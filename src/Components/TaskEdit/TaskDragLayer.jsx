@@ -49,7 +49,7 @@ const TaskDragLayer = () => {
                     width: item?.sourceWidth || 100,
                     height: item?.sourceHeight || 48,
                     opacity: 0.85,
-                    background: '#fff',
+                    bgcolor: 'background.paper',
                     boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -83,7 +83,7 @@ const TaskDragLayer = () => {
                     transformOrigin: 'top left',
                     width: item?.sourceWidth || 300,
                     opacity: 0.75,
-                    background: '#fff',
+                    bgcolor: 'background.paper',
                     boxShadow: 3,
                     borderRadius: 1,
                 }}>

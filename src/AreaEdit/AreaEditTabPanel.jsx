@@ -14,13 +14,8 @@ import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 import { DragDropContext, Droppable, /* Draggable */ } from '@hello-pangea/dnd';
 
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-
 import Box from '@mui/material/Box';
+import { Typography } from '@mui/material';
 
 import AreaDeleteDialog from './AreaDeleteDialog';
 import AreaTableRow from './AreaTableRow';
@@ -312,37 +307,51 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
             <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)} sx={{ p: 3 }} >
                 { areasArray &&
                     <Box>
-                        <Table size='small'>
-                            <TableHead>
-                                <TableRow key = 'TableHead'>
-                                    <TableCell> Name </TableCell>
-                                    <TableCell> Closed </TableCell>
-                                    <TableCell> Task Count </TableCell>
-                                    <TableCell></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <DragDropContext onDragEnd={dragEnd}>
-                                <Droppable droppableId="areas">
-                                    {(provided) => (
-                                        <TableBody {...provided.droppableProps} ref={provided.innerRef}>
-                                            { areasArray.map((area, areaIndex) => (
-                                                <AreaTableRow
-                                                    key = {area.id}
-                                                    area = {area}
-                                                    areaIndex = {areaIndex}
-                                                    changeAreaName = {changeAreaName}
-                                                    keyDownAreaName = {keyDownAreaName}
-                                                    blurAreaName = {blurAreaName}
-                                                    clickAreaClosed = {clickAreaClosed}
-                                                    clickAreaDelete = {clickAreaDelete}
-                                                    taskCounts = {taskCounts} />
-                                            ))}
-                                            {provided.placeholder}
-                                        </TableBody>
-                                    )}
-                                </Droppable>
-                            </DragDropContext>
-                        </Table>
+                        <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                            <Box sx={{ width: 220, px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
+                            <Box sx={{ width: 70, textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
+                            <Box sx={{ width: 80, textAlign: 'center' }}><Typography variant="subtitle2">Task Count</Typography></Box>
+                            <Box sx={{ width: 48 }} />
+                        </Box>
+                        <DragDropContext onDragEnd={dragEnd}>
+                            <Droppable droppableId="areas">
+                                {(provided) => (
+                                    <Box {...provided.droppableProps} ref={provided.innerRef}>
+                                        { areasArray
+                                            .filter(a => a.closed === 0 && a.id !== '')
+                                            .map((area, idx) => (
+                                            <AreaTableRow
+                                                key = {area.id}
+                                                area = {area}
+                                                areaIndex = {idx}
+                                                changeAreaName = {changeAreaName}
+                                                keyDownAreaName = {keyDownAreaName}
+                                                blurAreaName = {blurAreaName}
+                                                clickAreaClosed = {clickAreaClosed}
+                                                clickAreaDelete = {clickAreaDelete}
+                                                taskCounts = {taskCounts}
+                                                isDraggable />
+                                        ))}
+                                        {provided.placeholder}
+                                    </Box>
+                                )}
+                            </Droppable>
+                        </DragDropContext>
+                        { areasArray
+                            .filter(a => a.closed === 1 || a.id === '')
+                            .map((area) => (
+                            <AreaTableRow
+                                key = {area.id || 'template'}
+                                area = {area}
+                                areaIndex = {areasArray.indexOf(area)}
+                                changeAreaName = {changeAreaName}
+                                keyDownAreaName = {keyDownAreaName}
+                                blurAreaName = {blurAreaName}
+                                clickAreaClosed = {clickAreaClosed}
+                                clickAreaDelete = {clickAreaDelete}
+                                taskCounts = {taskCounts}
+                                isDraggable={false} />
+                        ))}
                     </Box>
                 }
             </Box>
