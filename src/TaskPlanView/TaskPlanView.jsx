@@ -50,8 +50,6 @@ const PriorityFlagButton = ({ domainId, togglePriorityCard }) => {
 
 const TaskPlanView = () => {
 
-    console.count('TaskCardContent rendered');
-
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -225,7 +223,6 @@ const TaskPlanView = () => {
                 .then(result => {
                     if ((result.httpStatus.httpStatus === 200) ||
                         (result.httpStatus.httpStatus === 204)) {
-                        console.log('domain tab sort order saved');
                     } else {
                         showError(result, 'Unable to save domain sort order')
                     }

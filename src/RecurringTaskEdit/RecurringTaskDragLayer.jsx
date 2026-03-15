@@ -88,7 +88,7 @@ const RecurringTaskDragLayer = () => {
                 alignItems: 'center',
                 width: item?.sourceWidth || 500,
                 opacity: 0.75,
-                background: '#fff',
+                bgcolor: 'background.paper',
                 boxShadow: 3,
                 borderRadius: 1,
             }}>

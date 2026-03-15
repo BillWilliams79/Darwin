@@ -21,7 +21,6 @@ const REFRESH_TOKEN_MAX_AGE = 90 * 24 * 3600;
 
 function LoggedIn() {
 
-    console.count('LoggedIn Render');
     const { idToken, setIdToken,
             setAccessToken,
             profile, setProfile,
@@ -37,7 +36,6 @@ function LoggedIn() {
     let location = useLocation();
 
     useEffect( () => {
-        console.log('LoggedIn useEffect called');
 
         // STEP 1: Parse authorization code and state from query params.
         //         Auth code flow returns ?code=xxx&state=yyy (not hash fragments).
@@ -55,7 +53,6 @@ function LoggedIn() {
         removeCookie('csrfToken', { path: '/', maxAge: 1800 });
 
         if (returnedState !== generatedCsrf) {
-            console.log('CSRF match failed, not logged in');
             setErrorMsg('CSRF Tokens did not match, invalid redirect from AWS');
             return;
         }
@@ -109,7 +106,6 @@ function LoggedIn() {
                             });
                     });
             }).catch(error => {
-                console.log('Authentication failed:', error.message);
                 setErrorMsg('Authentication failed. Please try logging in again.');
                 return;
             });

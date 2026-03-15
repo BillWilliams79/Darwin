@@ -24,8 +24,6 @@ import AreaEditTabPanel from './AreaEditTabPanel';
 
 const AreaEdit = () => {
 
-    console.count('AreaEdit rendered');
-
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
