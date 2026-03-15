@@ -183,7 +183,8 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
       }));
     }, { taskId: task0Id });
 
-    await page.waitForTimeout(1000);
+    // Brief wait to confirm no PUT was fired (negative assertion)
+    await page.waitForTimeout(500);
     expect(putCount).toBe(0);
 
     const card = page.getByTestId(`area-card-${area1Id}`);
@@ -199,19 +200,22 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await goToTestDomain(page);
 
     await clickSortMode(page, area1Id, 'hand');
-    await page.waitForTimeout(500);
 
-    let order = await getTaskDescriptions(page, area1Id);
-    expect(order).toEqual([task0Desc, task1Desc, task2Desc, crossTask1Desc, crossTask2Desc]);
+    // Wait for sort mode change to re-render tasks in correct order
+    await expect.poll(async () => {
+      return await getTaskDescriptions(page, area1Id);
+    }, { timeout: 5000 }).toEqual([task0Desc, task1Desc, task2Desc, crossTask1Desc, crossTask2Desc]);
 
     const source = page.getByTestId(`task-${task0Id}`);
     const target = page.getByTestId(`task-${task2Id}`);
     await dragAndDrop(page, source, target);
-    await page.waitForTimeout(1500);
 
-    // Verify in-memory reorder
-    order = await getTaskDescriptions(page, area1Id);
-    expect(order).toEqual([task1Desc, task2Desc, task0Desc, crossTask1Desc, crossTask2Desc]);
+    // Poll until reorder completes (PUT + re-render)
+    await expect.poll(async () => {
+      return await getTaskDescriptions(page, area1Id);
+    }, { timeout: 10000, intervals: [200, 500, 1000] }).toEqual(
+      [task1Desc, task2Desc, task0Desc, crossTask1Desc, crossTask2Desc]
+    );
 
     // Task count still 5 (no duplicates — 3 original + 2 cross-card tasks)
     const card = page.getByTestId(`area-card-${area1Id}`);
@@ -227,15 +231,14 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     await goToTestDomain(page);
 
     await clickSortMode(page, area1Id, 'hand');
-    await page.waitForTimeout(500);
 
     const source = page.getByTestId(`task-${task2Id}`);
     const target = page.getByTestId(`task-${task0Id}`);
     await dragAndDrop(page, source, target);
-    await page.waitForTimeout(1500);
 
+    // Wait for reorder to settle
     const card = page.getByTestId(`area-card-${area1Id}`);
-    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(5);
+    await expect(card.locator('[data-testid^="task-"]:not([data-testid="task-template"])')).toHaveCount(5, { timeout: 10000 });
     await assertNoHiddenTasks(page, area1Id);
   });
 
@@ -246,7 +249,6 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     await clickSortMode(page, area1Id, 'priority');
     await clickSortMode(page, area2Id, 'priority');
-    await page.waitForTimeout(1000);
 
     const area1Before = await getTaskCount(page, area1Id);
     const area2Before = await getTaskCount(page, area2Id);
@@ -255,7 +257,6 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
     await dragAndDrop(page, sourceTask, targetCard);
-    await page.waitForTimeout(500);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
     await expect(area2Card.getByTestId(`task-${crossTask1Id}`)).toBeVisible({ timeout: 5000 });
@@ -274,7 +275,6 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     await clickSortMode(page, area1Id, 'priority');
     await clickSortMode(page, area2Id, 'hand');
-    await page.waitForTimeout(1000);
 
     const area2Before = await getTaskCount(page, area2Id);
 
@@ -282,7 +282,6 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
     await dragAndDrop(page, sourceTask, targetCard);
-    await page.waitForTimeout(500);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
     await expect(area2Card.getByTestId(`task-${crossTask2Id}`)).toBeVisible({ timeout: 5000 });
