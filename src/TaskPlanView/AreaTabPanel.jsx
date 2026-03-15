@@ -446,7 +446,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                             <PriorityCard domainId={domain.id} areaIds={realAreaIds} />
                         )}
                         { areasArray.map((area, areaIndex) => (
-                            <TaskCard {...{key: area.id,
+                            <TaskCard key={area.id} {...{
                                            area,
                                            areaIndex,
                                            domainId: domain.id,
