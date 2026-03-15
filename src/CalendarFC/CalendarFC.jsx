@@ -45,8 +45,8 @@ const monthOffset = (n) => {
 const CalendarFC = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
-    const { themeMode } = useContext(ThemeContext);
-    const isDark = themeMode === 'dark';
+    const { effectiveMode } = useContext(ThemeContext);
+    const isDark = effectiveMode === 'dark';
     const showError = useSnackBarStore(s => s.showError);
     const queryClient = useQueryClient();
     const navigate = useNavigate();
