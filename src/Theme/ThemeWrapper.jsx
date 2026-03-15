@@ -32,20 +32,39 @@ const ThemeWrapper = ({ children }) => {
     // Read localStorage synchronously to avoid flash
     const [mode, setMode] = useState(() => {
         const stored = localStorage.getItem(STORAGE_KEY);
-        return stored === 'dark' ? 'dark' : 'light';
+        if (stored === 'dark' || stored === 'system') return stored;
+        return 'light';
     });
+
+    // Track OS color scheme preference for 'system' mode
+    const [osPrefersDark, setOsPrefersDark] = useState(
+        () => window.matchMedia('(prefers-color-scheme: dark)').matches
+    );
+
+    useEffect(() => {
+        const mql = window.matchMedia('(prefers-color-scheme: dark)');
+        const handler = (e) => setOsPrefersDark(e.matches);
+        mql.addEventListener('change', handler);
+        return () => mql.removeEventListener('change', handler);
+    }, []);
+
+    // Resolve 'system' to the actual light/dark mode
+    const effectiveMode = useMemo(
+        () => (mode === 'system' ? (osPrefersDark ? 'dark' : 'light') : mode),
+        [mode, osPrefersDark]
+    );
 
     const { profile } = useContext(AuthContext);
 
-    // Sync body class and CSS vars when mode changes
+    // Sync body class and CSS vars when effective mode changes
     useEffect(() => {
-        if (mode === 'dark') {
+        if (effectiveMode === 'dark') {
             document.body.classList.add('darwin-dark');
         } else {
             document.body.classList.remove('darwin-dark');
         }
-        setCssVars(mode);
-    }, [mode]);
+        setCssVars(effectiveMode);
+    }, [effectiveMode]);
 
     // Sync from DB profile only when localStorage hasn't been set yet (new device/browser).
     // If localStorage exists, it's the most recent user choice — don't override.
@@ -63,8 +82,8 @@ const ThemeWrapper = ({ children }) => {
 
     const theme = useMemo(() => createTheme({
         palette: {
-            mode,
-            ...(mode === 'dark' && {
+            mode: effectiveMode,
+            ...(effectiveMode === 'dark' && {
                 primary: {
                     main: '#90caf9',
                     dark: '#5d99c6',
@@ -82,7 +101,7 @@ const ThemeWrapper = ({ children }) => {
                 divider: DARK_DIVIDER,
             }),
         },
-        ...(mode === 'dark' && {
+        ...(effectiveMode === 'dark' && {
             components: {
                 MuiCssBaseline: {
                     styleOverrides: {
@@ -134,9 +153,9 @@ const ThemeWrapper = ({ children }) => {
                 },
             },
         }),
-    }), [mode]);
+    }), [effectiveMode]);
 
-    const ctx = useMemo(() => ({ themeMode: mode, setThemeMode }), [mode, setThemeMode]);
+    const ctx = useMemo(() => ({ themeMode: mode, effectiveMode, setThemeMode }), [mode, effectiveMode, setThemeMode]);
 
     return (
         <ThemeContext.Provider value={ctx}>
