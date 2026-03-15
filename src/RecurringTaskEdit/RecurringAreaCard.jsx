@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
@@ -28,6 +28,18 @@ const RecurringAreaCard = ({ area, definitions }) => {
     // Hybrid local state: TanStack Query seeds via useEffect; local state owns DnD
     const [localDefs, setLocalDefs] = useState(definitions);
     useEffect(() => { setLocalDefs(definitions); }, [definitions]);
+
+    // Tab-after-save coordination: focus recurrence Select on newly created row
+    const [focusRecurrenceId, setFocusRecurrenceId] = useState(null);
+    const focusAfterSaveRef = useRef(false);
+
+    const handleTabAfterSave = useCallback(() => {
+        focusAfterSaveRef.current = true;
+    }, []);
+
+    const clearAutoFocusRecurrence = useCallback(() => {
+        setFocusRecurrenceId(null);
+    }, []);
 
     const handleRemove = useCallback((defId) => {
         setLocalDefs(prev => prev.filter(d => d.id !== defId));
@@ -66,7 +78,12 @@ const RecurringAreaCard = ({ area, definitions }) => {
         const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'POST', formData, idToken);
         if (result.httpStatus.httpStatus > 201) { showError(result, 'Unable to create'); return; }
         if (result.data?.[0]) {
-            setLocalDefs(prev => [...prev, result.data[0]]);
+            const newRow = result.data[0];
+            setLocalDefs(prev => [...prev, newRow]);
+            if (focusAfterSaveRef.current) {
+                focusAfterSaveRef.current = false;
+                setFocusRecurrenceId(newRow.id);
+            }
         }
         invalidate();
     };
@@ -122,6 +139,8 @@ const RecurringAreaCard = ({ area, definitions }) => {
                         onUpdate={handleUpdate}
                         onDelete={handleDelete}
                         onRemove={handleRemove}
+                        autoFocusRecurrence={focusRecurrenceId === def.id}
+                        clearAutoFocusRecurrence={clearAutoFocusRecurrence}
                     />
                 ))}
 
@@ -132,6 +151,7 @@ const RecurringAreaCard = ({ area, definitions }) => {
                     areaId={area.id}
                     isTemplate={true}
                     onSave={handleSave}
+                    onTabAfterSave={handleTabAfterSave}
                 />
             </CardContent>
             <RecurringDeleteDialog

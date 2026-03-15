@@ -94,10 +94,24 @@ const menuItemSx = { py: 0.5 };
 // Fixed width for the anchor area — sized for the widest case (annual: month+day)
 const ANCHOR_WIDTH = 122;
 
-const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete, onRemove }) => {
+const focusSelect = (ref) => {
+    const el = ref.current?.querySelector?.('[role="combobox"]') || ref.current;
+    el?.focus();
+};
+
+const RecurringTaskRow = ({
+    def, areaId, isTemplate, onSave, onUpdate, onDelete, onRemove,
+    onTabAfterSave, autoFocusRecurrence, clearAutoFocusRecurrence,
+}) => {
     const [local, setLocal] = useState(def ? { ...def } : { ...BLANK });
     const descRef = useRef(null);
     const rowRef = useRef(null);
+    const recurrenceRef = useRef(null);
+    const weekdayRef = useRef(null);
+    const monthlyDayRef = useRef(null);
+    const annualMonthRef = useRef(null);
+    const annualDayRef = useRef(null);
+    const tabPendingRef = useRef(false);
     const onRemoveRef = useRef(onRemove);
     useEffect(() => { onRemoveRef.current = onRemove; }, [onRemove]);
     const weekdayCycleRef = useRef({ key: null, index: 0 });
@@ -136,6 +150,14 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
         else setLocal({ ...BLANK });
     }, [def]);
 
+    useEffect(() => {
+        if (autoFocusRecurrence) {
+            // Focus directly — useEffect runs after commit, so ref is valid
+            focusSelect(recurrenceRef);
+            clearAutoFocusRecurrence?.();
+        }
+    }, [autoFocusRecurrence, clearAutoFocusRecurrence]);
+
     const commit = (patch) => {
         if (!isTemplate) onUpdate({ id: local.id, ...patch });
     };
@@ -157,10 +179,35 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
     };
 
     const handleDescKeyDown = (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); descRef.current?.blur(); }
+        if (e.key === 'Enter') { e.preventDefault(); descRef.current?.blur(); return; }
+        if (e.key === 'Tab' && !e.shiftKey) {
+            const text = descRef.current?.value ?? local.description;
+            if (isTemplate && text.trim()) {
+                e.preventDefault();
+                tabPendingRef.current = true;
+                descRef.current?.blur();
+            } else if (!isTemplate) {
+                e.preventDefault();
+                descRef.current?.blur();
+                focusSelect(recurrenceRef);
+            }
+        }
     };
 
     const handleRecurrenceKeyDown = (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) {
+                e.preventDefault();
+                descRef.current?.focus();
+            } else {
+                // Tab forward to the appropriate anchor select
+                if (local.recurrence === 'weekly') { e.preventDefault(); focusSelect(weekdayRef); }
+                else if (local.recurrence === 'monthly') { e.preventDefault(); focusSelect(monthlyDayRef); }
+                else if (local.recurrence === 'annual') { e.preventDefault(); focusSelect(annualMonthRef); }
+                // daily: allow default Tab behavior (no anchor)
+            }
+            return;
+        }
         const rec = RECURRENCE_KEY_MAP[e.key.toLowerCase()];
         if (!rec) return;
         e.preventDefault();
@@ -174,6 +221,11 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
     };
 
     const handleWeekdayKeyDown = (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) { e.preventDefault(); focusSelect(recurrenceRef); }
+            // forward Tab: allow default
+            return;
+        }
         const key = e.key.toLowerCase();
         const vals = WEEKDAY_KEY_MAP[key];
         if (!vals) return;
@@ -186,7 +238,20 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
         commit({ anchor_date: val });
     };
 
+    const handleMonthlyDayKeyDown = (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) { e.preventDefault(); focusSelect(recurrenceRef); }
+            // forward Tab: allow default
+            return;
+        }
+    };
+
     const handleAnnualMonthKeyDown = (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) { e.preventDefault(); focusSelect(recurrenceRef); }
+            else { e.preventDefault(); focusSelect(annualDayRef); }
+            return;
+        }
         const key = e.key.toLowerCase();
         const months = MONTH_KEY_MAP[key];
         if (!months) return;
@@ -207,8 +272,11 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
         const description = descRef.current?.value ?? local.description;
         if (!description.trim()) return;
         if (isTemplate) {
+            const wasTab = tabPendingRef.current;
+            tabPendingRef.current = false;
             onSave({ ...local, area_fk: areaId, description });
             setLocal({ ...BLANK });
+            if (wasTab) onTabAfterSave?.();
         } else {
             commit({ description });
         }
@@ -229,6 +297,14 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
         const anchor = `2025-${pad(anchorMonth)}-${pad(parseInt(e.target.value, 10))}`;
         setLocal(prev => ({ ...prev, anchor_date: anchor }));
         commit({ anchor_date: anchor });
+    };
+
+    const handleAnnualDayKeyDown = (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) { e.preventDefault(); focusSelect(annualMonthRef); }
+            // forward Tab: allow default
+            return;
+        }
     };
 
     const needsWeekday  = local.recurrence === 'weekly';
@@ -304,6 +380,8 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
                 onChange={(e) => setLocal(prev => ({ ...prev, description: e.target.value }))}
                 onKeyDown={handleDescKeyDown}
                 onBlur={handleDescBlur}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
                 multiline
                 autoComplete="off"
                 size="small"
@@ -313,6 +391,7 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
 
             {/* 5. Recurrence select */}
             <Select
+                ref={recurrenceRef}
                 value={local.recurrence}
                 onChange={handleRecurrenceChange}
                 onKeyDown={handleRecurrenceKeyDown}
@@ -331,29 +410,35 @@ const RecurringTaskRow = ({ def, areaId, isTemplate, onSave, onUpdate, onDelete,
 
             {/* 6. Anchor — direct grid child for single selects; Box only for annual pair */}
             {needsWeekday && (
-                <Select value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                <Select ref={weekdayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
                     onKeyDown={handleWeekdayKeyDown}
                     size="small" variant="outlined"
-                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
+                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}
+                    inputProps={{ 'data-testid': `recurring-${local.id}-weekday` }}>
                     {WEEKDAY_OPTIONS.map(o => <MenuItem key={o.value} value={o.value} sx={menuItemSx}>{o.label}</MenuItem>)}
                 </Select>
             )}
             {needsDay && (
-                <Select value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                <Select ref={monthlyDayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                    onKeyDown={handleMonthlyDayKeyDown}
                     size="small" variant="outlined"
-                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
+                    sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}
+                    inputProps={{ 'data-testid': `recurring-${local.id}-monthly-day` }}>
                     {DAY_OPTIONS.map(d => <MenuItem key={d} value={`2025-01-${pad(d)}`} sx={menuItemSx}>{d}</MenuItem>)}
                 </Select>
             )}
             {needsMonthDay && (
                 <Box sx={{ width: { xs: 105, md: ANCHOR_WIDTH }, display: 'flex', gap: 0.5, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
-                    <Select value={anchorMonth} onChange={handleAnnualMonth}
+                    <Select ref={annualMonthRef} value={anchorMonth} onChange={handleAnnualMonth}
                         onKeyDown={handleAnnualMonthKeyDown}
-                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 57, md: 65 } }}>
+                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 57, md: 65 } }}
+                        inputProps={{ 'data-testid': `recurring-${local.id}-annual-month` }}>
                         {MONTH_OPTIONS.map(m => <MenuItem key={m.value} value={m.value} sx={menuItemSx}>{m.label}</MenuItem>)}
                     </Select>
-                    <Select value={anchorDay} onChange={handleAnnualDay}
-                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 44, md: 53 } }}>
+                    <Select ref={annualDayRef} value={anchorDay} onChange={handleAnnualDay}
+                        onKeyDown={handleAnnualDayKeyDown}
+                        size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 44, md: 53 } }}
+                        inputProps={{ 'data-testid': `recurring-${local.id}-annual-day` }}>
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d =>
                             <MenuItem key={d} value={d} sx={menuItemSx}>{d}</MenuItem>)}
                     </Select>
