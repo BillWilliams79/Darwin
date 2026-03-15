@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import NavBarSidebar from './NavBarSidebar';
 
 const NavBar = () => {
-    console.count('Navbar render');
 
     // Apply layout class to .app-layout
     useEffect(() => {

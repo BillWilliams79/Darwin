@@ -7,8 +7,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 const HomePage = () => {
 
-    console.count('HomePage Render');
-
     const { idToken, authLoading } = useContext(AuthContext);
 
     if (authLoading) {
