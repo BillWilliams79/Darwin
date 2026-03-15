@@ -1,13 +1,7 @@
-// eslint-disable-next-line no-unused-vars
-import varDump from '../classifier/classifier';
-
 import React from 'react'
+import { Draggable } from '@hello-pangea/dnd';
 
-//import { useDrag, useDrop } from "react-dnd";
-import { /* DragDropContext, Droppable, */ Draggable } from '@hello-pangea/dnd';
-
-import TableCell from '@mui/material/TableCell';
-import TableRow from '@mui/material/TableRow';
+import Box from '@mui/material/Box';
 import { Checkbox, Typography } from '@mui/material';
 import { TextField } from '@mui/material';
 
@@ -15,114 +9,75 @@ import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 
+const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAreaName, clickAreaClosed, clickAreaDelete, taskCounts, isDraggable}) => {
 
-const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAreaName, clickAreaClosed, clickAreaDelete, taskCounts}) => {
+    const row = (provided = {}, snapshot = {}) => (
+        <Box
+            ref={provided.innerRef}
+            data-testid={area.id === '' ? 'area-row-template' : `area-row-${area.id}`}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            sx={{
+                display: 'flex',
+                alignItems: 'center',
+                py: 0.5,
+                ...(snapshot.isDragging && {
+                    backgroundColor: 'background.paper',
+                    boxShadow: 3,
+                    opacity: 0.9,
+                    borderRadius: 1,
+                }),
+            }}
+        >
+            <Box sx={{ width: 220, px: 1 }}>
+                <TextField variant="outlined"
+                           value={area.area_name || ''}
+                           name='area-name'
+                           onChange= { (event) => changeAreaName(event, areaIndex) }
+                           onKeyDown = {(event) => keyDownAreaName(event, areaIndex, area.id)}
+                           onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
+                           autoComplete='off'
+                           size = 'small'
+                           fullWidth
+                           slotProps={{ htmlInput: { maxLength: 32 } }}
+                           key={`name-${area.id}`} />
+            </Box>
+            <Box sx={{ width: 70, display: 'flex', justifyContent: 'center' }}>
+                <Checkbox checked = {(area.closed === 1) ? true : false }
+                          onClick = {(event) => clickAreaClosed(event, areaIndex, area.id) }
+                          key={`checked-${area.id}`} />
+            </Box>
+            <Box sx={{ width: 80, textAlign: 'center' }}>
+                <Typography variant='body1'>
+                    { area.id === '' ? '' :
+                        taskCounts[`${area.id}`] === undefined ? 0 :
+                            taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`]
+                    }
+                </Typography>
+            </Box>
+            <Box sx={{ width: 48 }}>
+                { area.id === '' ?
+                        <IconButton>
+                            <SavingsIcon />
+                        </IconButton>
+                    :
+                        <IconButton onClick={(event) => clickAreaDelete(event, area.id, area.area_name)} >
+                            <DeleteIcon />
+                        </IconButton>
+                }
+            </Box>
+        </Box>
+    );
 
-/*
-    const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: "areaEdit",
-        item: {...area},
-        //end: (item, monitor) => removeTaskFromDay(item, monitor),
-        collect: (monitor) => ({
-          isDragging: !!monitor.isDragging(),
-        }),
-    }),[]);
-
-    const [, drop] = useDrop(() => ({
-
-        accept: "areaEdit",
-
-        //drop: (item) => addTaskToDay(item),
-
-    }), []);
-
-
-     const addTaskToDay = (task) => {
-
-        // STEP 1: if we are dropping back to the same card, take no action
-        let matchTask = areasArray.find( arrayTask => arrayTask.id === task.id)
-
-        if (matchTask !== undefined) {
-            // there is a matching task so this is not a drop event
-            // return object with task = null that's used in drag's end method
-            return {task: null};
-        }
-
-        // STEP 2: is a drop to a new card, update task with new data via API
-        let taskUri = `${darwinUri}/tasks`;
-
-        call_rest_api(taskUri, 'PUT', [{'id': task.id, 'done_ts': dropDateString }], idToken)
-            .then(result => {
-
-                if (result.httpStatus.httpStatus === 200) {
-
-                    // STEP 3: Add moved task to this cards tasksArray
-                    //         which triggers re-render.
-                    var newTasksArray = [...tasksArray];
-                    newTasksArray.push(task);
-                    setTasksArray(newTasksArray);
-                    return {task: task.id};
-
-                } else {
-                    varDump(result.httpStatus, `TaskCard UseEffect: error retrieving tasks`);
-                    return {task: null};
-                }  
-
-            }).catch(error => {
-                varDump(error, `TaskCard drop: error updating task with new Date`);
-                return {task: null};
-            });
-    };
-*/
+    if (!isDraggable) {
+        return row();
+    }
 
     return (
-        <Draggable key={area.id} draggableId={`areaId-${area.id}`} index={areaIndex}>
-            {(provided) => (
-                <TableRow ref={provided.innerRef} data-testid={area.id === '' ? 'area-row-template' : `area-row-${area.id}`} {...(((area.closed === 0) && (area.id !== '')) && provided.draggableProps)} {...(((area.closed === 0) && (area.id !== '')) && provided.dragHandleProps)}
-                          /*key={area.id} {...(task.done === 1 && {textDecoration: 'line-through'}),} */
-                          /*ref={drag}
-                          sx = {{...(isDragging && {opacity: 0.2}),}}*/
-                >
-                    <TableCell> 
-                        <TextField variant="outlined"
-                                   value={area.area_name || ''}
-                                   name='area-name'
-                                   onChange= { (event) => changeAreaName(event, areaIndex) }
-                                   onKeyDown = {(event) => keyDownAreaName(event, areaIndex, area.id)}
-                                   onBlur = {(event) => blurAreaName(event, areaIndex, area.id)}
-                                   autoComplete='off'
-                                   size = 'small'
-                                   slotProps={{ htmlInput: { maxLength: 32 } }}
-                                   key={`name-${area.id}`} />
-                    </TableCell>
-                    <TableCell> 
-                        <Checkbox checked = {(area.closed === 1) ? true : false }
-                                  onClick = {(event) => clickAreaClosed(event, areaIndex, area.id) }
-                                  key={`checked-${area.id}`} />
-                    </TableCell>
-                    <TableCell>
-                        <Typography variant='body1'>
-                            { area.id === '' ? '' :
-                                taskCounts[`${area.id}`] === undefined ? 0 :
-                                    taskCounts[`${area.id}`] === '' ? '' : taskCounts[`${area.id}`] 
-                            }
-                        </Typography>
-                    </TableCell>
-                    <TableCell >
-                        { area.id === '' ?
-                                <IconButton>
-                                    <SavingsIcon />
-                                </IconButton>
-                            :
-                                <IconButton  onClick={(event) => clickAreaDelete(event, area.id, area.area_name)} >
-                                    <DeleteIcon />
-                                </IconButton>
-                        }
-                    </TableCell>
-                </TableRow>
-            )}
+        <Draggable draggableId={`areaId-${area.id}`} index={areaIndex}>
+            {(provided, snapshot) => row(provided, snapshot)}
         </Draggable>
-    )
+    );
 }
 
 export default AreaTableRow;
