@@ -158,9 +158,9 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                 {priority.id !== '' ? priorityIndex + 1 : ''}
             </Typography>
 
-            {/* Col 2: Scheduled toggle — hidden only when closed, disabled when session is active */}
+            {/* Col 2: Scheduled toggle — hidden when closed or in-progress, disabled when session is active */}
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {priority.id !== '' && !priority.closed ? (() => {
+                {priority.id !== '' && !priority.closed && !priority.in_progress ? (() => {
                     const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
                     const btn = (
                         <IconButton

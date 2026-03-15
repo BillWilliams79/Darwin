@@ -54,7 +54,7 @@ test.describe('Calendar View P1', () => {
 
     // Navigate to CalendarView (FullCalendar-based, single API call per visible range)
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // FullCalendar renders events as .fc-event elements
     const taskText = page.locator('.fc-event').filter({ hasText: taskDesc });
@@ -78,7 +78,7 @@ test.describe('Calendar View P1', () => {
 
     // Navigate to CalendarView
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Find the task event in FullCalendar
     const taskText = page.locator('.fc-event').filter({ hasText: taskDesc });
@@ -117,7 +117,7 @@ test.describe('Calendar View P1', () => {
     createdTaskIds.push(taskId);
 
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(event).toBeVisible({ timeout: 10000 });
@@ -136,11 +136,8 @@ test.describe('Calendar View P1', () => {
     await expect(deleteDialog).toBeVisible({ timeout: 3000 });
     await deleteDialog.getByRole('button', { name: 'Delete' }).click();
 
-    // Wait for deletion to process
-    await page.waitForTimeout(2000);
-
-    // Task should be gone from calendar
-    await expect(event).not.toBeVisible({ timeout: 5000 });
+    // Task should be gone from calendar after deletion processes
+    await expect(event).not.toBeVisible({ timeout: 10000 });
   });
 
   test('CAL-04: drag task reschedules to different day (API verification)', async ({ page }) => {
@@ -163,7 +160,7 @@ test.describe('Calendar View P1', () => {
 
     // Verify task appears on today's date
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(event).toBeVisible({ timeout: 10000 });
     await expect(page.locator(`td[data-date="${todayStr}"] .fc-event`).filter({ hasText: taskDesc })).toBeVisible();
@@ -178,7 +175,7 @@ test.describe('Calendar View P1', () => {
 
     // Reload to refetch — task should appear on new date
     await page.reload();
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     await expect(page.locator(`td[data-date="${tomorrowStr}"] .fc-event`).filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
   });
 
@@ -197,7 +194,7 @@ test.describe('Calendar View P1', () => {
     createdTaskIds.push(result[0].id);
 
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Month view (default) — task visible as fc-event
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
@@ -205,18 +202,18 @@ test.describe('Calendar View P1', () => {
 
     // Switch to week view — still fc-event
     await page.getByRole('button', { name: 'Week', exact: true }).click();
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
 
     // Switch to day view — custom DayView renders (no .fc-event); task text in day-view
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('day-view').getByText(taskDesc)).toBeVisible({ timeout: 10000 });
 
     // Switch back to month view — fc-event visible again
     await page.getByRole('button', { name: 'Month', exact: true }).click();
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc-dayGridMonth-button.fc-button-active')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
   });
 
@@ -235,7 +232,7 @@ test.describe('Calendar View P1', () => {
     createdTaskIds.push(result[0].id);
 
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
     await expect(event).toBeVisible({ timeout: 10000 });
@@ -248,22 +245,18 @@ test.describe('Calendar View P1', () => {
     // Click done checkbox (index 1) to toggle done=0
     const checkboxes = dialog.getByRole('checkbox');
     await checkboxes.nth(1).click();
-    await page.waitForTimeout(1000);
 
     // Close dialog — triggers refetch via taskApiToggle
     await dialog.getByRole('button', { name: 'Close Dialog' }).click();
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
 
-    // Wait for refetch (done=0 tasks excluded from calendar query)
-    await page.waitForTimeout(3000);
-
-    // Task should no longer appear on calendar
-    await expect(event).not.toBeVisible({ timeout: 5000 });
+    // Task should no longer appear on calendar (refetch excludes done=0 tasks)
+    await expect(event).not.toBeVisible({ timeout: 10000 });
   });
 
   test('CAL-07: empty calendar renders without errors', async ({ page }) => {
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Calendar container and title should render
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
@@ -271,11 +264,8 @@ test.describe('Calendar View P1', () => {
 
     // Navigate 3 months into the future — guaranteed no done tasks
     await page.locator('.fc-next-button').click();
-    await page.waitForTimeout(1000);
     await page.locator('.fc-next-button').click();
-    await page.waitForTimeout(1000);
     await page.locator('.fc-next-button').click();
-    await page.waitForTimeout(2000);
 
     // Calendar still renders correctly with no events
     await expect(page.locator('.fc')).toBeVisible();
@@ -303,7 +293,7 @@ test.describe('Calendar View P1', () => {
     createdTaskIds.push(result[0].id);
 
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Find the priority task event
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
@@ -333,7 +323,7 @@ test.describe('Calendar View P1', () => {
 
     // Navigate to calendar (current month)
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Task should NOT be visible in current month
     const event = page.locator('.fc-event').filter({ hasText: taskDesc });
@@ -341,7 +331,6 @@ test.describe('Calendar View P1', () => {
 
     // Click prev to navigate to previous month
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(3000);
 
     // Task should now be visible
     await expect(event).toBeVisible({ timeout: 10000 });
@@ -398,7 +387,7 @@ test.describe('Calendar Priorities', () => {
 
   test('CAL-09: toggle between Tasks and Priorities modes updates title', async ({ page }) => {
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Default mode is Tasks — title ends with "Completed Tasks"
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
@@ -406,15 +395,13 @@ test.describe('Calendar Priorities', () => {
     // Click Priorities toggle
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await page.waitForTimeout(1000);
 
     // Title should now end with "Completed Priorities"
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText(/Completed Tasks$/)).not.toBeVisible();
 
     // Click Tasks toggle to switch back
     await toggle.getByRole('button', { name: 'Tasks' }).click();
-    await page.waitForTimeout(1000);
 
     // Title should revert to "Completed Tasks"
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
@@ -422,12 +409,12 @@ test.describe('Calendar Priorities', () => {
 
   test('CAL-10: priorities mode renders completed priority on calendar', async ({ page }) => {
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Switch to Priorities mode
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await page.waitForTimeout(2000);
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
 
     // Calendar container renders with correct title
     await expect(page.locator('.fc')).toBeVisible();
@@ -445,7 +432,7 @@ test.describe('Calendar Priorities', () => {
 
   test('CAL-11: clicking priority event navigates to priority detail', async ({ page }) => {
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Switch to Priorities mode
     const toggle = page.getByTestId('calendar-mode-toggle');
@@ -469,24 +456,22 @@ test.describe('Calendar View Persistence', () => {
     await page.goto('/calview');
     await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
     await page.reload();
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
   });
 
   test('CAL-12: view type persists across route navigation', async ({ page }) => {
     // Default is Month view — switch to Week
     await page.getByRole('button', { name: 'Week', exact: true }).click();
-    await page.waitForTimeout(1000);
 
     // Verify Week button is active (fc adds fc-button-active class)
-    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible();
+    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible({ timeout: 5000 });
 
     // Navigate away to a different route
     await page.goto('/');
-    await page.waitForTimeout(1000);
 
     // Return to calendar
     await page.goto('/calview');
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Week view should be restored
     await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible();
@@ -498,19 +483,19 @@ test.describe('Calendar View Persistence', () => {
 
     // Navigate to previous month
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(1000);
 
-    // Get the new title (previous month)
+    // Wait for title to change (previous month)
+    await expect.poll(async () => {
+      return await page.getByText(/Completed Tasks$/).textContent();
+    }, { timeout: 5000 }).not.toBe(initialTitle);
     const prevMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
-    expect(prevMonthTitle).not.toBe(initialTitle);
 
     // Navigate away
     await page.goto('/');
-    await page.waitForTimeout(1000);
 
     // Return to calendar
     await page.goto('/calview');
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Should still show previous month, not current month
     const restoredTitle = await page.getByText(/Completed Tasks$/).textContent();
@@ -521,18 +506,16 @@ test.describe('Calendar View Persistence', () => {
     // Default is Tasks mode — switch to Priorities
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await page.waitForTimeout(1000);
 
     // Verify Priorities mode is active
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
 
     // Navigate away
     await page.goto('/');
-    await page.waitForTimeout(1000);
 
     // Return to calendar
     await page.goto('/calview');
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Priorities mode should be restored
     await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
@@ -541,27 +524,26 @@ test.describe('Calendar View Persistence', () => {
   test('CAL-15: full page reload preserves all settings', async ({ page }) => {
     // Switch to Day view
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await page.waitForTimeout(1000);
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
 
     // Navigate to previous day
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(1000);
 
     // Switch to Priorities mode
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await page.waitForTimeout(1000);
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
 
     // Capture state before reload
     const titleBeforeReload = await page.getByText(/Completed Priorities$/).textContent();
 
     // Full page reload
     await page.reload();
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // All settings should be preserved
     // Day view
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
     // Priorities mode
     await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
     // Same date
@@ -575,35 +557,34 @@ test.describe('Calendar View Persistence', () => {
 
     // Navigate 3 months back
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(500);
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(500);
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(1000);
 
-    // Verify we're on a different month
+    // Wait for title to change (3 months back)
+    await expect.poll(async () => {
+      return await page.getByText(/Completed Tasks$/).textContent();
+    }, { timeout: 5000 }).not.toBe(currentMonthTitle);
     const oldMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
-    expect(oldMonthTitle).not.toBe(currentMonthTitle);
 
     // Navigate away and back — should still be on old month (persisted)
     await page.goto('/');
-    await page.waitForTimeout(1000);
     await page.goto('/calview');
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     const restoredTitle = await page.getByText(/Completed Tasks$/).textContent();
     expect(restoredTitle).toBe(oldMonthTitle);
 
     // Click Today button — should return to current month
     await page.locator('.fc-today-button').click();
-    await page.waitForTimeout(1000);
+    await expect.poll(async () => {
+      return await page.getByText(/Completed Tasks$/).textContent();
+    }, { timeout: 5000 }).toBe(currentMonthTitle);
     const todayTitle = await page.getByText(/Completed Tasks$/).textContent();
     expect(todayTitle).toBe(currentMonthTitle);
 
     // Navigate away and back — should now persist current month
     await page.goto('/');
-    await page.waitForTimeout(1000);
     await page.goto('/calview');
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     const finalTitle = await page.getByText(/Completed Tasks$/).textContent();
     expect(finalTitle).toBe(currentMonthTitle);
   });
@@ -643,7 +624,7 @@ test.describe('DayView', () => {
     await page.goto('/calview');
     await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
     await page.reload();
-    await page.waitForTimeout(2000);
+    await expect(page.locator('.fc-view-harness')).toBeVisible({ timeout: 10000 });
   });
 
   test.afterAll(async () => {
@@ -657,11 +638,10 @@ test.describe('DayView', () => {
     const dateCell = page.locator(`td[data-date="${todayStr}"]`).first();
     await expect(dateCell).toBeVisible({ timeout: 5000 });
     await dateCell.click();
-    await page.waitForTimeout(2000);
 
-    // DayView should be visible; FullCalendar grid hidden
-    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
+    // Wait for FullCalendar to switch to day view, then DayView component renders
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.fc-view-harness')).not.toBeVisible();
   });
 
@@ -682,15 +662,13 @@ test.describe('DayView', () => {
 
     // Navigate to calendar; Prev → Today ensures FullCalendar anchors on today, then Day
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     await page.locator('.fc-prev-button').click();
-    await page.waitForTimeout(300);
     await page.locator('.fc-today-button').click();
-    await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
 
-    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
 
     // Task description, domain name, and area name should all appear
     await expect(page.getByTestId('day-view').getByText(taskDesc)).toBeVisible({ timeout: 10000 });
@@ -702,22 +680,20 @@ test.describe('DayView', () => {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
+    await expect(page.locator('.fc-view-harness')).toBeVisible({ timeout: 10000 });
     const dateCell = page.locator(`td[data-date="${todayStr}"]`).first();
     await dateCell.click();
-    await page.waitForTimeout(2000);
 
-    // Verify day view is active
-    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
+    // Wait for day view to fully activate
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
 
     // Navigate away and back
     await page.goto('/');
-    await page.waitForTimeout(1000);
     await page.goto('/calview');
-    await page.waitForTimeout(3000);
 
     // Should still be in day view (savedViewType persisted)
-    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible();
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
   });
 });

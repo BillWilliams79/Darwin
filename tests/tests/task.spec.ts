@@ -75,12 +75,9 @@ test.describe('Task Management', () => {
     await descField.fill(taskDesc);
     await descField.press('Enter');
 
-    // Wait for task to be saved and re-rendered
-    await page.waitForTimeout(1500);
-
     // Verify the task appears in the area card (with a real id, not template)
     const taskElement = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])').filter({ hasText: taskDesc });
-    await expect(taskElement).toBeVisible({ timeout: 5000 });
+    await expect(taskElement).toBeVisible({ timeout: 10000 });
 
     // A new blank template should still exist
     await expect(areaCard.getByTestId('task-template')).toBeVisible();
@@ -128,7 +125,7 @@ test.describe('Task Management', () => {
     await page.reload();
     await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
-    await page.waitForTimeout(1500);
+    await page.waitForSelector(`[data-testid="area-card-${testAreaId}"]`, { timeout: 15000 });
     await expect(taskRow).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -153,11 +150,8 @@ test.describe('Task Management', () => {
     const checkboxes = taskRow.getByRole('checkbox');
     await checkboxes.nth(0).click();
 
-    // Wait for re-sort (priority tasks move to top)
-    await page.waitForTimeout(500);
-
     // Verify task is still visible and priority is toggled
-    await expect(taskRow).toBeVisible();
+    await expect(taskRow).toBeVisible({ timeout: 5000 });
 
     // The priority checkbox should now be checked
     const priorityCheckbox = checkboxes.nth(0);
@@ -215,12 +209,9 @@ test.describe('Task Management', () => {
     // Perform the drag-and-drop
     await dragAndDrop(page, sourceTask, targetCard);
 
-    // Wait for the API call and re-render
-    await page.waitForTimeout(1500);
-
     // Verify task moved to area 2 (should appear in the target card)
     const taskInTarget = targetCard.getByTestId(`task-${taskId}`);
-    await expect(taskInTarget).toBeVisible({ timeout: 5000 });
+    await expect(taskInTarget).toBeVisible({ timeout: 10000 });
 
     // Verify task no longer in area 1
     const sourceCard = page.getByTestId(`area-card-${testAreaId}`);
@@ -231,9 +222,9 @@ test.describe('Task Management', () => {
     await page.reload();
     await page.waitForSelector('[role="tab"]', { timeout: 30000 });
     await page.getByRole('tab', { name: testDomainName }).click();
-    await page.waitForTimeout(1500);
+    await page.waitForSelector(`[data-testid="area-card-${testArea2Id}"]`, { timeout: 15000 });
 
     const targetAfterReload = page.getByTestId(`area-card-${testArea2Id}`);
-    await expect(targetAfterReload.getByTestId(`task-${taskId}`)).toBeVisible({ timeout: 5000 });
+    await expect(targetAfterReload.getByTestId(`task-${taskId}`)).toBeVisible({ timeout: 10000 });
   });
 });

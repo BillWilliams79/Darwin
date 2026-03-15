@@ -282,9 +282,6 @@ test.describe('Swarm View', () => {
       await page.goto(`/swarm/priority/${testIdlePriorityId}`);
       await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
 
-      // Wait for siblings to load
-      await page.waitForTimeout(1000);
-
       // prev should be enabled (first open priority exists before this one)
       await expect(page.getByTestId('btn-prev-priority')).not.toBeDisabled({ timeout: 5000 });
       // next should be DISABLED because the only next item is closed and Show Closed is off
