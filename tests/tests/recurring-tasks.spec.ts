@@ -253,6 +253,258 @@ test.describe('Recurring Tasks Management', () => {
   });
 
   // -------------------------------------------------------------------------
+  // REC-TAB-01: Tab from description → recurrence Select (existing task)
+  // -------------------------------------------------------------------------
+  test('REC-TAB-01: Tab from description focuses recurrence select', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Tab focus test', area_fk: testAreaId,
+      recurrence: 'daily', active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    const descField = row.locator('textarea, input[name="description"]').first();
+    await descField.click();
+    await page.keyboard.press('Tab');
+
+    const recurrenceCombobox = row.locator('[data-testid="recurring-' + defId + '-recurrence"]')
+      .locator('..').locator('[role="combobox"]');
+    // Fallback: find combobox by position (first combobox in row)
+    const combobox = row.locator('[role="combobox"]').first();
+    await expect(combobox).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-02: Tab from template description → saves + focuses recurrence on new row
+  // -------------------------------------------------------------------------
+  test('REC-TAB-02: Tab from template saves and focuses recurrence on new row', async ({ page }) => {
+    await goToTestDomain(page);
+    const card = page.getByTestId(`recurring-area-card-${testAreaId}`);
+    // Ensure page is settled before interacting with template
+    await page.waitForTimeout(500);
+
+    const templateRow = card.getByTestId('recurring-template');
+    const descField = templateRow.locator('textarea').first();
+    await descField.click();
+    await expect(descField).toBeFocused({ timeout: 3000 });
+    await page.keyboard.type('Tab save test', { delay: 20 });
+    await page.waitForTimeout(300);
+
+    await page.keyboard.press('Tab');
+
+    // New row should appear with our description (wait for server round-trip)
+    const newRow = card.locator('[data-testid^="recurring-"]:not([data-testid="recurring-template"])').filter({
+      has: page.locator('textarea', { hasText: 'Tab save test' }),
+    });
+    await expect(newRow).toBeVisible({ timeout: 10000 });
+
+    // The recurrence combobox on the new row should be focused
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.getAttribute('role');
+    });
+    expect(focused).toBe('combobox');
+
+    // Capture new row ID for cleanup
+    const tid = await newRow.getAttribute('data-testid');
+    const id = tid?.replace('recurring-', '') ?? '';
+    if (id && /^\d+$/.test(id)) createdDefIds.push(id);
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-03: Tab from recurrence (weekly) → weekday Select
+  // -------------------------------------------------------------------------
+  test('REC-TAB-03: Tab from recurrence focuses weekday select', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Tab weekly test', area_fk: testAreaId,
+      recurrence: 'weekly', anchor_date: '2025-01-06',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    // Focus recurrence select via click→Escape
+    const recurrence = row.locator('[role="combobox"]').first();
+    await recurrence.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Tab');
+
+    // Weekday combobox (second combobox) should be focused
+    const weekday = row.locator('[role="combobox"]').nth(1);
+    await expect(weekday).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-04: Tab from recurrence (monthly) → monthly day Select
+  // -------------------------------------------------------------------------
+  test('REC-TAB-04: Tab from recurrence focuses monthly day select', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Tab monthly test', area_fk: testAreaId,
+      recurrence: 'monthly', anchor_date: '2025-01-15',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    const recurrence = row.locator('[role="combobox"]').first();
+    await recurrence.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Tab');
+
+    // Monthly day combobox (second combobox) should be focused
+    const monthlyDay = row.locator('[role="combobox"]').nth(1);
+    await expect(monthlyDay).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-05: Tab from recurrence (annual) → month Select → Tab → day Select
+  // -------------------------------------------------------------------------
+  test('REC-TAB-05: Tab through annual month and day selects', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Tab annual test', area_fk: testAreaId,
+      recurrence: 'annual', anchor_date: '2025-03-15',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+
+    // Focus recurrence, Tab → annual month
+    const recurrence = row.locator('[role="combobox"]').first();
+    await recurrence.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Tab');
+
+    const annualMonth = row.locator('[role="combobox"]').nth(1);
+    await expect(annualMonth).toBeFocused({ timeout: 3000 });
+
+    // Tab again → annual day
+    await page.keyboard.press('Tab');
+    const annualDay = row.locator('[role="combobox"]').nth(2);
+    await expect(annualDay).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-06: Tab from recurrence (daily) — no anchor, default behavior
+  // -------------------------------------------------------------------------
+  test('REC-TAB-06: Tab from daily recurrence passes through', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Tab daily test', area_fk: testAreaId,
+      recurrence: 'daily', active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    const recurrence = row.locator('[role="combobox"]').first();
+    await recurrence.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Tab');
+
+    // Focus should NOT be on the recurrence combobox anymore
+    await expect(recurrence).not.toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-07: Shift+Tab from recurrence → description
+  // -------------------------------------------------------------------------
+  test('REC-TAB-07: Shift+Tab from recurrence focuses description', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Shift-Tab test', area_fk: testAreaId,
+      recurrence: 'weekly', anchor_date: '2025-01-06',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    const recurrence = row.locator('[role="combobox"]').first();
+    await recurrence.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+Tab');
+
+    // Description textarea should be focused
+    const descField = row.locator('textarea').first();
+    await expect(descField).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-08: Shift+Tab from weekday anchor → recurrence
+  // -------------------------------------------------------------------------
+  test('REC-TAB-08: Shift+Tab from weekday focuses recurrence', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Shift-Tab anchor test', area_fk: testAreaId,
+      recurrence: 'weekly', anchor_date: '2025-01-06',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    // Focus weekday select (second combobox)
+    const weekday = row.locator('[role="combobox"]').nth(1);
+    await weekday.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+Tab');
+
+    // Recurrence combobox (first) should be focused
+    const recurrence = row.locator('[role="combobox"]').first();
+    await expect(recurrence).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-TAB-09: Shift+Tab from annual day → annual month
+  // -------------------------------------------------------------------------
+  test('REC-TAB-09: Shift+Tab from annual day focuses annual month', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description: 'Shift-Tab annual test', area_fk: testAreaId,
+      recurrence: 'annual', anchor_date: '2025-06-15',
+      active: 1, accumulate: 1, priority: 0, insert_position: 'bottom',
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    const defId = result[0].id;
+    createdDefIds.push(String(defId));
+
+    await goToTestDomain(page);
+    const row = page.getByTestId(`recurring-${defId}`);
+    // Focus annual day select (third combobox: recurrence, month, day)
+    const annualDay = row.locator('[role="combobox"]').nth(2);
+    await annualDay.click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+Tab');
+
+    // Annual month combobox (second) should be focused
+    const annualMonth = row.locator('[role="combobox"]').nth(1);
+    await expect(annualMonth).toBeFocused({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
   // REC-DND-01: Drag recurring task between area cards (same domain)
   // -------------------------------------------------------------------------
   test('REC-DND-01: drag recurring task between area cards (same domain)', async ({ page }) => {
