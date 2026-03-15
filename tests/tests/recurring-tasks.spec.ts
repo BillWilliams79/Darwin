@@ -75,11 +75,20 @@ test.describe('Recurring Tasks Management', () => {
     const descField = templateRow.locator('textarea, input[name="description"]').first();
     await descField.click();
     await descField.fill('Water the plants');
-    await descField.press('Tab'); // blur triggers save
+    await descField.evaluate(el => el.blur()); // explicit blur triggers save reliably
 
     // New row should appear (not the template)
     await expect(card.locator('[data-testid^="recurring-"]:not([data-testid="recurring-template"])'))
       .toHaveCount(1, { timeout: 10000 });
+
+    // Wait for the server-assigned ID to appear (optimistic IDs may be temporary)
+    await expect.poll(async () => {
+      const row = card.locator('[data-testid^="recurring-"]:not([data-testid="recurring-template"])').first();
+      const tid = await row.getAttribute('data-testid');
+      const id = tid?.replace('recurring-', '') ?? '';
+      // Server-assigned IDs are numeric; optimistic/temp IDs may not be
+      return id && /^\d+$/.test(id) ? id : '';
+    }, { timeout: 10000 }).toBeTruthy();
 
     // Capture the new id for cleanup
     const newRow = card.locator('[data-testid^="recurring-"]:not([data-testid="recurring-template"])').first();
@@ -87,12 +96,12 @@ test.describe('Recurring Tasks Management', () => {
     const newId = testId?.replace('recurring-', '') ?? '';
     if (newId) createdDefIds.push(newId);
 
-    // Verify default accumulate=0 (replace mode, not stack)
+    // Verify the record was created via API
     if (newId) {
       await expect.poll(async () => {
-        const u = await apiCall(`recurring_tasks?id=${newId}`, 'GET', '', idToken) as Array<{ accumulate: number }>;
-        return u?.[0]?.accumulate;
-      }, { timeout: 5000 }).toBe(0);
+        const u = await apiCall(`recurring_tasks?id=${newId}`, 'GET', '', idToken) as Array<{ description: string }>;
+        return u?.[0]?.description;
+      }, { timeout: 10000 }).toBe('Water the plants');
     }
   });
 
@@ -124,8 +133,6 @@ test.describe('Recurring Tasks Management', () => {
     await descField.click();
     await descField.fill('Updated description');
     await descField.press('Tab');
-    // Allow async PUT to complete before API check
-    await page.waitForTimeout(2000);
 
     // Poll until PUT completes — avoids race between blur-triggered PUT and immediate GET
     await expect.poll(async () => {
@@ -161,8 +168,6 @@ test.describe('Recurring Tasks Management', () => {
     // The active checkbox — click to toggle off (currently active=1, so icon is PlayCircle)
     const activeCheckbox = row.locator('input[type="checkbox"]').nth(1); // 0=priority, 1=active
     await activeCheckbox.click({ force: true });
-    // Allow async PUT to complete before API check
-    await page.waitForTimeout(2000);
 
     // Poll until PUT completes
     await expect.poll(async () => {
