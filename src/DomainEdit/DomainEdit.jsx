@@ -295,7 +295,6 @@ const DomainEdit = ( { domain, domainIndex } ) => {
             .then(result => {
                 if ((result.httpStatus.httpStatus === 200) ||
                     (result.httpStatus.httpStatus === 204)) {
-                    console.log('domain sort order saved');
                 } else {
                     showError(result, 'Unable to save domain sort order')
                 }
