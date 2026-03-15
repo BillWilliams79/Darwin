@@ -65,7 +65,7 @@ const PriorityDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDelete
                             border: '1px solid',
                             borderColor: 'divider',
                             borderRadius: 1,
-                            background: 'white',
+                            bgcolor: 'background.paper',
                         }}>
                             <Typography variant="body2">{priority.title}</Typography>
                         </Box>

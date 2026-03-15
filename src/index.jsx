@@ -10,6 +10,7 @@ import { CookiesProvider } from 'react-cookie';
 import { DndProvider } from "react-dnd";
 import { TouchBackend } from "react-dnd-touch-backend";
 import QueryClientSetup from './QueryClient/QueryClientSetup';
+import ThemeWrapper from './Theme/ThemeWrapper';
 
 import App from './App';
 import HomePage from './HomePage/HomePage';
@@ -39,6 +40,7 @@ root.render(
     <CookiesProvider>
       <AuthContextProvider>
         <AppContextProvider>
+          <ThemeWrapper>
           <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true, delayTouchStart: 150 }}>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <div className="app-layout">
@@ -89,6 +91,7 @@ root.render(
             </div>
           </Router>
           </DndProvider>
+          </ThemeWrapper>
         </AppContextProvider>
       </AuthContextProvider>
     </CookiesProvider>
