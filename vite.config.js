@@ -29,6 +29,9 @@ function devserverMarker() {
 
 export default defineConfig({
   plugins: [react(), basicSsl(), devserverMarker()],
+  define: {
+    global: 'globalThis',
+  },
   server: {
     port: 3000,
   },
