@@ -77,7 +77,7 @@
     display: grid;
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
-    background: white;
+    background: var(--darwin-task-bg, white);
 }
 
 .task.priority-row {
