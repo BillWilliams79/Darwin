@@ -211,20 +211,8 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         onChange = {(event) => titleChange(event, priorityIndex) }
                         onKeyDown = {(event) => titleKeyDown(event, priorityIndex, priority.id)}
                         onBlur = {(event) => titleOnBlur(event, priorityIndex, priority.id)}
-                        onPointerDown={(e) => {
-                            const draggables = [];
-                            let el = e.currentTarget;
-                            while (el) {
-                                if (el.getAttribute('draggable') === 'true') {
-                                    draggables.push(el);
-                                    el.removeAttribute('draggable');
-                                }
-                                el = el.parentElement;
-                            }
-                            document.addEventListener('pointerup', () => {
-                                draggables.forEach(d => d.setAttribute('draggable', 'true'));
-                            }, { once: true });
-                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'

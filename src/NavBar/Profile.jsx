@@ -151,15 +151,47 @@ const Profile = () => {
             <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Appearance</Typography>
                 <Box sx={{ display: 'flex', gap: 2 }} data-testid="profile-theme-toggle">
-                    {['light', 'dark'].map((m) => {
+                    {['light', 'dark', 'system'].map((m) => {
                         const selected = themeMode === m;
-                        const bg = m === 'light' ? '#fafafa' : '#141210';
-                        const card = m === 'light' ? '#fff' : '#2a2723';
-                        const header = m === 'light' ? '#e0e0e0' : '#3a3632';
-                        const row = m === 'light' ? '#f5f5f5' : '#2a2723';
-                        const text = m === 'light' ? '#bbb' : '#9a9186';
-                        const dot = m === 'light' ? '#ccc' : '#555';
+                        // Color palettes for light and dark previews
+                        const palettes = {
+                            light: { bg: '#fafafa', card: '#fff', header: '#e0e0e0', row: '#f5f5f5', text: '#bbb', dot: '#ccc' },
+                            dark:  { bg: '#141210', card: '#2a2723', header: '#3a3632', row: '#2a2723', text: '#9a9186', dot: '#555' },
+                        };
                         const nav = '#212121';
+
+                        // Render helper for a single-mode thumbnail interior
+                        const renderPreviewContent = (p) => (
+                            <>
+                                <Box sx={{ width: 14, borderRadius: 0.5, bgcolor: nav, flexShrink: 0 }} />
+                                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                                    <Box sx={{
+                                        flex: 1, borderRadius: 0.75, bgcolor: p.card,
+                                        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                                    }}>
+                                        <Box sx={{ height: 10, bgcolor: p.header, px: 0.5, display: 'flex', alignItems: 'center' }}>
+                                            <Box sx={{ width: 18, height: 3, borderRadius: 0.5, bgcolor: p.text }} />
+                                        </Box>
+                                        {[0, 1, 2].map((i) => (
+                                            <Box key={i} sx={{
+                                                height: 8, bgcolor: p.row, mx: 0.25, mt: 0.25, borderRadius: 0.3,
+                                                display: 'flex', alignItems: 'center', gap: '2px', px: 0.3,
+                                            }}>
+                                                <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: p.dot, flexShrink: 0 }} />
+                                                <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: p.dot, flexShrink: 0 }} />
+                                                <Box sx={{ flex: 1, height: 2.5, borderRadius: 0.5, bgcolor: p.text, ml: 0.25 }} />
+                                            </Box>
+                                        ))}
+                                    </Box>
+                                    <Box sx={{ height: 10, borderRadius: 0.75, bgcolor: p.card }}>
+                                        <Box sx={{ height: 10, bgcolor: p.header, borderRadius: 0.75, px: 0.5, display: 'flex', alignItems: 'center' }}>
+                                            <Box sx={{ width: 14, height: 3, borderRadius: 0.5, bgcolor: p.text }} />
+                                        </Box>
+                                    </Box>
+                                </Box>
+                            </>
+                        );
+
                         return (
                             <Box key={m}
                                 onClick={() => { setThemeMode(m); saveProfile(name, timezone, m); }}
@@ -173,50 +205,43 @@ const Profile = () => {
                                     border: '2px solid',
                                     borderColor: selected ? 'primary.main' : 'divider',
                                     boxShadow: selected ? '0 0 0 2px rgba(144,202,249,0.3)' : 'none',
-                                    bgcolor: bg, p: 0.5,
+                                    bgcolor: m === 'system' ? palettes.light.bg : palettes[m].bg,
+                                    p: 0.5,
                                     display: 'flex', gap: 0.4,
+                                    position: 'relative',
                                 }}>
-                                    {/* Navbar */}
-                                    <Box sx={{ width: 14, borderRadius: 0.5, bgcolor: nav, flexShrink: 0 }} />
-                                    {/* Card area */}
-                                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                                        {/* Card */}
-                                        <Box sx={{
-                                            flex: 1, borderRadius: 0.75, bgcolor: card,
-                                            display: 'flex', flexDirection: 'column',
-                                            overflow: 'hidden',
-                                        }}>
-                                            {/* Card header */}
-                                            <Box sx={{ height: 10, bgcolor: header, px: 0.5, display: 'flex', alignItems: 'center' }}>
-                                                <Box sx={{ width: 18, height: 3, borderRadius: 0.5, bgcolor: text }} />
+                                    {m === 'system' ? (
+                                        /* Split preview: light left half, dark right half */
+                                        <>
+                                            {/* Light half */}
+                                            <Box sx={{
+                                                position: 'absolute', inset: 0, p: 0.5,
+                                                display: 'flex', gap: 0.4,
+                                                bgcolor: palettes.light.bg,
+                                                clipPath: 'polygon(0 0, 50% 0, 50% 100%, 0 100%)',
+                                            }}>
+                                                {renderPreviewContent(palettes.light)}
                                             </Box>
-                                            {/* Task rows */}
-                                            {[0, 1, 2].map((i) => (
-                                                <Box key={i} sx={{
-                                                    height: 8, bgcolor: row, mx: 0.25, mt: 0.25,
-                                                    borderRadius: 0.3,
-                                                    display: 'flex', alignItems: 'center', gap: '2px', px: 0.3,
-                                                }}>
-                                                    <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: dot, flexShrink: 0 }} />
-                                                    <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: dot, flexShrink: 0 }} />
-                                                    <Box sx={{ flex: 1, height: 2.5, borderRadius: 0.5, bgcolor: text, ml: 0.25 }} />
-                                                </Box>
-                                            ))}
-                                        </Box>
-                                        {/* Second card hint */}
-                                        <Box sx={{ height: 10, borderRadius: 0.75, bgcolor: card }}>
-                                            <Box sx={{ height: 10, bgcolor: header, borderRadius: 0.75, px: 0.5, display: 'flex', alignItems: 'center' }}>
-                                                <Box sx={{ width: 14, height: 3, borderRadius: 0.5, bgcolor: text }} />
+                                            {/* Dark half */}
+                                            <Box sx={{
+                                                position: 'absolute', inset: 0, p: 0.5,
+                                                display: 'flex', gap: 0.4,
+                                                bgcolor: palettes.dark.bg,
+                                                clipPath: 'polygon(50% 0, 100% 0, 100% 100%, 50% 100%)',
+                                            }}>
+                                                {renderPreviewContent(palettes.dark)}
                                             </Box>
-                                        </Box>
-                                    </Box>
+                                        </>
+                                    ) : (
+                                        renderPreviewContent(palettes[m])
+                                    )}
                                 </Box>
                                 <Typography variant="caption" sx={{
                                     mt: 0.5, display: 'block',
                                     fontWeight: selected ? 600 : 400,
                                     color: selected ? 'primary.main' : 'text.secondary',
                                 }}>
-                                    {m === 'light' ? 'Light' : 'Dark'}
+                                    {m === 'light' ? 'Light' : m === 'dark' ? 'Dark' : 'System'}
                                 </Typography>
                             </Box>
                         );

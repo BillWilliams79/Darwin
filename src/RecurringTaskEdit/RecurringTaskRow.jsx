@@ -380,6 +380,8 @@ const RecurringTaskRow = ({
                 onChange={(e) => setLocal(prev => ({ ...prev, description: e.target.value }))}
                 onKeyDown={handleDescKeyDown}
                 onBlur={handleDescBlur}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
                 multiline
                 autoComplete="off"
                 size="small"

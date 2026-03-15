@@ -177,9 +177,10 @@ test.describe('Profile', () => {
 
     const toggle = page.getByTestId('profile-theme-toggle');
     await expect(toggle).toBeVisible();
-    // Should show Light and Dark options
+    // Should show Light, Dark, and System options
     await expect(toggle).toContainText('Light');
     await expect(toggle).toContainText('Dark');
+    await expect(toggle).toContainText('System');
   });
 
   test('PROF-07b: dark mode toggle adds darwin-dark class to body', async ({ page }) => {
@@ -251,6 +252,66 @@ test.describe('Profile', () => {
     await putRequest.response();
 
     // Restore to light — savedThemeModeRef is now 'dark', so 'light' triggers a new PUT
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    const lightOption = toggle.locator('> div').nth(0);
+    await lightOption.click();
+    const restoreRequest = await restorePromise;
+    const restoreBody = restoreRequest.postDataJSON();
+    expect(restoreBody[0].theme_mode).toBe('light');
+  });
+
+  test('PROF-07e: system mode follows OS color scheme', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Click the System thumbnail (third child of the toggle container)
+    const toggle = page.getByTestId('profile-theme-toggle');
+    const systemOption = toggle.locator('> div').nth(2);
+    await systemOption.click();
+
+    // Verify localStorage stores 'system'
+    const stored = await page.evaluate(() => localStorage.getItem('darwin-theme'));
+    expect(stored).toBe('system');
+
+    // Emulate dark OS preference — body should get darwin-dark class
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(page.locator('body')).toHaveClass(/darwin-dark/, { timeout: 5000 });
+
+    // Emulate light OS preference — darwin-dark class should be removed
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(page.locator('body')).not.toHaveClass(/darwin-dark/, { timeout: 5000 });
+
+    // Restore to light mode for other tests
+    const lightOption = toggle.locator('> div').nth(0);
+    await lightOption.click();
+  });
+
+  test('PROF-07f: system mode auto-saves theme_mode to DB', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
+
+    // Intercept PUT to verify theme_mode is 'system'
+    const putPromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+
+    // Click the System thumbnail (third child)
+    const toggle = page.getByTestId('profile-theme-toggle');
+    const systemOption = toggle.locator('> div').nth(2);
+    await systemOption.click();
+
+    const putRequest = await putPromise;
+    const body = putRequest.postDataJSON();
+    expect(body[0].theme_mode).toBe('system');
+
+    // Wait for PUT response so savedThemeModeRef updates
+    await putRequest.response();
+
+    // Restore to light
     const restorePromise = page.waitForRequest(
       req => req.method() === 'PUT' && req.url().includes('/profiles'),
       { timeout: 5000 }
