@@ -125,6 +125,13 @@ const Profile = () => {
                         variant="outlined"
                         size='small'
                         data-testid="profile-name" />
+            <TextField  label="E-mail"
+                        value = { profile.email }
+                        id= "email"
+                        key="email"
+                        variant= "outlined"
+                        size = 'small'
+                        disabled />
             <Autocomplete
                         options={timezoneOptions}
                         value={selectedTimezone}
@@ -216,13 +223,6 @@ const Profile = () => {
                     })}
                 </Box>
             </Box>
-            <TextField  label="E-mail"
-                        value = { profile.email }
-                        id= "email"
-                        key="email"
-                        variant= "outlined"
-                        size = 'small'
-                        disabled />
             <Button
                 variant="outlined"
                 startIcon={exporting ? <CircularProgress size={20} /> : <FileDownloadOutlinedIcon />}
