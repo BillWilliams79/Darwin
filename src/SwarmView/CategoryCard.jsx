@@ -503,6 +503,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (a.id === '') return 1;
         if (b.id === '') return -1;
         if (a.closed !== b.closed) return a.closed - b.closed;  // open first, closed last
+        if (a.closed === 1 && b.closed === 1) {
+            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+            if (aTime !== bTime) return bTime - aTime;  // most recent first
+        }
         return sortMode === 'hand' ? priorityHandSort(a, b) : createdSort(a, b);
     }
 
