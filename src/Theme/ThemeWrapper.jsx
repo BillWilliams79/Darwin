@@ -105,10 +105,10 @@ const ThemeWrapper = ({ children }) => {
             components: {
                 MuiCssBaseline: {
                     styleOverrides: {
-                        a: {
+                        'a:not(.MuiChip-root)': {
                             color: '#90caf9',
                         },
-                        'a:visited': {
+                        'a:visited:not(.MuiChip-root)': {
                             color: '#90caf9',
                         },
                     },
@@ -141,6 +141,13 @@ const ThemeWrapper = ({ children }) => {
                         root: {
                             backgroundImage: 'none',
                             borderColor: 'rgba(255,255,255,0.07)',
+                        },
+                    },
+                },
+                MuiChip: {
+                    styleOverrides: {
+                        colorPrimary: {
+                            color: '#141210',
                         },
                     },
                 },
