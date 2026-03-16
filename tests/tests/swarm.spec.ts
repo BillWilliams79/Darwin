@@ -291,6 +291,89 @@ test.describe('Swarm View', () => {
     }
   });
 
+  test('SWM-27: closed priorities sort by most recently closed first', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create 3 closed priorities with distinct completed_at timestamps
+    const now = Date.now();
+    const oldClosed = new Date(now - 3 * 86400000).toISOString().slice(0, 19);   // 3 days ago
+    const midClosed = new Date(now - 1 * 86400000).toISOString().slice(0, 19);   // 1 day ago
+    const newClosed = new Date(now).toISOString().slice(0, 19);                   // now
+
+    const oldTitle = uniqueName('ClosedOld');
+    const midTitle = uniqueName('ClosedMid');
+    const newTitle = uniqueName('ClosedNew');
+
+    const oldResult = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: oldTitle, category_fk: testCategoryId,
+      in_progress: 0, closed: 1, sort_order: 90, completed_at: oldClosed,
+    }, idToken) as Array<{ id: string }>;
+    const midResult = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: midTitle, category_fk: testCategoryId,
+      in_progress: 0, closed: 1, sort_order: 91, completed_at: midClosed,
+    }, idToken) as Array<{ id: string }>;
+    const newResult = await apiCall('priorities', 'POST', {
+      creator_fk: sub, title: newTitle, category_fk: testCategoryId,
+      in_progress: 0, closed: 1, sort_order: 92, completed_at: newClosed,
+    }, idToken) as Array<{ id: string }>;
+
+    const oldId = oldResult[0].id;
+    const midId = midResult[0].id;
+    const newId = newResult[0].id;
+
+    try {
+      await page.goto('/swarm');
+      await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+      await page.getByRole('tab', { name: testProjectName }).click();
+      await expect(page.getByTestId(`category-card-${testCategoryId}`)).toBeVisible({ timeout: 10000 });
+
+      // Turn on Show Closed
+      const showClosedToggle = page.getByTestId('toggle-show-closed-priorities');
+      await showClosedToggle.waitFor({ timeout: 10000 });
+      const isChecked = await showClosedToggle.locator('input[type="checkbox"]').isChecked();
+      if (!isChecked) {
+        await showClosedToggle.locator('input[type="checkbox"]').click();
+      }
+
+      // Wait for closed priorities to appear
+      await expect(page.getByTestId(`priority-${newId}`)).toBeVisible({ timeout: 10000 });
+
+      // Extract titles from priority rows in this category card (excluding template)
+      const card = page.getByTestId(`category-card-${testCategoryId}`);
+      const priorityRows = card.locator('[data-testid^="priority-"]:not([data-testid="priority-template"])');
+
+      const titles: string[] = [];
+      const count = await priorityRows.count();
+      for (let i = 0; i < count; i++) {
+        const titleField = priorityRows.nth(i).locator('textarea[name="title"], input[name="title"]').first();
+        titles.push(await titleField.inputValue());
+      }
+
+      // Find positions of our closed items
+      const newIdx = titles.indexOf(newTitle);
+      const midIdx = titles.indexOf(midTitle);
+      const oldIdx = titles.indexOf(oldTitle);
+
+      // All three should be found
+      expect(newIdx).toBeGreaterThanOrEqual(0);
+      expect(midIdx).toBeGreaterThanOrEqual(0);
+      expect(oldIdx).toBeGreaterThanOrEqual(0);
+
+      // Most recently closed should come first among closed items
+      expect(newIdx).toBeLessThan(midIdx);
+      expect(midIdx).toBeLessThan(oldIdx);
+
+      // Turn off Show Closed (cleanup UI state)
+      if (await showClosedToggle.locator('input[type="checkbox"]').isChecked()) {
+        await showClosedToggle.locator('input[type="checkbox"]').click();
+      }
+    } finally {
+      try { await apiDelete('priorities', oldId, idToken); } catch {}
+      try { await apiDelete('priorities', midId, idToken); } catch {}
+      try { await apiDelete('priorities', newId, idToken); } catch {}
+    }
+  });
+
   test('SWM-23: PriorityDetail delete button removes priority and navigates to /swarm', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const deleteTitle = uniqueName('DeleteMe');
