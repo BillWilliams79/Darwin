@@ -380,28 +380,28 @@ const PriorityDetail = () => {
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Started</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Started</Typography>
                 <Typography variant="body2" data-testid="priority-started-at">
                     {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Completed</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Completed</Typography>
                 <Typography variant="body2" data-testid="priority-completed-at">
                     {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Created</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Created</Typography>
                 <Typography variant="body2" data-testid="priority-create-ts">
                     {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
                 </Typography>
             </Box>
 
             <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Updated</Typography>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Updated</Typography>
                 <Typography variant="body2" data-testid="priority-update-ts">
                     {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
                 </Typography>
