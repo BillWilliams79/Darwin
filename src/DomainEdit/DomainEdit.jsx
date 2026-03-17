@@ -118,7 +118,8 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                             // database value is changed only with a 200 response
                             // so only then show snackbar
                             showError(result, 'Unable to update domain name')
-
+                        } else {
+                            queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
                         }
                     }).catch(error => {
                         showError(error, 'Unable to update domain name')
