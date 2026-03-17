@@ -127,6 +127,8 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                         if (result.httpStatus.httpStatus > 204) {
                             // database change confirmed only with a 200/201 response
                             showError(result, `Unable to update area name`)
+                        } else {
+                            queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
                         }
                     }).catch(error => {
                         showError(error, `Unable to update area name`)
