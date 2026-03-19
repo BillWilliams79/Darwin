@@ -20,6 +20,7 @@ import { Typography } from '@mui/material';
 
 import DomainDeleteDialog from './DomainDeleteDialog';
 import DomainTableRow from './DomainTableRow';
+import { DOMAIN_GRID_COLUMNS } from './DomainTableRow';
 
 const DomainEdit = ( { domain, domainIndex } ) => {
 
@@ -303,18 +304,18 @@ const DomainEdit = ( { domain, domainIndex } ) => {
     return (
         <>
             <Box className="app-title">
-                <Typography variant="h4" sx={{ml:2}}>
+                <Typography variant="h4" sx={{ ml: { xs: 1, md: 2 } }}>
                     Domains Editor
                 </Typography>
             </Box>
             { domainsArray &&
-                <Box className="app-edit" sx={{ml:2}}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
-                        <Box sx={{ width: 220, px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
-                        <Box sx={{ width: 70, textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
-                        <Box sx={{ width: 60, textAlign: 'center' }}><Typography variant="subtitle2">Areas</Typography></Box>
-                        <Box sx={{ width: 60, textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
-                        <Box sx={{ width: 48 }} />
+                <Box className="app-edit" sx={{ ml: { xs: 0, md: 2 } }}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: DOMAIN_GRID_COLUMNS, alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                        <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
+                        <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
+                        <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Areas</Typography></Box>
+                        <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
+                        <Box />
                     </Box>
                     <DragDropContext onDragEnd={dragEnd}>
                         <Droppable droppableId="domains">
