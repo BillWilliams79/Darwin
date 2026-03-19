@@ -58,22 +58,22 @@ export function uniqueName(prefix: string): string {
 }
 
 /**
- * Navigate to DomainEdit and wait for the table to render.
- * DomainEdit conditionally renders <Table> only after the domains API call succeeds.
+ * Navigate to DomainEdit and wait for domain rows to render.
+ * DomainEdit conditionally renders rows only after the domains API call succeeds.
  * With accumulated test domains (1000+), the page can take 10-40s to render all
  * DnD rows. Use 60s timeout to handle slow renders under load.
  */
 export async function navigateToDomainEdit(page: Page): Promise<void> {
   await page.goto('/domainedit');
-  await page.waitForSelector('table', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="domain-row-template"]', { timeout: 60000 });
 }
 
 /**
- * Wait for the DomainEdit table to render. Use after page.reload().
+ * Wait for the DomainEdit rows to render. Use after page.reload().
  * See navigateToDomainEdit for timeout rationale.
  */
 export async function waitForDomainTable(page: Page): Promise<void> {
-  await page.waitForSelector('table', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="domain-row-template"]', { timeout: 60000 });
 }
 
 /**

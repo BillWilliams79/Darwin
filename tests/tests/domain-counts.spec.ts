@@ -37,13 +37,13 @@ test.describe.serial('Domain Counts', () => {
   test('DOM-06: verify Areas and Tasks column headers', async ({ page }) => {
     await navigateToDomainEdit(page);
 
-    // "Areas" and "Tasks" headers should exist
-    const headers = page.locator('thead th');
-    await expect(headers.filter({ hasText: 'Areas' })).toBeVisible();
-    await expect(headers.filter({ hasText: 'Tasks' })).toBeVisible();
+    // "Areas" and "Tasks" headers should exist in the header row
+    const headerRow = page.locator('.app-edit > div').first();
+    await expect(headerRow.getByText('Areas')).toBeVisible();
+    await expect(headerRow.getByText('Tasks')).toBeVisible();
 
     // "Area Count" should NOT exist
-    await expect(headers.filter({ hasText: 'Area Count' })).toHaveCount(0);
+    await expect(headerRow.getByText('Area Count')).toHaveCount(0);
   });
 
   test('DOM-07: verify area and task counts are accurate', async ({ page }) => {

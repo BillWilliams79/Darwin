@@ -9,6 +9,11 @@ import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 
+export const AREA_GRID_COLUMNS = {
+    xs: '1fr 42px 40px 40px',
+    md: '220px 70px 80px 48px',
+};
+
 const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAreaName, clickAreaClosed, clickAreaDelete, taskCounts, isDraggable}) => {
 
     const row = (provided = {}, snapshot = {}) => (
@@ -18,7 +23,8 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
             {...provided.draggableProps}
             {...provided.dragHandleProps}
             sx={{
-                display: 'flex',
+                display: 'grid',
+                gridTemplateColumns: AREA_GRID_COLUMNS,
                 alignItems: 'center',
                 py: 0.5,
                 ...(snapshot.isDragging && {
@@ -29,7 +35,7 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                 }),
             }}
         >
-            <Box sx={{ width: 220, px: 1 }}>
+            <Box sx={{ px: 1 }}>
                 <TextField variant="outlined"
                            value={area.area_name || ''}
                            name='area-name'
@@ -42,12 +48,12 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                            slotProps={{ htmlInput: { maxLength: 32 } }}
                            key={`name-${area.id}`} />
             </Box>
-            <Box sx={{ width: 70, display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <Checkbox checked = {(area.closed === 1) ? true : false }
                           onClick = {(event) => clickAreaClosed(event, areaIndex, area.id) }
                           key={`checked-${area.id}`} />
             </Box>
-            <Box sx={{ width: 80, textAlign: 'center' }}>
+            <Box sx={{ textAlign: 'center' }}>
                 <Typography variant='body1'>
                     { area.id === '' ? '' :
                         taskCounts[`${area.id}`] === undefined ? 0 :
@@ -55,7 +61,7 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
                     }
                 </Typography>
             </Box>
-            <Box sx={{ width: 48 }}>
+            <Box>
                 { area.id === '' ?
                         <IconButton>
                             <SavingsIcon />
