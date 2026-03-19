@@ -78,10 +78,10 @@ test.describe('Domain Management P1', () => {
     // Find the row with our domain name using in-browser evaluation
     const idx = await findDomainIndex(page, domainName);
     expect(idx).toBeGreaterThan(-1);
-    const targetRow = page.locator('input[name="domain-name"]').nth(idx).locator('xpath=ancestor::tr');
+    const targetRow = page.locator('input[name="domain-name"]').nth(idx).locator('xpath=ancestor::*[starts-with(@data-testid, "domain-row-")]');
 
-    // Click the delete button (last cell's button in the row)
-    await targetRow.locator('td:last-child button').click();
+    // Click the delete button (last child div's button in the row)
+    await targetRow.locator('> div:last-child button').click();
 
     // DomainDeleteDialog should appear
     const deleteDialog = page.getByRole('dialog');

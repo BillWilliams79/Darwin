@@ -19,6 +19,7 @@ import { Typography } from '@mui/material';
 
 import AreaDeleteDialog from './AreaDeleteDialog';
 import AreaTableRow from './AreaTableRow';
+import { AREA_GRID_COLUMNS } from './AreaTableRow';
 
 const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
@@ -304,14 +305,14 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     return (
         <>
-            <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)} sx={{ p: 3 }} >
+            <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)} sx={{ p: { xs: 1, md: 3 } }} >
                 { areasArray &&
                     <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
-                            <Box sx={{ width: 220, px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
-                            <Box sx={{ width: 70, textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
-                            <Box sx={{ width: 80, textAlign: 'center' }}><Typography variant="subtitle2">Task Count</Typography></Box>
-                            <Box sx={{ width: 48 }} />
+                        <Box sx={{ display: 'grid', gridTemplateColumns: AREA_GRID_COLUMNS, alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                            <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
+                            <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
+                            <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
+                            <Box />
                         </Box>
                         <DragDropContext onDragEnd={dragEnd}>
                             <Droppable droppableId="areas">
