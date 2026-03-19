@@ -135,13 +135,13 @@ const AreaEdit = () => {
     return (
         <>
             <Box className="app-title">
-                <Typography variant="h4" sx={{ml:2}}>
+                <Typography variant="h4" sx={{ ml: { xs: 1, md: 2 } }}>
                     Areas Editor
                 </Typography>
             </Box>
             { domainsArray &&
                 <>
-                    <Box className="app-edit" sx={{ml:2}}>
+                    <Box className="app-edit" sx={{ ml: { xs: 0, md: 2 } }}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                             <Tabs value={activeTab.toString()}
                                   onChange={changeActiveTab}

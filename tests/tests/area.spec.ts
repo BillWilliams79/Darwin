@@ -184,9 +184,9 @@ test.describe.serial('Area Management', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // Mouse-based DnD: target the name cell (first <td>) to avoid hitting
-    // the checkbox column at row center, which captures the mousedown event.
-    await pangeaDragAndDrop(page, secondRow.locator('td').first(), firstRow.locator('td').first());
+    // Mouse-based DnD: target the row element directly. With CSS grid layout,
+    // the drag handle is on the row itself (@hello-pangea/dnd dragHandleProps).
+    await pangeaDragAndDrop(page, secondRow, firstRow);
 
     // Verify order changed: Second should now be above First
     const afterFirstY = (await firstRow.boundingBox())!.y;

@@ -9,6 +9,11 @@ import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 
+export const DOMAIN_GRID_COLUMNS = {
+    xs: '1fr 42px 40px 40px 40px',
+    md: '220px 70px 60px 60px 48px',
+};
+
 const DomainTableRow = ({
     domain, domainIndex,
     changeDomainName, keyDownDomainName, blurDomainName,
@@ -26,7 +31,8 @@ const DomainTableRow = ({
             {...provided.dragHandleProps}
             onClick={() => domain.id && onRowClick(domain.id)}
             sx={{
-                display: 'flex',
+                display: 'grid',
+                gridTemplateColumns: DOMAIN_GRID_COLUMNS,
                 alignItems: 'center',
                 py: 0.5,
                 cursor: domain.id ? 'pointer' : 'default',
@@ -39,7 +45,7 @@ const DomainTableRow = ({
                 }),
             }}
         >
-            <Box sx={{ width: 220, px: 1 }}>
+            <Box sx={{ px: 1 }}>
                 <TextField variant="outlined"
                            value={domain.domain_name || ''}
                            name='domain-name'
@@ -53,27 +59,27 @@ const DomainTableRow = ({
                            key={`name-${domain.id}`}
                 />
             </Box>
-            <Box sx={{ width: 70, display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <Checkbox checked={(domain.closed === 1) ? true : false}
                           onClick={(event) => clickDomainClosed(event, domainIndex, domain.id)}
                           key={`checked-${domain.id}`}
                 />
             </Box>
-            <Box sx={{ width: 60, textAlign: 'center' }}>
+            <Box sx={{ textAlign: 'center' }}>
                 <Typography variant='body1' data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
                 {  domain.id === '' ? '' :
                     areaCounts[`${domain.id}`] === undefined ? 0 :
                       areaCounts[`${domain.id}`] === '' ? '' : areaCounts[`${domain.id}`] }
                  </Typography>
             </Box>
-            <Box sx={{ width: 60, textAlign: 'center' }}>
+            <Box sx={{ textAlign: 'center' }}>
                 <Typography variant='body1' data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
                 {  domain.id === '' ? '' :
                     taskCounts[`${domain.id}`] === undefined ? 0 :
                       taskCounts[`${domain.id}`] === '' ? '' : taskCounts[`${domain.id}`] }
                  </Typography>
             </Box>
-            <Box sx={{ width: 48 }}>
+            <Box>
                 { domain.id === '' ?
                     <IconButton>
                         <SavingsIcon />
