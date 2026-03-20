@@ -1,20 +1,34 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useContext, useRef } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import SaveIcon from '@mui/icons-material/Save';
+import CancelIcon from '@mui/icons-material/Cancel';
 
-import { runPipeline, downloadFile, DEFAULT_CONFIG } from '../cyclemeter';
+import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
+import call_rest_api from '../RestApi/RestApi';
+import { runPipeline, extractFromCyclemeter, precisionOptimizer, distanceOptimizer, downloadFile, DEFAULT_CONFIG } from '../cyclemeter';
+import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes } from '../cyclemeter/sqlMapper';
 
 const FILTER_TYPES = ['routeIDs', 'notesLike', 'dateRange'];
+const COORD_BATCH_SIZE = 500;
+const CONCURRENCY_LIMIT = 5;
 
 const CyclemeterImport = () => {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
     // File state
     const [dbFile, setDbFile] = useState(null);
     const [fileName, setFileName] = useState('');
@@ -39,6 +53,12 @@ const CyclemeterImport = () => {
     const [stats, setStats] = useState(null);
     const [kmlContent, setKmlContent] = useState(null);
     const [error, setError] = useState(null);
+
+    // Save to Darwin state
+    const [saving, setSaving] = useState(false);
+    const [saveProgress, setSaveProgress] = useState({ current: 0, total: 0 });
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const abortRef = useRef(null);
 
     // Drag-and-drop handlers
     const handleDragOver = useCallback((e) => {
@@ -121,6 +141,145 @@ const CyclemeterImport = () => {
             downloadFile(kmlContent, `${outputFilename}.kml`);
         }
     };
+
+    /**
+     * Concurrency-limited parallel execution.
+     * Processes tasks with at most `limit` running concurrently.
+     */
+    const asyncPool = async (limit, items, fn, signal) => {
+        const results = [];
+        const executing = new Set();
+
+        for (const [index, item] of items.entries()) {
+            if (signal?.aborted) throw new Error('Save cancelled');
+
+            const p = fn(item, index).finally(() => executing.delete(p));
+            results.push(p);
+            executing.add(p);
+
+            if (executing.size >= limit) {
+                await Promise.race(executing);
+            }
+        }
+
+        return Promise.allSettled(results);
+    };
+
+    const handleSaveToDarwin = async () => {
+        if (!dbFile) return;
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        setSaving(true);
+        setError(null);
+        setSaveProgress({ current: 0, total: 0 });
+
+        try {
+            // Re-extract raw data (pre-formatRunData) for accurate SQL mapping
+            // Apply precision + distance optimizers (same as KML pipeline) so stored
+            // coordinates match the KML output, but skip formatRunData which
+            // destructively converts runTime/startTime needed for SQL mapping.
+            const buffer = await dbFile.arrayBuffer();
+            const config = buildConfig();
+            const rawRuns = await extractFromCyclemeter(buffer, config);
+            precisionOptimizer(rawRuns, config.precision);
+            distanceOptimizer(rawRuns, config.minDelta);
+
+            if (rawRuns.length === 0) {
+                setError('No runs found with current filter settings');
+                setSaving(false);
+                return;
+            }
+
+            const totalRuns = rawRuns.length;
+            setSaveProgress({ current: 0, total: totalRuns });
+
+            // Step 1: Save unique routes
+            const uniqueRoutes = extractUniqueRoutes(rawRuns);
+            const routeIdMap = new Map(); // cyclemeter routeID → SQL map_routes id
+
+            for (const route of uniqueRoutes) {
+                if (controller.signal.aborted) throw new Error('Save cancelled');
+
+                const result = await call_rest_api(
+                    `${darwinUri}/map_routes`, 'POST', route, idToken
+                );
+                if (result.httpStatus.httpStatus === 200 && result.data?.[0]?.id) {
+                    routeIdMap.set(route.route_id, result.data[0].id);
+                }
+            }
+
+            // Step 2: Save runs with concurrency limit
+            let completed = 0;
+
+            await asyncPool(CONCURRENCY_LIMIT, rawRuns, async (run) => {
+                if (controller.signal.aborted) throw new Error('Save cancelled');
+
+                const mapRouteFk = routeIdMap.get(run.routeID) || null;
+                const sqlRun = mapRunToSql(run, mapRouteFk);
+
+                const runResult = await call_rest_api(
+                    `${darwinUri}/map_runs`, 'POST', sqlRun, idToken
+                );
+
+                if (runResult.httpStatus.httpStatus !== 200 || !runResult.data?.[0]?.id) {
+                    console.warn('[Cyclemeter] Failed to save run:', run.runID);
+                    return;
+                }
+
+                const sqlRunId = runResult.data[0].id;
+
+                // Step 3: Batch POST coordinates
+                if (run.coordinates.length > 0) {
+                    const sqlCoords = mapCoordinatesToSql(run.coordinates);
+
+                    for (let i = 0; i < sqlCoords.length; i += COORD_BATCH_SIZE) {
+                        if (controller.signal.aborted) throw new Error('Save cancelled');
+
+                        const batch = sqlCoords.slice(i, i + COORD_BATCH_SIZE).map(coord => ({
+                            ...coord,
+                            map_run_fk: sqlRunId,
+                        }));
+
+                        await call_rest_api(
+                            `${darwinUri}/map_coordinates`, 'POST', batch, idToken
+                        );
+                    }
+                }
+
+                completed++;
+                setSaveProgress({ current: completed, total: totalRuns });
+            }, controller.signal);
+
+            setSnackbar({
+                open: true,
+                message: `Saved ${completed} runs to Darwin`,
+                severity: 'success',
+            });
+
+        } catch (err) {
+            if (err.message === 'Save cancelled') {
+                setSnackbar({ open: true, message: 'Save cancelled', severity: 'info' });
+            } else {
+                console.error('[Cyclemeter] Save error:', err);
+                setError(err.message || 'Save to Darwin failed');
+            }
+        } finally {
+            setSaving(false);
+            abortRef.current = null;
+        }
+    };
+
+    const handleCancelSave = () => {
+        if (abortRef.current) {
+            abortRef.current.abort();
+        }
+    };
+
+    const progressPercent = saveProgress.total > 0
+        ? Math.round((saveProgress.current / saveProgress.total) * 100)
+        : 0;
 
     return (
         <Box sx={{ maxWidth: 700, mx: 'auto', mt: 3, px: 2 }}>
@@ -259,12 +418,12 @@ const CyclemeterImport = () => {
             </Paper>
 
             {/* Actions */}
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                 <Button
                     variant="contained"
                     startIcon={processing ? <CircularProgress size={20} /> : <PlayArrowIcon />}
                     onClick={handleProcess}
-                    disabled={!dbFile || processing}
+                    disabled={!dbFile || processing || saving}
                     data-testid="process-button"
                 >
                     {processing ? 'Processing...' : 'Process'}
@@ -274,12 +433,46 @@ const CyclemeterImport = () => {
                         variant="outlined"
                         startIcon={<FileDownloadOutlinedIcon />}
                         onClick={handleDownload}
+                        disabled={saving}
                         data-testid="download-kml-button"
                     >
                         Download KML
                     </Button>
                 )}
+                {stats && !saving && (
+                    <Button
+                        variant="contained"
+                        color="secondary"
+                        startIcon={<SaveIcon />}
+                        onClick={handleSaveToDarwin}
+                        disabled={!dbFile || processing}
+                        data-testid="save-to-darwin-button"
+                    >
+                        Save to Darwin
+                    </Button>
+                )}
+                {saving && (
+                    <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<CancelIcon />}
+                        onClick={handleCancelSave}
+                        data-testid="cancel-save-button"
+                    >
+                        Cancel
+                    </Button>
+                )}
             </Box>
+
+            {/* Save Progress */}
+            {saving && (
+                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                        Saving run {saveProgress.current} of {saveProgress.total}
+                    </Typography>
+                    <LinearProgress variant="determinate" value={progressPercent} />
+                </Paper>
+            )}
 
             {/* Error */}
             {error && (
@@ -304,6 +497,21 @@ const CyclemeterImport = () => {
                     </Box>
                 </Paper>
             )}
+
+            {/* Snackbar */}
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={6000}
+                onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+            >
+                <Alert
+                    onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+                    severity={snackbar.severity}
+                    variant="filled"
+                >
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

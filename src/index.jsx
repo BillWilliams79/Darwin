@@ -32,6 +32,8 @@ import DevServersView from './DevServers/DevServersView';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
+import MapRunsView from './MapRuns/MapRunsView';
+import MapExportView from './MapExport/MapExportView';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -86,8 +88,14 @@ root.render(
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />
                                                          </AuthenticatedRoute>} />
-                    <Route path="cyclemeter" element= {<AuthenticatedRoute>
+                    <Route path="maps/import" element= {<AuthenticatedRoute>
                                                              <CyclemeterImport />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/runs" element= {<AuthenticatedRoute>
+                                                             <MapRunsView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/export" element= {<AuthenticatedRoute>
+                                                             <MapExportView />
                                                          </AuthenticatedRoute>} />
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
