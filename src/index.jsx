@@ -31,6 +31,7 @@ import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
+import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -84,6 +85,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="cyclemeter" element= {<AuthenticatedRoute>
+                                                             <CyclemeterImport />
                                                          </AuthenticatedRoute>} />
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
