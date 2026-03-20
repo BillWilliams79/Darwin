@@ -62,3 +62,11 @@ export const recurringTaskKeys = {
     all: (creatorFk) => ['recurring_tasks', creatorFk],
     active: (creatorFk) => ['recurring_tasks', creatorFk, { active: 1 }],
 };
+
+export const mapRunKeys = {
+    all: (creatorFk) => ['map_runs', creatorFk],
+};
+
+export const mapRouteKeys = {
+    all: (creatorFk) => ['map_routes', creatorFk],
+};
