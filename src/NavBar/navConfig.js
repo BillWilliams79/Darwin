@@ -18,6 +18,13 @@ export const NAV_GROUPS = [
     { id: 'swarm', label: 'SWARM' },
 ];
 
+// Maps nav group id → profile column name for app toggle filtering
+export const GROUP_PROFILE_KEY = {
+    tasks: 'app_tasks',
+    maps: 'app_maps',
+    swarm: 'app_swarm',
+};
+
 export const NAV_LINKS = [
     { path: '/taskcards', label: 'Plan', icon: ViewKanbanIcon, group: 'tasks' },
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
