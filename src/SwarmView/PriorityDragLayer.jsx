@@ -28,7 +28,12 @@ const PriorityDragLayer = () => {
     }));
 
     useEffect(() => {
-        document.body.style.userSelect = isDragging ? 'none' : '';
+        if (isDragging) {
+            document.body.style.userSelect = 'none';
+        } else {
+            document.body.style.userSelect = '';
+            window.getSelection()?.removeAllRanges();
+        }
         return () => { document.body.style.userSelect = ''; };
     }, [isDragging]);
 
