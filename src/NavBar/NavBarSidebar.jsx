@@ -1,9 +1,9 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, BIKE_MENU_LINKS,
-    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH,
+    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY,
 } from './navConfig';
 
 import AppBar from '@mui/material/AppBar';
@@ -35,13 +35,29 @@ const isDev = import.meta.env.MODE === 'development';
 const DEV_BORDER = isDev ? '4px solid #FF6B35' : 'none';
 
 const NavBarSidebar = () => {
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
     const location = useLocation();
     const navigate = useNavigate();
     const isDesktop = useMediaQuery('(min-width:900px)');
 
     const [collapsed, setCollapsed] = useState(false);
     const [bikeAnchor, setBikeAnchor] = useState(null);
+
+    // Filter nav groups/links based on profile app toggle settings
+    const visibleGroups = useMemo(() =>
+        NAV_GROUPS.filter(g => {
+            const key = GROUP_PROFILE_KEY[g.id];
+            return !key || (profile?.[key] ?? 1) === 1;
+        }),
+        [profile]
+    );
+    const visibleLinks = useMemo(() =>
+        NAV_LINKS.filter(l => {
+            const key = GROUP_PROFILE_KEY[l.group];
+            return !key || (profile?.[key] ?? 1) === 1;
+        }),
+        [profile]
+    );
 
     const isActive = (path) => {
         if (path === '/swarm') return location.pathname === '/swarm';
@@ -196,8 +212,8 @@ const NavBarSidebar = () => {
 
                             {/* Primary nav links */}
                             <List sx={{ flex: 1, pt: 0, pb: 0 }}>
-                                {NAV_GROUPS.map((group) => {
-                                    const groupLinks = NAV_LINKS.filter(l => l.group === group.id);
+                                {visibleGroups.map((group) => {
+                                    const groupLinks = visibleLinks.filter(l => l.group === group.id);
                                     return (
                                         <React.Fragment key={group.id}>
                                             {showText && (
@@ -255,7 +271,7 @@ const NavBarSidebar = () => {
     }
 
     // ── Mobile: top bar with bicycle + bottom nav ──
-    const bottomNavValue = NAV_LINKS.findIndex(l => isActive(l.path));
+    const bottomNavValue = visibleLinks.findIndex(l => isActive(l.path));
 
     return (
         <>
@@ -293,7 +309,7 @@ const NavBarSidebar = () => {
                 <BottomNavigation
                     value={bottomNavValue >= 0 ? bottomNavValue : false}
                     onChange={(_, newValue) => {
-                        navigate(NAV_LINKS[newValue].path);
+                        navigate(visibleLinks[newValue].path);
                     }}
                     sx={{
                         bgcolor: '#111',
@@ -307,7 +323,7 @@ const NavBarSidebar = () => {
                         },
                     }}
                 >
-                    {NAV_LINKS.map((link) => {
+                    {visibleLinks.map((link) => {
                         const Icon = link.icon;
                         return (
                             <BottomNavigationAction
