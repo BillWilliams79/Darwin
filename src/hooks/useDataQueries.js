@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -324,5 +324,19 @@ export function useMapRoutes(creatorFk, { fields = 'id,route_id,name', enabled =
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useMapCoordinates(runId, { fields = 'latitude,longitude,altitude', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/map_coordinates?map_run_fk=${runId}&fields=${fields}&sort=seq:asc`;
+    const queryKey = mapCoordinateKeys.byRun(runId);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!runId && !!idToken,
     });
 }

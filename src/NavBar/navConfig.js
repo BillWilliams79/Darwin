@@ -6,7 +6,6 @@ import MapIcon from '@mui/icons-material/Map';
 import HubIcon from '@mui/icons-material/Hub';
 import DnsIcon from '@mui/icons-material/Dns';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
-import DirectionsBikeIcon from '@mui/icons-material/DirectionsBike';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import RouteIcon from '@mui/icons-material/Route';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
@@ -24,7 +23,8 @@ export const NAV_LINKS = [
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
     { path: '/maps/import', label: 'Import', icon: CloudUploadIcon, group: 'maps' },
-    { path: '/maps/runs', label: 'Runs', icon: TableChartIcon, group: 'maps' },
+    { path: '/maps/runs', label: 'Map Table', icon: TableChartIcon, group: 'maps' },
+    { path: '/maps/routes', label: 'Maps', icon: RouteIcon, group: 'maps' },
     { path: '/maps/export', label: 'Export', icon: FileDownloadOutlinedIcon, group: 'maps' },
     { path: '/swarm', label: 'Roadmap', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
