@@ -70,3 +70,7 @@ export const mapRunKeys = {
 export const mapRouteKeys = {
     all: (creatorFk) => ['map_routes', creatorFk],
 };
+
+export const mapCoordinateKeys = {
+    byRun: (runId) => ['map_coordinates', { runId }],
+};
