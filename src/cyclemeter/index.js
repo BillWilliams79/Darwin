@@ -1,0 +1,73 @@
+/**
+ * @module cyclemeter
+ * Pipeline orchestrator for the Cyclemeter ETL.
+ * Extract → precisionOptimizer → formatRunData → distanceOptimizer → generateKml
+ */
+
+import { extractFromCyclemeter } from './extract';
+import { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
+import { generateKml } from './load/kml';
+
+/**
+ * Run the full ETL pipeline.
+ * @param {ArrayBuffer} dbBuffer - Meter.db file contents
+ * @param {import('./types').EtlConfig} config
+ * @returns {Promise<{ runs: import('./types').TransformedRun[], stats: import('./types').EtlStats, kml: string }>}
+ */
+export async function runPipeline(dbBuffer, config) {
+    // Extract
+    const runs = await extractFromCyclemeter(dbBuffer, config);
+
+    // Transform (order matches Python's gps_cli_main.py)
+    precisionOptimizer(runs, config.precision);
+    formatRunData(runs);
+    distanceOptimizer(runs, config.minDelta);
+
+    // Load
+    const kml = generateKml(runs, config);
+
+    // Stats
+    const stats = computeStats(runs);
+
+    return { runs, stats, kml };
+}
+
+/**
+ * Compute summary statistics from processed runs.
+ * @param {import('./types').TransformedRun[]} runs
+ * @returns {import('./types').EtlStats}
+ */
+export function computeStats(runs) {
+    let totalDistance = 0;
+    let totalExtracted = 0;
+    let totalStripped = 0;
+    let totalRemaining = 0;
+
+    for (const run of runs) {
+        totalDistance += run.distance;
+        totalExtracted += run.extractedPoints;
+        totalStripped += run.strippedPoints;
+        totalRemaining += run.currentPoints;
+    }
+
+    const percentReduction = totalExtracted > 0
+        ? Math.round(1000 * totalStripped / totalExtracted) / 10
+        : 0;
+
+    return {
+        totalRuns: runs.length,
+        totalDistance: Math.round(totalDistance * 10) / 10,
+        totalExtracted,
+        totalStripped,
+        totalRemaining,
+        percentReduction,
+    };
+}
+
+// Re-export individual modules for separate use
+export { extractFromCyclemeter } from './extract';
+export { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
+export { generateKml } from './load/kml';
+export { downloadFile } from './load/download';
+export { haversineDistance } from './geo';
+export { DEFAULT_CONFIG } from './config';

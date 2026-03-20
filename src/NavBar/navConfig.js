@@ -6,10 +6,13 @@ import MapIcon from '@mui/icons-material/Map';
 import HubIcon from '@mui/icons-material/Hub';
 import DnsIcon from '@mui/icons-material/Dns';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
+import DirectionsBikeIcon from '@mui/icons-material/DirectionsBike';
 import RepeatIcon from '@mui/icons-material/Repeat';
+import RouteIcon from '@mui/icons-material/Route';
 
 export const NAV_GROUPS = [
     { id: 'tasks', label: 'TASKS' },
+    { id: 'maps', label: 'MAPS' },
     { id: 'swarm', label: 'SWARM' },
 ];
 
@@ -17,6 +20,7 @@ export const NAV_LINKS = [
     { path: '/taskcards', label: 'Plan', icon: ViewKanbanIcon, group: 'tasks' },
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
+    { path: '/cyclemeter', label: 'ETL Pipeline', icon: RouteIcon, group: 'maps' },
     { path: '/swarm', label: 'Roadmap', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
