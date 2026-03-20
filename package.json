@@ -27,7 +27,6 @@
     "leaflet": "^1.9.4",
     "leaflet-easybutton": "^2.4.0",
     "leaflet-fullscreen": "^1.0.2",
-    "leaflet-minimap": "^3.6.1",
     "leaflet.locatecontrol": "^0.89.0",
     "react": "^18.2.0",
     "react-cookie": "^4.1.1",
