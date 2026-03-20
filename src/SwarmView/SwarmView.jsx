@@ -201,15 +201,15 @@ const SwarmView = () => {
                                closeInfo={projectClose.infoObject}
                                setCloseInfo={projectClose.setInfoObject}
                                setCloseConfirmed={projectClose.setConfirmed} />
-            <ProjectAddDialog dialogOpen={projectAdd.dialogOpen}
-                             setDialogOpen={projectAdd.setDialogOpen}
-                             newProjectInfo={projectAdd.infoObject}
-                             setNewProjectInfo={projectAdd.setInfoObject}
-                             setAddConfirmed={projectAdd.setConfirmed} />
             </>
             :
             <CircularProgress/>
         }
+        <ProjectAddDialog dialogOpen={projectAdd.dialogOpen}
+                         setDialogOpen={projectAdd.setDialogOpen}
+                         newProjectInfo={projectAdd.infoObject}
+                         setNewProjectInfo={projectAdd.setInfoObject}
+                         setAddConfirmed={projectAdd.setConfirmed} />
         <PriorityDragLayer />
         </>
     );
