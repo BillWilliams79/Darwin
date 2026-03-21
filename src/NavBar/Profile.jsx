@@ -33,6 +33,9 @@ const Profile = () => {
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
     const [exporting, setExporting] = useState(false);
+    const [appTasks, setAppTasks] = useState(profile?.app_tasks ?? 1);
+    const [appMaps, setAppMaps] = useState(profile?.app_maps ?? 1);
+    const [appSwarm, setAppSwarm] = useState(profile?.app_swarm ?? 0);
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
@@ -41,19 +44,34 @@ const Profile = () => {
     const savedNameRef = useRef(profile?.name || '');
     const savedTimezoneRef = useRef(profile?.timezone || '');
     const savedThemeModeRef = useRef(profile?.theme_mode || 'light');
+    const savedAppTasksRef = useRef(profile?.app_tasks ?? 1);
+    const savedAppMapsRef = useRef(profile?.app_maps ?? 1);
+    const savedAppSwarmRef = useRef(profile?.app_swarm ?? 0);
 
-    const saveProfile = useCallback((newName, newTimezone, newThemeMode) => {
+    const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm) => {
         // Skip if nothing changed from last saved values
-        if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current && newThemeMode === savedThemeModeRef.current) return;
+        if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current
+            && newThemeMode === savedThemeModeRef.current
+            && newAppTasks === savedAppTasksRef.current && newAppMaps === savedAppMapsRef.current
+            && newAppSwarm === savedAppSwarmRef.current) return;
 
         const uri = `${darwinUri}/profiles`;
-        call_rest_api(uri, 'PUT', [{ id: profile.id, name: newName, timezone: newTimezone, theme_mode: newThemeMode }], idToken)
+        call_rest_api(uri, 'PUT', [{
+            id: profile.id, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
+            app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+        }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
                     savedNameRef.current = newName;
                     savedTimezoneRef.current = newTimezone;
                     savedThemeModeRef.current = newThemeMode;
-                    const updated = { ...profile, name: newName, timezone: newTimezone, theme_mode: newThemeMode };
+                    savedAppTasksRef.current = newAppTasks;
+                    savedAppMapsRef.current = newAppMaps;
+                    savedAppSwarmRef.current = newAppSwarm;
+                    const updated = {
+                        ...profile, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
+                        app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+                    };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
                 } else {
@@ -119,7 +137,7 @@ const Profile = () => {
             <TextField  label="Name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        onBlur={() => saveProfile(name, timezone, themeMode)}
+                        onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm)}
                         id="Name"
                         key="Name"
                         variant="outlined"
@@ -138,7 +156,7 @@ const Profile = () => {
                         onChange={(e, newValue) => {
                             const newTz = newValue?.value || '';
                             setTimezone(newTz);
-                            saveProfile(name, newTz, themeMode);
+                            saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm);
                         }}
                         isOptionEqualToValue={(option, value) => option.value === value.value}
                         renderInput={(params) => (
@@ -147,6 +165,110 @@ const Profile = () => {
                         data-testid="profile-timezone"
                         disableClearable
                         />
+            {/* Applications selector — toggle cards for app groups */}
+            <Box>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Applications</Typography>
+                <Box sx={{ display: 'flex', gap: 2 }} data-testid="profile-app-toggle">
+                    {[
+                        { key: 'tasks', label: 'Tasks', value: appTasks, setValue: setAppTasks },
+                        { key: 'maps', label: 'Maps', value: appMaps, setValue: setAppMaps },
+                        { key: 'swarm', label: 'Swarm', value: appSwarm, setValue: setAppSwarm },
+                    ].map((app) => {
+                        const enabled = app.value === 1;
+                        // Count currently enabled apps to prevent disabling all
+                        const enabledCount = [appTasks, appMaps, appSwarm].filter(v => v === 1).length;
+
+                        const handleToggle = () => {
+                            if (enabled && enabledCount <= 1) return; // prevent all-disabled
+                            const newVal = enabled ? 0 : 1;
+                            app.setValue(newVal);
+                            const newTasks = app.key === 'tasks' ? newVal : appTasks;
+                            const newMaps = app.key === 'maps' ? newVal : appMaps;
+                            const newSwarm = app.key === 'swarm' ? newVal : appSwarm;
+                            saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm);
+                        };
+
+                        // Miniature preview content for each app
+                        const renderPreview = () => {
+                            const fg = enabled ? 'text.secondary' : 'action.disabled';
+                            if (app.key === 'tasks') {
+                                // Task card rows
+                                return (
+                                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.4, p: 0.5 }}>
+                                        {[0, 1, 2].map((i) => (
+                                            <Box key={i} sx={{
+                                                height: 12, borderRadius: 0.5, bgcolor: 'action.hover',
+                                                display: 'flex', alignItems: 'center', gap: '3px', px: 0.5,
+                                            }}>
+                                                <Box sx={{ width: 5, height: 5, borderRadius: '50%', border: '1.5px solid', borderColor: fg, flexShrink: 0 }} />
+                                                <Box sx={{ flex: 1, height: 3, borderRadius: 0.5, bgcolor: fg }} />
+                                            </Box>
+                                        ))}
+                                    </Box>
+                                );
+                            }
+                            if (app.key === 'maps') {
+                                // Map route line
+                                return (
+                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0.5 }}>
+                                        <svg width="60" height="40" viewBox="0 0 60 40">
+                                            <path d="M8 32 Q15 8, 30 20 T52 8" fill="none"
+                                                stroke={enabled ? '#1976d2' : '#bbb'} strokeWidth="2.5" strokeLinecap="round" />
+                                            <circle cx="8" cy="32" r="3" fill={enabled ? '#e91e63' : '#ccc'} />
+                                            <circle cx="52" cy="8" r="3" fill={enabled ? '#4caf50' : '#ccc'} />
+                                        </svg>
+                                    </Box>
+                                );
+                            }
+                            // Swarm — roadmap columns
+                            return (
+                                <Box sx={{ flex: 1, display: 'flex', gap: 0.4, p: 0.5 }}>
+                                    {[0, 1, 2].map((col) => (
+                                        <Box key={col} sx={{
+                                            flex: 1, borderRadius: 0.5, bgcolor: 'action.hover',
+                                            display: 'flex', flexDirection: 'column', gap: 0.3, p: 0.3,
+                                        }}>
+                                            <Box sx={{ height: 5, borderRadius: 0.3, bgcolor: fg }} />
+                                            {[0, 1].map((r) => (
+                                                <Box key={r} sx={{ height: 8, borderRadius: 0.3, bgcolor: 'action.selected' }} />
+                                            ))}
+                                        </Box>
+                                    ))}
+                                </Box>
+                            );
+                        };
+
+                        return (
+                            <Box key={app.key}
+                                onClick={handleToggle}
+                                sx={{
+                                    cursor: enabled && enabledCount <= 1 ? 'default' : 'pointer',
+                                    textAlign: 'center',
+                                    '&:hover .app-thumb': enabled && enabledCount <= 1 ? {} : { borderColor: 'primary.main' },
+                                }}
+                            >
+                                <Box className="app-thumb" sx={{
+                                    width: 110, height: 78, borderRadius: 1.5, overflow: 'hidden',
+                                    border: '2px solid',
+                                    borderColor: enabled ? 'primary.main' : 'divider',
+                                    boxShadow: enabled ? '0 0 0 2px rgba(144,202,249,0.3)' : 'none',
+                                    bgcolor: 'background.paper',
+                                    display: 'flex',
+                                }}>
+                                    {renderPreview()}
+                                </Box>
+                                <Typography variant="caption" sx={{
+                                    mt: 0.5, display: 'block',
+                                    fontWeight: enabled ? 600 : 400,
+                                    color: enabled ? 'primary.main' : 'text.secondary',
+                                }}>
+                                    {app.label}
+                                </Typography>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            </Box>
             {/* Appearance selector — miniature task card previews */}
             <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Appearance</Typography>
@@ -194,7 +316,7 @@ const Profile = () => {
 
                         return (
                             <Box key={m}
-                                onClick={() => { setThemeMode(m); saveProfile(name, timezone, m); }}
+                                onClick={() => { setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm); }}
                                 sx={{
                                     cursor: 'pointer', textAlign: 'center',
                                     '&:hover .theme-thumb': { borderColor: 'primary.main' },
