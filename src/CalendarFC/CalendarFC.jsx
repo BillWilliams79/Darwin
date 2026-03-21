@@ -15,7 +15,7 @@ import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
-import { useTasksDone, usePrioritiesDone } from '../hooks/useDataQueries';
+import { useTasksDone, usePrioritiesDone, useCategoryColors } from '../hooks/useDataQueries';
 import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -86,7 +86,8 @@ const CalendarFC = () => {
     const { data: serverPriorities } = usePrioritiesDone(profile?.userName,
         isMobile ? mobileStartStr : startStr,
         isMobile ? mobileEndStr   : endStr,
-        { enabled: !isTasksMode });
+        { enabled: !isTasksMode, fields: 'id,title,completed_at,category_fk' });
+    const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: !isTasksMode });
 
     // ── Task local state (for edit dialog + drag-drop) ───────────────────────
     const [localTasksArray, setLocalTasksArray] = useState([]);
@@ -119,6 +120,16 @@ const CalendarFC = () => {
         additionalCleanup: () => { setTaskEditDialogOpen(false); setTaskEditInfo({}); }
     });
 
+    // ── Category color map (category_fk → color) ──────────────────────────────
+    const categoryColorMap = useMemo(() => {
+        if (!categoryList) return {};
+        const map = {};
+        for (const cat of categoryList) {
+            if (cat.color) map[cat.id] = cat.color;
+        }
+        return map;
+    }, [categoryList]);
+
     // ── Events (shared FullCalendar format, reused for mobile grouping) ───────
     const PRIORITY_STYLE = isDark ? PRIORITY_STYLE_DARK : PRIORITY_STYLE_LIGHT;
     const taskEventColor     = isDark ? '#3a3632' : 'WhiteSmoke';
@@ -149,9 +160,10 @@ const CalendarFC = () => {
             borderColor: priorityEventColor,
             textColor: isDark ? '#d9d0c4' : '#333',
             classNames: ['fc-priority-event'],
+            extendedProps: { catColor: priority.category_fk ? categoryColorMap[priority.category_fk] : null },
         }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, localTasksArray, localPrioritiesArray, profile?.timezone, isDark]);
+    }, [isTasksMode, localTasksArray, localPrioritiesArray, profile?.timezone, isDark, categoryColorMap]);
 
     // ── Mobile: group events by date for custom list ──────────────────────────
     const mobileEventsByDate = useMemo(() => {
@@ -428,6 +440,7 @@ const CalendarFC = () => {
     // Desktop FullCalendar event renderer
     const renderEventContent = (eventInfo) => {
         const isHigh = isTasksMode && eventInfo.event.extendedProps.priority === 1;
+        const catColor = eventInfo.event.extendedProps.catColor;
         return (
             <div style={{
                 display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -435,6 +448,7 @@ const CalendarFC = () => {
                 fontSize: 'clamp(0.7rem, 2.5vw, 0.85rem)',
                 fontFamily: '"Roboto","Helvetica","Arial",sans-serif',
                 fontWeight: isHigh ? 700 : 'normal',
+                ...(catColor && { borderLeft: `3px solid ${catColor}`, paddingLeft: 4 }),
             }}>
                 {eventInfo.event.title}
             </div>
@@ -505,6 +519,9 @@ const CalendarFC = () => {
                                                                        : (isTasksMode && ev.extendedProps?.priority === 1)
                                                                            ? PRIORITY_STYLE.bg
                                                                            : 'inherit',
+                                                                   ...(!isTasksMode && ev.extendedProps?.catColor && {
+                                                                       borderLeft: `3px solid ${ev.extendedProps.catColor}`,
+                                                                   }),
                                                                    '&:active': { bgcolor: 'action.hover' } }}>
                                                             <Typography variant="body2" sx={{
                                                                 fontSize: '0.9rem',
