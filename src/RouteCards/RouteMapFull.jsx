@@ -8,13 +8,11 @@ import 'leaflet/dist/leaflet.css';
 // Plugin CSS
 import 'leaflet-fullscreen/dist/leaflet.fullscreen.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.css';
-import 'leaflet-minimap/dist/Control.MiniMap.min.css';
 import 'leaflet-easybutton/src/easy-button.css';
 
 // Plugin JS
 import 'leaflet-fullscreen';
 import { LocateControl as LeafletLocateControl } from 'leaflet.locatecontrol';
-import 'leaflet-minimap';
 import 'leaflet-easybutton';
 
 // --- Base layers (no key required) ---
@@ -102,24 +100,6 @@ const LocateCtrl = () => {
             position: 'topleft',
             strings: { title: 'Show my location' },
             flyTo: true,
-        });
-        ctrl.addTo(map);
-        return () => ctrl.remove();
-    }, [map]);
-    return null;
-};
-
-/** Minimap — bottom-right corner overview */
-const MiniMapControl = () => {
-    const map = useMap();
-    React.useEffect(() => {
-        const miniLayer = L.tileLayer(OSM_URL, { attribution: OSM_ATTR });
-        const ctrl = new L.Control.MiniMap(miniLayer, {
-            position: 'bottomright',
-            toggleDisplay: true,
-            minimized: false,
-            width: 150,
-            height: 150,
         });
         ctrl.addTo(map);
         return () => ctrl.remove();
@@ -239,7 +219,6 @@ const RouteMapFull = ({ coordinates, isLoading }) => {
 
             <FullscreenControl />
             <LocateCtrl />
-            <MiniMapControl />
             <ResetViewControl positions={positions} />
             <CoordinateDisplay />
         </MapContainer>
