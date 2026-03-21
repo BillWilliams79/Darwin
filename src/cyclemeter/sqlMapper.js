@@ -33,6 +33,7 @@ export function mapRunToSql(run, mapRouteFk = null) {
         max_speed_mph: run.maxSpeed != null ? Math.round(run.maxSpeed * MS_TO_MPH * 10) / 10 : null,
         avg_speed_mph: avgSpeedMph,
         notes: run.notes || null,
+        source: 'cyclemeter',
     };
 }
 
@@ -66,4 +67,17 @@ export function extractUniqueRoutes(runs) {
         }
     }
     return Array.from(routeMap.values());
+}
+
+/**
+ * Filter runs to only those after a date cutoff (for bulk import dedup).
+ * @param {import('./types').Run[]} rawRuns - Raw runs from extractFromCyclemeter
+ * @param {string|null|undefined} cutoffDate - ISO date string of latest existing run, or null/undefined for first import
+ * @returns {{ newRuns: Array, skippedCount: number }}
+ */
+export function filterNewRunsByCutoff(rawRuns, cutoffDate) {
+    if (!cutoffDate) return { newRuns: rawRuns, skippedCount: 0 };
+    const cutoff = new Date(cutoffDate);
+    const newRuns = rawRuns.filter(run => new Date(run.startTime) > cutoff);
+    return { newRuns, skippedCount: rawRuns.length - newRuns.length };
 }
