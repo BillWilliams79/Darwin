@@ -19,7 +19,7 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { runPipeline, extractFromCyclemeter, precisionOptimizer, distanceOptimizer, downloadFile, DEFAULT_CONFIG } from '../cyclemeter';
-import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes } from '../cyclemeter/sqlMapper';
+import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff } from '../cyclemeter/sqlMapper';
 
 const FILTER_TYPES = ['routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
@@ -192,15 +192,41 @@ const CyclemeterImport = () => {
                 return;
             }
 
-            const totalRuns = rawRuns.length;
+            // Dedup pre-check: query latest imported run for this source
+            const cutoffResult = await call_rest_api(
+                `${darwinUri}/map_runs?fields=start_time&source=cyclemeter&sort=start_time:desc`, 'GET', null, idToken
+            );
+            const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+            const { newRuns, skippedCount } = filterNewRunsByCutoff(rawRuns, cutoffDate);
+
+            if (newRuns.length === 0) {
+                setSnackbar({
+                    open: true,
+                    message: `All ${rawRuns.length} runs already imported (latest: ${cutoffDate})`,
+                    severity: 'info',
+                });
+                setSaving(false);
+                return;
+            }
+
+            const totalRuns = newRuns.length;
             setSaveProgress({ current: 0, total: totalRuns });
 
-            // Step 1: Save unique routes
-            const uniqueRoutes = extractUniqueRoutes(rawRuns);
+            // Step 1: Fetch existing routes, save only new ones
+            const existingRoutesResult = await call_rest_api(
+                `${darwinUri}/map_routes?fields=id,route_id`, 'GET', null, idToken
+            );
             const routeIdMap = new Map(); // cyclemeter routeID → SQL map_routes id
+            if (existingRoutesResult.data) {
+                for (const r of existingRoutesResult.data) {
+                    routeIdMap.set(r.route_id, r.id);
+                }
+            }
 
+            const uniqueRoutes = extractUniqueRoutes(newRuns);
             for (const route of uniqueRoutes) {
                 if (controller.signal.aborted) throw new Error('Save cancelled');
+                if (routeIdMap.has(route.route_id)) continue; // already exists
 
                 const result = await call_rest_api(
                     `${darwinUri}/map_routes`, 'POST', route, idToken
@@ -210,10 +236,10 @@ const CyclemeterImport = () => {
                 }
             }
 
-            // Step 2: Save runs with concurrency limit
+            // Step 2: Save new runs with concurrency limit
             let completed = 0;
 
-            await asyncPool(CONCURRENCY_LIMIT, rawRuns, async (run) => {
+            await asyncPool(CONCURRENCY_LIMIT, newRuns, async (run) => {
                 if (controller.signal.aborted) throw new Error('Save cancelled');
 
                 const mapRouteFk = routeIdMap.get(run.routeID) || null;
@@ -254,7 +280,9 @@ const CyclemeterImport = () => {
 
             setSnackbar({
                 open: true,
-                message: `Saved ${completed} runs to Darwin`,
+                message: skippedCount > 0
+                    ? `Saved ${completed} new runs (${skippedCount} already imported, skipped)`
+                    : `Saved ${completed} runs to Darwin`,
                 severity: 'success',
             });
 
