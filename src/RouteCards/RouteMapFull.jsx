@@ -17,16 +17,9 @@ import { LocateControl as LeafletLocateControl } from 'leaflet.locatecontrol';
 import 'leaflet-minimap';
 import 'leaflet-easybutton';
 
-// --- API keys (from .env.development.local, gitignored) ---
-const THUNDERFOREST_KEY = import.meta.env.VITE_THUNDERFOREST_KEY || '';
-const OWM_KEY = import.meta.env.VITE_OPENWEATHERMAP_KEY || '';
-
 // --- Base layers (no key required) ---
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-
-const TOPO_URL = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
-const TOPO_ATTR = '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>';
 
 const CYCLOSM_URL = 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png';
 const CYCLOSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://www.cyclosm.org">CyclOSM</a>';
@@ -34,10 +27,7 @@ const CYCLOSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">O
 const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const ESRI_ATTR = '&copy; Esri, Maxar, Earthstar Geographics';
 
-const CARTO_LIGHT_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 const CARTO_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
-
-const CARTO_DARK_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
 const CARTO_VOYAGER_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
@@ -47,31 +37,34 @@ const ESRI_TOPO_ATTR = '&copy; Esri, HERE, Garmin, USGS';
 const ESRI_NATGEO_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}';
 const ESRI_NATGEO_ATTR = '&copy; Esri, National Geographic';
 
-const ESRI_HILLSHADE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}';
-const ESRI_HILLSHADE_ATTR = '&copy; Esri, USGS';
-
-// --- Base layers (Thunderforest — free 150K tiles/mo) ---
-const TF_CYCLE_URL = `https://tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey=${THUNDERFOREST_KEY}`;
-const TF_OUTDOORS_URL = `https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=${THUNDERFOREST_KEY}`;
-const TF_LANDSCAPE_URL = `https://tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey=${THUNDERFOREST_KEY}`;
-const TF_ATTR = '&copy; <a href="https://www.thunderforest.com/">Thunderforest</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-
 // --- Overlays (no key required) ---
 const WAYMARKED_CYCLING_URL = 'https://tile.waymarkedtrails.org/cycling/{z}/{x}/{y}.png';
-const WAYMARKED_HIKING_URL = 'https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png';
-const WAYMARKED_MTB_URL = 'https://tile.waymarkedtrails.org/mtb/{z}/{x}/{y}.png';
 const WAYMARKED_ATTR = '&copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>';
-
-const CYCLOSM_LITE_URL = 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm-lite/{z}/{x}/{y}.png';
 
 const CARTO_LABELS_URL = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
 
-// --- Overlays (OpenWeatherMap — free 1M calls/mo) ---
-const OWM_PRECIP_URL = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`;
-const OWM_CLOUDS_URL = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`;
-const OWM_TEMP_URL = `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`;
-const OWM_WIND_URL = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`;
-const OWM_ATTR = '&copy; <a href="https://openweathermap.org">OpenWeatherMap</a>';
+/** Track active base layer name — drives conditional overlay visibility */
+const useBaseLayerName = () => {
+    const map = useMap();
+    const [name, setName] = React.useState('Topographic');
+    React.useEffect(() => {
+        const handler = (e) => setName(e.name);
+        map.on('baselayerchange', handler);
+        return () => map.off('baselayerchange', handler);
+    }, [map]);
+    return name;
+};
+
+/** Conditional Labels overlay — only shown when Satellite base layer is active */
+const SatelliteLabelsOverlay = () => {
+    const baseLayer = useBaseLayerName();
+    if (baseLayer !== 'Satellite') return null;
+    return (
+        <LayersControl.Overlay name="Labels">
+            <TileLayer url={CARTO_LABELS_URL} attribution={CARTO_ATTR} />
+        </LayersControl.Overlay>
+    );
+};
 
 /** Auto-fit map bounds to the polyline */
 const FitBounds = ({ positions }) => {
@@ -212,93 +205,30 @@ const RouteMapFull = ({ coordinates, isLoading }) => {
         >
             <LayersControl position="topright">
                 {/* --- Base layers --- */}
-                <LayersControl.BaseLayer checked name="Street">
+                <LayersControl.BaseLayer checked name="Topographic">
+                    <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
+                </LayersControl.BaseLayer>
+                <LayersControl.BaseLayer name="Satellite">
+                    <TileLayer url={ESRI_URL} attribution={ESRI_ATTR} />
+                </LayersControl.BaseLayer>
+                <LayersControl.BaseLayer name="Street">
                     <TileLayer url={OSM_URL} attribution={OSM_ATTR} />
                 </LayersControl.BaseLayer>
                 <LayersControl.BaseLayer name="Cycling (CyclOSM)">
                     <TileLayer url={CYCLOSM_URL} attribution={CYCLOSM_ATTR} />
                 </LayersControl.BaseLayer>
-                {THUNDERFOREST_KEY && (
-                    <LayersControl.BaseLayer name="OpenCycleMap">
-                        <TileLayer url={TF_CYCLE_URL} attribution={TF_ATTR} />
-                    </LayersControl.BaseLayer>
-                )}
-                {THUNDERFOREST_KEY && (
-                    <LayersControl.BaseLayer name="Outdoors (TF)">
-                        <TileLayer url={TF_OUTDOORS_URL} attribution={TF_ATTR} />
-                    </LayersControl.BaseLayer>
-                )}
-                {THUNDERFOREST_KEY && (
-                    <LayersControl.BaseLayer name="Landscape (TF)">
-                        <TileLayer url={TF_LANDSCAPE_URL} attribution={TF_ATTR} />
-                    </LayersControl.BaseLayer>
-                )}
-                <LayersControl.BaseLayer name="Topographic">
-                    <TileLayer url={TOPO_URL} attribution={TOPO_ATTR} />
-                </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="Satellite">
-                    <TileLayer url={ESRI_URL} attribution={ESRI_ATTR} />
-                </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="Esri Topo">
-                    <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
-                </LayersControl.BaseLayer>
                 <LayersControl.BaseLayer name="National Geographic">
                     <TileLayer url={ESRI_NATGEO_URL} attribution={ESRI_NATGEO_ATTR} />
-                </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="Hillshade">
-                    <TileLayer url={ESRI_HILLSHADE_URL} attribution={ESRI_HILLSHADE_ATTR} />
                 </LayersControl.BaseLayer>
                 <LayersControl.BaseLayer name="Voyager">
                     <TileLayer url={CARTO_VOYAGER_URL} attribution={CARTO_ATTR} />
                 </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="Light">
-                    <TileLayer url={CARTO_LIGHT_URL} attribution={CARTO_ATTR} />
-                </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="Dark">
-                    <TileLayer url={CARTO_DARK_URL} attribution={CARTO_ATTR} />
-                </LayersControl.BaseLayer>
 
-                {/* --- Trail overlays --- */}
+                {/* --- Overlays --- */}
                 <LayersControl.Overlay name="Cycling Routes">
                     <TileLayer url={WAYMARKED_CYCLING_URL} attribution={WAYMARKED_ATTR} />
                 </LayersControl.Overlay>
-                <LayersControl.Overlay name="Hiking Trails">
-                    <TileLayer url={WAYMARKED_HIKING_URL} attribution={WAYMARKED_ATTR} />
-                </LayersControl.Overlay>
-                <LayersControl.Overlay name="MTB Trails">
-                    <TileLayer url={WAYMARKED_MTB_URL} attribution={WAYMARKED_ATTR} />
-                </LayersControl.Overlay>
-                <LayersControl.Overlay name="Hillshade Overlay">
-                    <TileLayer url={ESRI_HILLSHADE_URL} attribution={ESRI_HILLSHADE_ATTR} opacity={0.4} />
-                </LayersControl.Overlay>
-                <LayersControl.Overlay name="Bike Infrastructure">
-                    <TileLayer url={CYCLOSM_LITE_URL} attribution={CYCLOSM_ATTR} />
-                </LayersControl.Overlay>
-                <LayersControl.Overlay name="Labels">
-                    <TileLayer url={CARTO_LABELS_URL} attribution={CARTO_ATTR} />
-                </LayersControl.Overlay>
-
-                {/* --- Weather overlays (live/current) --- */}
-                {OWM_KEY && (
-                    <LayersControl.Overlay name="Precipitation">
-                        <TileLayer url={OWM_PRECIP_URL} attribution={OWM_ATTR} opacity={0.6} crossOrigin="" />
-                    </LayersControl.Overlay>
-                )}
-                {OWM_KEY && (
-                    <LayersControl.Overlay name="Clouds">
-                        <TileLayer url={OWM_CLOUDS_URL} attribution={OWM_ATTR} opacity={0.5} crossOrigin="" />
-                    </LayersControl.Overlay>
-                )}
-                {OWM_KEY && (
-                    <LayersControl.Overlay name="Temperature">
-                        <TileLayer url={OWM_TEMP_URL} attribution={OWM_ATTR} opacity={0.5} crossOrigin="" />
-                    </LayersControl.Overlay>
-                )}
-                {OWM_KEY && (
-                    <LayersControl.Overlay name="Wind">
-                        <TileLayer url={OWM_WIND_URL} attribution={OWM_ATTR} opacity={0.5} crossOrigin="" />
-                    </LayersControl.Overlay>
-                )}
+                <SatelliteLabelsOverlay />
             </LayersControl>
 
             <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
