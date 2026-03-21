@@ -35,6 +35,7 @@ export const projectKeys = {
 
 export const categoryKeys = {
     all: (creatorFk) => ['categories', creatorFk],
+    colors: (creatorFk) => ['categories', creatorFk, 'colors'],
     byProject: (creatorFk, projectId) => ['categories', creatorFk, { projectId }],
     byProjectOpen: (creatorFk, projectId) => ['categories', creatorFk, { projectId, closed: 0 }],
     byProjectWithClosed: (creatorFk, projectId) => ['categories', creatorFk, { projectId, withClosed: true }],

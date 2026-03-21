@@ -375,4 +375,146 @@ test.describe('Profile', () => {
     await expect(exportButton).toBeEnabled({ timeout: 10000 });
     await expect(exportButton).toContainText('Export My Data');
   });
+
+  test('PROF-08a: applications section visible with 3 labels', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+
+    const toggle = page.getByTestId('profile-app-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toContainText('Tasks');
+    await expect(toggle).toContainText('Maps');
+    await expect(toggle).toContainText('Swarm');
+  });
+
+  test('PROF-08b: toggle changes highlight state', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+
+    const toggle = page.getByTestId('profile-app-toggle');
+    // Swarm is disabled by default — its border should use divider color
+    const swarmCard = toggle.locator('> div').nth(2).locator('.app-thumb');
+    const swarmBorder = await swarmCard.evaluate(el => getComputedStyle(el).borderColor);
+
+    // Click Swarm to enable it
+    await toggle.locator('> div').nth(2).click();
+
+    // Wait for PUT to complete
+    await page.waitForTimeout(500);
+
+    // Border should change to primary color (different from before)
+    const swarmBorderAfter = await swarmCard.evaluate(el => getComputedStyle(el).borderColor);
+    expect(swarmBorderAfter).not.toBe(swarmBorder);
+
+    // Click Swarm again to disable — restore original state
+    await toggle.locator('> div').nth(2).click();
+    await page.waitForTimeout(500);
+  });
+
+  test('PROF-08c: toggle auto-saves app fields to DB', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+
+    // Intercept PUT to verify app_swarm is saved
+    const putPromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+
+    // Click Swarm (disabled by default) to enable it
+    const toggle = page.getByTestId('profile-app-toggle');
+    await toggle.locator('> div').nth(2).click();
+
+    const putRequest = await putPromise;
+    const body = putRequest.postDataJSON();
+    expect(body[0].app_swarm).toBe(1);
+
+    // Wait for response so saved ref updates
+    await putRequest.response();
+
+    // Restore — disable Swarm again
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    await toggle.locator('> div').nth(2).click();
+    const restoreRequest = await restorePromise;
+    const restoreBody = restoreRequest.postDataJSON();
+    expect(restoreBody[0].app_swarm).toBe(0);
+  });
+
+  test('PROF-08d: disabled group hidden from sidebar', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+
+    // Verify MAPS group is visible in sidebar before disabling
+    const sidebar = page.locator('.app-navbar');
+    await expect(sidebar).toContainText('MAPS');
+
+    // Intercept PUT and disable Maps
+    const putPromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    const toggle = page.getByTestId('profile-app-toggle');
+    await toggle.locator('> div').nth(1).click(); // Maps is second card
+    await putPromise;
+
+    // MAPS group should no longer be visible in sidebar
+    await expect(sidebar).not.toContainText('MAPS', { timeout: 5000 });
+
+    // Restore — re-enable Maps
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    await toggle.locator('> div').nth(1).click();
+    await restorePromise;
+    await expect(sidebar).toContainText('MAPS', { timeout: 5000 });
+  });
+
+  test('PROF-08e: cannot disable all apps — last one stays enabled', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+
+    const toggle = page.getByTestId('profile-app-toggle');
+
+    // Disable Maps (Tasks and Maps are enabled by default, Swarm disabled)
+    const put1 = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    await toggle.locator('> div').nth(1).click(); // disable Maps
+    await put1;
+
+    // Now only Tasks is enabled. Click Tasks — should be no-op (no PUT fires)
+    // Use a race: if PUT fires within 1s, the guard failed
+    const noSave = await Promise.race([
+      page.waitForRequest(
+        req => req.method() === 'PUT' && req.url().includes('/profiles'),
+        { timeout: 1500 }
+      ).then(() => 'PUT_FIRED'),
+      new Promise(resolve => setTimeout(() => resolve('NO_PUT'), 1500)),
+    ]);
+
+    // Clicking Tasks when it's the last enabled app should NOT fire a PUT
+    await toggle.locator('> div').nth(0).click(); // try to disable Tasks (last one)
+
+    const result = await Promise.race([
+      page.waitForRequest(
+        req => req.method() === 'PUT' && req.url().includes('/profiles'),
+        { timeout: 1500 }
+      ).then(() => 'PUT_FIRED'),
+      new Promise(resolve => setTimeout(() => resolve('NO_PUT'), 1500)),
+    ]);
+    expect(result).toBe('NO_PUT');
+
+    // Restore — re-enable Maps
+    const restorePromise = page.waitForRequest(
+      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+      { timeout: 5000 }
+    );
+    await toggle.locator('> div').nth(1).click();
+    await restorePromise;
+  });
 });
