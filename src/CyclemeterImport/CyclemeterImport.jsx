@@ -19,12 +19,18 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { runPipeline, extractFromCyclemeter, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
+import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff } from '../cyclemeter/sqlMapper';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
 const CONCURRENCY_LIMIT = 5;
+
+/** Maps format IDs to extraction functions for the Save to Darwin flow */
+const EXTRACTORS = {
+    'cyclemeter': extractFromCyclemeter,
+    'strava-gpx': extractFromStravaGpx,
+};
 
 const CyclemeterImport = () => {
     const navigate = useNavigate();
@@ -35,6 +41,7 @@ const CyclemeterImport = () => {
     const [dbFile, setDbFile] = useState(null);
     const [fileName, setFileName] = useState('');
     const [dragging, setDragging] = useState(false);
+    const [formatInfo, setFormatInfo] = useState(null); // { format, label, source } from detectFormat
 
     // Config state
     const [minDelta, setMinDelta] = useState(DEFAULT_CONFIG.minDelta);
@@ -71,17 +78,26 @@ const CyclemeterImport = () => {
         setDragging(false);
     }, []);
 
-    const handleDrop = useCallback((e) => {
+    const handleDrop = useCallback(async (e) => {
         e.preventDefault();
         e.stopPropagation();
         setDragging(false);
         const file = e.dataTransfer.files[0];
         if (file) {
-            console.log('[Cyclemeter] Dropped file:', file.name, file.size, 'bytes');
+            console.log('[Import] Dropped file:', file.name, file.size, 'bytes');
             setDbFile(file);
             setFileName(file.name);
             setStats(null);
             setError(null);
+            setFormatInfo(null);
+            try {
+                const info = await detectFormat(file);
+                console.log('[Import] Detected format:', info.format, info.label);
+                setFormatInfo(info);
+            } catch (err) {
+                console.error('[Import] Format detection failed:', err);
+                setError(err.message);
+            }
         }
     }, []);
 
@@ -107,25 +123,25 @@ const CyclemeterImport = () => {
     };
 
     const handleProcess = async () => {
-        console.log('[Cyclemeter] handleProcess called, dbFile:', !!dbFile);
-        if (!dbFile) return;
+        console.log('[Import] handleProcess called, dbFile:', !!dbFile, 'format:', formatInfo?.format);
+        if (!dbFile || !formatInfo) return;
 
         setProcessing(true);
         setError(null);
         setStats(null);
 
         try {
-            console.log('[Cyclemeter] Reading file as ArrayBuffer...');
+            console.log('[Import] Reading file as ArrayBuffer...');
             const buffer = await dbFile.arrayBuffer();
-            console.log('[Cyclemeter] ArrayBuffer ready, size:', buffer.byteLength);
+            console.log('[Import] ArrayBuffer ready, size:', buffer.byteLength);
             const config = buildConfig();
-            console.log('[Cyclemeter] Config:', JSON.stringify(config));
-            console.log('[Cyclemeter] Starting pipeline...');
-            const result = await runPipeline(buffer, config);
-            console.log('[Cyclemeter] Pipeline complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
+            console.log('[Import] Config:', JSON.stringify(config));
+            console.log('[Import] Starting pipeline for format:', formatInfo.format);
+            const result = await runPipelineForFormat(buffer, config, formatInfo.format);
+            console.log('[Import] Pipeline complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
             setStats(result.stats);
         } catch (err) {
-            console.error('[Cyclemeter] Pipeline error:', err);
+            console.error('[Import] Pipeline error:', err);
             setError(err.message || 'Pipeline failed');
         } finally {
             setProcessing(false);
@@ -156,7 +172,7 @@ const CyclemeterImport = () => {
     };
 
     const handleSaveToDarwin = async () => {
-        if (!dbFile) return;
+        if (!dbFile || !formatInfo) return;
 
         const controller = new AbortController();
         abortRef.current = controller;
@@ -172,7 +188,8 @@ const CyclemeterImport = () => {
             // destructively converts runTime/startTime needed for SQL mapping.
             const buffer = await dbFile.arrayBuffer();
             const config = buildConfig();
-            const rawRuns = await extractFromCyclemeter(buffer, config);
+            const extractor = EXTRACTORS[formatInfo.format];
+            const rawRuns = await extractor(buffer, config);
             precisionOptimizer(rawRuns, config.precision);
             distanceOptimizer(rawRuns, config.minDelta);
 
@@ -187,7 +204,7 @@ const CyclemeterImport = () => {
             let cutoffDate = null;
             try {
                 const cutoffResult = await call_rest_api(
-                    `${darwinUri}/map_runs?fields=start_time&source=cyclemeter&sort=start_time:desc`, 'GET', null, idToken
+                    `${darwinUri}/map_runs?fields=start_time&source=${formatInfo.source}&sort=start_time:desc`, 'GET', null, idToken
                 );
                 cutoffDate = cutoffResult.data?.[0]?.start_time || null;
             } catch (e) {
@@ -244,7 +261,7 @@ const CyclemeterImport = () => {
                 if (controller.signal.aborted) throw new Error('Save cancelled');
 
                 const mapRouteFk = routeIdMap.get(run.routeID) || null;
-                const sqlRun = mapRunToSql(run, mapRouteFk);
+                const sqlRun = mapRunToSql(run, mapRouteFk, formatInfo.source);
 
                 const runResult = await call_rest_api(
                     `${darwinUri}/map_runs`, 'POST', sqlRun, idToken
@@ -317,7 +334,7 @@ const CyclemeterImport = () => {
             </Button>
             <Typography variant="h5" gutterBottom>Import</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Extract cycling/hiking data from a Cyclemeter database and save to Darwin.
+                Import cycling/hiking data from a Cyclemeter database or Strava GPX file.
             </Typography>
 
             {/* Drop Zone */}
@@ -329,17 +346,22 @@ const CyclemeterImport = () => {
                 sx={{
                     p: 3, mb: 2, textAlign: 'center', cursor: 'pointer',
                     borderStyle: 'dashed', borderWidth: 2,
-                    borderColor: dragging ? 'primary.main' : fileName ? 'success.main' : 'divider',
+                    borderColor: dragging ? 'primary.main' : formatInfo ? 'success.main' : (fileName && !formatInfo) ? 'error.main' : 'divider',
                     backgroundColor: dragging ? 'action.hover' : 'background.default',
                 }}
             >
-                <CloudUploadIcon sx={{ fontSize: 40, color: fileName ? 'success.main' : 'text.secondary', mb: 1 }} />
+                <CloudUploadIcon sx={{ fontSize: 40, color: formatInfo ? 'success.main' : 'text.secondary', mb: 1 }} />
                 <Typography variant="body1">
                     {fileName
                         ? `${fileName} (${(dbFile.size / 1024 / 1024).toFixed(1)} MB)`
-                        : 'Drop Meter.db here'
+                        : 'Drop Meter.db or .gpx file here'
                     }
                 </Typography>
+                {formatInfo && (
+                    <Typography variant="body2" color="text.secondary">
+                        Detected: {formatInfo.label}
+                    </Typography>
+                )}
             </Paper>
 
             {/* Configuration */}
@@ -366,8 +388,8 @@ const CyclemeterImport = () => {
                 </Box>
             </Paper>
 
-            {/* Query Filter */}
-            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            {/* Query Filter — only shown for Cyclemeter (filters are DB-specific) */}
+            {(!formatInfo || formatInfo.format === 'cyclemeter') && <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>Query Filter</Typography>
                 <TextField
                     select
@@ -429,7 +451,7 @@ const CyclemeterImport = () => {
                         />
                     </Box>
                 )}
-            </Paper>
+            </Paper>}
 
             {/* Actions */}
             <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
@@ -437,7 +459,7 @@ const CyclemeterImport = () => {
                     variant="contained"
                     startIcon={processing ? <CircularProgress size={20} /> : <PlayArrowIcon />}
                     onClick={handleProcess}
-                    disabled={!dbFile || processing || saving}
+                    disabled={!dbFile || !formatInfo || processing || saving}
                     data-testid="process-button"
                 >
                     {processing ? 'Processing...' : 'Process'}
