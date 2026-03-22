@@ -31,10 +31,9 @@ import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
+import MapsPage from './Maps/MapsPage';
 import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
-import MapRunsView from './MapRuns/MapRunsView';
 import MapExportView from './MapExport/MapExportView';
-import RouteCardView from './RouteCards/RouteCardView';
 import RouteDetailView from './RouteCards/RouteDetailView';
 
 
@@ -90,20 +89,17 @@ root.render(
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />
                                                          </AuthenticatedRoute>} />
+                    <Route path="maps" element= {<AuthenticatedRoute>
+                                                             <MapsPage />
+                                                         </AuthenticatedRoute>} />
                     <Route path="maps/import" element= {<AuthenticatedRoute>
                                                              <CyclemeterImport />
                                                          </AuthenticatedRoute>} />
-                    <Route path="maps/runs" element= {<AuthenticatedRoute>
-                                                             <MapRunsView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/routes" element= {<AuthenticatedRoute>
-                                                             <RouteCardView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/routes/:runId" element= {<AuthenticatedRoute>
-                                                             <RouteDetailView />
-                                                         </AuthenticatedRoute>} />
                     <Route path="maps/export" element= {<AuthenticatedRoute>
                                                              <MapExportView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/:runId" element= {<AuthenticatedRoute>
+                                                             <RouteDetailView />
                                                          </AuthenticatedRoute>} />
                 </Route >
                 <Route path="*"                element= {<Error404 />} />

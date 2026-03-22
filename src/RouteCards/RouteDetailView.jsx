@@ -41,7 +41,7 @@ const RouteDetailView = () => {
     if (!run) {
         return (
             <Box sx={{ p: 3 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps/routes')} sx={{ mb: 2 }}>
+                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 2 }}>
                     Back to Routes
                 </Button>
                 <Typography color="error">Run not found.</Typography>
@@ -53,7 +53,7 @@ const RouteDetailView = () => {
 
     return (
         <Box sx={{ p: 3 }}>
-            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps/routes')} sx={{ mb: 2 }}>
+            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 2 }}>
                 Back to Routes
             </Button>
 
