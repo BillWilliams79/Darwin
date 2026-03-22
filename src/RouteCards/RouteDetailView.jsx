@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useLayoutEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -15,6 +15,8 @@ const RouteDetailView = () => {
     const { runId } = useParams();
     const navigate = useNavigate();
     const { profile } = useContext(AuthContext);
+
+    useLayoutEffect(() => { window.scrollTo(0, 0); }, []);
     const creatorFk = profile?.id;
 
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
