@@ -1,4 +1,5 @@
 import React, { useState, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -7,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import BuildIcon from '@mui/icons-material/Build';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -14,8 +16,10 @@ import call_rest_api from '../RestApi/RestApi';
 import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import { generateKml, downloadFile, DEFAULT_CONFIG } from '../cyclemeter';
 import { reconstructRun } from '../utils/mapDataUtils';
+import ExportMapPreview from './ExportMapPreview';
 
 const MapExportView = () => {
+    const navigate = useNavigate();
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const creatorFk = profile?.id;
@@ -30,6 +34,7 @@ const MapExportView = () => {
     const [kmlContent, setKmlContent] = useState(null);
     const [error, setError] = useState(null);
     const [stats, setStats] = useState(null);
+    const [routeCoordinates, setRouteCoordinates] = useState(null);
 
     // Build route lookup
     const routeMap = new Map();
@@ -44,10 +49,12 @@ const MapExportView = () => {
         setError(null);
         setKmlContent(null);
         setStats(null);
+        setRouteCoordinates(null);
 
         try {
             // Fetch coordinates for each run
             const transformedRuns = [];
+            const allCoords = [];
             let totalCoords = 0;
 
             for (const run of runs) {
@@ -57,6 +64,7 @@ const MapExportView = () => {
                 );
                 const coords = coordResult.data || [];
                 totalCoords += coords.length;
+                allCoords.push(coords);
 
                 const routeName = routeMap.get(run.map_route_fk) || '';
                 transformedRuns.push(reconstructRun(run, coords, routeName));
@@ -68,6 +76,7 @@ const MapExportView = () => {
             const config = { mapTitle, mapDescription, outputFilename };
             const kml = generateKml(transformedRuns, config);
             setKmlContent(kml);
+            setRouteCoordinates(allCoords);
 
             // Compute stats
             let totalDistance = 0;
@@ -94,84 +103,99 @@ const MapExportView = () => {
     };
 
     return (
-        <Box sx={{ maxWidth: 700, mx: 'auto', mt: 3, px: 2 }}>
+        <Box sx={{ mt: 3, px: 2 }}>
+            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 1 }} size="small">
+                Maps
+            </Button>
             <Typography variant="h5" gutterBottom>Export KML</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Generate a KML file from stored run data for Google MyMaps.
                 {!runsLoading && ` ${runs.length} runs available.`}
             </Typography>
 
-            {/* KML Config */}
-            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>KML Configuration</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <TextField
-                        label="Map Title"
-                        value={mapTitle}
-                        onChange={(e) => setMapTitle(e.target.value)}
-                        size="small"
-                        fullWidth
-                    />
-                    <TextField
-                        label="Map Description"
-                        value={mapDescription}
-                        onChange={(e) => setMapDescription(e.target.value)}
-                        size="small"
-                        fullWidth
-                    />
-                    <TextField
-                        label="Output Filename"
-                        value={outputFilename}
-                        onChange={(e) => setOutputFilename(e.target.value)}
-                        size="small"
-                        sx={{ maxWidth: 300 }}
-                    />
-                </Box>
-            </Paper>
+            <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
+                {/* Export options — left column */}
+                <Box sx={{ width: 500, flexShrink: 0 }}>
+                    {/* KML Config */}
+                    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>KML Configuration</Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <TextField
+                                label="Map Title"
+                                value={mapTitle}
+                                onChange={(e) => setMapTitle(e.target.value)}
+                                size="small"
+                                fullWidth
+                            />
+                            <TextField
+                                label="Map Description"
+                                value={mapDescription}
+                                onChange={(e) => setMapDescription(e.target.value)}
+                                size="small"
+                                fullWidth
+                            />
+                            <TextField
+                                label="Output Filename"
+                                value={outputFilename}
+                                onChange={(e) => setOutputFilename(e.target.value)}
+                                size="small"
+                                sx={{ maxWidth: 300 }}
+                            />
+                        </Box>
+                    </Paper>
 
-            {/* Actions */}
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                <Button
-                    variant="contained"
-                    startIcon={generating ? <CircularProgress size={20} /> : <BuildIcon />}
-                    onClick={handleGenerate}
-                    disabled={runs.length === 0 || generating}
-                    data-testid="generate-kml-button"
-                >
-                    {generating ? 'Generating...' : 'Generate KML'}
-                </Button>
-                {kmlContent && (
-                    <Button
-                        variant="outlined"
-                        startIcon={<FileDownloadOutlinedIcon />}
-                        onClick={handleDownload}
-                        data-testid="download-kml-button"
-                    >
-                        Download KML
-                    </Button>
+                    {/* Actions */}
+                    <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                        <Button
+                            variant="contained"
+                            startIcon={generating ? <CircularProgress size={20} /> : <BuildIcon />}
+                            onClick={handleGenerate}
+                            disabled={runs.length === 0 || generating}
+                            data-testid="generate-kml-button"
+                        >
+                            {generating ? 'Generating...' : 'Generate KML'}
+                        </Button>
+                        {kmlContent && (
+                            <Button
+                                variant="outlined"
+                                startIcon={<FileDownloadOutlinedIcon />}
+                                onClick={handleDownload}
+                                data-testid="download-kml-button"
+                            >
+                                Download KML
+                            </Button>
+                        )}
+                    </Box>
+
+                    {/* Error */}
+                    {error && (
+                        <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'error.main' }}>
+                            <Typography color="error">{error}</Typography>
+                        </Paper>
+                    )}
+
+                    {/* Stats */}
+                    {stats && (
+                        <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="export-stats-panel">
+                            <Typography variant="subtitle2" gutterBottom>Export Summary</Typography>
+                            <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
+                                <tbody>
+                                    <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
+                                    <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
+                                    <tr><td>GPS Coordinates</td><td><strong>{stats.totalCoordinates.toLocaleString()}</strong></td></tr>
+                                </tbody>
+                            </Box>
+                        </Paper>
+                    )}
+                </Box>
+
+                {/* Map preview — right column, fills remaining space */}
+                {routeCoordinates && (
+                    <Box sx={{ flex: 1, minWidth: 400 }}>
+                        <ExportMapPreview routeCoordinates={routeCoordinates} />
+                    </Box>
                 )}
             </Box>
-
-            {/* Error */}
-            {error && (
-                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'error.main' }}>
-                    <Typography color="error">{error}</Typography>
-                </Paper>
-            )}
-
-            {/* Stats */}
-            {stats && (
-                <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="export-stats-panel">
-                    <Typography variant="subtitle2" gutterBottom>Export Summary</Typography>
-                    <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
-                        <tbody>
-                            <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
-                            <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
-                            <tr><td>GPS Coordinates</td><td><strong>{stats.totalCoordinates.toLocaleString()}</strong></td></tr>
-                        </tbody>
-                    </Box>
-                </Paper>
-            )}
         </Box>
     );
 };
