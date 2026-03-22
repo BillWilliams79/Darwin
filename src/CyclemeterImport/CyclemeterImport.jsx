@@ -193,10 +193,16 @@ const CyclemeterImport = () => {
             }
 
             // Dedup pre-check: query latest imported run for this source
-            const cutoffResult = await call_rest_api(
-                `${darwinUri}/map_runs?fields=start_time&source=cyclemeter&sort=start_time:desc`, 'GET', null, idToken
-            );
-            const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+            // Lambda returns 404 when table is empty (no rows) — treat as no prior imports
+            let cutoffDate = null;
+            try {
+                const cutoffResult = await call_rest_api(
+                    `${darwinUri}/map_runs?fields=start_time&source=cyclemeter&sort=start_time:desc`, 'GET', null, idToken
+                );
+                cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+            } catch (e) {
+                if (e?.httpStatus?.httpStatus !== 404) throw e;
+            }
             const { newRuns, skippedCount } = filterNewRunsByCutoff(rawRuns, cutoffDate);
 
             if (newRuns.length === 0) {
@@ -213,14 +219,19 @@ const CyclemeterImport = () => {
             setSaveProgress({ current: 0, total: totalRuns });
 
             // Step 1: Fetch existing routes, save only new ones
-            const existingRoutesResult = await call_rest_api(
-                `${darwinUri}/map_routes?fields=id,route_id`, 'GET', null, idToken
-            );
+            // Lambda returns 404 when table is empty — treat as no existing routes
             const routeIdMap = new Map(); // cyclemeter routeID → SQL map_routes id
-            if (existingRoutesResult.data) {
-                for (const r of existingRoutesResult.data) {
-                    routeIdMap.set(r.route_id, r.id);
+            try {
+                const existingRoutesResult = await call_rest_api(
+                    `${darwinUri}/map_routes?fields=id,route_id`, 'GET', null, idToken
+                );
+                if (existingRoutesResult.data) {
+                    for (const r of existingRoutesResult.data) {
+                        routeIdMap.set(r.route_id, r.id);
+                    }
                 }
+            } catch (e) {
+                if (e?.httpStatus?.httpStatus !== 404) throw e;
             }
 
             const uniqueRoutes = extractUniqueRoutes(newRuns);
