@@ -9,11 +9,12 @@ import { METERS_TO_MILES, METERS_TO_FEET, MS_TO_MPH, MAX_STOPPED_TIME } from './
 /**
  * Map a raw Run to a map_runs SQL row.
  * Must be called BEFORE formatRunData (which destructively transforms startTime, runTime, etc.).
- * @param {import('./types').Run} run - Raw run from extractFromCyclemeter
+ * @param {import('./types').Run} run - Raw run from any extractor
  * @param {number|null} mapRouteFk - FK to map_routes table (null if route not saved)
+ * @param {string} source - Source identifier for map_runs.source column (default: 'cyclemeter')
  * @returns {Object} SQL-ready object for POST to /map_runs
  */
-export function mapRunToSql(run, mapRouteFk = null) {
+export function mapRunToSql(run, mapRouteFk = null, source = 'cyclemeter') {
     const avgSpeedMph = run.runTime > 0
         ? Math.round((run.distance / run.runTime) * MS_TO_MPH * 100) / 100
         : null;
@@ -23,7 +24,7 @@ export function mapRunToSql(run, mapRouteFk = null) {
         map_route_fk: mapRouteFk,
         activity_id: run.activityID,
         activity_name: run.activityName,
-        start_time: run.startTime,  // Raw UTC string from Cyclemeter
+        start_time: run.startTime,  // Raw UTC string from source
         run_time_sec: Math.floor(run.runTime),
         stopped_time_sec: Math.min(Math.floor(run.stoppedTime), MAX_STOPPED_TIME),
         distance_mi: Math.round(run.distance * METERS_TO_MILES * 10) / 10,
@@ -33,7 +34,7 @@ export function mapRunToSql(run, mapRouteFk = null) {
         max_speed_mph: run.maxSpeed != null ? Math.round(run.maxSpeed * MS_TO_MPH * 10) / 10 : null,
         avg_speed_mph: avgSpeedMph,
         notes: run.notes || null,
-        source: 'cyclemeter',
+        source,
     };
 }
 
