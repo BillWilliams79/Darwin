@@ -27,6 +27,7 @@
  * @property {number} [altitude]
  * @property {number} [horizontalAccuracy]
  * @property {number} [verticalAccuracy]
+ * @property {number} [timeOffset] - Seconds from run start
  * @property {number} [speed]
  * @property {number} [course]
  * @property {string} [timestamp]
@@ -48,9 +49,12 @@
  * @property {number} maxSpeed - Max speed in m/s (raw from DB)
  * @property {string} notes
  * @property {Coordinate[]} coordinates - GPS points for this run
- * @property {number} extractedPoints - Points extracted from DB
+ * @property {number} runTimeBegin - Trim start in seconds from run start (-1 = no begin trim)
+ * @property {number} runTimeEnd - Trim end in seconds from run start (-1 = no end trim)
+ * @property {number} extractedPoints - Points extracted from DB (post-trim)
  * @property {number} currentPoints - Points after optimization
  * @property {number} strippedPoints - Points removed by distance optimizer
+ * @property {number} trimmedPoints - Points removed by ride trim filtering
  * @property {string} activityName - 'Ride' or 'Hike'
  * @property {number} lineIconId - 1522 (ride) or 1596 (hike)
  * @property {string} lineColorId - Hex color ID (e.g., '1167b1')
@@ -78,6 +82,7 @@
  * @property {number} extractedPoints
  * @property {number} currentPoints
  * @property {number} strippedPoints
+ * @property {number} trimmedPoints
  * @property {string} activityName
  * @property {number} lineIconId
  * @property {string} lineColorId
@@ -89,6 +94,7 @@
  * @property {number} totalDistance - Total distance in miles
  * @property {number} totalExtracted - Total GPS points extracted
  * @property {number} totalStripped - Total GPS points stripped
+ * @property {number} totalTrimmed - Total GPS points removed by ride trim
  * @property {number} totalRemaining - Total GPS points remaining
  * @property {number} percentReduction - Percentage of points removed
  */

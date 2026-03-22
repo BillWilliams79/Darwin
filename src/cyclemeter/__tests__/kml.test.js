@@ -90,10 +90,11 @@ describe('generateKml', () => {
         expect(kml).toContain('-118.41943,33.90087');
     });
 
-    it('formats route coordinates as lon,lat,10', () => {
+    it('formats route coordinates as lon,lat (no altitude)', () => {
         const kml = generateKml([makeTransformedRun()], config);
-        expect(kml).toContain('-118.41943,33.90087,10');
-        expect(kml).toContain('-118.41933,33.9008,10');
+        expect(kml).toContain('-118.41943,33.90087');
+        expect(kml).toContain('-118.41933,33.9008');
+        expect(kml).not.toContain(',10');
     });
 
     it('includes CDATA description with stats', () => {
@@ -105,6 +106,14 @@ describe('generateKml', () => {
         expect(kml).toContain('Ascent : 46 feet');
         expect(kml).toContain('Ride Time : 00:38:38');
         expect(kml).toContain('Stop Time : 00:17:07');
+    });
+
+    it('outputs minified KML without indentation whitespace', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        // No lines should start with spaces (except the XML declaration and kml tag)
+        const lines = kml.split('\n');
+        const indentedLines = lines.filter(l => l.startsWith('  '));
+        expect(indentedLines).toHaveLength(0);
     });
 
     it('handles hike activity with icon 1596', () => {

@@ -20,6 +20,7 @@ function makeRun(overrides = {}) {
         extractedPoints: 0,
         currentPoints: 0,
         strippedPoints: 0,
+        trimmedPoints: 0,
         activityName: 'Ride',
         lineIconId: 1522,
         lineColorId: '1167b1',
