@@ -37,13 +37,37 @@ function isGpxFile(buffer) {
 }
 
 /**
+ * Check if file content is a Cyclemeter KML export (<kml root + cyclemeter.com namespace).
+ * @param {ArrayBuffer} buffer - File content
+ * @returns {boolean}
+ */
+function isCyclemeterKml(buffer) {
+    if (buffer.byteLength < 10) return false;
+    const snippet = new TextDecoder('utf-8').decode(buffer.slice(0, 500));
+    return /<kml[\s>]/i.test(snippet) && /cyclemeter\.com/i.test(snippet);
+}
+
+/**
+ * Check if file content is a Cyclemeter GPX export (<gpx root + "cyclemeter" in creator/namespace).
+ * @param {ArrayBuffer} buffer - File content
+ * @returns {boolean}
+ */
+function isCyclemeterGpx(buffer) {
+    if (buffer.byteLength < 10) return false;
+    const snippet = new TextDecoder('utf-8').decode(buffer.slice(0, 500));
+    return /<gpx[\s>]/i.test(snippet) && /cyclemeter/i.test(snippet);
+}
+
+/**
  * Format registry — order matters (first match wins).
  * To add a new format: add an entry here and write a corresponding extractor.
  * @type {Array<{ test: function(ArrayBuffer): boolean } & FormatInfo>}
  */
 const FORMAT_REGISTRY = [
-    { test: isSqliteFile, format: 'cyclemeter', label: 'Cyclemeter Database', source: 'cyclemeter' },
-    { test: isGpxFile,    format: 'strava-gpx', label: 'Strava GPX',         source: 'strava' },
+    { test: isSqliteFile,    format: 'cyclemeter',     label: 'Cyclemeter Database', source: 'cyclemeter' },
+    { test: isCyclemeterKml, format: 'cyclemeter-kml', label: 'Cyclemeter KML',      source: 'cyclemeter-kml' },
+    { test: isCyclemeterGpx, format: 'cyclemeter-gpx', label: 'Cyclemeter GPX',      source: 'cyclemeter-gpx' },
+    { test: isGpxFile,       format: 'strava-gpx',     label: 'Strava GPX',          source: 'strava' },
 ];
 
 /**
@@ -62,6 +86,6 @@ export async function detectFormat(file) {
     }
 
     throw new Error(
-        'Unrecognized file format. Supported formats: Cyclemeter database (.db), Strava GPX (.gpx)'
+        'Unrecognized file format. Supported formats: Cyclemeter database (.db), Cyclemeter KML (.kml), Cyclemeter GPX (.gpx), Strava GPX (.gpx)'
     );
 }
