@@ -68,40 +68,18 @@ function buildRouteDescription(run) {
  */
 function generateIconStyles(iconId, colorId) {
     const id = `icon-${iconId}-${colorId}`;
-    return `    <Style id="${id}-normal">
-      <IconStyle>
-        <color>${LINE_COLOR}</color>
-        <scale>1</scale>
-        <Icon>
-          <href>${KML_ICON_URL}</href>
-        </Icon>
-      </IconStyle>
-      <LabelStyle>
-        <scale>0</scale>
-      </LabelStyle>
-    </Style>
-    <Style id="${id}-highlight">
-      <IconStyle>
-        <color>${LINE_COLOR}</color>
-        <scale>1</scale>
-        <Icon>
-          <href>${KML_ICON_URL}</href>
-        </Icon>
-      </IconStyle>
-      <LabelStyle>
-        <scale>1</scale>
-      </LabelStyle>
-    </Style>
-    <StyleMap id="${id}">
-      <Pair>
-        <key>normal</key>
-        <styleUrl>#${id}-normal</styleUrl>
-      </Pair>
-      <Pair>
-        <key>highlight</key>
-        <styleUrl>#${id}-highlight</styleUrl>
-      </Pair>
-    </StyleMap>`;
+    return `<Style id="${id}-normal">` +
+        `<IconStyle><color>${LINE_COLOR}</color><scale>1</scale>` +
+        `<Icon><href>${KML_ICON_URL}</href></Icon></IconStyle>` +
+        `<LabelStyle><scale>0</scale></LabelStyle></Style>\n` +
+        `<Style id="${id}-highlight">` +
+        `<IconStyle><color>${LINE_COLOR}</color><scale>1</scale>` +
+        `<Icon><href>${KML_ICON_URL}</href></Icon></IconStyle>` +
+        `<LabelStyle><scale>1</scale></LabelStyle></Style>\n` +
+        `<StyleMap id="${id}">` +
+        `<Pair><key>normal</key><styleUrl>#${id}-normal</styleUrl></Pair>` +
+        `<Pair><key>highlight</key><styleUrl>#${id}-highlight</styleUrl></Pair>` +
+        `</StyleMap>`;
 }
 
 /**
@@ -111,28 +89,14 @@ function generateIconStyles(iconId, colorId) {
  */
 function generateLineStyles(colorId) {
     const id = `line-${colorId}-5000`;
-    return `    <Style id="${id}-normal">
-      <LineStyle>
-        <color>${LINE_COLOR}</color>
-        <width>${KML_LINE_WIDTH}</width>
-      </LineStyle>
-    </Style>
-    <Style id="${id}-highlight">
-      <LineStyle>
-        <color>${LINE_COLOR}</color>
-        <width>${KML_LINE_WIDTH_HIGHLIGHT}</width>
-      </LineStyle>
-    </Style>
-    <StyleMap id="${id}">
-      <Pair>
-        <key>normal</key>
-        <styleUrl>#${id}-normal</styleUrl>
-      </Pair>
-      <Pair>
-        <key>highlight</key>
-        <styleUrl>#${id}-highlight</styleUrl>
-      </Pair>
-    </StyleMap>`;
+    return `<Style id="${id}-normal">` +
+        `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH}</width></LineStyle></Style>\n` +
+        `<Style id="${id}-highlight">` +
+        `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH_HIGHLIGHT}</width></LineStyle></Style>\n` +
+        `<StyleMap id="${id}">` +
+        `<Pair><key>normal</key><styleUrl>#${id}-normal</styleUrl></Pair>` +
+        `<Pair><key>highlight</key><styleUrl>#${id}-highlight</styleUrl></Pair>` +
+        `</StyleMap>`;
 }
 
 /**
@@ -152,9 +116,9 @@ export function generateKml(runs, config) {
     // Header
     parts.push('<?xml version="1.0" encoding="UTF-8"?>');
     parts.push('<kml xmlns="http://www.opengis.net/kml/2.2">');
-    parts.push('  <Document>');
-    parts.push(`    <name>${escapeXml(config.mapTitle)}</name>`);
-    parts.push(`    <description>${description}</description>`);
+    parts.push(`<Document>`);
+    parts.push(`<name>${escapeXml(config.mapTitle)}</name>`);
+    parts.push(`<description>${description}</description>`);
 
     // Style blocks: ride icon, hike icon, line
     parts.push(generateIconStyles(1522, colorId));
@@ -162,8 +126,8 @@ export function generateKml(runs, config) {
     parts.push(generateLineStyles(colorId));
 
     // Folder with placemarks
-    parts.push('    <Folder>');
-    parts.push(`      <name>Activities: ${config.minDelta}m spacing</name>`);
+    parts.push('<Folder>');
+    parts.push(`<name>Activities: ${config.minDelta}m spacing</name>`);
 
     runs.forEach((run, index) => {
         const runNumber = index + 1;
@@ -175,36 +139,28 @@ export function generateKml(runs, config) {
         const pointCoords = firstCoord ? `${firstCoord.longitude},${firstCoord.latitude}` : '0,0';
 
         // Icon Placemark
-        parts.push('      <Placemark>');
-        parts.push(`          <name>${run.activityName} ${runNumber} :: ${run.titleFormattedStart}</name>`);
-        parts.push(`          <description><![CDATA[${buildPointDescription(run)}]]></description>`);
-        parts.push(`          <styleUrl>#${iconStyleId}</styleUrl>`);
-        parts.push('          <Point>');
-        parts.push('            <coordinates>');
-        parts.push(`              ${pointCoords}</coordinates>`);
-        parts.push('          </Point>');
-        parts.push('        </Placemark>');
+        parts.push(`<Placemark>`);
+        parts.push(`<name>${run.activityName} ${runNumber} :: ${run.titleFormattedStart}</name>`);
+        parts.push(`<description><![CDATA[${buildPointDescription(run)}]]></description>`);
+        parts.push(`<styleUrl>#${iconStyleId}</styleUrl>`);
+        parts.push(`<Point><coordinates>${pointCoords}</coordinates></Point>`);
+        parts.push('</Placemark>');
 
         // Route Placemark
         const coordString = run.coordinates
-            .map(c => `${c.longitude},${c.latitude},10`)
+            .map(c => `${c.longitude},${c.latitude}`)
             .join('');
-        parts.push('        <Placemark>');
-        parts.push('          <name>Route</name>');
-        parts.push(`          <description><![CDATA[${buildRouteDescription(run)}]]></description>`);
-        parts.push(`          <styleUrl>#${lineStyleId}</styleUrl>`);
-        parts.push('          <LineString>');
-        parts.push('            <tessellate>1</tessellate>');
-        parts.push('            <coordinates>');
-        parts.push(`              ${coordString}`);
-        parts.push('            </coordinates>');
-        parts.push('          </LineString>');
-        parts.push('        </Placemark>');
-        parts.push('');
+        parts.push('<Placemark>');
+        parts.push('<name>Route</name>');
+        parts.push(`<description><![CDATA[${buildRouteDescription(run)}]]></description>`);
+        parts.push(`<styleUrl>#${lineStyleId}</styleUrl>`);
+        parts.push(`<LineString><tessellate>1</tessellate>`);
+        parts.push(`<coordinates>${coordString}</coordinates>`);
+        parts.push('</LineString></Placemark>');
     });
 
-    parts.push('    </Folder>');
-    parts.push('  </Document>');
+    parts.push('</Folder>');
+    parts.push('</Document>');
     parts.push('</kml>');
 
     return parts.join('\n');
