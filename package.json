@@ -55,6 +55,7 @@
     "@playwright/test": "^1.58.2",
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^27.0.1",
     "vite": "^6.1.0",
     "vitest": "^3.2.4"
   }
