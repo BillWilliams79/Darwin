@@ -77,12 +77,14 @@ export function computeStats(runs) {
     let totalExtracted = 0;
     let totalStripped = 0;
     let totalRemaining = 0;
+    let totalTrimmed = 0;
 
     for (const run of runs) {
         totalDistance += run.distance;
         totalExtracted += run.extractedPoints;
         totalStripped += run.strippedPoints;
         totalRemaining += run.currentPoints;
+        totalTrimmed += run.trimmedPoints || 0;
     }
 
     const percentReduction = totalExtracted > 0
@@ -94,13 +96,14 @@ export function computeStats(runs) {
         totalDistance: Math.round(totalDistance * 10) / 10,
         totalExtracted,
         totalStripped,
+        totalTrimmed,
         totalRemaining,
         percentReduction,
     };
 }
 
 // Re-export individual modules for separate use
-export { extractFromCyclemeter } from './extract';
+export { extractFromCyclemeter, applyRideTrim } from './extract';
 export { extractFromStravaGpx } from './extractStrava';
 export { detectFormat } from './formatDetector';
 export { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
