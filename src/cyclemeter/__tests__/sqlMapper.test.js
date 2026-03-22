@@ -2,24 +2,30 @@ import { describe, it, expect } from 'vitest';
 import { mapRunToSql, filterNewRunsByCutoff } from '../sqlMapper';
 
 describe('mapRunToSql', () => {
-    it('includes source field set to cyclemeter', () => {
-        const run = {
-            runID: 1,
-            routeID: 10,
-            activityID: 4,
-            activityName: 'Ride',
-            startTime: '2025-06-01 10:00:00',
-            runTime: 3600,
-            stoppedTime: 0,
-            distance: 16093.4, // ~10 miles in meters
-            ascent: null,
-            descent: null,
-            calories: null,
-            maxSpeed: null,
-            notes: null,
-        };
-        const result = mapRunToSql(run, null);
+    const sampleRun = {
+        runID: 1,
+        routeID: 10,
+        activityID: 4,
+        activityName: 'Ride',
+        startTime: '2025-06-01 10:00:00',
+        runTime: 3600,
+        stoppedTime: 0,
+        distance: 16093.4, // ~10 miles in meters
+        ascent: null,
+        descent: null,
+        calories: null,
+        maxSpeed: null,
+        notes: null,
+    };
+
+    it('defaults source to cyclemeter when not specified', () => {
+        const result = mapRunToSql(sampleRun, null);
         expect(result.source).toBe('cyclemeter');
+    });
+
+    it('uses explicit source parameter when provided', () => {
+        const result = mapRunToSql(sampleRun, null, 'strava');
+        expect(result.source).toBe('strava');
     });
 });
 
