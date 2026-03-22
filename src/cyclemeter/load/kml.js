@@ -3,7 +3,7 @@
  * Generate KML output matching getterdone.kml format for Google MyMaps.
  */
 
-import { KML_ICON_URL, KML_LINE_WIDTH, KML_LINE_WIDTH_HIGHLIGHT, LINE_COLOR } from '../config';
+import { KML_ICON_URL, KML_LINE_WIDTH, LINE_COLOR } from '../config';
 
 /**
  * Format the current date as "MMM D, YYYY" (e.g., "Dec 13, 2025").
@@ -61,42 +61,28 @@ function buildRouteDescription(run) {
 }
 
 /**
- * Generate an icon style block (normal + highlight + StyleMap).
+ * Generate a single icon style block (Maps-optimized: no StyleMap, no LabelStyle, no color tint).
+ * Icon ID (e.g., 1522, 1596) is embedded in the style name — MyMaps uses it to resolve stock icons.
  * @param {number} iconId - 1522 (ride) or 1596 (hike)
  * @param {string} colorId - Hex color ID (e.g., '1167B1')
  * @returns {string}
  */
-function generateIconStyles(iconId, colorId) {
+function generateIconStyle(iconId, colorId) {
     const id = `icon-${iconId}-${colorId}`;
-    return `<Style id="${id}-normal">` +
-        `<IconStyle><color>${LINE_COLOR}</color><scale>1</scale>` +
-        `<Icon><href>${KML_ICON_URL}</href></Icon></IconStyle>` +
-        `<LabelStyle><scale>0</scale></LabelStyle></Style>\n` +
-        `<Style id="${id}-highlight">` +
-        `<IconStyle><color>${LINE_COLOR}</color><scale>1</scale>` +
-        `<Icon><href>${KML_ICON_URL}</href></Icon></IconStyle>` +
-        `<LabelStyle><scale>1</scale></LabelStyle></Style>\n` +
-        `<StyleMap id="${id}">` +
-        `<Pair><key>normal</key><styleUrl>#${id}-normal</styleUrl></Pair>` +
-        `<Pair><key>highlight</key><styleUrl>#${id}-highlight</styleUrl></Pair>` +
-        `</StyleMap>`;
+    return `<Style id="${id}">` +
+        `<IconStyle><scale>1</scale>` +
+        `<Icon><href>${KML_ICON_URL}</href></Icon></IconStyle></Style>`;
 }
 
 /**
- * Generate the line style block.
+ * Generate a single line style block (Maps-optimized: no StyleMap, no highlight).
  * @param {string} colorId
  * @returns {string}
  */
-function generateLineStyles(colorId) {
-    const id = `line-${colorId}-5000`;
-    return `<Style id="${id}-normal">` +
-        `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH}</width></LineStyle></Style>\n` +
-        `<Style id="${id}-highlight">` +
-        `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH_HIGHLIGHT}</width></LineStyle></Style>\n` +
-        `<StyleMap id="${id}">` +
-        `<Pair><key>normal</key><styleUrl>#${id}-normal</styleUrl></Pair>` +
-        `<Pair><key>highlight</key><styleUrl>#${id}-highlight</styleUrl></Pair>` +
-        `</StyleMap>`;
+function generateLineStyle(colorId) {
+    const id = `line-${colorId}`;
+    return `<Style id="${id}">` +
+        `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH}</width></LineStyle></Style>`;
 }
 
 /**
@@ -120,10 +106,10 @@ export function generateKml(runs, config) {
     parts.push(`<name>${escapeXml(config.mapTitle)}</name>`);
     parts.push(`<description>${description}</description>`);
 
-    // Style blocks: ride icon, hike icon, line
-    parts.push(generateIconStyles(1522, colorId));
-    parts.push(generateIconStyles(1596, colorId));
-    parts.push(generateLineStyles(colorId));
+    // Style blocks: ride icon, hike icon, line (Maps-optimized — no StyleMap/highlight)
+    parts.push(generateIconStyle(1522, colorId));
+    parts.push(generateIconStyle(1596, colorId));
+    parts.push(generateLineStyle(colorId));
 
     // Folder with placemarks
     parts.push('<Folder>');
@@ -132,7 +118,7 @@ export function generateKml(runs, config) {
     runs.forEach((run, index) => {
         const runNumber = index + 1;
         const iconStyleId = `icon-${run.lineIconId}-${colorId}`;
-        const lineStyleId = `line-${colorId}-5000`;
+        const lineStyleId = `line-${colorId}`;
 
         // First coordinate for the icon point
         const firstCoord = run.coordinates.length > 0 ? run.coordinates[0] : null;
@@ -154,8 +140,7 @@ export function generateKml(runs, config) {
         parts.push('<name>Route</name>');
         parts.push(`<description><![CDATA[${buildRouteDescription(run)}]]></description>`);
         parts.push(`<styleUrl>#${lineStyleId}</styleUrl>`);
-        parts.push(`<LineString><tessellate>1</tessellate>`);
-        parts.push(`<coordinates>${coordString}</coordinates>`);
+        parts.push(`<LineString><coordinates>${coordString}</coordinates>`);
         parts.push('</LineString></Placemark>');
     });
 
