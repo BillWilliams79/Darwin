@@ -33,6 +33,6 @@ export const DEFAULT_CONFIG = {
     mapDescription: 'Scout and ride the complete SF Bay Trail Network. Cycling operations commenced May 6, 2016.',
     outputFilename: 'getterdone',
     minDelta: 10,
-    precision: 5,
+    precision: 4,
     queryFilter: { routeIDs: [56, 10] },
 };
