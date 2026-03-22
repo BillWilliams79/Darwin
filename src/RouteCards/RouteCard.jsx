@@ -37,7 +37,7 @@ const RouteCard = ({ run, routeName }) => {
                   border: '2px solid transparent',
               }}
         >
-            <CardActionArea onClick={() => navigate(`/maps/routes/${run.id}`)}>
+            <CardActionArea onClick={() => navigate(`/maps/${run.id}`)}>
                 <RouteMapThumbnail runId={run.id} />
                 <CardContent>
                     <Box className="card-header" sx={{ marginBottom: 2 }}>

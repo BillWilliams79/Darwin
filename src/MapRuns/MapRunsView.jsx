@@ -20,6 +20,9 @@ import call_rest_api from '../RestApi/RestApi';
 import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 
+// Column widths + DataGrid chrome (borders + column separators + scrollbar gutter + cell padding)
+export const TABLE_WIDTH = 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 200 + 50;
+
 /**
  * Format seconds as "H:MM:SS".
  */
@@ -90,8 +93,8 @@ const MapRunsView = () => {
         { field: 'activity_name', headerName: 'Activity', width: 90 },
         {
             field: 'distance_mi',
-            headerName: 'Distance (mi)',
-            width: 120,
+            headerName: 'Distance',
+            width: 100,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(1) : '',
         },
@@ -103,38 +106,49 @@ const MapRunsView = () => {
         },
         {
             field: 'ascent_ft',
-            headerName: 'Ascent (ft)',
-            width: 110,
+            headerName: 'Ascent',
+            width: 90,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toLocaleString() : '',
         },
         {
             field: 'descent_ft',
-            headerName: 'Descent (ft)',
-            width: 110,
-            type: 'number',
-            valueFormatter: (value) => value != null ? Number(value).toLocaleString() : '',
-        },
-        {
-            field: 'calories',
-            headerName: 'Calories',
-            width: 100,
+            headerName: 'Descent',
+            width: 90,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toLocaleString() : '',
         },
         {
             field: 'max_speed_mph',
-            headerName: 'Max Speed (mph)',
-            width: 140,
+            headerName: 'Max Speed',
+            width: 110,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(1) : '',
         },
         {
             field: 'avg_speed_mph',
-            headerName: 'Avg Speed (mph)',
-            width: 140,
+            headerName: 'Avg Speed',
+            width: 110,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(2) : '',
+        },
+        {
+            field: 'notes',
+            headerName: 'Notes',
+            width: 200,
+            renderCell: (params) => (
+                <Box sx={{
+                    whiteSpace: 'normal',
+                    lineHeight: 1.3,
+                    py: 0.5,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                }}>
+                    {params.value || ''}
+                </Box>
+            ),
         },
     ];
 
@@ -169,30 +183,30 @@ const MapRunsView = () => {
     const isLoading = runsLoading || routesLoading;
 
     return (
-        <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 3, px: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h5">Runs</Typography>
+        <Box sx={{ mt: 1, px: 2, maxWidth: TABLE_WIDTH }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                    {runs.length} runs{routes.length > 0 ? ` across ${routes.length} routes` : ''}
+                </Typography>
                 <Button
                     variant="outlined"
                     color="error"
-                    startIcon={deleting ? <CircularProgress size={20} /> : <DeleteForeverIcon />}
+                    size="small"
+                    startIcon={deleting ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
                     onClick={() => setDeleteDialogOpen(true)}
                     disabled={runs.length === 0 || deleting}
                     data-testid="delete-all-button"
                 >
-                    Delete All Runs
+                    Delete All
                 </Button>
             </Box>
 
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {runs.length} runs{routes.length > 0 ? ` across ${routes.length} routes` : ''}
-            </Typography>
-
-            <Box sx={{ height: 600 }}>
+            <Box sx={{ height: 'calc(100vh - 200px)', minHeight: 400 }}>
                 <DataGrid
                     rows={runs}
                     columns={columns}
                     loading={isLoading}
+                    getRowHeight={() => 'auto'}
                     slots={{ toolbar: GridToolbar }}
                     slotProps={{
                         toolbar: {
@@ -202,6 +216,9 @@ const MapRunsView = () => {
                     initialState={{
                         sorting: {
                             sortModel: [{ field: 'start_time', sort: 'desc' }],
+                        },
+                        pagination: {
+                            paginationModel: { pageSize: 25 },
                         },
                     }}
                     pageSizeOptions={[25, 50, 100]}
