@@ -34,6 +34,42 @@ function makeGpxFile(content) {
     return makeFile(encoder.encode(xml).buffer, 'activity.gpx');
 }
 
+/**
+ * Create a File containing Cyclemeter KML content.
+ */
+function makeCyclemeterKmlFile() {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:abvio="http://cyclemeter.com/xmlschemas/1">
+<Document><name>Test.kml</name></Document></kml>`;
+    const encoder = new TextEncoder();
+    return makeFile(encoder.encode(xml).buffer, 'Cycle-test.kml');
+}
+
+/**
+ * Create a File containing generic (non-Cyclemeter) KML content.
+ */
+function makeGenericKmlFile() {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><name>Test.kml</name></Document></kml>`;
+    const encoder = new TextEncoder();
+    return makeFile(encoder.encode(xml).buffer, 'route.kml');
+}
+
+/**
+ * Create a File containing Cyclemeter GPX content.
+ */
+function makeCyclemeterGpxFile() {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="Cyclemeter with barometer" xmlns:abvio="https://cyclemeter.com/xmlschemas/1"
+ xmlns="http://www.topografix.com/GPX/1/1">
+ <trk><name>Test</name><type>Cycle</type><trkseg>
+  <trkpt lat="37.0" lon="-121.0"><ele>80</ele><time>2026-01-01T00:00:00Z</time></trkpt>
+ </trkseg></trk></gpx>`;
+    const encoder = new TextEncoder();
+    return makeFile(encoder.encode(xml).buffer, 'Cycle-test.gpx');
+}
+
 describe('detectFormat', () => {
     it('detects SQLite file as cyclemeter', async () => {
         const file = makeSqliteFile();
@@ -57,6 +93,34 @@ describe('detectFormat', () => {
         const file = makeFile(encoder.encode(xml).buffer, 'ride.gpx');
         const info = await detectFormat(file);
         expect(info.format).toBe('strava-gpx');
+    });
+
+    it('detects Cyclemeter KML as cyclemeter-kml', async () => {
+        const file = makeCyclemeterKmlFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('cyclemeter-kml');
+        expect(info.label).toBe('Cyclemeter KML');
+        expect(info.source).toBe('cyclemeter-kml');
+    });
+
+    it('detects Cyclemeter GPX as cyclemeter-gpx', async () => {
+        const file = makeCyclemeterGpxFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('cyclemeter-gpx');
+        expect(info.label).toBe('Cyclemeter GPX');
+        expect(info.source).toBe('cyclemeter-gpx');
+    });
+
+    it('detects non-Cyclemeter GPX as strava-gpx (fallback)', async () => {
+        const file = makeGpxFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('strava-gpx');
+        expect(info.source).toBe('strava');
+    });
+
+    it('throws for generic KML (non-Cyclemeter)', async () => {
+        const file = makeGenericKmlFile();
+        await expect(detectFormat(file)).rejects.toThrow('Unrecognized file format');
     });
 
     it('throws for random binary data', async () => {
