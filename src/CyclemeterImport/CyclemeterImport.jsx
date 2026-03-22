@@ -493,6 +493,7 @@ const CyclemeterImport = () => {
                             <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
                             <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
                             <tr><td>GPS Points Extracted</td><td><strong>{stats.totalExtracted.toLocaleString()}</strong></td></tr>
+                            <tr><td>GPS Points Trimmed</td><td><strong>{(stats.totalTrimmed ?? 0).toLocaleString()}</strong></td></tr>
                             <tr><td>GPS Points Stripped ({minDelta}m)</td><td><strong>{stats.totalStripped.toLocaleString()}</strong></td></tr>
                             <tr><td>GPS Points Remaining</td><td><strong>{stats.totalRemaining.toLocaleString()}</strong></td></tr>
                             <tr><td>Reduction</td><td><strong>{stats.percentReduction}%</strong></td></tr>
