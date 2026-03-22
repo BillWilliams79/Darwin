@@ -8,6 +8,27 @@
 import { ACTIVITY_RIDE_ID, ICON_RIDE, ICON_HIKE, LINE_COLOR_ID } from './config';
 
 /**
+ * Filter coordinates to only those within the ride trim window.
+ * @param {import('./types').Coordinate[]} coordinates - All coordinates for a run
+ * @param {number} runTimeBegin - Trim start in seconds (-1 = no begin trim)
+ * @param {number} runTimeEnd - Trim end in seconds (-1 = no end trim)
+ * @returns {{ trimmed: import('./types').Coordinate[], trimmedCount: number }}
+ */
+export function applyRideTrim(coordinates, runTimeBegin, runTimeEnd) {
+    const beginTrim = runTimeBegin > 0 ? runTimeBegin : -Infinity;
+    const endTrim = runTimeEnd > 0 ? runTimeEnd : Infinity;
+
+    if (beginTrim === -Infinity && endTrim === Infinity) {
+        return { trimmed: coordinates, trimmedCount: 0 };
+    }
+
+    const trimmed = coordinates.filter(
+        c => c.timeOffset >= beginTrim && c.timeOffset <= endTrim
+    );
+    return { trimmed, trimmedCount: coordinates.length - trimmed.length };
+}
+
+/**
  * Build the SQL WHERE clause from a query filter config.
  * @param {import('./types').QueryFilter} filter
  * @returns {string}
@@ -48,6 +69,8 @@ export async function extractFromCyclemeter(arrayBuffer, config) {
             route.name,
             startTime,
             runTime,
+            runTimeBegin,
+            runTimeEnd,
             stoppedTime,
             distance,
             ascent,
@@ -96,7 +119,14 @@ export async function extractFromCyclemeter(arrayBuffer, config) {
             run.coordinates = [];
         }
 
-        // Track point counts
+        // Apply ride trim filtering
+        const { trimmed, trimmedCount } = applyRideTrim(
+            run.coordinates, run.runTimeBegin, run.runTimeEnd
+        );
+        run.coordinates = trimmed;
+        run.trimmedPoints = trimmedCount;
+
+        // Track point counts (post-trim)
         run.extractedPoints = run.coordinates.length;
         run.currentPoints = run.coordinates.length;
         run.strippedPoints = 0;
