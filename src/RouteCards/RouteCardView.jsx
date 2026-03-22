@@ -45,12 +45,7 @@ const RouteCardView = () => {
     };
 
     return (
-        <Box sx={{ p: 3 }}>
-            {/* Domain header — placeholder */}
-            <Typography sx={{ fontSize: 24, fontWeight: 'normal', mb: 2 }}>
-                Activities
-            </Typography>
-
+        <Box sx={{ px: 3, pt: 1 }}>
             {allRuns.length === 0 && (
                 <Typography variant="body2" color="text.disabled" sx={{ p: 2 }}>
                     No activities found. Import data via Maps &gt; Import.

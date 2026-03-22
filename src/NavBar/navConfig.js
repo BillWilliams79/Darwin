@@ -8,9 +8,6 @@ import DnsIcon from '@mui/icons-material/Dns';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import RouteIcon from '@mui/icons-material/Route';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import TableChartIcon from '@mui/icons-material/TableChart';
-import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 
 export const NAV_GROUPS = [
     { id: 'tasks', label: 'TASKS' },
@@ -29,10 +26,7 @@ export const NAV_LINKS = [
     { path: '/taskcards', label: 'Plan', icon: ViewKanbanIcon, group: 'tasks' },
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
-    { path: '/maps/import', label: 'Import', icon: CloudUploadIcon, group: 'maps' },
-    { path: '/maps/runs', label: 'Map Table', icon: TableChartIcon, group: 'maps' },
-    { path: '/maps/routes', label: 'Maps', icon: RouteIcon, group: 'maps' },
-    { path: '/maps/export', label: 'Export', icon: FileDownloadOutlinedIcon, group: 'maps' },
+    { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     { path: '/swarm', label: 'Roadmap', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },

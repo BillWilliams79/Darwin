@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useContext, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -10,22 +11,23 @@ import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { runPipeline, extractFromCyclemeter, precisionOptimizer, distanceOptimizer, downloadFile, DEFAULT_CONFIG } from '../cyclemeter';
+import { runPipeline, extractFromCyclemeter, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff } from '../cyclemeter/sqlMapper';
 
-const FILTER_TYPES = ['routeIDs', 'notesLike', 'dateRange'];
+const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
 const CONCURRENCY_LIMIT = 5;
 
 const CyclemeterImport = () => {
+    const navigate = useNavigate();
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -35,14 +37,11 @@ const CyclemeterImport = () => {
     const [dragging, setDragging] = useState(false);
 
     // Config state
-    const [mapTitle, setMapTitle] = useState(DEFAULT_CONFIG.mapTitle);
-    const [mapDescription, setMapDescription] = useState(DEFAULT_CONFIG.mapDescription);
-    const [outputFilename, setOutputFilename] = useState(DEFAULT_CONFIG.outputFilename);
     const [minDelta, setMinDelta] = useState(DEFAULT_CONFIG.minDelta);
     const [precision, setPrecision] = useState(DEFAULT_CONFIG.precision);
 
     // Filter state
-    const [filterType, setFilterType] = useState('routeIDs');
+    const [filterType, setFilterType] = useState('allRoutes');
     const [routeIDsInput, setRouteIDsInput] = useState('56, 10');
     const [notesLikeInput, setNotesLikeInput] = useState('');
     const [dateStart, setDateStart] = useState('');
@@ -51,7 +50,6 @@ const CyclemeterImport = () => {
     // Pipeline state
     const [processing, setProcessing] = useState(false);
     const [stats, setStats] = useState(null);
-    const [kmlContent, setKmlContent] = useState(null);
     const [error, setError] = useState(null);
 
     // Save to Darwin state
@@ -83,7 +81,6 @@ const CyclemeterImport = () => {
             setDbFile(file);
             setFileName(file.name);
             setStats(null);
-            setKmlContent(null);
             setError(null);
         }
     }, []);
@@ -97,11 +94,12 @@ const CyclemeterImport = () => {
         } else if (filterType === 'dateRange') {
             queryFilter.dateRange = { start: dateStart, end: dateEnd };
         }
+        // allRoutes: empty queryFilter = no filtering
 
         return {
-            mapTitle,
-            mapDescription,
-            outputFilename,
+            mapTitle: DEFAULT_CONFIG.mapTitle,
+            mapDescription: DEFAULT_CONFIG.mapDescription,
+            outputFilename: DEFAULT_CONFIG.outputFilename,
             minDelta: Number(minDelta),
             precision: Number(precision),
             queryFilter,
@@ -115,7 +113,6 @@ const CyclemeterImport = () => {
         setProcessing(true);
         setError(null);
         setStats(null);
-        setKmlContent(null);
 
         try {
             console.log('[Cyclemeter] Reading file as ArrayBuffer...');
@@ -127,18 +124,11 @@ const CyclemeterImport = () => {
             const result = await runPipeline(buffer, config);
             console.log('[Cyclemeter] Pipeline complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
             setStats(result.stats);
-            setKmlContent(result.kml);
         } catch (err) {
             console.error('[Cyclemeter] Pipeline error:', err);
             setError(err.message || 'Pipeline failed');
         } finally {
             setProcessing(false);
-        }
-    };
-
-    const handleDownload = () => {
-        if (kmlContent) {
-            downloadFile(kmlContent, `${outputFilename}.kml`);
         }
     };
 
@@ -322,9 +312,12 @@ const CyclemeterImport = () => {
 
     return (
         <Box sx={{ maxWidth: 700, mx: 'auto', mt: 3, px: 2 }}>
-            <Typography variant="h5" gutterBottom>Cyclemeter Import</Typography>
+            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 1 }} size="small">
+                Maps
+            </Button>
+            <Typography variant="h5" gutterBottom>Import</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Extract cycling/hiking data from a Cyclemeter database, transform it, and download as KML for Google MyMaps.
+                Extract cycling/hiking data from a Cyclemeter database and save to Darwin.
             </Typography>
 
             {/* Drop Zone */}
@@ -352,47 +345,24 @@ const CyclemeterImport = () => {
             {/* Configuration */}
             <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>Configuration</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2 }}>
                     <TextField
-                        label="Map Title"
-                        value={mapTitle}
-                        onChange={(e) => setMapTitle(e.target.value)}
+                        label="Min Delta (m)"
+                        type="number"
+                        value={minDelta}
+                        onChange={(e) => setMinDelta(e.target.value)}
                         size="small"
-                        fullWidth
+                        sx={{ width: 120 }}
                     />
                     <TextField
-                        label="Map Description"
-                        value={mapDescription}
-                        onChange={(e) => setMapDescription(e.target.value)}
+                        label="Precision"
+                        type="number"
+                        value={precision}
+                        onChange={(e) => setPrecision(e.target.value)}
                         size="small"
-                        fullWidth
+                        sx={{ width: 100 }}
+                        inputProps={{ min: 0, max: 7 }}
                     />
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                        <TextField
-                            label="Output Filename"
-                            value={outputFilename}
-                            onChange={(e) => setOutputFilename(e.target.value)}
-                            size="small"
-                            sx={{ flex: 1 }}
-                        />
-                        <TextField
-                            label="Min Delta (m)"
-                            type="number"
-                            value={minDelta}
-                            onChange={(e) => setMinDelta(e.target.value)}
-                            size="small"
-                            sx={{ width: 120 }}
-                        />
-                        <TextField
-                            label="Precision"
-                            type="number"
-                            value={precision}
-                            onChange={(e) => setPrecision(e.target.value)}
-                            size="small"
-                            sx={{ width: 100 }}
-                            inputProps={{ min: 0, max: 7 }}
-                        />
-                    </Box>
                 </Box>
             </Paper>
 
@@ -412,6 +382,11 @@ const CyclemeterImport = () => {
                     ))}
                 </TextField>
 
+                {filterType === 'allRoutes' && (
+                    <Typography variant="body2" color="text.secondary">
+                        All routes in the file will be imported.
+                    </Typography>
+                )}
                 {filterType === 'routeIDs' && (
                     <TextField
                         label="Route IDs (comma-separated)"
@@ -467,17 +442,6 @@ const CyclemeterImport = () => {
                 >
                     {processing ? 'Processing...' : 'Process'}
                 </Button>
-                {kmlContent && (
-                    <Button
-                        variant="outlined"
-                        startIcon={<FileDownloadOutlinedIcon />}
-                        onClick={handleDownload}
-                        disabled={saving}
-                        data-testid="download-kml-button"
-                    >
-                        Download KML
-                    </Button>
-                )}
                 {stats && !saving && (
                     <Button
                         variant="contained"
