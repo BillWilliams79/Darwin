@@ -31,4 +31,21 @@ describe('computeStats', () => {
         const stats = computeStats(runs);
         expect(stats.percentReduction).toBe(0);
     });
+
+    it('accumulates trimmed points', () => {
+        const runs = [
+            { distance: 10.5, extractedPoints: 1000, strippedPoints: 300, currentPoints: 700, trimmedPoints: 46 },
+            { distance: 5.2, extractedPoints: 500, strippedPoints: 150, currentPoints: 350, trimmedPoints: 0 },
+        ];
+        const stats = computeStats(runs);
+        expect(stats.totalTrimmed).toBe(46);
+    });
+
+    it('handles missing trimmedPoints gracefully', () => {
+        const runs = [
+            { distance: 10, extractedPoints: 100, strippedPoints: 10, currentPoints: 90 },
+        ];
+        const stats = computeStats(runs);
+        expect(stats.totalTrimmed).toBe(0);
+    });
 });
