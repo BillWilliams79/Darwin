@@ -9,6 +9,8 @@ import { useMapCoordinates } from '../hooks/useDataQueries';
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
 const TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, USGS';
 
+const MAP_HEIGHT = 240;
+
 /** Auto-fit map bounds to the polyline */
 const FitBounds = ({ positions }) => {
     const map = useMap();
@@ -20,12 +22,20 @@ const FitBounds = ({ positions }) => {
     return null;
 };
 
+const wrapperSx = {
+    mx: 0.5,
+    mt: 1,
+    borderRadius: 2,
+    overflow: 'hidden',
+    border: '2px solid #bdbdbd',
+};
+
 const RouteMapThumbnail = ({ runId }) => {
     const { data: coords = [], isLoading } = useMapCoordinates(runId);
 
     if (isLoading) {
         return (
-            <Box sx={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...wrapperSx }}>
                 <CircularProgress size={24} />
             </Box>
         );
@@ -33,7 +43,7 @@ const RouteMapThumbnail = ({ runId }) => {
 
     if (coords.length === 0) {
         return (
-            <Box sx={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover' }}>
+            <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', ...wrapperSx }}>
                 No map data
             </Box>
         );
@@ -42,21 +52,23 @@ const RouteMapThumbnail = ({ runId }) => {
     const positions = coords.map(c => [Number(c.latitude), Number(c.longitude)]);
 
     return (
-        <MapContainer
-            center={positions[0]}
-            zoom={13}
-            style={{ height: 180, width: '100%' }}
-            dragging={false}
-            scrollWheelZoom={false}
-            doubleClickZoom={false}
-            touchZoom={false}
-            zoomControl={false}
-            attributionControl={false}
-        >
-            <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-            <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
-            <FitBounds positions={positions} />
-        </MapContainer>
+        <Box sx={wrapperSx}>
+            <MapContainer
+                center={positions[0]}
+                zoom={13}
+                style={{ height: MAP_HEIGHT, width: '100%' }}
+                dragging={false}
+                scrollWheelZoom={false}
+                doubleClickZoom={false}
+                touchZoom={false}
+                zoomControl={false}
+                attributionControl={false}
+            >
+                <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
+                <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
+                <FitBounds positions={positions} />
+            </MapContainer>
+        </Box>
     );
 };
 
