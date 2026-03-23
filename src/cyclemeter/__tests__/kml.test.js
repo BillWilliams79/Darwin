@@ -57,14 +57,14 @@ describe('generateKml', () => {
         expect(kml).toContain('Scout and ride the complete SF Bay Trail Network.');
     });
 
-    it('includes all three style blocks', () => {
+    it('includes ride icon, hike icon, and line style blocks', () => {
         const kml = generateKml([makeTransformedRun()], config);
-        expect(kml).toContain('icon-1522-1167B1');
-        expect(kml).toContain('icon-1596-1167B1');
-        expect(kml).toContain('line-1167B1-5000');
+        expect(kml).toContain('<Style id="icon-1522-1167B1">');
+        expect(kml).toContain('<Style id="icon-1596-1167B1">');
+        expect(kml).toContain('<Style id="line-1167B1">');
     });
 
-    it('includes ride icon color in KML AABBGGRR format', () => {
+    it('includes line color in KML AABBGGRR format', () => {
         const kml = generateKml([makeTransformedRun()], config);
         expect(kml).toContain('<color>ffb16711</color>');
     });
@@ -82,7 +82,7 @@ describe('generateKml', () => {
     it('creates route placemark', () => {
         const kml = generateKml([makeTransformedRun()], config);
         expect(kml).toContain('<name>Route</name>');
-        expect(kml).toContain('<tessellate>1</tessellate>');
+        expect(kml).toContain('<LineString><coordinates>');
     });
 
     it('formats point coordinates as lon,lat', () => {
@@ -138,5 +138,36 @@ describe('generateKml', () => {
         expect(kml).toContain('</Folder>');
         expect(kml).toContain('</Document>');
         expect(kml).toContain('</kml>');
+    });
+
+    it('omits StyleMap blocks (not rendered by Maps)', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        expect(kml).not.toContain('<StyleMap');
+        expect(kml).not.toContain('<Pair>');
+    });
+
+    it('omits LabelStyle (not rendered by Maps)', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        expect(kml).not.toContain('<LabelStyle');
+    });
+
+    it('omits tessellate (not rendered by Maps)', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        expect(kml).not.toContain('<tessellate');
+    });
+
+    it('omits icon color tint (not rendered by Maps)', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        // Color should appear in LineStyle but NOT in IconStyle
+        const iconStyleMatch = kml.match(/<IconStyle>[\s\S]*?<\/IconStyle>/g);
+        iconStyleMatch.forEach(block => {
+            expect(block).not.toContain('<color>');
+        });
+    });
+
+    it('produces exactly 3 Style blocks (2 icon + 1 line)', () => {
+        const kml = generateKml([makeTransformedRun()], config);
+        const styleCount = (kml.match(/<Style /g) || []).length;
+        expect(styleCount).toBe(3);
     });
 });
