@@ -76,6 +76,11 @@
     cursor: pointer !important;
 }
 
+/* Activity events — pointer cursor to indicate clickable */
+.fc-event.fc-activity-event {
+    cursor: pointer !important;
+}
+
 /* Tasks/Priorities toggle — match FullCalendar segmented button style */
 .cal-toggle-btn.Mui-selected {
     background-color: #616161 !important;

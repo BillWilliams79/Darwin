@@ -66,6 +66,7 @@ export const recurringTaskKeys = {
 
 export const mapRunKeys = {
     all: (creatorFk) => ['map_runs', creatorFk],
+    done: (creatorFk, dateRange) => ['map_runs', creatorFk, { dateRange }],
 };
 
 export const mapRouteKeys = {
