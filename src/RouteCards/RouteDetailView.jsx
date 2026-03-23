@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useLayoutEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -16,11 +16,13 @@ const RouteDetailView = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { profile } = useContext(AuthContext);
+
+    useLayoutEffect(() => { window.scrollTo(0, 0); }, []);
     const creatorFk = profile?.id;
 
     const fromCalendar = location.state?.from === 'calendar';
     const backPath = fromCalendar ? '/calview' : '/maps';
-    const backLabel = fromCalendar ? 'Back to Calendar' : '{backLabel}';
+    const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Routes';
 
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [] } = useMapRoutes(creatorFk);
