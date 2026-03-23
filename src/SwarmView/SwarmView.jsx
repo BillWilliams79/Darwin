@@ -5,7 +5,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
-import { useShowClosedStore } from '../stores/useShowClosedStore';
+import { useShowClosedStore, ALL_PRIORITY_STATUSES } from '../stores/useShowClosedStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 
@@ -19,10 +19,21 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
-import { CircularProgress, Tabs, FormControlLabel, Switch } from '@mui/material';
+import { CircularProgress, Tabs } from '@mui/material';
+
+const priorityStatusChipProps = (status) => {
+    switch (status) {
+        case 'open':     return { color: 'primary' };
+        case 'deferred': return { sx: { bgcolor: '#ff9800', color: '#fff' } };
+        case 'closed':   return { color: 'success' };
+        default:         return { color: 'default' };
+    }
+};
 
 const SwarmView = () => {
 
@@ -38,12 +49,13 @@ const SwarmView = () => {
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingProject = useWorkingProjectStore(s => s.getWorkingProject);
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
-    const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
-    const toggleShowClosedPriorities = useShowClosedStore(s => s.toggleShowClosedPriorities);
+    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
+    const togglePriorityStatus = useShowClosedStore(s => s.togglePriorityStatus);
+    const showClosed = priorityStatusFilter.includes('closed');
 
-    // TanStack Query — fetch projects (open only or with closed based on toggle)
+    // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
-        closed: showClosedPriorities ? undefined : 0,
+        closed: showClosed ? undefined : 0,
     });
 
     // Seed local state from query data
@@ -74,7 +86,7 @@ const SwarmView = () => {
             call_rest_api(uri, 'PUT', [{'id': projectId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        if (showClosedPriorities) {
+                        if (showClosed) {
                             let newProjectsArray = projectsArray.map(project =>
                                 project.id === projectId ? { ...project, closed: 1, sort_order: null } : project
                             );
@@ -179,19 +191,35 @@ const SwarmView = () => {
                                  value={9999}
                             />
                         </Tabs>
-                        <FormControlLabel
-                            control={<Switch checked={showClosedPriorities} onChange={toggleShowClosedPriorities} size="small" />}
-                            label="Show Closed"
-                            data-testid="toggle-show-closed-priorities"
-                            sx={{ ml: 1, mr: 1, whiteSpace: 'nowrap' }}
-                        />
+                        <Stack direction="row" spacing={0.5} sx={{ ml: 1, mr: 1 }} data-testid="priority-status-filter">
+                            {ALL_PRIORITY_STATUSES.map(status => {
+                                const selected = priorityStatusFilter.includes(status);
+                                const chipProps = priorityStatusChipProps(status);
+                                return (
+                                    <Chip
+                                        key={status}
+                                        label={status}
+                                        size="small"
+                                        onClick={() => togglePriorityStatus(status)}
+                                        {...(selected ? chipProps : { variant: 'outlined' })}
+                                        sx={{
+                                            ...(selected ? chipProps.sx : {}),
+                                            ...(!selected && { opacity: 0.5 }),
+                                            cursor: 'pointer',
+                                            textTransform: 'capitalize',
+                                        }}
+                                        data-testid={`filter-chip-${status}`}
+                                    />
+                                );
+                            })}
+                        </Stack>
                     </Box>
                         {   projectsArray.map( (project, projectIndex) =>
                                 <CategoryTabPanel key={project.id}
                                               project = {project}
                                               projectIndex = {projectIndex}
                                               activeTab = {activeTab}
-                                              showClosed = {showClosedPriorities}>
+                                              showClosed = {showClosed}>
                                 </CategoryTabPanel>
                             )
                         }

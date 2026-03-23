@@ -269,13 +269,14 @@ test.describe('Swarm View', () => {
     const closedPriorityId = closedResult[0].id;
 
     try {
-      // Ensure Show Closed is OFF (default) by navigating to /swarm first
+      // Ensure closed filter chip is OFF (default) by navigating to /swarm first
       await page.goto('/swarm');
-      const showClosedToggle = page.getByTestId('toggle-show-closed-priorities');
-      await showClosedToggle.waitFor({ timeout: 10000 });
-      const isChecked = await showClosedToggle.locator('input[type="checkbox"]').isChecked();
-      if (isChecked) {
-        await showClosedToggle.locator('input[type="checkbox"]').click();
+      const closedChip = page.getByTestId('filter-chip-closed');
+      await closedChip.waitFor({ timeout: 10000 });
+      // If chip is selected (not outlined), click to deselect
+      const isOutlined = await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      if (!isOutlined) {
+        await closedChip.click();
       }
 
       // Navigate to the idle priority (sort_order=1, second open item — last open item)
@@ -327,12 +328,13 @@ test.describe('Swarm View', () => {
       await page.getByRole('tab', { name: testProjectName }).click();
       await expect(page.getByTestId(`category-card-${testCategoryId}`)).toBeVisible({ timeout: 10000 });
 
-      // Turn on Show Closed
-      const showClosedToggle = page.getByTestId('toggle-show-closed-priorities');
-      await showClosedToggle.waitFor({ timeout: 10000 });
-      const isChecked = await showClosedToggle.locator('input[type="checkbox"]').isChecked();
-      if (!isChecked) {
-        await showClosedToggle.locator('input[type="checkbox"]').click();
+      // Turn on closed filter chip
+      const closedChip = page.getByTestId('filter-chip-closed');
+      await closedChip.waitFor({ timeout: 10000 });
+      // If chip is not selected (outlined), click to select
+      const isOutlined = await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      if (isOutlined) {
+        await closedChip.click();
       }
 
       // Wait for closed priorities to appear
@@ -363,9 +365,10 @@ test.describe('Swarm View', () => {
       expect(newIdx).toBeLessThan(midIdx);
       expect(midIdx).toBeLessThan(oldIdx);
 
-      // Turn off Show Closed (cleanup UI state)
-      if (await showClosedToggle.locator('input[type="checkbox"]').isChecked()) {
-        await showClosedToggle.locator('input[type="checkbox"]').click();
+      // Turn off closed filter chip (cleanup UI state)
+      const isStillSelected = !(await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
+      if (isStillSelected) {
+        await closedChip.click();
       }
     } finally {
       try { await apiDelete('priorities', oldId, idToken); } catch {}

@@ -10,6 +10,7 @@ import { priorityKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
+import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { PriorityActionsContext } from '../hooks/usePriorityActions';
 
 import AuthContext from '../Context/AuthContext'
@@ -49,6 +50,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+
+    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
 
     const [sortMode, setSortMode] = useState(category.sort_mode || 'hand');
 
@@ -100,9 +103,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     });
 
-    // TanStack Query — fetch priorities for this category
+    // TanStack Query — fetch all priorities for this category (client-side filtering via chips)
     const { data: serverPriorities } = usePriorities(profile?.userName, category.id, {
-        closed: showClosed ? undefined : 0,
         enabled: category.id !== '',
     });
 
@@ -129,15 +131,22 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
             }
 
+            // Client-side filtering based on priority status chips
+            sortedPrioritiesArray = sortedPrioritiesArray.filter(p => {
+                if (p.closed === 1) return priorityStatusFilter.includes('closed');
+                if (p.deferred === 1) return priorityStatusFilter.includes('deferred');
+                return priorityStatusFilter.includes('open');
+            });
+
             sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'deferred': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setPrioritiesArray(sortedPrioritiesArray);
         } else if (serverPriorities && serverPriorities.length === 0) {
             let sortedPrioritiesArray = [];
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'deferred': 0, 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setPrioritiesArray(sortedPrioritiesArray);
         }
-    }, [serverPriorities]);
+    }, [serverPriorities, priorityStatusFilter]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -357,12 +366,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
         let newPrioritiesArray = [...prioritiesArray]
         newPrioritiesArray[priorityIndex].closed = newPrioritiesArray[priorityIndex].closed ? 0 : 1;
+        // Mutual exclusivity: closing clears deferred
+        if (newPrioritiesArray[priorityIndex].closed === 1) {
+            newPrioritiesArray[priorityIndex].deferred = 0;
+            newPrioritiesArray[priorityIndex].deferred_at = null;
+        }
         setPrioritiesArray(newPrioritiesArray);
 
         if (priorityId !== '') {
             let uri = `${darwinUri}/priorities`;
-            call_rest_api(uri, 'PUT', [{'id': priorityId, 'closed': newPrioritiesArray[priorityIndex].closed,
-                          ...(newPrioritiesArray[priorityIndex].closed === 1 ? {'completed_at': new Date().toISOString()} : {'completed_at': 'NULL'})}], idToken)
+            const updates = {'id': priorityId, 'closed': newPrioritiesArray[priorityIndex].closed,
+                ...(newPrioritiesArray[priorityIndex].closed === 1
+                    ? {'completed_at': new Date().toISOString(), 'deferred': 0, 'deferred_at': 'NULL'}
+                    : {'completed_at': 'NULL'})};
+            call_rest_api(uri, 'PUT', [updates], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         showError(result, "Unable to mark priority closed")
@@ -374,6 +391,39 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         } else if (savingRef.current) {
             pendingMutationsRef.current.closed = newPrioritiesArray[priorityIndex].closed;
             pendingMutationsRef.current.completed_at = newPrioritiesArray[priorityIndex].closed === 1
+                ? new Date().toISOString() : 'NULL';
+        }
+    }
+
+    const deferredClick = (priorityIndex, priorityId) => {
+
+        let newPrioritiesArray = [...prioritiesArray]
+        newPrioritiesArray[priorityIndex].deferred = newPrioritiesArray[priorityIndex].deferred ? 0 : 1;
+        // Mutual exclusivity: deferring clears closed
+        if (newPrioritiesArray[priorityIndex].deferred === 1) {
+            newPrioritiesArray[priorityIndex].closed = 0;
+            newPrioritiesArray[priorityIndex].completed_at = null;
+        }
+        setPrioritiesArray(newPrioritiesArray);
+
+        if (priorityId !== '') {
+            let uri = `${darwinUri}/priorities`;
+            const updates = {'id': priorityId, 'deferred': newPrioritiesArray[priorityIndex].deferred,
+                ...(newPrioritiesArray[priorityIndex].deferred === 1
+                    ? {'deferred_at': new Date().toISOString(), 'closed': 0, 'completed_at': 'NULL'}
+                    : {'deferred_at': 'NULL'})};
+            call_rest_api(uri, 'PUT', [updates], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, "Unable to mark priority deferred")
+                    }
+                }).catch(error => {
+                    showError(error, "Unable to mark priority deferred")
+                }
+            );
+        } else if (savingRef.current) {
+            pendingMutationsRef.current.deferred = newPrioritiesArray[priorityIndex].deferred;
+            pendingMutationsRef.current.deferred_at = newPrioritiesArray[priorityIndex].deferred === 1
                 ? new Date().toISOString() : 'NULL';
         }
     }
@@ -457,7 +507,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
+                    newPrioritiesArray.push({'id':'', 'title':'', 'in_progress': 0, 'closed': 0, 'deferred': 0, 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
                     setPrioritiesArray(newPrioritiesArray);
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                     navigate(`/swarm/priority/${result.data[0].id}`);
@@ -482,6 +532,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             scheduled: priority?.scheduled || 0,
             in_progress: priority?.in_progress || 0,
             closed: priority?.closed || 0,
+            deferred: priority?.deferred || 0,
         });
     }
 
@@ -502,10 +553,18 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const activeSort = (a, b) => {
         if (a.id === '') return 1;
         if (b.id === '') return -1;
-        if (a.closed !== b.closed) return a.closed - b.closed;  // open first, closed last
+        // Three-state sort: open (0) < deferred (1) < closed (2)
+        const aState = a.closed ? 2 : a.deferred ? 1 : 0;
+        const bState = b.closed ? 2 : b.deferred ? 1 : 0;
+        if (aState !== bState) return aState - bState;
         if (a.closed === 1 && b.closed === 1) {
             const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
             const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+            if (aTime !== bTime) return bTime - aTime;  // most recent first
+        }
+        if (a.deferred === 1 && b.deferred === 1) {
+            const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
+            const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
         return sortMode === 'hand' ? priorityHandSort(a, b) : createdSort(a, b);
@@ -598,8 +657,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     )}
                 </Box>
                 { (prioritiesArray) ?
-                    <PriorityActionsContext.Provider value={{ inProgressClick, closedClick, scheduledClick, titleChange,
-                        titleKeyDown, titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
+                    <PriorityActionsContext.Provider value={{ inProgressClick, closedClick, deferredClick, scheduledClick,
+                        titleChange, titleKeyDown, titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
                         sortMode, setCrossCardInsertIndex, sessionStatusMap }}>
                         {prioritiesArray.map((priority, priorityIndex) => (
                             <PriorityRow {...{key: priority.id, supportDrag: true, priority, priorityIndex,
