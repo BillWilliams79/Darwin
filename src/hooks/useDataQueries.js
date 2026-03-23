@@ -161,7 +161,7 @@ export function useCategories(creatorFk, projectId, { closed, fields = 'id,categ
     });
 }
 
-export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,title,in_progress,closed,scheduled,category_fk,sort_order,completed_at', enabled = true } = {}) {
+export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,title,in_progress,closed,deferred,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
