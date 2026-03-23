@@ -19,13 +19,14 @@ import HotelIcon from '@mui/icons-material/Hotel';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 
 const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
-    const { inProgressClick, closedClick, scheduledClick, titleChange, titleKeyDown,
+    const { inProgressClick, closedClick, deferredClick, scheduledClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
         sortMode, setCrossCardInsertIndex, sessionStatusMap } = usePriorityActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
@@ -38,7 +39,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             const rect = rowRef.current?.getBoundingClientRect();
             return {...priority, priorityIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
         },
-        canDrag: () => !priority.closed,
+        canDrag: () => !priority.closed && !priority.deferred,
         end: (item, monitor) => {
             const dropResult = monitor.getDropResult();
             if (!dropResult || dropResult.priority === null) {
@@ -51,7 +52,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
           isDragging: !!monitor.isDragging(),
         }),
-    }),[prioritiesArray, priorityIndex, priority.closed]);
+    }),[prioritiesArray, priorityIndex, priority.closed, priority.deferred]);
 
     useEffect(() => {
         preview(getEmptyImage());
@@ -64,6 +65,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             if (sortMode !== 'hand') return;
             if (priority.id === '') return;
             if (priority.closed === 1) return;
+            if (priority.deferred === 1) return;
 
             if (dragItem.category_fk === priority.category_fk && dragItem.priorityIndex === priorityIndex) return;
 
@@ -85,7 +87,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
             isPriorityOver: monitor.isOver(),
         }),
-    }), [sortMode, priority.id, priority.closed, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
+    }), [sortMode, priority.id, priority.closed, priority.deferred, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
 
     useEffect(() => {
         if (!isPriorityOver) setInsertIndicator(null);
@@ -117,6 +119,9 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         if (priority.id === '') return null;
         if (priority.closed) {
             return <Tooltip title="Completed" enterDelay={400} enterNextDelay={200}><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
+        }
+        if (priority.deferred) {
+            return <Tooltip title="Deferred" enterDelay={400} enterNextDelay={200}><DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} /></Tooltip>;
         }
         if (sessionStatus === 'paused') {
             return <Tooltip title="Paused" enterDelay={400} enterNextDelay={200}><PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} /></Tooltip>;
@@ -160,7 +165,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
             {/* Col 2: Scheduled toggle — hidden when closed or in-progress, disabled when session is active */}
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {priority.id !== '' && !priority.closed && !priority.in_progress ? (() => {
+                {priority.id !== '' && !priority.closed && !priority.deferred && !priority.in_progress ? (() => {
                     const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
                     const btn = (
                         <IconButton
@@ -216,7 +221,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(priority.closed === 1 && {textDecoration: 'line-through'}),}}
+                        sx = {{...(priority.closed === 1 && {textDecoration: 'line-through'}), ...(priority.deferred === 1 && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${priority.id}`}
