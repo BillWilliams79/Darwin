@@ -19,7 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
+import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff } from '../cyclemeter/sqlMapper';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
@@ -29,6 +29,8 @@ const CONCURRENCY_LIMIT = 5;
 /** Maps format IDs to extraction functions for the Save to Darwin flow */
 const EXTRACTORS = {
     'cyclemeter': extractFromCyclemeter,
+    'cyclemeter-kml': extractFromCyclemeterKml,
+    'cyclemeter-gpx': extractFromStravaGpx,
     'strava-gpx': extractFromStravaGpx,
 };
 
@@ -334,7 +336,7 @@ const CyclemeterImport = () => {
             </Button>
             <Typography variant="h5" gutterBottom>Import</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Import cycling/hiking data from a Cyclemeter database or Strava GPX file.
+                Import cycling/hiking data from a Cyclemeter database, KML, GPX, or Strava GPX file.
             </Typography>
 
             {/* Drop Zone */}
@@ -354,7 +356,7 @@ const CyclemeterImport = () => {
                 <Typography variant="body1">
                     {fileName
                         ? `${fileName} (${(dbFile.size / 1024 / 1024).toFixed(1)} MB)`
-                        : 'Drop Meter.db or .gpx file here'
+                        : 'Drop Meter.db, .kml, or .gpx file here'
                     }
                 </Typography>
                 {formatInfo && (
