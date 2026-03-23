@@ -1,12 +1,26 @@
 /**
  * @module cyclemeter
- * Pipeline orchestrator for the Cyclemeter ETL.
+ * Pipeline orchestrator for the ETL pipeline.
+ * Supports multiple input formats via extractor registry.
  * Extract → precisionOptimizer → formatRunData → distanceOptimizer → generateKml
  */
 
 import { extractFromCyclemeter } from './extract';
+import { extractFromStravaGpx } from './extractStrava';
+import { extractFromCyclemeterKml } from './extractCyclemeterKml';
 import { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 import { generateKml } from './load/kml';
+
+/**
+ * Extractor registry — maps format IDs to extraction functions.
+ * Format IDs match those returned by detectFormat() in formatDetector.js.
+ */
+const EXTRACTORS = {
+    'cyclemeter': extractFromCyclemeter,
+    'cyclemeter-kml': extractFromCyclemeterKml,
+    'cyclemeter-gpx': extractFromStravaGpx,
+    'strava-gpx': extractFromStravaGpx,
+};
 
 /**
  * Run the full ETL pipeline.
@@ -33,6 +47,30 @@ export async function runPipeline(dbBuffer, config) {
 }
 
 /**
+ * Run the ETL pipeline for a detected format.
+ * Routes to the correct extractor based on format ID; transform and load are format-agnostic.
+ * @param {ArrayBuffer} buffer - File contents
+ * @param {import('./types').EtlConfig} config
+ * @param {string} format - Format ID from detectFormat() (e.g., 'cyclemeter', 'strava-gpx')
+ * @returns {Promise<{ runs: import('./types').TransformedRun[], stats: import('./types').EtlStats, kml: string }>}
+ */
+export async function runPipelineForFormat(buffer, config, format) {
+    const extractor = EXTRACTORS[format];
+    if (!extractor) throw new Error(`No extractor registered for format: ${format}`);
+
+    const runs = await extractor(buffer, config);
+
+    precisionOptimizer(runs, config.precision);
+    formatRunData(runs);
+    distanceOptimizer(runs, config.minDelta);
+
+    const kml = generateKml(runs, config);
+    const stats = computeStats(runs);
+
+    return { runs, stats, kml };
+}
+
+/**
  * Compute summary statistics from processed runs.
  * @param {import('./types').TransformedRun[]} runs
  * @returns {import('./types').EtlStats}
@@ -42,12 +80,14 @@ export function computeStats(runs) {
     let totalExtracted = 0;
     let totalStripped = 0;
     let totalRemaining = 0;
+    let totalTrimmed = 0;
 
     for (const run of runs) {
         totalDistance += run.distance;
         totalExtracted += run.extractedPoints;
         totalStripped += run.strippedPoints;
         totalRemaining += run.currentPoints;
+        totalTrimmed += run.trimmedPoints || 0;
     }
 
     const percentReduction = totalExtracted > 0
@@ -59,13 +99,17 @@ export function computeStats(runs) {
         totalDistance: Math.round(totalDistance * 10) / 10,
         totalExtracted,
         totalStripped,
+        totalTrimmed,
         totalRemaining,
         percentReduction,
     };
 }
 
 // Re-export individual modules for separate use
-export { extractFromCyclemeter } from './extract';
+export { extractFromCyclemeter, applyRideTrim } from './extract';
+export { extractFromStravaGpx } from './extractStrava';
+export { extractFromCyclemeterKml } from './extractCyclemeterKml';
+export { detectFormat } from './formatDetector';
 export { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 export { generateKml } from './load/kml';
 export { downloadFile } from './load/download';
