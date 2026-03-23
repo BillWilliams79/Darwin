@@ -30,7 +30,7 @@ const MapsPage = () => {
         <Box sx={{ mt: 3, minWidth: 0, overflow: 'hidden' }}>
             <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap', px: 2,
-                ...(view === 'table' ? { maxWidth: TABLE_WIDTH + 32 } : {}),
+                ...(view === 'table' ? { maxWidth: TABLE_WIDTH } : {}),
             }}>
                 <Typography variant="h5" sx={{ mr: 'auto' }}>Maps</Typography>
 
