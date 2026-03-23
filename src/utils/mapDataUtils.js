@@ -8,6 +8,35 @@ export function formatDuration(s) {
 }
 
 /**
+ * Parse a duration string into total seconds.
+ * Accepts: "H:MM:SS", "M:SS", or a raw number (seconds).
+ * Returns integer seconds, or NaN if unparseable.
+ */
+export function parseDuration(str) {
+    if (str == null) return NaN;
+    const s = String(str).trim();
+    if (s === '') return NaN;
+
+    // Raw number (seconds)
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+
+    const parts = s.split(':');
+    if (parts.length === 2) {
+        // M:SS
+        const [min, sec] = parts.map(Number);
+        if (isNaN(min) || isNaN(sec)) return NaN;
+        return min * 60 + sec;
+    }
+    if (parts.length === 3) {
+        // H:MM:SS
+        const [hr, min, sec] = parts.map(Number);
+        if (isNaN(hr) || isNaN(min) || isNaN(sec)) return NaN;
+        return hr * 3600 + min * 60 + sec;
+    }
+    return NaN;
+}
+
+/**
  * Reconstruct a TransformedRun object from SQL data + coordinates,
  * matching the shape expected by generateKml().
  */

@@ -66,12 +66,14 @@ const RouteCardView = () => {
             )}
 
             {/* Card grid — same className as TaskPlanView */}
-            <Box className="card">
+            <Box className="card" sx={{ pb: 2 }}>
                 {paginatedRuns.map(run => (
                     <RouteCard
                         key={run.id}
                         run={run}
                         routeName={routeMap.get(run.map_route_fk)}
+                        routes={routes}
+                        allRuns={allRuns}
                     />
                 ))}
             </Box>
