@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -14,8 +14,13 @@ import RouteStatsOverlay from './RouteStatsOverlay';
 const RouteDetailView = () => {
     const { runId } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const { profile } = useContext(AuthContext);
     const creatorFk = profile?.id;
+
+    const fromCalendar = location.state?.from === 'calendar';
+    const backPath = fromCalendar ? '/calview' : '/maps';
+    const backLabel = fromCalendar ? 'Back to Calendar' : '{backLabel}';
 
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [] } = useMapRoutes(creatorFk);
@@ -41,8 +46,8 @@ const RouteDetailView = () => {
     if (!run) {
         return (
             <Box sx={{ p: 3 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 2 }}>
-                    Back to Routes
+                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
+                    {backLabel}
                 </Button>
                 <Typography color="error">Run not found.</Typography>
             </Box>
@@ -53,8 +58,8 @@ const RouteDetailView = () => {
 
     return (
         <Box sx={{ p: 3 }}>
-            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 2 }}>
-                Back to Routes
+            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
+                {backLabel}
             </Button>
 
             <RouteMapFull coordinates={coordinates} isLoading={coordsLoading} />
