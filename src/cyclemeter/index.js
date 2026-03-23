@@ -7,6 +7,7 @@
 
 import { extractFromCyclemeter } from './extract';
 import { extractFromStravaGpx } from './extractStrava';
+import { extractFromCyclemeterKml } from './extractCyclemeterKml';
 import { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 import { generateKml } from './load/kml';
 
@@ -16,6 +17,8 @@ import { generateKml } from './load/kml';
  */
 const EXTRACTORS = {
     'cyclemeter': extractFromCyclemeter,
+    'cyclemeter-kml': extractFromCyclemeterKml,
+    'cyclemeter-gpx': extractFromStravaGpx,
     'strava-gpx': extractFromStravaGpx,
 };
 
@@ -105,6 +108,7 @@ export function computeStats(runs) {
 // Re-export individual modules for separate use
 export { extractFromCyclemeter, applyRideTrim } from './extract';
 export { extractFromStravaGpx } from './extractStrava';
+export { extractFromCyclemeterKml } from './extractCyclemeterKml';
 export { detectFormat } from './formatDetector';
 export { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 export { generateKml } from './load/kml';

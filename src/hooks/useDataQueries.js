@@ -310,6 +310,23 @@ export function useRecurringTasks(creatorFk, {
     });
 }
 
+export function useMapRunsDone(creatorFk, startStr, endStr, {
+    fields = 'id,activity_name,map_route_fk,start_time,run_time_sec,distance_mi,avg_speed_mph',
+    enabled = true
+} = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/map_runs?filter_ts=(start_time,${startStr},${endStr})&fields=${fields}&sort=start_time:asc`;
+    const queryKey = mapRunKeys.done(creatorFk, `${startStr}_${endStr}`);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
+    });
+}
+
 export function useMapRuns(creatorFk, {
     fields = 'id,run_id,map_route_fk,activity_id,activity_name,start_time,run_time_sec,stopped_time_sec,distance_mi,ascent_ft,descent_ft,calories,max_speed_mph,avg_speed_mph,notes',
     enabled = true
