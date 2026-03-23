@@ -22,7 +22,6 @@ export const LINE_COLOR_ID = '1167b1';  // Hex RGB
 // KML style constants
 export const KML_ICON_URL = 'https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png';
 export const KML_LINE_WIDTH = 5;
-export const KML_LINE_WIDTH_HIGHLIGHT = 7.5;
 
 // Max stopped time (24h - 1s) — matches Python's cap
 export const MAX_STOPPED_TIME = 86399;

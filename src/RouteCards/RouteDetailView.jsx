@@ -1,5 +1,5 @@
 import React, { useState, useContext, useLayoutEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -23,6 +23,7 @@ import RideDeleteDialog from './RideDeleteDialog';
 const RouteDetailView = () => {
     const { runId } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
@@ -30,6 +31,10 @@ const RouteDetailView = () => {
 
     useLayoutEffect(() => { window.scrollTo(0, 0); }, []);
     const creatorFk = profile?.id;
+
+    const fromCalendar = location.state?.from === 'calendar';
+    const backPath = fromCalendar ? '/calview' : '/maps';
+    const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Routes';
 
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [] } = useMapRoutes(creatorFk);
@@ -59,8 +64,8 @@ const RouteDetailView = () => {
     if (!run) {
         return (
             <Box sx={{ p: 3 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 2 }}>
-                    Back to Routes
+                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
+                    {backLabel}
                 </Button>
                 <Typography color="error">Run not found.</Typography>
             </Box>
@@ -88,7 +93,7 @@ const RouteDetailView = () => {
             if (result.httpStatus.httpStatus === 200) {
                 queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
                 queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
-                navigate('/maps');
+                navigate(backPath);
             } else {
                 showError(result, 'Failed to delete ride');
             }
@@ -100,8 +105,8 @@ const RouteDetailView = () => {
     return (
         <Box sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')}>
-                    Back to Routes
+                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)}>
+                    {backLabel}
                 </Button>
                 <Box sx={{ flexGrow: 1 }} />
                 <Button

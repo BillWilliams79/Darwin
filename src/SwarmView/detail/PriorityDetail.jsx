@@ -17,8 +17,8 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
-import Switch from '@mui/material/Switch';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { CircularProgress, Typography } from '@mui/material';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
@@ -28,6 +28,7 @@ import HotelIcon from '@mui/icons-material/Hotel';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DeleteIcon from '@mui/icons-material/Delete';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
@@ -73,7 +74,9 @@ const siblingHandSort = (a, b) => {
 const siblingCreatedSort = (a, b) => a.id - b.id;
 
 const siblingActiveSort = (sortMode, a, b) => {
-    if (a.closed !== b.closed) return a.closed - b.closed;
+    const aState = a.closed ? 2 : a.deferred ? 1 : 0;
+    const bState = b.closed ? 2 : b.deferred ? 1 : 0;
+    if (aState !== bState) return aState - bState;
     return sortMode === 'hand' ? siblingHandSort(a, b) : siblingCreatedSort(a, b);
 };
 
@@ -92,7 +95,8 @@ const PriorityDetail = () => {
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
-    const showClosedPriorities = useShowClosedStore(s => s.showClosedPriorities);
+    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
+    const showClosed = priorityStatusFilter.includes('closed');
 
     const queryClient = useQueryClient();
 
@@ -128,7 +132,7 @@ const PriorityDetail = () => {
                 setPriority(p);
 
                 // Fetch sessions, siblings, and category sort_mode in parallel
-                const siblingClosedFilter = showClosedPriorities ? '' : '&closed=0';
+                const siblingClosedFilter = showClosed ? '' : '&closed=0';
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,closed,sort_order${siblingClosedFilter}`, 'GET', '', idToken).catch(() => null),
@@ -152,7 +156,7 @@ const PriorityDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri, showClosedPriorities]);
+    }, [id, idToken, darwinUri, showClosed]);
 
     const saveField = (field, value) => {
         let uri = `${darwinUri}/priorities`;
@@ -189,30 +193,36 @@ const PriorityDetail = () => {
         saveField('scheduled', newVal);
     };
 
-    const handleClosedToggle = () => {
-        const newVal = priority.closed ? 0 : 1;
-        const updates = { closed: newVal };
-        if (newVal === 1) {
-            updates.completed_at = new Date().toISOString();
-        } else {
-            updates.completed_at = 'NULL';
-        }
+    const currentState = priority ? (priority.closed ? 'closed' : priority.deferred ? 'deferred' : 'open') : 'open';
+
+    const handleStateChange = (event, newState) => {
+        if (newState === null || newState === currentState) return;
+
+        const updates = {
+            closed: newState === 'closed' ? 1 : 0,
+            deferred: newState === 'deferred' ? 1 : 0,
+            completed_at: newState === 'closed' ? new Date().toISOString() : 'NULL',
+            deferred_at: newState === 'deferred' ? new Date().toISOString() : 'NULL',
+        };
+
         setPriority(prev => ({
             ...prev,
-            closed: newVal,
-            completed_at: newVal === 1 ? new Date().toISOString() : null,
+            closed: updates.closed,
+            deferred: updates.deferred,
+            completed_at: newState === 'closed' ? new Date().toISOString() : null,
+            deferred_at: newState === 'deferred' ? new Date().toISOString() : null,
         }));
 
         let uri = `${darwinUri}/priorities`;
         call_rest_api(uri, 'PUT', [{ id: parseInt(id), ...updates }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                    showError(result, 'Unable to update closed status');
+                    showError(result, 'Unable to update priority state');
                 } else {
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 }
             }).catch(error => {
-                showError(error, 'Unable to update closed status');
+                showError(error, 'Unable to update priority state');
             });
     };
 
@@ -270,7 +280,7 @@ const PriorityDetail = () => {
                 {(() => {
                     const activeStatuses = ['starting', 'active', 'completing'];
                     const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
-                    const isDisabled = hasActiveSession || priority.closed === 1;
+                    const isDisabled = hasActiveSession || priority.closed === 1 || priority.deferred === 1;
                     const button = (
                         <IconButton
                             onClick={handleScheduledToggle}
@@ -293,11 +303,14 @@ const PriorityDetail = () => {
                     const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
                     const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
                     const label = priority.closed ? "Completed" :
+                        priority.deferred ? "Deferred" :
                         hasPausedSession ? "Paused" :
                         hasActiveSession || priority.in_progress ? "In Progress" :
                         "Not Started";
                     const icon = priority.closed ?
                         <CheckCircleIcon sx={{ fontSize: 24, color: 'success.main' }} /> :
+                        priority.deferred ?
+                            <DoNotDisturbOnIcon sx={{ fontSize: 24, color: '#ff9800' }} /> :
                         hasPausedSession ?
                             <PauseCircleIcon sx={{ fontSize: 24, color: '#f0d000' }} /> :
                             hasActiveSession || priority.in_progress ?
@@ -309,17 +322,23 @@ const PriorityDetail = () => {
                         </Tooltip>
                     );
                 })()}
-                <FormControlLabel
-                    control={
-                        <Switch
-                            checked={priority.closed === 1}
-                            onChange={handleClosedToggle}
-                            color="success"
-                        />
-                    }
-                    label="Closed"
-                    data-testid="toggle-closed"
-                />
+                <ToggleButtonGroup
+                    value={currentState}
+                    exclusive
+                    onChange={handleStateChange}
+                    size="small"
+                    data-testid="priority-state-selector"
+                >
+                    <ToggleButton value="open" data-testid="state-open"
+                        sx={{ textTransform: 'capitalize', ...(currentState === 'open' && { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' }, '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } } }) }}
+                    >Open</ToggleButton>
+                    <ToggleButton value="deferred" data-testid="state-deferred"
+                        sx={{ textTransform: 'capitalize', ...(currentState === 'deferred' && { bgcolor: '#ff9800', color: '#fff', '&:hover': { bgcolor: '#e68900' }, '&.Mui-selected': { bgcolor: '#ff9800', color: '#fff', '&:hover': { bgcolor: '#e68900' } } }) }}
+                    >Deferred</ToggleButton>
+                    <ToggleButton value="closed" data-testid="state-closed"
+                        sx={{ textTransform: 'capitalize', ...(currentState === 'closed' && { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' }, '&.Mui-selected': { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' } } }) }}
+                    >Closed</ToggleButton>
+                </ToggleButtonGroup>
                 <Tooltip title="Previous priority" enterDelay={400}>
                     <span>
                         <IconButton
@@ -379,32 +398,43 @@ const PriorityDetail = () => {
                 </Typography>
             </Box>
 
-            <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Started</Typography>
-                <Typography variant="body2" data-testid="priority-started-at">
-                    {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
-                </Typography>
-            </Box>
-
-            <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Completed</Typography>
-                <Typography variant="body2" data-testid="priority-completed-at">
-                    {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
-                </Typography>
-            </Box>
-
-            <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Created</Typography>
-                <Typography variant="body2" data-testid="priority-create-ts">
-                    {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
-                </Typography>
-            </Box>
-
-            <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Updated</Typography>
-                <Typography variant="body2" data-testid="priority-update-ts">
-                    {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
-                </Typography>
+            <Box sx={{ display: 'flex', gap: 4, mb: 3 }}>
+                {/* Priority timings — left column */}
+                <Box sx={{ flex: 1 }}>
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Created</Typography>
+                        <Typography variant="body2" data-testid="priority-create-ts">
+                            {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
+                        </Typography>
+                    </Box>
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Updated</Typography>
+                        <Typography variant="body2" data-testid="priority-update-ts">
+                            {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
+                        </Typography>
+                    </Box>
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Deferred</Typography>
+                        <Typography variant="body2" data-testid="priority-deferred-at">
+                            {priority.deferred_at ? formatDateTime(priority.deferred_at, timezone) : '—'}
+                        </Typography>
+                    </Box>
+                </Box>
+                {/* Session timings — right column */}
+                <Box sx={{ flex: 1 }}>
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Started</Typography>
+                        <Typography variant="body2" data-testid="priority-started-at">
+                            {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
+                        </Typography>
+                    </Box>
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Completed</Typography>
+                        <Typography variant="body2" data-testid="priority-completed-at">
+                            {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
+                        </Typography>
+                    </Box>
+                </Box>
             </Box>
 
             <Typography variant="h6" gutterBottom>Linked Sessions</Typography>

@@ -13,6 +13,7 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import HotelIcon from '@mui/icons-material/Hotel';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 
@@ -55,9 +56,11 @@ const PriorityDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDelete
                         <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
                             {priority.closed
                                 ? <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
-                                : priority.in_progress
-                                    ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                                    : <HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
+                                : priority.deferred
+                                    ? <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />
+                                    : priority.in_progress
+                                        ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                                        : <HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
                         </IconButton>
                         <Box sx={{
                             flex: 1,

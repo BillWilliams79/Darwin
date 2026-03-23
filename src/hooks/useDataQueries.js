@@ -161,7 +161,7 @@ export function useCategories(creatorFk, projectId, { closed, fields = 'id,categ
     });
 }
 
-export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,title,in_progress,closed,scheduled,category_fk,sort_order,completed_at', enabled = true } = {}) {
+export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,title,in_progress,closed,deferred,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -307,6 +307,23 @@ export function useRecurringTasks(creatorFk, {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useMapRunsDone(creatorFk, startStr, endStr, {
+    fields = 'id,activity_name,map_route_fk,start_time,run_time_sec,distance_mi,avg_speed_mph',
+    enabled = true
+} = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/map_runs?filter_ts=(start_time,${startStr},${endStr})&fields=${fields}&sort=start_time:asc`;
+    const queryKey = mapRunKeys.done(creatorFk, `${startStr}_${endStr}`);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
     });
 }
 
