@@ -287,6 +287,15 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         // Cross-card drop
         let priorityUri = `${darwinUri}/priorities`;
 
+        // Optimistic cache update — prevent TanStack refetches from overwriting local state
+        const sourceKey = priorityKeys.byCategoryWithClosed(profile.userName, priority.category_fk);
+        const targetKey = priorityKeys.byCategoryWithClosed(profile.userName, category.id);
+        queryClient.cancelQueries({ queryKey: sourceKey });
+        queryClient.cancelQueries({ queryKey: targetKey });
+        const previousSource = queryClient.getQueryData(sourceKey);
+        const previousTarget = queryClient.getQueryData(targetKey);
+        queryClient.setQueryData(sourceKey, (old) => old ? old.filter(p => p.id !== priority.id) : old);
+
         if (sortMode === 'hand' && insertIndex !== null) {
             const realPriorities = prioritiesArray.filter(t => t.id !== '');
             const template = prioritiesArray.find(t => t.id === '');
@@ -300,13 +309,22 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 return update;
             });
 
+            queryClient.setQueryData(targetKey, () => realPriorities.map(p => ({...p})));
+
             call_rest_api(priorityUri, 'PUT', bulkUpdate, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        queryClient.setQueryData(sourceKey, previousSource);
+                        queryClient.setQueryData(targetKey, previousTarget);
                         showError(result, "Unable to save priority order");
                     }
                 }).catch(error => {
+                    queryClient.setQueryData(sourceKey, previousSource);
+                    queryClient.setQueryData(targetKey, previousTarget);
                     showError(error, "Unable to save priority order");
+                }).finally(() => {
+                    queryClient.invalidateQueries({ queryKey: sourceKey });
+                    queryClient.invalidateQueries({ queryKey: targetKey });
                 });
 
             const final = [...realPriorities];
@@ -323,15 +341,27 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             newPrioritiesArray.sort((a, b) => activeSort(a, b));
             setPrioritiesArray(newPrioritiesArray);
 
+            queryClient.setQueryData(targetKey, (old) => {
+                if (!old) return old;
+                return [...old, {...priority}];
+            });
+
             call_rest_api(priorityUri, 'PUT', [{'id': priority.id, 'category_fk': category.id, 'sort_order': newSortOrder }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        queryClient.setQueryData(sourceKey, previousSource);
+                        queryClient.setQueryData(targetKey, previousTarget);
                         setPrioritiesArray(prev => prev.filter(t => t.id !== priority.id));
                         showError(result, "Unable to change priority's category");
                     }
                 }).catch(error => {
+                    queryClient.setQueryData(sourceKey, previousSource);
+                    queryClient.setQueryData(targetKey, previousTarget);
                     setPrioritiesArray(prev => prev.filter(t => t.id !== priority.id));
                     showError(error, "Unable to change priority's category");
+                }).finally(() => {
+                    queryClient.invalidateQueries({ queryKey: sourceKey });
+                    queryClient.invalidateQueries({ queryKey: targetKey });
                 });
         }
 
