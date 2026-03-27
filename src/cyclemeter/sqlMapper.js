@@ -71,6 +71,18 @@ export function extractUniqueRoutes(runs) {
 }
 
 /**
+ * Normalize a route name for dedup comparison.
+ * Strips the " - Cyclemeter" suffix that Strava appends to Cyclemeter route names.
+ * Used for matching only — original names are preserved in the database.
+ * @param {string|null|undefined} name - Route name to normalize
+ * @returns {string} Normalized name
+ */
+export function normalizeRouteName(name) {
+    if (!name) return '';
+    return name.replace(/ - Cyclemeter$/, '').trim();
+}
+
+/**
  * Filter runs to only those after a date cutoff (for bulk import dedup).
  * @param {import('./types').Run[]} rawRuns - Raw runs from extractFromCyclemeter
  * @param {string|null|undefined} cutoffDate - ISO date string of latest existing run, or null/undefined for first import

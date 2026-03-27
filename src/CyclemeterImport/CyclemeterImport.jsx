@@ -20,7 +20,7 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
-import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff } from '../cyclemeter/sqlMapper';
+import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff, normalizeRouteName } from '../cyclemeter/sqlMapper';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
@@ -230,13 +230,18 @@ const CyclemeterImport = () => {
             // Step 1: Fetch existing routes, save only new ones
             // Lambda returns 404 when table is empty — treat as no existing routes
             const routeIdMap = new Map(); // cyclemeter routeID → SQL map_routes id
+            const routeNameMap = new Map(); // normalized route name → SQL map_routes id
             try {
                 const existingRoutesResult = await call_rest_api(
-                    `${darwinUri}/map_routes?fields=id,route_id`, 'GET', null, idToken
+                    `${darwinUri}/map_routes?fields=id,route_id,name`, 'GET', null, idToken
                 );
                 if (existingRoutesResult.data) {
                     for (const r of existingRoutesResult.data) {
                         routeIdMap.set(r.route_id, r.id);
+                        const normalized = normalizeRouteName(r.name);
+                        if (normalized && !routeNameMap.has(normalized)) {
+                            routeNameMap.set(normalized, r.id);
+                        }
                     }
                 }
             } catch (e) {
@@ -246,13 +251,22 @@ const CyclemeterImport = () => {
             const uniqueRoutes = extractUniqueRoutes(newRuns);
             for (const route of uniqueRoutes) {
                 if (controller.signal.aborted) throw new Error('Save cancelled');
-                if (routeIdMap.has(route.route_id)) continue; // already exists
+                if (routeIdMap.has(route.route_id)) continue; // already exists by route_id
+
+                // Check for existing route with matching name (handles single-file imports)
+                const normalizedName = normalizeRouteName(route.name);
+                const existingByName = routeNameMap.get(normalizedName);
+                if (existingByName) {
+                    routeIdMap.set(route.route_id, existingByName);
+                    continue;
+                }
 
                 const result = await call_rest_api(
                     `${darwinUri}/map_routes`, 'POST', route, idToken
                 );
                 if (result.httpStatus.httpStatus === 200 && result.data?.[0]?.id) {
                     routeIdMap.set(route.route_id, result.data[0].id);
+                    routeNameMap.set(normalizedName, result.data[0].id);
                 }
             }
 
