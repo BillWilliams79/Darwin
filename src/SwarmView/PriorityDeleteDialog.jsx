@@ -54,11 +54,11 @@ const PriorityDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDelete
                             <SettingsIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                         <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                            {priority.closed
+                            {priority.priority_status === 'completed'
                                 ? <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
-                                : priority.deferred
+                                : priority.priority_status === 'deferred'
                                     ? <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />
-                                    : priority.in_progress
+                                    : priority.priority_status === 'in_progress'
                                         ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
                                         : <HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
                         </IconButton>

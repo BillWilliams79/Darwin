@@ -161,15 +161,12 @@ export function useCategories(creatorFk, projectId, { closed, fields = 'id,categ
     });
 }
 
-export function usePriorities(creatorFk, categoryId, { closed, fields = 'id,title,in_progress,closed,deferred,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
+export function usePriorities(creatorFk, categoryId, { fields = 'id,title,priority_status,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const closedParam = closed !== undefined ? `&closed=${closed}` : '';
-    const uri = `${darwinUri}/priorities?category_fk=${categoryId}&fields=${fields}${closedParam}`;
-    const queryKey = closed === 0 ? priorityKeys.byCategoryOpen(creatorFk, categoryId)
-        : closed === undefined ? priorityKeys.byCategoryWithClosed(creatorFk, categoryId)
-        : priorityKeys.byCategory(creatorFk, categoryId);
+    const uri = `${darwinUri}/priorities?category_fk=${categoryId}&fields=${fields}`;
+    const queryKey = priorityKeys.byCategoryWithClosed(creatorFk, categoryId);
 
     return useQuery({
         queryKey,
@@ -213,7 +210,7 @@ export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,ti
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?closed=1&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
+    const uri = `${darwinUri}/priorities?priority_status=completed&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
     const queryKey = priorityKeys.done(creatorFk, `${startStr}_${endStr}`);
 
     return useQuery({

@@ -68,7 +68,7 @@ const PriorityDragLayer = () => {
                     value={item?.title || ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
-                    sx={{...(item?.closed === 1 && { textDecoration: 'line-through' })}}
+                    sx={{...(item?.priority_status === 'completed' && { textDecoration: 'line-through' })}}
                 />
                 <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
                     <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
