@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect} from 'react';
+import React, {useState, useContext, useEffect, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
@@ -32,10 +32,11 @@ const DomainEdit = ( { domain, domainIndex } ) => {
 
     const [areaCounts, setAreaCounts] = useState({});
     const [taskCounts, setTaskCounts] = useState({});
+    const [selectedId, setSelectedId] = useState(null);
+    const templateInputRef = useRef(null);
 
     const showError = useSnackBarStore(s => s.showError);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
-    const workingDomainId = useWorkingDomainStore(s => s.domainId);
 
     // TanStack Query — fetch all domains (open + closed), areas, and task counts
     const { data: serverDomains } = useDomains(profile?.userName, {
@@ -163,6 +164,7 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                     setTaskCounts(newTaskCounts);
 
                     queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+                    setTimeout(() => templateInputRef.current?.focus(), 0);
 
                 } else if (result.httpStatus.httpStatus < 205) {
                     // 201 => record added to database but new data not returned in body
@@ -218,6 +220,11 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         newDomainsArray.sort((domainA, domainB) => domainSortByClosedThenSortOrder(domainA, domainB));
         setDomainsArray(newDomainsArray);
     }
+
+    const handleRowClick = (id) => {
+        setSelectedId(String(id));
+        if (id !== '') setWorkingDomain(id);
+    };
 
     const clickDomainDelete = (event, domainId, domainName) => {
         domainDelete.openDialog({ domainName, domainId, tasksCount: taskCounts[domainId] });
@@ -335,8 +342,8 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                                         clickDomainDelete={clickDomainDelete}
                                         areaCounts={areaCounts}
                                         taskCounts={taskCounts}
-                                        onRowClick={setWorkingDomain}
-                                        isSelected={domain.id && String(domain.id) === workingDomainId}
+                                        onRowClick={handleRowClick}
+                                        isSelected={String(domain.id) === selectedId}
                                         isDraggable
                                     />
                                 ))}
@@ -359,9 +366,10 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                             clickDomainDelete={clickDomainDelete}
                             areaCounts={areaCounts}
                             taskCounts={taskCounts}
-                            onRowClick={setWorkingDomain}
-                            isSelected={domain.id && String(domain.id) === workingDomainId}
+                            onRowClick={handleRowClick}
+                            isSelected={String(domain.id) === selectedId}
                             isDraggable={false}
+                            inputRef={domain.id === '' ? templateInputRef : undefined}
                         />
                     ))}
                 </Box>
