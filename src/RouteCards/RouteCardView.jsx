@@ -1,5 +1,5 @@
 import '../index.css';
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useMemo } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -7,14 +7,31 @@ import TablePagination from '@mui/material/TablePagination';
 
 import AuthContext from '../Context/AuthContext';
 import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
+import { useTrendsStore } from '../stores/useTrendsStore';
 import RouteCard from './RouteCard';
 
-const RouteCardView = () => {
+const RouteCardView = ({ timeFilter }) => {
     const { profile } = useContext(AuthContext);
     const creatorFk = profile?.id;
 
-    const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
+    const { data: rawRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [] } = useMapRoutes(creatorFk);
+    const selectedRouteIds = useTrendsStore(s => s.selectedRouteIds);
+
+    const allRuns = useMemo(() => {
+        let filtered = rawRuns;
+        if (timeFilter) {
+            filtered = filtered.filter(run => {
+                const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
+                return t >= timeFilter.start && t < timeFilter.end;
+            });
+        }
+        if (selectedRouteIds.length > 0) {
+            const idSet = new Set(selectedRouteIds);
+            filtered = filtered.filter(run => idSet.has(run.map_route_fk));
+        }
+        return filtered;
+    }, [rawRuns, timeFilter, selectedRouteIds]);
 
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
