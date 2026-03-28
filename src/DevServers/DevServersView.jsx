@@ -168,8 +168,9 @@ const DevServersView = () => {
                     )}
                 </Box>
             ) : (
-                <Box sx={{ height: 600, width: 'fit-content' }} data-testid="dev-servers-datagrid">
+                <Box sx={{ width: 'fit-content' }} data-testid="dev-servers-datagrid">
                     <DataGrid
+                        autoHeight
                         rows={enrichedServers ?? []}
                         columns={getDevServerColumns(navigate, profile?.timezone)}
                         slots={{ toolbar: GridToolbar }}
