@@ -11,7 +11,7 @@ import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
-import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+import { DataGrid, GridToolbar, GridFooterContainer, GridPagination } from '@mui/x-data-grid';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
@@ -21,7 +21,7 @@ import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 
 // Column widths + DataGrid chrome (borders + column separators + scrollbar gutter + cell padding)
-export const TABLE_WIDTH = 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 200 + 50;
+export const TABLE_WIDTH = 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 400 + 50;
 
 /**
  * Format seconds as "H:MM:SS".
@@ -34,6 +34,15 @@ function formatDuration(totalSeconds) {
     const seconds = s % 60;
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
+
+const CustomFooter = ({ runCount, routeCount }) => (
+    <GridFooterContainer>
+        <Typography variant="body2" color="text.secondary" sx={{ pl: 2 }}>
+            {runCount} runs{routeCount > 0 ? ` across ${routeCount} routes` : ''}
+        </Typography>
+        <GridPagination />
+    </GridFooterContainer>
+);
 
 const MapRunsView = () => {
     const { darwinUri } = useContext(AppContext);
@@ -135,7 +144,9 @@ const MapRunsView = () => {
         {
             field: 'notes',
             headerName: 'Notes',
-            width: 200,
+            flex: 1,
+            minWidth: 200,
+            maxWidth: 400,
             renderCell: (params) => (
                 <Box sx={{
                     whiteSpace: 'normal',
@@ -184,10 +195,7 @@ const MapRunsView = () => {
 
     return (
         <Box sx={{ mt: 1, px: 2, maxWidth: TABLE_WIDTH }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                    {runs.length} runs{routes.length > 0 ? ` across ${routes.length} routes` : ''}
-                </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
                 <Button
                     variant="outlined"
                     color="error"
@@ -207,10 +215,14 @@ const MapRunsView = () => {
                     columns={columns}
                     loading={isLoading}
                     getRowHeight={() => 'auto'}
-                    slots={{ toolbar: GridToolbar }}
+                    slots={{ toolbar: GridToolbar, footer: CustomFooter }}
                     slotProps={{
                         toolbar: {
                             showQuickFilter: true,
+                        },
+                        footer: {
+                            runCount: runs.length,
+                            routeCount: routes.length,
                         },
                     }}
                     initialState={{
