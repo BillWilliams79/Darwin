@@ -11,6 +11,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { priorityKeys } from '../../hooks/useQueryKeys';
 import PriorityDeleteDialog from '../PriorityDeleteDialog';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -73,10 +78,22 @@ const siblingHandSort = (a, b) => {
 
 const siblingCreatedSort = (a, b) => a.id - b.id;
 
+const STATUS_SORT_ORDER = { idle: 0, in_progress: 0, deferred: 1, completed: 2 };
+
 const siblingActiveSort = (sortMode, a, b) => {
-    const aState = a.closed ? 2 : a.deferred ? 1 : 0;
-    const bState = b.closed ? 2 : b.deferred ? 1 : 0;
+    const aState = STATUS_SORT_ORDER[a.priority_status] ?? 0;
+    const bState = STATUS_SORT_ORDER[b.priority_status] ?? 0;
     if (aState !== bState) return aState - bState;
+    if (a.priority_status === 'completed' && b.priority_status === 'completed') {
+        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+        if (aTime !== bTime) return bTime - aTime;
+    }
+    if (a.priority_status === 'deferred' && b.priority_status === 'deferred') {
+        const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
+        const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
+        if (aTime !== bTime) return bTime - aTime;
+    }
     return sortMode === 'hand' ? siblingHandSort(a, b) : siblingCreatedSort(a, b);
 };
 
@@ -96,7 +113,12 @@ const PriorityDetail = () => {
 
     const showError = useSnackBarStore(s => s.showError);
     const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
-    const showClosed = priorityStatusFilter.includes('closed');
+    // Map chip filter values to DB priority_status values for sibling query
+    const siblingStatuses = [];
+    if (priorityStatusFilter.includes('open')) siblingStatuses.push('idle', 'in_progress');
+    if (priorityStatusFilter.includes('deferred')) siblingStatuses.push('deferred');
+    if (priorityStatusFilter.includes('completed')) siblingStatuses.push('completed');
+    const showClosed = priorityStatusFilter.includes('completed');
 
     const queryClient = useQueryClient();
 
@@ -132,10 +154,10 @@ const PriorityDetail = () => {
                 setPriority(p);
 
                 // Fetch sessions, siblings, and category sort_mode in parallel
-                const siblingClosedFilter = showClosed ? '' : '&closed=0';
+                const siblingFilter = siblingStatuses.length === 4 ? '' : `&priority_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,closed,sort_order${siblingClosedFilter}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,priority_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -156,7 +178,7 @@ const PriorityDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri, showClosed]);
+    }, [id, idToken, darwinUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
         let uri = `${darwinUri}/priorities`;
@@ -193,24 +215,39 @@ const PriorityDetail = () => {
         saveField('scheduled', newVal);
     };
 
-    const currentState = priority ? (priority.closed ? 'closed' : priority.deferred ? 'deferred' : 'open') : 'open';
+    // Map DB priority_status to toggle button value: idle/in_progress → 'open'
+    const currentState = priority
+        ? (priority.priority_status === 'completed' ? 'closed'
+            : priority.priority_status === 'deferred' ? 'deferred'
+            : 'open')
+        : 'open';
 
-    const handleStateChange = (event, newState) => {
-        if (newState === null || newState === currentState) return;
+    // Confirmation dialog for transitions FROM completed state
+    const priorityReopen = useConfirmDialog({
+        onConfirm: ({ targetState }) => {
+            executeStateChange(targetState);
+        }
+    });
+
+    const executeStateChange = (newState) => {
+        // Map toggle values to priority_status
+        const statusMap = { open: 'idle', deferred: 'deferred', closed: 'completed' };
+        const newStatus = statusMap[newState];
+        const now = new Date().toISOString();
 
         const updates = {
-            closed: newState === 'closed' ? 1 : 0,
-            deferred: newState === 'deferred' ? 1 : 0,
-            completed_at: newState === 'closed' ? new Date().toISOString() : 'NULL',
-            deferred_at: newState === 'deferred' ? new Date().toISOString() : 'NULL',
+            priority_status: newStatus,
+            started_at: 'NULL',
+            completed_at: newState === 'closed' ? now : 'NULL',
+            deferred_at: newState === 'deferred' ? now : 'NULL',
         };
 
         setPriority(prev => ({
             ...prev,
-            closed: updates.closed,
-            deferred: updates.deferred,
-            completed_at: newState === 'closed' ? new Date().toISOString() : null,
-            deferred_at: newState === 'deferred' ? new Date().toISOString() : null,
+            priority_status: newStatus,
+            started_at: null,
+            completed_at: newState === 'closed' ? now : null,
+            deferred_at: newState === 'deferred' ? now : null,
         }));
 
         let uri = `${darwinUri}/priorities`;
@@ -224,6 +261,18 @@ const PriorityDetail = () => {
             }).catch(error => {
                 showError(error, 'Unable to update priority state');
             });
+    };
+
+    const handleStateChange = (event, newState) => {
+        if (newState === null || newState === currentState) return;
+
+        // Require confirmation when leaving completed state
+        if (currentState === 'closed') {
+            priorityReopen.openDialog({ targetState: newState });
+            return;
+        }
+
+        executeStateChange(newState);
     };
 
     const sortedSiblings = useMemo(() => {
@@ -280,7 +329,7 @@ const PriorityDetail = () => {
                 {(() => {
                     const activeStatuses = ['starting', 'active', 'completing'];
                     const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
-                    const isDisabled = hasActiveSession || priority.closed === 1 || priority.deferred === 1;
+                    const isDisabled = hasActiveSession || priority.priority_status === 'completed' || priority.priority_status === 'deferred';
                     const button = (
                         <IconButton
                             onClick={handleScheduledToggle}
@@ -302,18 +351,19 @@ const PriorityDetail = () => {
                 {(() => {
                     const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
                     const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
-                    const label = priority.closed ? "Completed" :
-                        priority.deferred ? "Deferred" :
+                    const status = priority.priority_status;
+                    const label = status === 'completed' ? "Completed" :
+                        status === 'deferred' ? "Deferred" :
                         hasPausedSession ? "Paused" :
-                        hasActiveSession || priority.in_progress ? "In Progress" :
+                        hasActiveSession || status === 'in_progress' ? "In Progress" :
                         "Not Started";
-                    const icon = priority.closed ?
+                    const icon = status === 'completed' ?
                         <CheckCircleIcon sx={{ fontSize: 24, color: 'success.main' }} /> :
-                        priority.deferred ?
+                        status === 'deferred' ?
                             <DoNotDisturbOnIcon sx={{ fontSize: 24, color: '#ff9800' }} /> :
                         hasPausedSession ?
                             <PauseCircleIcon sx={{ fontSize: 24, color: '#f0d000' }} /> :
-                            hasActiveSession || priority.in_progress ?
+                            hasActiveSession || status === 'in_progress' ?
                                 <RocketLaunchIcon sx={{ fontSize: 24, color: '#4caf50' }} /> :
                                 <HotelIcon sx={{ fontSize: 24, color: 'text.disabled' }} />;
                     return (
@@ -461,6 +511,31 @@ const PriorityDetail = () => {
                 setDeleteId={priorityDelete.setInfoObject}
                 setDeleteConfirmed={priorityDelete.setConfirmed}
             />
+
+            <Dialog
+                open={priorityReopen.dialogOpen}
+                onClose={() => { priorityReopen.setDialogOpen(false); priorityReopen.setInfoObject({}); }}
+                data-testid="priority-reopen-dialog"
+            >
+                <DialogTitle>
+                    {priorityReopen.infoObject.targetState === 'deferred' ? 'Defer Priority' : 'Re-open Priority'}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {priorityReopen.infoObject.targetState === 'deferred'
+                            ? 'This will clear the completion date and mark the priority as deferred. Continue?'
+                            : 'Re-opening will clear the completion date. Continue?'}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => { priorityReopen.setConfirmed(true); priorityReopen.setDialogOpen(false); }} variant="outlined">
+                        {priorityReopen.infoObject.targetState === 'deferred' ? 'Defer' : 'Re-open'}
+                    </Button>
+                    <Button onClick={() => { priorityReopen.setDialogOpen(false); priorityReopen.setInfoObject({}); }} variant="outlined" autoFocus>
+                        Cancel
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

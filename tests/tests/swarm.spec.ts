@@ -41,7 +41,7 @@ test.describe('Swarm View', () => {
     // Create priority
     const priResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: testPriorityTitle, category_fk: testCategoryId,
-      in_progress: 1, closed: 0, sort_order: 0,
+      priority_status: 'in_progress', sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test priority');
     testPriorityId = priResult[0].id;
@@ -49,7 +49,7 @@ test.describe('Swarm View', () => {
     // Create idle priority (not in_progress) for scheduled toggle test
     const idlePriResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: testIdlePriorityTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 0, sort_order: 1,
+      priority_status: 'idle', sort_order: 1,
     }, idToken) as Array<{ id: string }>;
     if (!idlePriResult?.length) throw new Error('Failed to create idle test priority');
     testIdlePriorityId = idlePriResult[0].id;
@@ -264,19 +264,19 @@ test.describe('Swarm View', () => {
     // Create a closed priority after the two open ones
     const closedResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: uniqueName('ClosedNav'), category_fk: testCategoryId,
-      in_progress: 0, closed: 1, sort_order: 99,
+      priority_status: 'completed', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
     const closedPriorityId = closedResult[0].id;
 
     try {
       // Ensure closed filter chip is OFF (default) by navigating to /swarm first
       await page.goto('/swarm');
-      const closedChip = page.getByTestId('filter-chip-closed');
-      await closedChip.waitFor({ timeout: 10000 });
+      const completedChip = page.getByTestId('filter-chip-completed');
+      await completedChip.waitFor({ timeout: 10000 });
       // If chip is selected (not outlined), click to deselect
-      const isOutlined = await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
       if (!isOutlined) {
-        await closedChip.click();
+        await completedChip.click();
       }
 
       // Navigate to the idle priority (sort_order=1, second open item — last open item)
@@ -307,15 +307,15 @@ test.describe('Swarm View', () => {
 
     const oldResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: oldTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 1, sort_order: 90, completed_at: oldClosed,
+      priority_status: 'completed', sort_order: 90, completed_at: oldClosed,
     }, idToken) as Array<{ id: string }>;
     const midResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: midTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 1, sort_order: 91, completed_at: midClosed,
+      priority_status: 'completed', sort_order: 91, completed_at: midClosed,
     }, idToken) as Array<{ id: string }>;
     const newResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: newTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 1, sort_order: 92, completed_at: newClosed,
+      priority_status: 'completed', sort_order: 92, completed_at: newClosed,
     }, idToken) as Array<{ id: string }>;
 
     const oldId = oldResult[0].id;
@@ -328,13 +328,13 @@ test.describe('Swarm View', () => {
       await page.getByRole('tab', { name: testProjectName }).click();
       await expect(page.getByTestId(`category-card-${testCategoryId}`)).toBeVisible({ timeout: 10000 });
 
-      // Turn on closed filter chip
-      const closedChip = page.getByTestId('filter-chip-closed');
-      await closedChip.waitFor({ timeout: 10000 });
+      // Turn on completed filter chip
+      const completedChip = page.getByTestId('filter-chip-completed');
+      await completedChip.waitFor({ timeout: 10000 });
       // If chip is not selected (outlined), click to select
-      const isOutlined = await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
       if (isOutlined) {
-        await closedChip.click();
+        await completedChip.click();
       }
 
       // Wait for closed priorities to appear
@@ -382,7 +382,7 @@ test.describe('Swarm View', () => {
     const deleteTitle = uniqueName('DeleteMe');
     const result = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: deleteTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 0, sort_order: 99,
+      priority_status: 'idle', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
     const deleteId = result[0].id;
 
