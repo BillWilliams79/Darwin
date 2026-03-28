@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect} from 'react';
+import React, {useState, useContext, useEffect, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useAreas, useTaskCounts } from '../hooks/useDataQueries';
@@ -29,6 +29,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const [areasArray, setAreasArray] = useState();
     const [taskCounts, setTaskCounts] = useState({});
+    const templateInputRef = useRef(null);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -139,6 +140,7 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     setTaskCounts(newTaskCounts);
 
                     queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) });
+                    setTimeout(() => templateInputRef.current?.focus(), 0);
 
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
@@ -351,7 +353,8 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                 clickAreaClosed = {clickAreaClosed}
                                 clickAreaDelete = {clickAreaDelete}
                                 taskCounts = {taskCounts}
-                                isDraggable={false} />
+                                isDraggable={false}
+                                inputRef={area.id === '' ? templateInputRef : undefined} />
                         ))}
                     </Box>
                 }

@@ -85,8 +85,8 @@ test.describe('Working Domain Persistence', () => {
 
     await expect(tabA).toHaveAttribute('aria-selected', 'true');
 
-    // Navigate to Area editor (inside bike menu)
-    await page.getByTestId('bike-menu-button').click();
+    // Navigate to Area editor (via Plan page settings menu)
+    await page.getByTestId('settings-menu-button').click();
     await page.getByRole('menuitem', { name: /areas/i }).click();
     await expect(page).toHaveURL(/\/areaedit/);
     await page.waitForSelector('[role="tab"]', { timeout: 15000 });

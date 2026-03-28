@@ -9,16 +9,16 @@ import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 
-export const DOMAIN_GRID_COLUMNS = {
-    xs: '1fr 42px 40px 40px 40px',
-    md: '220px 70px 60px 60px 48px',
+export const PROJECT_GRID_COLUMNS = {
+    xs: '1fr 42px 70px 70px 40px',
+    md: '220px 70px 90px 80px 48px',
 };
 
-const DomainTableRow = ({
-    domain, domainIndex,
-    changeDomainName, keyDownDomainName, blurDomainName,
-    clickDomainClosed, clickDomainDelete,
-    areaCounts, taskCounts,
+const ProjectTableRow = ({
+    project, projectIndex,
+    changeProjectName, keyDownProjectName, blurProjectName,
+    clickProjectClosed, clickProjectDelete,
+    categoryCounts, priorityCounts,
     onRowClick, isSelected,
     isDraggable, inputRef
 }) => {
@@ -26,13 +26,13 @@ const DomainTableRow = ({
     const row = (provided = {}, snapshot = {}) => (
         <Box
             ref={provided.innerRef}
-            data-testid={domain.id === '' ? 'domain-row-template' : `domain-row-${domain.id}`}
+            data-testid={project.id === '' ? 'project-row-template' : `project-row-${project.id}`}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            onClick={() => onRowClick(domain.id)}
+            onClick={() => onRowClick(project.id)}
             sx={{
                 display: 'grid',
-                gridTemplateColumns: DOMAIN_GRID_COLUMNS,
+                gridTemplateColumns: PROJECT_GRID_COLUMNS,
                 alignItems: 'center',
                 py: 0.5,
                 cursor: 'pointer',
@@ -47,45 +47,45 @@ const DomainTableRow = ({
         >
             <Box sx={{ px: 1 }}>
                 <TextField variant="outlined"
-                           value={domain.domain_name || ''}
-                           name='domain-name'
-                           onChange={ (event) => changeDomainName(event, domainIndex) }
-                           onKeyDown={(event) => keyDownDomainName(event, domainIndex, domain.id)}
-                           onBlur={(event) => blurDomainName(event, domainIndex, domain.id)}
+                           value={project.project_name || ''}
+                           name='project-name'
+                           onChange={ (event) => changeProjectName(event, projectIndex) }
+                           onKeyDown={(event) => keyDownProjectName(event, projectIndex, project.id)}
+                           onBlur={(event) => blurProjectName(event, projectIndex, project.id)}
                            autoComplete='off'
                            size='small'
                            fullWidth
                            slotProps={{ htmlInput: { maxLength: 32, ref: inputRef } }}
-                           key={`name-${domain.id}`}
+                           key={`name-${project.id}`}
                 />
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <Checkbox checked={(domain.closed === 1) ? true : false}
-                          onClick={(event) => clickDomainClosed(event, domainIndex, domain.id)}
-                          key={`checked-${domain.id}`}
+                <Checkbox checked={(project.closed === 1) ? true : false}
+                          onClick={(event) => clickProjectClosed(event, projectIndex, project.id)}
+                          key={`checked-${project.id}`}
                 />
             </Box>
             <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1' data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
-                {  domain.id === '' ? '' :
-                    areaCounts[`${domain.id}`] === undefined ? 0 :
-                      areaCounts[`${domain.id}`] === '' ? '' : areaCounts[`${domain.id}`] }
+                <Typography variant='body1' data-testid={project.id ? `category-count-${project.id}` : undefined}>
+                {  project.id === '' ? '' :
+                    categoryCounts[`${project.id}`] === undefined ? 0 :
+                      categoryCounts[`${project.id}`] === '' ? '' : categoryCounts[`${project.id}`] }
                  </Typography>
             </Box>
             <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1' data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
-                {  domain.id === '' ? '' :
-                    taskCounts[`${domain.id}`] === undefined ? 0 :
-                      taskCounts[`${domain.id}`] === '' ? '' : taskCounts[`${domain.id}`] }
+                <Typography variant='body1' data-testid={project.id ? `priority-count-${project.id}` : undefined}>
+                {  project.id === '' ? '' :
+                    priorityCounts[`${project.id}`] === undefined ? 0 :
+                      priorityCounts[`${project.id}`] === '' ? '' : priorityCounts[`${project.id}`] }
                  </Typography>
             </Box>
             <Box>
-                { domain.id === '' ?
+                { project.id === '' ?
                     <IconButton>
                         <SavingsIcon />
                     </IconButton>
                     :
-                    <IconButton onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)}>
+                    <IconButton onClick={(event) => clickProjectDelete(event, project.id, project.project_name)}>
                         <DeleteIcon />
                     </IconButton>
                 }
@@ -98,10 +98,10 @@ const DomainTableRow = ({
     }
 
     return (
-        <Draggable draggableId={`domainId-${domain.id}`} index={domainIndex}>
+        <Draggable draggableId={`projectId-${project.id}`} index={projectIndex}>
             {(provided, snapshot) => row(provided, snapshot)}
         </Draggable>
     );
 }
 
-export default DomainTableRow;
+export default ProjectTableRow;

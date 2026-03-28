@@ -25,6 +25,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import { CircularProgress, Tabs } from '@mui/material';
+import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
+import FolderIcon from '@mui/icons-material/Folder';
+import CategoryIcon from '@mui/icons-material/Category';
 
 const priorityStatusChipProps = (status) => {
     switch (status) {
@@ -213,6 +216,13 @@ const SwarmView = () => {
                                 );
                             })}
                         </Stack>
+                        <SettingsMenu
+                            tooltipTitle="Manage Projects & Categories"
+                            links={[
+                                { path: '/projectedit', label: 'Projects', icon: FolderIcon },
+                                { path: '/categoryedit', label: 'Categories', icon: CategoryIcon },
+                            ]}
+                        />
                     </Box>
                         {   projectsArray.map( (project, projectIndex) =>
                                 <CategoryTabPanel key={project.id}

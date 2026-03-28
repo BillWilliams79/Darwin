@@ -161,6 +161,34 @@ export function useCategories(creatorFk, projectId, { closed, fields = 'id,categ
     });
 }
 
+export function useAllCategories(creatorFk, { fields = 'id,project_fk', closed, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const closedParam = closed !== undefined ? `&closed=${closed}` : '';
+    const uri = `${darwinUri}/categories?fields=${fields}${closedParam}`;
+
+    return useQuery({
+        queryKey: closed !== undefined ? [...categoryKeys.all(creatorFk), { closed }] : categoryKeys.all(creatorFk),
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function usePriorityCounts(creatorFk, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/priorities?fields=count(*),category_fk`;
+    const queryKey = priorityKeys.counts(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
 export function usePriorities(creatorFk, categoryId, { fields = 'id,title,priority_status,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
