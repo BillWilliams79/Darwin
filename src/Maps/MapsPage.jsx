@@ -29,10 +29,12 @@ const MapsPage = () => {
     return (
         <Box sx={{ mt: 3, minWidth: 0, overflow: 'hidden' }}>
             <Box sx={{
-                display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap', px: 2,
+                display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
                 ...(view === 'table' ? { maxWidth: TABLE_WIDTH } : {}),
             }}>
-                <Typography variant="h5" sx={{ mr: 'auto' }}>Maps</Typography>
+                <Typography variant="h5">Maps</Typography>
+
+                <Box sx={{ flexGrow: 1 }} />
 
                 <Button
                     variant="outlined"
@@ -51,11 +53,14 @@ const MapsPage = () => {
                     Export
                 </Button>
 
+                <Box sx={{ width: 16 }} />
+
                 <ToggleButtonGroup
                     value={view}
                     exclusive
                     onChange={handleViewChange}
                     size="small"
+                    sx={{ flexShrink: 0 }}
                 >
                     <ToggleButton value="table" data-testid="view-toggle-table">
                         <TableChartIcon sx={{ mr: 0.5 }} fontSize="small" />

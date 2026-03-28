@@ -52,19 +52,6 @@ const RouteCardView = () => {
                 </Typography>
             )}
 
-            {allRuns.length > 0 && (
-                <TablePagination
-                    component="div"
-                    count={allRuns.length}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={[25, 50]}
-                    data-testid="route-card-pagination"
-                />
-            )}
-
             {/* Card grid — same className as TaskPlanView */}
             <Box className="card" sx={{ pb: 2 }}>
                 {paginatedRuns.map(run => (
@@ -77,6 +64,20 @@ const RouteCardView = () => {
                     />
                 ))}
             </Box>
+
+            {allRuns.length > 0 && (
+                <TablePagination
+                    component="div"
+                    count={allRuns.length}
+                    page={page}
+                    onPageChange={handleChangePage}
+                    rowsPerPage={rowsPerPage}
+                    onRowsPerPageChange={handleChangeRowsPerPage}
+                    rowsPerPageOptions={allRuns.length > 100 ? [25, 50, 100] : [25, 50]}
+                    labelRowsPerPage="Maps per page"
+                    data-testid="route-card-pagination"
+                />
+            )}
         </Box>
     );
 };
