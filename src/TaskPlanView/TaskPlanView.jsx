@@ -29,6 +29,9 @@ import IconButton from '@mui/material/IconButton';
 import FlagIcon from '@mui/icons-material/Flag';
 import DroppableTab from './DroppableTab';
 import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import CategoryIcon from '@mui/icons-material/Category';
 
 // Small component to subscribe to per-domain priority card show state
 const PriorityFlagButton = ({ domainId, togglePriorityCard }) => {
@@ -280,6 +283,13 @@ const TaskPlanView = () => {
                                 <PriorityFlagButton domainId={activeDomainId} togglePriorityCard={togglePriorityCard} />
                             );
                         })()}
+                        <SettingsMenu
+                            tooltipTitle="Manage Domains & Areas"
+                            links={[
+                                { path: '/domainedit', label: 'Domains', icon: AccountTreeIcon },
+                                { path: '/areaedit', label: 'Areas', icon: CategoryIcon },
+                            ]}
+                        />
                     </Box>
                         {   domainsArray.map( (domain, domainIndex) =>
                                 <AreaTabPanel key={domain.id}

@@ -22,6 +22,8 @@ import TaskPlanView from './TaskPlanView/TaskPlanView';
 import CalendarFC from './CalendarFC/CalendarFC';
 import AreaEdit from './AreaEdit/AreaEdit';
 import DomainEdit from './DomainEdit/DomainEdit';
+import ProjectEdit from './ProjectEdit/ProjectEdit';
+import CategoryEdit from './CategoryEdit/CategoryEdit';
 import Profile from './NavBar/Profile';
 import Error404 from './Error404/Error404';
 import SwarmView from './SwarmView/SwarmView';
@@ -66,6 +68,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="domainedit"   element= {<AuthenticatedRoute>
                                                              <DomainEdit />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="projectedit"  element= {<AuthenticatedRoute>
+                                                             <ProjectEdit />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="categoryedit" element= {<AuthenticatedRoute>
+                                                             <CategoryEdit />
                                                          </AuthenticatedRoute>} />
                     <Route path="profile"      element= {<Profile />} />
                     <Route path="swarm"        element= {<AuthenticatedRoute>
