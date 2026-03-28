@@ -39,7 +39,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             const rect = rowRef.current?.getBoundingClientRect();
             return {...priority, priorityIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
         },
-        canDrag: () => priority.priority_status !== 'completed' && priority.priority_status !== 'deferred',
+        canDrag: () => true,
         end: (item, monitor) => {
             const dropResult = monitor.getDropResult();
             if (!dropResult || dropResult.priority === null) {
@@ -52,7 +52,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
           isDragging: !!monitor.isDragging(),
         }),
-    }),[prioritiesArray, priorityIndex, priority.priority_status]);
+    }),[prioritiesArray, priorityIndex]);
 
     useEffect(() => {
         preview(getEmptyImage());
@@ -64,8 +64,6 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         hover: (dragItem, monitor) => {
             if (sortMode !== 'hand') return;
             if (priority.id === '') return;
-            if (priority.priority_status === 'completed') return;
-            if (priority.priority_status === 'deferred') return;
 
             if (dragItem.category_fk === priority.category_fk && dragItem.priorityIndex === priorityIndex) return;
 
@@ -87,7 +85,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
             isPriorityOver: monitor.isOver(),
         }),
-    }), [sortMode, priority.id, priority.priority_status, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
+    }), [sortMode, priority.id, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
 
     useEffect(() => {
         if (!isPriorityOver) setInsertIndicator(null);
