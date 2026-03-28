@@ -1,26 +1,29 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Profile', () => {
-  test('PROF-01: navigate to profile page via bike icon link', async ({ page }) => {
+  test('PROF-01: open profile dialog via bike icon', async ({ page }) => {
     await page.goto('/taskcards');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
 
-    // Open the bike menu (Profile/Domains/Areas are inside it)
+    // Click bike icon — opens profile dialog (not a menu)
     await page.getByTestId('bike-menu-button').click();
-    // Click the Profile menu item
-    await page.getByRole('menuitem', { name: /profile/i }).click();
 
-    // Verify navigation to /profile
-    await expect(page).toHaveURL(/\/profile/);
+    // Verify dialog opens with profile content
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await expect(dialog).toContainText('Profile');
 
-    // Profile.jsx renders 3 TextFields: Name, Timezone (Autocomplete), E-mail
-    await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
-    const textFields = page.locator('.MuiTextField-root');
+    // Dialog renders 3 TextFields: Name, Timezone (Autocomplete), E-mail
+    const textFields = dialog.locator('.MuiTextField-root');
     await expect(textFields).toHaveCount(3);
 
     // Verify profile labels are present
-    await expect(page.locator('body')).toContainText('Name');
-    await expect(page.locator('body')).toContainText('mail');
+    await expect(dialog).toContainText('Name');
+    await expect(dialog).toContainText('mail');
+
+    // Close dialog via X button
+    await page.getByTestId('profile-dialog-close').click();
+    await expect(dialog).not.toBeVisible();
   });
 
   test('PROF-02: profile page via direct navigation', async ({ page }) => {

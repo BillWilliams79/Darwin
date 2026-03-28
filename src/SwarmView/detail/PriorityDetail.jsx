@@ -493,8 +493,9 @@ const PriorityDetail = () => {
                     No sessions linked to this priority.
                 </Typography>
             ) : (
-                <Box sx={{ height: 300 }} data-testid="linked-sessions-grid">
+                <Box data-testid="linked-sessions-grid">
                     <DataGrid
+                        autoHeight
                         rows={sessions}
                         columns={getSessionColumns(navigate, timezone)}
                         density="compact"
