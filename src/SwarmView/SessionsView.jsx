@@ -200,8 +200,9 @@ const SessionsView = () => {
                     )}
                 </Box>
             ) : (
-                <Box sx={{ height: 600, width: '100%' }} data-testid="sessions-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
+                        autoHeight
                         rows={filteredSessions}
                         columns={getSessionColumns(navigate, profile?.timezone)}
                         slots={{ toolbar: GridToolbar }}
