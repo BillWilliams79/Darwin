@@ -28,10 +28,10 @@ import { CircularProgress, Tabs } from '@mui/material';
 
 const priorityStatusChipProps = (status) => {
     switch (status) {
-        case 'open':     return { color: 'primary' };
-        case 'deferred': return { sx: { bgcolor: '#ff9800', color: '#fff' } };
-        case 'closed':   return { color: 'success' };
-        default:         return { color: 'default' };
+        case 'open':      return { color: 'primary' };
+        case 'deferred':  return { sx: { bgcolor: '#ff9800', color: '#fff' } };
+        case 'completed': return { color: 'success' };
+        default:          return { color: 'default' };
     }
 };
 
@@ -51,7 +51,7 @@ const SwarmView = () => {
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
     const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
     const togglePriorityStatus = useShowClosedStore(s => s.togglePriorityStatus);
-    const showClosed = priorityStatusFilter.includes('closed');
+    const showClosed = priorityStatusFilter.includes('completed');
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
