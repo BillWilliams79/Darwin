@@ -26,7 +26,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
-    const { inProgressClick, closedClick, deferredClick, scheduledClick, titleChange, titleKeyDown,
+    const { scheduledClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
         sortMode, setCrossCardInsertIndex, sessionStatusMap } = usePriorityActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
@@ -39,7 +39,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             const rect = rowRef.current?.getBoundingClientRect();
             return {...priority, priorityIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
         },
-        canDrag: () => !priority.closed && !priority.deferred,
+        canDrag: () => priority.priority_status !== 'completed' && priority.priority_status !== 'deferred',
         end: (item, monitor) => {
             const dropResult = monitor.getDropResult();
             if (!dropResult || dropResult.priority === null) {
@@ -52,7 +52,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
           isDragging: !!monitor.isDragging(),
         }),
-    }),[prioritiesArray, priorityIndex, priority.closed, priority.deferred]);
+    }),[prioritiesArray, priorityIndex, priority.priority_status]);
 
     useEffect(() => {
         preview(getEmptyImage());
@@ -64,8 +64,8 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         hover: (dragItem, monitor) => {
             if (sortMode !== 'hand') return;
             if (priority.id === '') return;
-            if (priority.closed === 1) return;
-            if (priority.deferred === 1) return;
+            if (priority.priority_status === 'completed') return;
+            if (priority.priority_status === 'deferred') return;
 
             if (dragItem.category_fk === priority.category_fk && dragItem.priorityIndex === priorityIndex) return;
 
@@ -87,7 +87,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         collect: (monitor) => ({
             isPriorityOver: monitor.isOver(),
         }),
-    }), [sortMode, priority.id, priority.closed, priority.deferred, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
+    }), [sortMode, priority.id, priority.priority_status, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
 
     useEffect(() => {
         if (!isPriorityOver) setInsertIndicator(null);
@@ -114,13 +114,13 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[priority.id];
-    const isRunning = !!(priority.in_progress || sessionStatus);
+    const status = priority.priority_status;
     const getStatusIcon = () => {
         if (priority.id === '') return null;
-        if (priority.closed) {
+        if (status === 'completed') {
             return <Tooltip title="Completed" enterDelay={400} enterNextDelay={200}><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
         }
-        if (priority.deferred) {
+        if (status === 'deferred') {
             return <Tooltip title="Deferred" enterDelay={400} enterNextDelay={200}><DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} /></Tooltip>;
         }
         if (sessionStatus === 'paused') {
@@ -129,7 +129,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
         if (sessionStatus) {
             return <Tooltip title={sessionStatus} enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
         }
-        if (priority.in_progress) {
+        if (status === 'in_progress') {
             return <Tooltip title="In Progress" enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
         }
         return <Tooltip title="Not Started" enterDelay={400} enterNextDelay={200}><HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} /></Tooltip>;
@@ -165,7 +165,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
             {/* Col 2: Scheduled toggle — hidden when closed or in-progress, disabled when session is active */}
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {priority.id !== '' && !priority.closed && !priority.deferred && !priority.in_progress ? (() => {
+                {priority.id !== '' && status === 'idle' ? (() => {
                     const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
                     const btn = (
                         <IconButton
@@ -221,7 +221,7 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(priority.closed === 1 && {textDecoration: 'line-through'}), ...(priority.deferred === 1 && {opacity: 0.5}),}}
+                        sx = {{...(status === 'completed' && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${priority.id}`}
