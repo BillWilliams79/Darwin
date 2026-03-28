@@ -102,6 +102,45 @@ export async function findDomainIndex(page: Page, domainName: string): Promise<n
   }, domainName);
 }
 
+/**
+ * Navigate to ProjectEdit and wait for project rows to render.
+ */
+export async function navigateToProjectEdit(page: Page): Promise<void> {
+  await page.goto('/projectedit');
+  await page.waitForSelector('[data-testid="project-row-template"]', { timeout: 60000 });
+}
+
+/**
+ * Wait for the ProjectEdit rows to render. Use after page.reload().
+ */
+export async function waitForProjectTable(page: Page): Promise<void> {
+  await page.waitForSelector('[data-testid="project-row-template"]', { timeout: 60000 });
+}
+
+/**
+ * Get all project names from the ProjectEdit table in a single browser call.
+ */
+export async function getAllProjectNames(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const inputs = document.querySelectorAll('input[name="project-name"]');
+    return Array.from(inputs).map(input => (input as HTMLInputElement).value);
+  });
+}
+
+/**
+ * Find the index of a project name field in the ProjectEdit table.
+ * Returns -1 if not found. Uses in-browser evaluation for speed.
+ */
+export async function findProjectIndex(page: Page, projectName: string): Promise<number> {
+  return page.evaluate((name) => {
+    const inputs = document.querySelectorAll('input[name="project-name"]');
+    for (let i = 0; i < inputs.length; i++) {
+      if ((inputs[i] as HTMLInputElement).value === name) return i;
+    }
+    return -1;
+  }, projectName);
+}
+
 /** Click a sort mode option via the card's three-dot menu. */
 export async function clickSortMode(page: Page, areaId: string, mode: 'priority' | 'hand'): Promise<void> {
   await page.getByTestId(`card-menu-${areaId}`).click();

@@ -46,14 +46,14 @@ const NavBarSidebar = () => {
     const visibleGroups = useMemo(() =>
         NAV_GROUPS.filter(g => {
             const key = GROUP_PROFILE_KEY[g.id];
-            return !key || (profile?.[key] ?? 1) === 1;
+            return !key || Number(profile?.[key] ?? 1) === 1;
         }),
         [profile]
     );
     const visibleLinks = useMemo(() =>
         NAV_LINKS.filter(l => {
             const key = GROUP_PROFILE_KEY[l.group];
-            return !key || (profile?.[key] ?? 1) === 1;
+            return !key || Number(profile?.[key] ?? 1) === 1;
         }),
         [profile]
     );

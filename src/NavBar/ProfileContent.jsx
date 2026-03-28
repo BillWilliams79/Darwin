@@ -33,24 +33,9 @@ const ProfileContent = ({ onClose }) => {
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
     const [exporting, setExporting] = useState(false);
-    const [appTasks, setAppTasks] = useState(profile?.app_tasks ?? 1);
-    const [appMaps, setAppMaps] = useState(profile?.app_maps ?? 1);
-    const [appSwarm, setAppSwarm] = useState(profile?.app_swarm ?? 0);
-
-    // Sync local state when profile loads after initial mount (dialog may pre-render)
-    useEffect(() => {
-        setName(profile?.name || '');
-        setTimezone(profile?.timezone || '');
-        setAppTasks(profile?.app_tasks ?? 1);
-        setAppMaps(profile?.app_maps ?? 1);
-        setAppSwarm(profile?.app_swarm ?? 0);
-        savedNameRef.current = profile?.name || '';
-        savedTimezoneRef.current = profile?.timezone || '';
-        savedThemeModeRef.current = profile?.theme_mode || 'light';
-        savedAppTasksRef.current = profile?.app_tasks ?? 1;
-        savedAppMapsRef.current = profile?.app_maps ?? 1;
-        savedAppSwarmRef.current = profile?.app_swarm ?? 0;
-    }, [profile]);
+    const [appTasks, setAppTasks] = useState(Number(profile?.app_tasks ?? 1));
+    const [appMaps, setAppMaps] = useState(Number(profile?.app_maps ?? 1));
+    const [appSwarm, setAppSwarm] = useState(Number(profile?.app_swarm ?? 0));
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
@@ -58,9 +43,36 @@ const ProfileContent = ({ onClose }) => {
     const savedNameRef = useRef(profile?.name || '');
     const savedTimezoneRef = useRef(profile?.timezone || '');
     const savedThemeModeRef = useRef(profile?.theme_mode || 'light');
-    const savedAppTasksRef = useRef(profile?.app_tasks ?? 1);
-    const savedAppMapsRef = useRef(profile?.app_maps ?? 1);
-    const savedAppSwarmRef = useRef(profile?.app_swarm ?? 0);
+    const savedAppTasksRef = useRef(Number(profile?.app_tasks ?? 1));
+    const savedAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
+    const savedAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
+
+    // Fetch fresh profile from DB on mount — stale localStorage must not be authoritative
+    useEffect(() => {
+        if (!idToken || !profile?.id) return;
+        call_rest_api(`${darwinUri}/profiles?id=${profile.id}`, 'GET', '', idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200 && result.data?.[0]) {
+                    const db = result.data[0];
+                    setName(db.name || '');
+                    setTimezone(db.timezone || '');
+                    setAppTasks(Number(db.app_tasks ?? 1));
+                    setAppMaps(Number(db.app_maps ?? 1));
+                    setAppSwarm(Number(db.app_swarm ?? 0));
+                    savedNameRef.current = db.name || '';
+                    savedTimezoneRef.current = db.timezone || '';
+                    savedThemeModeRef.current = db.theme_mode || 'light';
+                    savedAppTasksRef.current = Number(db.app_tasks ?? 1);
+                    savedAppMapsRef.current = Number(db.app_maps ?? 1);
+                    savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                    const updated = { ...profile, ...db };
+                    setProfile(updated);
+                    localStorage.setItem('darwin-profile', JSON.stringify(updated));
+                }
+            })
+            .catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm) => {
         if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current
