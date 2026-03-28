@@ -72,7 +72,7 @@ const ProfileContent = ({ onClose }) => {
             })
             .catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [idToken]);
 
     const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm) => {
         if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current
