@@ -374,7 +374,7 @@ test.describe('Calendar Priorities', () => {
 
     const priResult = await apiCall('priorities', 'POST', {
       creator_fk: sub, title: testPriorityTitle, category_fk: testCategoryId,
-      in_progress: 0, closed: 1, sort_order: 0, completed_at: completedAt,
+      priority_status: 'completed', sort_order: 0, completed_at: completedAt,
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test priority');
     testPriorityId = priResult[0].id;
