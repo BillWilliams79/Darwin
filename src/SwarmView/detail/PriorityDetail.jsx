@@ -30,8 +30,6 @@ import IconButton from '@mui/material/IconButton';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import HotelIcon from '@mui/icons-material/Hotel';
-import PlayCircleIcon from '@mui/icons-material/PlayCircle';
-import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -209,11 +207,15 @@ const PriorityDetail = () => {
         if (priority) saveField('description', priority.description || '');
     };
 
-    const handleScheduledToggle = () => {
-        const newVal = priority.scheduled ? 0 : 1;
-        setPriority(prev => ({ ...prev, scheduled: newVal }));
-        saveField('scheduled', newVal);
+    const handleScheduledToggle = (event, newVal) => {
+        if (newVal === null) return;
+        const scheduledMap = { idle: 0, scheduled: 1, auto: 2 };
+        const numVal = scheduledMap[newVal];
+        setPriority(prev => ({ ...prev, scheduled: numVal }));
+        saveField('scheduled', numVal);
     };
+
+    const scheduledState = priority?.scheduled === 2 ? 'auto' : priority?.scheduled === 1 ? 'scheduled' : 'idle';
 
     // Map DB priority_status to toggle button value: idle/in_progress → 'open'
     const currentState = priority
@@ -330,22 +332,31 @@ const PriorityDetail = () => {
                     const activeStatuses = ['starting', 'active', 'completing'];
                     const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
                     const isDisabled = hasActiveSession || priority.priority_status === 'completed' || priority.priority_status === 'deferred';
-                    const button = (
-                        <IconButton
-                            onClick={handleScheduledToggle}
+                    return (
+                        <ToggleButtonGroup
+                            value={scheduledState}
+                            exclusive
+                            onChange={handleScheduledToggle}
+                            size="small"
                             disabled={isDisabled}
                             data-testid="toggle-scheduled"
                         >
-                            {priority.scheduled ?
-                                <PlayCircleIcon sx={{ fontSize: 28, color: isDisabled ? 'text.disabled' : 'primary.main' }} /> :
-                                <PlayCircleOutlineIcon sx={{ fontSize: 28, color: 'text.disabled' }} />
-                            }
-                        </IconButton>
-                    );
-                    return isDisabled ? button : (
-                        <Tooltip title={priority.scheduled ? "Scheduled for Swarm-Start" : "Schedule for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
-                            {button}
-                        </Tooltip>
+                            <Tooltip title="Not set for swarm-start" enterDelay={400} enterNextDelay={200}>
+                                <ToggleButton value="idle" data-testid="scheduled-idle"
+                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'idle' && { bgcolor: 'action.selected' }) }}
+                                >Idle</ToggleButton>
+                            </Tooltip>
+                            <Tooltip title="Set for swarm-start, manual start" enterDelay={400} enterNextDelay={200}>
+                                <ToggleButton value="scheduled" data-testid="scheduled-scheduled"
+                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'scheduled' && { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' }, '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } } }) }}
+                                >Scheduled</ToggleButton>
+                            </Tooltip>
+                            <Tooltip title="Set for swarm-start, begins automatically" enterDelay={400} enterNextDelay={200}>
+                                <ToggleButton value="auto" data-testid="scheduled-auto"
+                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'auto' && { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' }, '&.Mui-selected': { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' } } }) }}
+                                >Auto-Start</ToggleButton>
+                            </Tooltip>
+                        </ToggleButtonGroup>
                     );
                 })()}
                 {(() => {
