@@ -385,34 +385,42 @@ test.describe('Calendar Priorities', () => {
     try { await apiDelete('projects', testProjectId, idToken); } catch {}
   });
 
-  test('CAL-09: toggle between Tasks and Priorities modes updates title', async ({ page }) => {
+  test('CAL-09: multi-select toggles update title', async ({ page }) => {
     await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Default mode is Tasks — title ends with "Completed Tasks"
+    // Default mode is Tasks only — title ends with "Completed Tasks"
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
 
-    // Click Priorities toggle
+    // Click Priorities to add it — now Tasks+Priorities selected, title becomes "Calendar"
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
-    // Title should now end with "Completed Priorities"
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Completed Tasks$/)).not.toBeVisible();
-
-    // Click Tasks toggle to switch back
+    // Deselect Tasks — only Priorities selected, title becomes "Completed Priorities"
     await toggle.getByRole('button', { name: 'Tasks' }).click();
+    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
 
-    // Title should revert to "Completed Tasks"
-    await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
+    // Re-select Tasks — back to multi-select "Calendar"
+    await toggle.getByRole('button', { name: 'Tasks' }).click();
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
+
+    // Deselect Priorities — back to Tasks only, "Completed Tasks"
+    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await expect(page.getByText(/Completed Tasks$/)).toBeVisible({ timeout: 5000 });
   });
 
   test('CAL-10: priorities mode renders completed priority on calendar', async ({ page }) => {
     await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Switch to Priorities mode
+    // Switch to Priorities-only mode (deselect Tasks, select Priorities)
     const toggle = page.getByTestId('calendar-mode-toggle');
+    await toggle.getByRole('button', { name: 'Tasks' }).click();
     await toggle.getByRole('button', { name: 'Priorities' }).click();
     await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
 
@@ -432,9 +440,11 @@ test.describe('Calendar Priorities', () => {
 
   test('CAL-11: clicking priority event navigates to priority detail', async ({ page }) => {
     await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Switch to Priorities mode
+    // Add Priorities to selection (multi-select)
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
     await page.waitForTimeout(2000);
@@ -503,12 +513,12 @@ test.describe('Calendar View Persistence', () => {
   });
 
   test('CAL-14: mode persists across navigation', async ({ page }) => {
-    // Default is Tasks mode — switch to Priorities
+    // Add Priorities to selection (multi-select: Tasks + Priorities)
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
 
-    // Verify Priorities mode is active
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
+    // Verify multi-mode title "Calendar"
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
     // Navigate away
     await page.goto('/');
@@ -517,8 +527,8 @@ test.describe('Calendar View Persistence', () => {
     await page.goto('/calview');
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Priorities mode should be restored
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    // Multi-mode should be restored — still "Calendar"
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible();
   });
 
   test('CAL-15: full page reload preserves all settings', async ({ page }) => {
@@ -529,13 +539,13 @@ test.describe('Calendar View Persistence', () => {
     // Navigate to previous day
     await page.locator('.fc-prev-button').click();
 
-    // Switch to Priorities mode
+    // Add Priorities to selection (multi-select: Tasks + Priorities)
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
     // Capture state before reload
-    const titleBeforeReload = await page.getByText(/Completed Priorities$/).textContent();
+    const titleBeforeReload = await page.getByText(/'\d{2} Calendar$/).textContent();
 
     // Full page reload
     await page.reload();
@@ -544,10 +554,10 @@ test.describe('Calendar View Persistence', () => {
     // All settings should be preserved
     // Day view
     await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
-    // Priorities mode
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    // Multi-mode preserved
+    await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible();
     // Same date
-    const titleAfterReload = await page.getByText(/Completed Priorities$/).textContent();
+    const titleAfterReload = await page.getByText(/'\d{2} Calendar$/).textContent();
     expect(titleAfterReload).toBe(titleBeforeReload);
   });
 
