@@ -147,7 +147,8 @@ test.describe('Swarm View', () => {
     await page.getByRole('tab', { name: testProjectName }).click();
     await expect(page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`)).toBeVisible({ timeout: 10000 });
 
-    // Click again to unschedule (cleanup)
+    // Click twice more to cycle back to idle (scheduled→auto-start→idle)
+    await page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`).click();
     await page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`).click();
   });
 

@@ -165,6 +165,14 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
             <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {priority.id !== '' && status === 'idle' ? (() => {
                     const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
+                    const scheduledVal = priority.scheduled || 0;
+                    const iconColor = isActiveSession ? 'text.disabled'
+                        : scheduledVal === 2 ? 'success.main'
+                        : scheduledVal === 1 ? 'primary.main'
+                        : 'text.disabled';
+                    const tooltipText = scheduledVal === 2 ? "Auto-Start — click to clear"
+                        : scheduledVal === 1 ? "Scheduled — click for Auto-Start"
+                        : "Schedule for Swarm-Start";
                     const btn = (
                         <IconButton
                             onClick={() => scheduledClick(priorityIndex, priority.id)}
@@ -172,14 +180,14 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                             data-testid={`scheduled-toggle-${priority.id}`}
                             sx={{ maxWidth: 28, maxHeight: 28 }}
                         >
-                            {priority.scheduled ?
-                                <PlayCircleIcon sx={{ fontSize: 20, color: isActiveSession ? 'text.disabled' : 'primary.main' }} /> :
+                            {scheduledVal > 0 ?
+                                <PlayCircleIcon sx={{ fontSize: 20, color: iconColor }} /> :
                                 <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
                             }
                         </IconButton>
                     );
                     return isActiveSession ? btn : (
-                        <Tooltip title={priority.scheduled ? "Marked for Swarm-Start" : "Mark for Swarm-Start"} enterDelay={400} enterNextDelay={200}>
+                        <Tooltip title={tooltipText} enterDelay={400} enterNextDelay={200}>
                             {btn}
                         </Tooltip>
                     );

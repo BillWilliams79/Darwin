@@ -46,7 +46,9 @@ const PriorityDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDelete
                 {priority?.title && (
                     <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, mx: 2, gap: 0.5 }}>
                         <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                            {priority.scheduled
+                            {priority.scheduled === 2
+                                ? <PlayCircleIcon sx={{ fontSize: 20, color: 'success.main' }} />
+                                : priority.scheduled === 1
                                 ? <PlayCircleIcon sx={{ fontSize: 20, color: 'primary.main' }} />
                                 : <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />}
                         </IconButton>
