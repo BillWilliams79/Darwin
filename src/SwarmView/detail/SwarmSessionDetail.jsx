@@ -197,6 +197,21 @@ const SwarmSessionDetail = () => {
                 </Box>
             }
 
+            {/* --- Plan (bordered section) --- */}
+            {session.plan &&
+                <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
+                        Plan
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 2, mt: 0.5 }} data-testid="session-plan-panel">
+                        <Typography variant="body2" data-testid="session-plan"
+                                    sx={{ whiteSpace: 'pre-wrap' }}>
+                            {session.plan}
+                        </Typography>
+                    </Paper>
+                </Box>
+            }
+
             {/* --- Telemetry (bordered section) --- */}
             {session.telemetry &&
                 <Box sx={{ mb: 2 }}>
