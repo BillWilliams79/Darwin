@@ -36,6 +36,7 @@
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.3.0",
+    "recharts": "^3.8.1",
     "sql.js": "^1.14.1",
     "temporal-polyfill": "^0.3.0",
     "zustand": "^5.0.11"
@@ -46,7 +47,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "cd tests && npx playwright test",
-    "test:unit": "vitest run src/cyclemeter"
+    "test:unit": "vitest run src/"
   },
   "overrides": {
     "react-is": "$react"

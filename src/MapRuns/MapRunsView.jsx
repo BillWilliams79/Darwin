@@ -5,7 +5,6 @@ import Typography from '@mui/material/Typography';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
@@ -15,7 +14,6 @@ import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import TextField from '@mui/material/TextField';
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import { DataGrid, GridToolbar, GridFooterContainer, GridPagination } from '@mui/x-data-grid';
@@ -60,8 +58,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
 
     const showError = useSnackBarStore(s => s.showError);
 
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [deleting, setDeleting] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
     // Row selection state (v8 shape: include = only these, exclude = all except these)
@@ -193,34 +189,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
         },
     ];
 
-    const handleDeleteAll = async () => {
-        setDeleteDialogOpen(false);
-        setDeleting(true);
-
-        try {
-            // Delete all runs (CASCADE cleans coordinates)
-            for (const run of allRuns) {
-                await call_rest_api(`${darwinUri}/map_runs`, 'DELETE', { id: run.id }, idToken);
-            }
-
-            // Delete all routes
-            for (const route of routes) {
-                await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { id: route.id }, idToken);
-            }
-
-            // Invalidate caches
-            queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
-            queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
-
-            setSnackbar({ open: true, message: 'All map data deleted', severity: 'success' });
-        } catch (err) {
-            console.error('[MapRuns] Delete error:', err);
-            setSnackbar({ open: true, message: 'Delete failed', severity: 'error' });
-        } finally {
-            setDeleting(false);
-        }
-    };
-
     const handleCellClick = (params) => {
         if (params.field === '__check__') return;
         setEditingRun(params.row);
@@ -321,34 +289,24 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
 
     return (
         <Box sx={{ mt: 1, px: 2, maxWidth: TABLE_WIDTH }}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                {selectedCount > 0 && (
+            {selectedCount > 0 && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mb: 0.5 }}>
                     <Button
                         variant="outlined"
                         size="small"
                         startIcon={<EditIcon />}
                         onClick={handleOpenBulkEdit}
-                        disabled={savingBulkEdit || deletingSelected || deleting}
+                        disabled={savingBulkEdit || deletingSelected}
                         data-testid="edit-selected-button"
                     >
                         Edit Selected ({selectedCount})
                     </Button>
-                )}
-                <Button
-                    variant="outlined"
-                    color="error"
-                    size="small"
-                    startIcon={deleting ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
-                    onClick={() => setDeleteDialogOpen(true)}
-                    disabled={allRuns.length === 0 || deleting}
-                    data-testid="delete-all-button"
-                >
-                    Delete All
-                </Button>
-            </Box>
+                </Box>
+            )}
 
-            <Box sx={{ height: 'calc(100vh - 200px)', minHeight: 400 }}>
+            <Box>
                 <DataGrid
+                    autoHeight
                     rows={runs}
                     columns={columns}
                     loading={isLoading}
@@ -382,23 +340,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                     data-testid="map-runs-datagrid"
                 />
             </Box>
-
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-                <DialogTitle>Delete All Map Data?</DialogTitle>
-                <DialogContent>
-                    <DialogContentText>
-                        This will permanently delete all {allRuns.length} runs, their GPS coordinates,
-                        and {routes.length} routes. This cannot be undone.
-                    </DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleDeleteAll} color="error" variant="contained">
-                        Delete All
-                    </Button>
-                </DialogActions>
-            </Dialog>
 
             {/* Edit Selected Dialog */}
             <Dialog
