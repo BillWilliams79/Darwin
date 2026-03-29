@@ -1,31 +1,24 @@
 import '../index.css';
-import React, { useState, useContext } from 'react';
+import React, { useState, useMemo } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import TablePagination from '@mui/material/TablePagination';
 
-import AuthContext from '../Context/AuthContext';
-import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import RouteCard from './RouteCard';
 
-const RouteCardView = () => {
-    const { profile } = useContext(AuthContext);
-    const creatorFk = profile?.id;
-
-    const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
-    const { data: routes = [] } = useMapRoutes(creatorFk);
-
+const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
 
     // Build route lookup
-    const routeMap = new Map();
-    for (const route of routes) {
-        routeMap.set(route.id, route.name);
-    }
+    const routeMap = useMemo(() => {
+        const m = new Map();
+        for (const route of routes) m.set(route.id, route.name);
+        return m;
+    }, [routes]);
 
-    if (runsLoading) {
+    if (isLoading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 6 }}>
                 <CircularProgress />
@@ -33,7 +26,7 @@ const RouteCardView = () => {
         );
     }
 
-    const paginatedRuns = allRuns.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const paginatedRuns = runs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
     const handleChangePage = (event, newPage) => {
         setPage(newPage);
@@ -46,7 +39,7 @@ const RouteCardView = () => {
 
     return (
         <Box sx={{ px: 3, pt: 1 }}>
-            {allRuns.length === 0 && (
+            {runs.length === 0 && (
                 <Typography variant="body2" color="text.disabled" sx={{ p: 2 }}>
                     No activities found. Import data via Maps &gt; Import.
                 </Typography>
@@ -65,15 +58,15 @@ const RouteCardView = () => {
                 ))}
             </Box>
 
-            {allRuns.length > 0 && (
+            {runs.length > 0 && (
                 <TablePagination
                     component="div"
-                    count={allRuns.length}
+                    count={runs.length}
                     page={page}
                     onPageChange={handleChangePage}
                     rowsPerPage={rowsPerPage}
                     onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={allRuns.length > 100 ? [25, 50, 100] : [25, 50]}
+                    rowsPerPageOptions={runs.length > 100 ? [25, 50, 100] : [25, 50]}
                     labelRowsPerPage="Maps per page"
                     data-testid="route-card-pagination"
                 />
