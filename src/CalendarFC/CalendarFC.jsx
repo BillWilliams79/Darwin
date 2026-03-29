@@ -15,7 +15,7 @@ import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
-import { useTasksDone, usePrioritiesDone, useCategoryColors, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
+import { useTasksDone, usePrioritiesDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
 import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -75,10 +75,11 @@ const CalendarFC = () => {
     const [calendarTitle, setCalendarTitle] = useState('');
 
     // ── Shared state ─────────────────────────────────────────────────────────
-    const [mode, setMode] = useState(savedMode || 'tasks');
-    const isTasksMode = mode === 'tasks';
-    const isPrioritiesMode = mode === 'priorities';
-    const isActivitiesMode = mode === 'activities';
+    const [mode, setMode] = useState(savedMode || ['tasks']);
+    const isTasksMode = mode.includes('tasks');
+    const isPrioritiesMode = mode.includes('priorities');
+    const isActivitiesMode = mode.includes('activities');
+    const hasDraggable = isTasksMode || isPrioritiesMode;
 
     // ── Desktop date range (FullCalendar datesSet → query) ───────────────────
     const [dateRange, setDateRange] = useState({ start: null, end: null });
@@ -101,6 +102,7 @@ const CalendarFC = () => {
         isMobile ? mobileEndStr   : endStr,
         { enabled: isPrioritiesMode, fields: 'id,title,completed_at,category_fk' });
     const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: isPrioritiesMode });
+    const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color', enabled: isPrioritiesMode });
     const { data: serverActivities } = useMapRunsDone(profile?.userName,
         isMobile ? mobileStartStr : startStr,
         isMobile ? mobileEndStr   : endStr,
@@ -169,51 +171,60 @@ const CalendarFC = () => {
     const activityEventColor = isDark ? '#2a3535' : '#E0F2F1';
 
     const events = useMemo(() => {
+        const result = [];
         if (isTasksMode) {
-            return localTasksArray.map(task => {
+            for (const task of localTasksArray) {
                 const isHigh = task.priority === 1;
-                return {
-                    id: String(task.id),
+                result.push({
+                    id: `t-${task.id}`,
                     title: task.description,
                     start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
                     allDay: true,
+                    editable: true,
                     backgroundColor: isHigh ? PRIORITY_STYLE.bg : taskEventColor,
                     borderColor:     isHigh ? PRIORITY_STYLE.border : taskEventColor,
                     textColor:       isHigh ? PRIORITY_STYLE.textColor : (isDark ? '#d9d0c4' : '#333'),
-                    extendedProps: { priority: task.priority },
-                };
-            });
+                    extendedProps: { sourceType: 'tasks', priority: task.priority, rawId: String(task.id) },
+                });
+            }
         }
         if (isActivitiesMode) {
-            return localActivitiesArray.map(activity => {
+            for (const activity of localActivitiesArray) {
                 const location = routeNameMap[activity.map_route_fk] || activity.activity_name || 'Activity';
                 const statsLine = `${Number(activity.distance_mi).toFixed(1)}mi @ ${Number(activity.avg_speed_mph).toFixed(1)}mph for ${formatHM(activity.run_time_sec)}`;
-                return {
-                    id: String(activity.id),
+                result.push({
+                    id: `a-${activity.id}`,
                     title: location,
                     start: activity.start_time ? toLocaleDateString(activity.start_time, profile?.timezone) : null,
                     allDay: true,
+                    editable: false,
                     backgroundColor: activityEventColor,
                     borderColor: activityEventColor,
                     textColor: isDark ? '#d9d0c4' : '#333',
                     classNames: ['fc-activity-event'],
-                    extendedProps: { isActivity: true, statsLine },
-                };
-            });
+                    extendedProps: { sourceType: 'activities', isActivity: true, statsLine, rawId: String(activity.id) },
+                });
+            }
         }
-        return localPrioritiesArray.map(priority => ({
-            id: String(priority.id),
-            title: priority.title,
-            start: priority.completed_at ? toLocaleDateString(priority.completed_at, profile?.timezone) : null,
-            allDay: true,
-            backgroundColor: priorityEventColor,
-            borderColor: priorityEventColor,
-            textColor: isDark ? '#d9d0c4' : '#333',
-            classNames: ['fc-priority-event'],
-            extendedProps: { catColor: priority.category_fk ? categoryColorMap[priority.category_fk] : null },
-        }));
+        if (isPrioritiesMode) {
+            for (const priority of localPrioritiesArray) {
+                result.push({
+                    id: `p-${priority.id}`,
+                    title: priority.title,
+                    start: priority.completed_at ? toLocaleDateString(priority.completed_at, profile?.timezone) : null,
+                    allDay: true,
+                    editable: true,
+                    backgroundColor: priorityEventColor,
+                    borderColor: priorityEventColor,
+                    textColor: isDark ? '#d9d0c4' : '#333',
+                    classNames: ['fc-priority-event'],
+                    extendedProps: { sourceType: 'priorities', catColor: priority.category_fk ? categoryColorMap[priority.category_fk] : null, rawId: String(priority.id) },
+                });
+            }
+        }
+        return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, isActivitiesMode, localTasksArray, localPrioritiesArray, localActivitiesArray, profile?.timezone, isDark, categoryColorMap, routeNameMap]);
+    }, [isTasksMode, isActivitiesMode, isPrioritiesMode, localTasksArray, localPrioritiesArray, localActivitiesArray, profile?.timezone, isDark, categoryColorMap, routeNameMap]);
 
     // ── Mobile: group events by date for custom list ──────────────────────────
     const mobileEventsByDate = useMemo(() => {
@@ -324,7 +335,9 @@ const CalendarFC = () => {
     }, [isMobile]);
 
     // ── Desktop FullCalendar handlers ─────────────────────────────────────────
-    const titleSuffix = isTasksMode ? 'Completed Tasks' : isPrioritiesMode ? 'Completed Priorities' : 'Activities';
+    const titleSuffix = mode.length === 1
+        ? (mode[0] === 'tasks' ? 'Completed Tasks' : mode[0] === 'priorities' ? 'Completed Priorities' : 'Activities')
+        : 'Calendar';
     const buildTitle = useCallback((d, suffix) => {
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return `${months[d.getMonth()]} '${String(d.getFullYear()).slice(-2)} ${suffix}`;
@@ -349,39 +362,45 @@ const CalendarFC = () => {
     }, []);
 
     const handleEventDrop = useCallback((info) => {
-        const taskId = info.event.id;
+        const rawId = info.event.extendedProps.rawId;
         const newDate = info.event.start;
         newDate.setHours(12, 0, 0, 0);
         const newDoneTs = newDate.toISOString().slice(0, 19);
-        call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, done_ts: newDoneTs }], idToken)
+        call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: rawId, done_ts: newDoneTs }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     setLocalTasksArray(prev => prev.map(t =>
-                        String(t.id) === taskId ? { ...t, done_ts: newDoneTs } : t
+                        String(t.id) === rawId ? { ...t, done_ts: newDoneTs } : t
                     ));
                 } else { info.revert(); showError(result, 'Unable to move task'); }
             }).catch(error => { info.revert(); showError(error, 'Unable to move task'); });
     }, [darwinUri, idToken, showError]);
 
     const handlePriorityDrop = useCallback((info) => {
-        const priorityId = info.event.id;
+        const rawId = info.event.extendedProps.rawId;
         const newDate = info.event.start;
         newDate.setHours(12, 0, 0, 0);
         const newCompletedAt = newDate.toISOString().slice(0, 19);
-        call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: priorityId, completed_at: newCompletedAt }], idToken)
+        call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: rawId, completed_at: newCompletedAt }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
                     setLocalPrioritiesArray(prev => prev.map(p =>
-                        String(p.id) === priorityId ? { ...p, completed_at: newCompletedAt } : p
+                        String(p.id) === rawId ? { ...p, completed_at: newCompletedAt } : p
                     ));
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 } else { info.revert(); showError(result, 'Unable to move priority'); }
             }).catch(error => { info.revert(); showError(error, 'Unable to move priority'); });
     }, [darwinUri, idToken, showError, queryClient, profile]);
 
+    const handleUnifiedDrop = useCallback((info) => {
+        const sourceType = info.event.extendedProps.sourceType;
+        if (sourceType === 'tasks') handleEventDrop(info);
+        else if (sourceType === 'priorities') handlePriorityDrop(info);
+    }, [handleEventDrop, handlePriorityDrop]);
+
     const handleEventClick = useCallback((info) => {
-        const taskId = info.event.id;
-        const taskIndex = localTasksArray.findIndex(t => String(t.id) === taskId);
+        const rawId = info.event.extendedProps.rawId;
+        const taskIndex = localTasksArray.findIndex(t => String(t.id) === rawId);
         if (taskIndex !== -1) {
             setTaskEditInfo({ task: localTasksArray[taskIndex], taskIndex });
             setTaskEditDialogOpen(true);
@@ -389,44 +408,53 @@ const CalendarFC = () => {
     }, [localTasksArray]);
 
     const handlePriorityClick = useCallback((info) => {
-        navigate(`/swarm/priority/${info.event.id}`);
+        navigate(`/swarm/priority/${info.event.extendedProps.rawId}`);
     }, [navigate]);
 
     const handleActivityClick = useCallback((info) => {
-        navigate(`/maps/${info.event.id}`, { state: { from: 'calendar' } });
+        navigate(`/maps/${info.event.extendedProps.rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
-    // Mobile-specific click handlers (no FC info wrapper)
-    const handleMobileTaskClick = useCallback((eventId) => {
-        const taskIndex = localTasksArray.findIndex(t => String(t.id) === eventId);
+    const handleUnifiedClick = useCallback((info) => {
+        const sourceType = info.event.extendedProps.sourceType;
+        if (sourceType === 'tasks') handleEventClick(info);
+        else if (sourceType === 'activities') handleActivityClick(info);
+        else handlePriorityClick(info);
+    }, [handleEventClick, handleActivityClick, handlePriorityClick]);
+
+    // Mobile-specific click handlers (no FC info wrapper) — receive rawId
+    const handleMobileTaskClick = useCallback((rawId) => {
+        const taskIndex = localTasksArray.findIndex(t => String(t.id) === rawId);
         if (taskIndex !== -1) {
             setTaskEditInfo({ task: localTasksArray[taskIndex], taskIndex });
             setTaskEditDialogOpen(true);
         }
     }, [localTasksArray]);
 
-    const handleMobilePriorityClick = useCallback((eventId) => {
-        navigate(`/swarm/priority/${eventId}`);
+    const handleMobilePriorityClick = useCallback((rawId) => {
+        navigate(`/swarm/priority/${rawId}`);
     }, [navigate]);
 
-    const handleMobileActivityClick = useCallback((eventId) => {
-        navigate(`/maps/${eventId}`, { state: { from: 'calendar' } });
+    const handleMobileActivityClick = useCallback((rawId) => {
+        navigate(`/maps/${rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
     // ── Mobile drag-and-drop handler ───────────────────────────────────────────
     const handleMobileDragEnd = useCallback((result) => {
-        if (isActivitiesMode) return;
         const { source, destination, draggableId } = result;
         if (!destination || source.droppableId === destination.droppableId) return;
 
+        // draggableId is prefixed (t-123, p-456) — extract type and raw ID
+        const isTask = draggableId.startsWith('t-');
+        const rawId = draggableId.slice(2);
         const newDate = destination.droppableId;
         const newTs = newDate + 'T12:00:00';
 
-        if (isTasksMode) {
+        if (isTask) {
             setLocalTasksArray(prev => prev.map(t =>
-                String(t.id) === draggableId ? { ...t, done_ts: newTs } : t
+                String(t.id) === rawId ? { ...t, done_ts: newTs } : t
             ));
-            call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: draggableId, done_ts: newTs }], idToken)
+            call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: rawId, done_ts: newTs }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         showError(result, 'Unable to move task');
@@ -438,9 +466,9 @@ const CalendarFC = () => {
                 });
         } else {
             setLocalPrioritiesArray(prev => prev.map(p =>
-                String(p.id) === draggableId ? { ...p, completed_at: newTs } : p
+                String(p.id) === rawId ? { ...p, completed_at: newTs } : p
             ));
-            call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: draggableId, completed_at: newTs }], idToken)
+            call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: rawId, completed_at: newTs }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
                         showError(result, 'Unable to move priority');
@@ -451,7 +479,7 @@ const CalendarFC = () => {
                     queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
                 });
         }
-    }, [isTasksMode, darwinUri, idToken, showError, queryClient, profile]);
+    }, [darwinUri, idToken, showError, queryClient, profile]);
 
     // ── TaskActionsContext callbacks ───────────────────────────────────────────
     const priorityClick = (taskIndex, taskId) => {
@@ -492,13 +520,14 @@ const CalendarFC = () => {
         queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
     }, [queryClient, profile]);
 
-    const handleModeChange = (event, newMode) => {
-        if (newMode !== null) { setMode(newMode); setPersistedMode(newMode); }
+    const handleModeChange = (event, newModes) => {
+        setMode(newModes);
+        setPersistedMode(newModes);
     };
 
     // Desktop FullCalendar event renderer
     const renderEventContent = (eventInfo) => {
-        const { isActivity, statsLine, catColor, priority } = eventInfo.event.extendedProps;
+        const { sourceType, isActivity, statsLine, catColor, priority } = eventInfo.event.extendedProps;
         if (isActivity) {
             return (
                 <div style={{
@@ -511,7 +540,7 @@ const CalendarFC = () => {
                 </div>
             );
         }
-        const isHigh = isTasksMode && priority === 1;
+        const isHigh = sourceType === 'tasks' && priority === 1;
         return (
             <div style={{
                 display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -525,6 +554,15 @@ const CalendarFC = () => {
             </div>
         );
     };
+
+    // Source-type ordering: tasks=0, activities=1, priorities=2
+    const SOURCE_ORDER = { tasks: 0, activities: 1, priorities: 2 };
+    const eventOrderFn = useCallback((a, b) => {
+        const aOrder = SOURCE_ORDER[a.extendedProps.sourceType] ?? 9;
+        const bOrder = SOURCE_ORDER[b.extendedProps.sourceType] ?? 9;
+        return aOrder - bOrder;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const desktopView = savedViewType && !savedViewType.startsWith('list') ? savedViewType : 'dayGridMonth';
 
@@ -541,22 +579,31 @@ const CalendarFC = () => {
                                 sx={{ textTransform: 'none', fontFamily: 'Roboto,sans-serif', minWidth: 60 }}>
                             Today
                         </Button>
-                        <ToggleButtonGroup value={mode} exclusive onChange={handleModeChange}
+                        <ToggleButtonGroup value={mode} onChange={handleModeChange}
                                            size="small" data-testid="calendar-mode-toggle">
                             <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
-                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
                             <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
+                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
                         </ToggleButtonGroup>
                     </Box>
                     {/* Scrollable list */}
                     <DragDropContext onDragEnd={handleMobileDragEnd}>
                     <Box ref={mobileScrollContainerRef} sx={{ flex: 1, overflowY: 'auto' }}>
                         <div ref={topSentinelRef} style={{ height: 1 }} />
-                        {mobileSortedDates.length === 0 ? (
+                        {mode.length === 0 ? (
                             <Typography sx={{ p: 3, color: 'text.secondary', textAlign: 'center' }}>
-                                No {isTasksMode ? 'completed tasks' : isPrioritiesMode ? 'completed priorities' : 'activities'}
+                                No data source selected
                             </Typography>
-                        ) : mobileSortedDates.map(date => (
+                        ) : mobileSortedDates.length === 0 ? (
+                            <Typography sx={{ p: 3, color: 'text.secondary', textAlign: 'center' }}>
+                                No events
+                            </Typography>
+                        ) : mobileSortedDates.map(date => {
+                            const dayEvents = mobileEventsByDate[date];
+                            const taskEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'tasks');
+                            const activityEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'activities');
+                            const priorityEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'priorities');
+                            return (
                             <Box key={date} data-date={date}>
                                 {/* Day header */}
                                 <Box sx={{
@@ -571,12 +618,81 @@ const CalendarFC = () => {
                                         {date === todayStr ? ' — Today' : ''}
                                     </Typography>
                                 </Box>
-                                {/* Events for the day */}
-                                {isActivitiesMode ? (
+                                {/* Events for the day — grouped: tasks, activities, priorities */}
+                                {hasDraggable ? (
+                                    <Droppable droppableId={date}>
+                                        {(provided) => (
+                                            <div ref={provided.innerRef} {...provided.droppableProps}
+                                                 style={{ minHeight: 4 }}>
+                                                {/* Tasks (draggable) */}
+                                                {taskEvents.map((ev, i) => (
+                                                    <Draggable key={ev.id} draggableId={ev.id} index={i}>
+                                                        {(provided, snapshot) => (
+                                                            <Box ref={provided.innerRef}
+                                                                 {...provided.draggableProps}
+                                                                 {...provided.dragHandleProps}
+                                                                 onClick={() => handleMobileTaskClick(ev.extendedProps?.rawId)}
+                                                                 sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                                                                       cursor: 'pointer',
+                                                                       bgcolor: snapshot.isDragging ? 'action.selected'
+                                                                           : (ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.bg : 'inherit'),
+                                                                       '&:active': { bgcolor: 'action.hover' } }}>
+                                                                <Typography variant="body2" sx={{
+                                                                    fontSize: '0.9rem',
+                                                                    color: ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.textColor : 'text.primary',
+                                                                    fontWeight: ev.extendedProps?.priority === 1 ? 700 : 'normal',
+                                                                }}>
+                                                                    {ev.title}
+                                                                </Typography>
+                                                            </Box>
+                                                        )}
+                                                    </Draggable>
+                                                ))}
+                                                {/* Activities (non-draggable) */}
+                                                {activityEvents.map((ev) => (
+                                                    <Box key={ev.id}
+                                                         onClick={() => handleMobileActivityClick(ev.extendedProps?.rawId)}
+                                                         sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                                                               cursor: 'pointer', '&:active': { bgcolor: 'action.hover' } }}>
+                                                        <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 700, color: 'text.primary' }}>
+                                                            {ev.title}
+                                                        </Typography>
+                                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                                                            {ev.extendedProps?.statsLine}
+                                                        </Typography>
+                                                    </Box>
+                                                ))}
+                                                {/* Priorities (draggable) */}
+                                                {priorityEvents.map((ev, i) => (
+                                                    <Draggable key={ev.id} draggableId={ev.id} index={taskEvents.length + i}>
+                                                        {(provided, snapshot) => (
+                                                            <Box ref={provided.innerRef}
+                                                                 {...provided.draggableProps}
+                                                                 {...provided.dragHandleProps}
+                                                                 onClick={() => handleMobilePriorityClick(ev.extendedProps?.rawId)}
+                                                                 sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                                                                       cursor: 'pointer',
+                                                                       bgcolor: snapshot.isDragging ? 'action.selected' : 'inherit',
+                                                                       ...(ev.extendedProps?.catColor && {
+                                                                           borderLeft: `3px solid ${ev.extendedProps.catColor}`,
+                                                                       }),
+                                                                       '&:active': { bgcolor: 'action.hover' } }}>
+                                                                <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>
+                                                                    {ev.title}
+                                                                </Typography>
+                                                            </Box>
+                                                        )}
+                                                    </Draggable>
+                                                ))}
+                                                {provided.placeholder}
+                                            </div>
+                                        )}
+                                    </Droppable>
+                                ) : (
                                     <div style={{ minHeight: 4 }}>
-                                        {mobileEventsByDate[date].map((ev) => (
+                                        {activityEvents.map((ev) => (
                                             <Box key={ev.id}
-                                                 onClick={() => handleMobileActivityClick(ev.id)}
+                                                 onClick={() => handleMobileActivityClick(ev.extendedProps?.rawId)}
                                                  sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
                                                        cursor: 'pointer', '&:active': { bgcolor: 'action.hover' } }}>
                                                 <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 700, color: 'text.primary' }}>
@@ -588,50 +704,10 @@ const CalendarFC = () => {
                                             </Box>
                                         ))}
                                     </div>
-                                ) : (
-                                    <Droppable droppableId={date}>
-                                        {(provided) => (
-                                            <div ref={provided.innerRef} {...provided.droppableProps}
-                                                 style={{ minHeight: 4 }}>
-                                                {mobileEventsByDate[date].map((ev, i) => (
-                                                    <Draggable key={ev.id} draggableId={ev.id} index={i}>
-                                                        {(provided, snapshot) => (
-                                                            <Box ref={provided.innerRef}
-                                                                 {...provided.draggableProps}
-                                                                 {...provided.dragHandleProps}
-                                                                 onClick={() => isTasksMode
-                                                                     ? handleMobileTaskClick(ev.id)
-                                                                     : handleMobilePriorityClick(ev.id)}
-                                                                 sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
-                                                                       cursor: 'pointer',
-                                                                       bgcolor: snapshot.isDragging ? 'action.selected'
-                                                                           : (isTasksMode && ev.extendedProps?.priority === 1)
-                                                                               ? PRIORITY_STYLE.bg
-                                                                               : 'inherit',
-                                                                       ...(isPrioritiesMode && ev.extendedProps?.catColor && {
-                                                                           borderLeft: `3px solid ${ev.extendedProps.catColor}`,
-                                                                       }),
-                                                                       '&:active': { bgcolor: 'action.hover' } }}>
-                                                                <Typography variant="body2" sx={{
-                                                                    fontSize: '0.9rem',
-                                                                    color: (isTasksMode && ev.extendedProps?.priority === 1)
-                                                                        ? PRIORITY_STYLE.textColor : 'text.primary',
-                                                                    fontWeight: (isTasksMode && ev.extendedProps?.priority === 1)
-                                                                        ? 700 : 'normal',
-                                                                }}>
-                                                                    {ev.title}
-                                                                </Typography>
-                                                            </Box>
-                                                        )}
-                                                    </Draggable>
-                                                ))}
-                                                {provided.placeholder}
-                                            </div>
-                                        )}
-                                    </Droppable>
                                 )}
                             </Box>
-                        ))}
+                            );
+                        })}
                         <div ref={bottomSentinelRef} style={{ height: 1 }} />
                     </Box>
                     </DragDropContext>
@@ -655,12 +731,12 @@ const CalendarFC = () => {
                         }}>
                             {calendarTitle}
                         </Typography>
-                        <ToggleButtonGroup value={mode} exclusive onChange={handleModeChange}
+                        <ToggleButtonGroup value={mode} onChange={handleModeChange}
                                            size="small" data-testid="calendar-mode-toggle"
                                            sx={{ position: 'absolute', right: 16, top: '18pt', zIndex: 1 }}>
                             <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
-                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
                             <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
+                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
                         </ToggleButtonGroup>
                         <FullCalendar
                             ref={calendarRef}
@@ -670,55 +746,33 @@ const CalendarFC = () => {
                             headerToolbar={{ left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay', center: '', right: '' }}
                             buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
                             events={events}
-                            editable={!isActivitiesMode}
+                            editable={hasDraggable}
                             datesSet={handleDatesSet}
                             dateClick={handleDateClick}
-                            eventDrop={isTasksMode ? handleEventDrop : handlePriorityDrop}
-                            eventClick={isTasksMode ? handleEventClick : isActivitiesMode ? handleActivityClick : handlePriorityClick}
+                            eventDrop={handleUnifiedDrop}
+                            eventClick={handleUnifiedClick}
                             eventContent={renderEventContent}
+                            eventOrder={eventOrderFn}
                             height="auto"
                             fixedWeekCount={false}
                         />
                     </Box>
                     {/* DayView content renders below the FullCalendar toolbar */}
-                    {savedViewType === 'dayGridDay' && isTasksMode && (
+                    {savedViewType === 'dayGridDay' && mode.length > 0 && (
                         <DayView
+                            mode={mode}
                             localTasksArray={localTasksArray}
+                            localActivitiesArray={localActivitiesArray}
+                            localPrioritiesArray={localPrioritiesArray}
                             timezone={profile?.timezone}
+                            categoryList={allCategoryList}
+                            categoryColorMap={categoryColorMap}
+                            routeNameMap={routeNameMap}
+                            navigate={navigate}
+                            activityEventColor={activityEventColor}
+                            priorityEventColor={priorityEventColor}
                         />
                     )}
-                    {savedViewType === 'dayGridDay' && isActivitiesMode && savedDate && (() => {
-                        const dayActivities = localActivitiesArray.filter(a =>
-                            toLocaleDateString(a.start_time, profile?.timezone) === savedDate
-                        );
-                        const formattedDate = new Date(savedDate + 'T12:00:00').toLocaleDateString('en-US', {
-                            weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-                        });
-                        return (
-                            <Box data-testid="activity-day-view" sx={{ px: 2, pb: 2, pt: 1 }}>
-                                <Typography sx={{ fontWeight: 500, fontSize: '1.1rem', mb: 2 }}>
-                                    {formattedDate}
-                                </Typography>
-                                {dayActivities.length === 0 ? (
-                                    <Typography color="text.secondary" textAlign="center" sx={{ mt: 2 }}>
-                                        No activities on {formattedDate}
-                                    </Typography>
-                                ) : dayActivities.map(activity => (
-                                    <Box key={activity.id}
-                                         onClick={() => navigate(`/maps/${activity.id}`, { state: { from: 'calendar' } })}
-                                         sx={{ p: 1.5, mb: 1, borderRadius: 1, cursor: 'pointer',
-                                               bgcolor: activityEventColor, '&:hover': { opacity: 0.85 } }}>
-                                        <Typography variant="body2" fontWeight={700}>
-                                            {routeNameMap[activity.map_route_fk] || activity.activity_name || 'Activity'}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary">
-                                            {Number(activity.distance_mi).toFixed(1)}mi @ {Number(activity.avg_speed_mph).toFixed(1)}mph for {formatHM(activity.run_time_sec)}
-                                        </Typography>
-                                    </Box>
-                                ))}
-                            </Box>
-                        );
-                    })()}
                 </>
             )}
 
