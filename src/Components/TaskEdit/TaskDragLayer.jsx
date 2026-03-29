@@ -22,24 +22,47 @@ const layerStyles = {
 };
 
 const TaskDragLayer = () => {
-    const { itemType, isDragging, item, currentOffset } = useDragLayer((monitor) => ({
+    const { itemType, isDragging, item, currentClientOffset, initialClientOffset, initialSourceClientOffset } = useDragLayer((monitor) => ({
         item: monitor.getItem(),
         itemType: monitor.getItemType(),
-        currentOffset: monitor.getSourceClientOffset(),
+        currentClientOffset: monitor.getClientOffset(),
+        initialClientOffset: monitor.getInitialClientOffset(),
+        initialSourceClientOffset: monitor.getInitialSourceClientOffset(),
         isDragging: monitor.isDragging(),
     }));
 
     useEffect(() => {
-        document.body.style.userSelect = isDragging ? 'none' : '';
-        return () => { document.body.style.userSelect = ''; };
+        if (isDragging) {
+            document.body.style.userSelect = 'none';
+            document.body.style.WebkitUserSelect = 'none';
+        } else {
+            document.body.style.userSelect = '';
+            document.body.style.WebkitUserSelect = '';
+            window.getSelection()?.removeAllRanges();
+        }
+        return () => {
+            document.body.style.userSelect = '';
+            document.body.style.WebkitUserSelect = '';
+        };
     }, [isDragging]);
 
-    if (!isDragging || !currentOffset) {
+    if (!isDragging || !currentClientOffset || !initialClientOffset || !initialSourceClientOffset) {
         return null;
     }
 
+    // Compute pointer-relative positioning that accounts for scale factor.
+    // This keeps the preview anchored under the finger regardless of where
+    // within the element the drag started.
+    const getScaledTransform = (scale) => {
+        const fingerOffsetX = initialClientOffset.x - initialSourceClientOffset.x;
+        const fingerOffsetY = initialClientOffset.y - initialSourceClientOffset.y;
+        const x = currentClientOffset.x - fingerOffsetX * scale;
+        const y = currentClientOffset.y - fingerOffsetY * scale;
+        return `translate(${x}px, ${y}px) scale(${scale})`;
+    };
+
     if (itemType === 'domainTab') {
-        const transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(0.75)`;
+        const transform = getScaledTransform(0.75);
         return (
             <div style={layerStyles}>
                 <Box sx={{
@@ -74,7 +97,7 @@ const TaskDragLayer = () => {
     }
 
     if (itemType === 'taskPlan') {
-        const transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(0.67)`;
+        const transform = getScaledTransform(0.67);
         return (
             <div style={layerStyles}>
                 <Box className="task" sx={{
