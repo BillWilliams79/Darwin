@@ -24,7 +24,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import RideEditDialog from '../RouteCards/RideEditDialog';
@@ -53,14 +52,11 @@ const CustomFooter = ({ runCount, routeCount }) => (
     </GridFooterContainer>
 );
 
-const MapRunsView = () => {
+const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
     const creatorFk = profile?.id;
-
-    const { data: runs = [], isLoading: runsLoading } = useMapRuns(creatorFk);
-    const { data: routes = [], isLoading: routesLoading } = useMapRoutes(creatorFk);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -203,7 +199,7 @@ const MapRunsView = () => {
 
         try {
             // Delete all runs (CASCADE cleans coordinates)
-            for (const run of runs) {
+            for (const run of allRuns) {
                 await call_rest_api(`${darwinUri}/map_runs`, 'DELETE', { id: run.id }, idToken);
             }
 
@@ -323,8 +319,6 @@ const MapRunsView = () => {
         }
     };
 
-    const isLoading = runsLoading || routesLoading;
-
     return (
         <Box sx={{ mt: 1, px: 2, maxWidth: TABLE_WIDTH }}>
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -346,7 +340,7 @@ const MapRunsView = () => {
                     size="small"
                     startIcon={deleting ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
                     onClick={() => setDeleteDialogOpen(true)}
-                    disabled={runs.length === 0 || deleting}
+                    disabled={allRuns.length === 0 || deleting}
                     data-testid="delete-all-button"
                 >
                     Delete All
@@ -394,7 +388,7 @@ const MapRunsView = () => {
                 <DialogTitle>Delete All Map Data?</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        This will permanently delete all {runs.length} runs, their GPS coordinates,
+                        This will permanently delete all {allRuns.length} runs, their GPS coordinates,
                         and {routes.length} routes. This cannot be undone.
                     </DialogContentText>
                 </DialogContent>
@@ -519,7 +513,7 @@ const MapRunsView = () => {
                 }}
                 run={editingRun}
                 routes={routes}
-                allRuns={runs}
+                allRuns={allRuns}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}

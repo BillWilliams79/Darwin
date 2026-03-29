@@ -77,3 +77,7 @@ export const mapRouteKeys = {
 export const mapCoordinateKeys = {
     byRun: (runId) => ['map_coordinates', { runId }],
 };
+
+export const mapViewKeys = {
+    all: (creatorFk) => ['map_views', creatorFk],
+};
