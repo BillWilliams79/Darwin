@@ -16,16 +16,14 @@ import InputLabel from '@mui/material/InputLabel';
 import TextField from '@mui/material/TextField';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { DataGrid, GridToolbar, GridFooterContainer, GridPagination } from '@mui/x-data-grid';
+import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useTrendsStore } from '../stores/useTrendsStore';
 import RideEditDialog from '../RouteCards/RideEditDialog';
 
 // Column widths + DataGrid chrome (borders + column separators + scrollbar gutter + cell padding)
@@ -43,39 +41,11 @@ function formatDuration(totalSeconds) {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-const CustomFooter = ({ runCount, routeCount }) => (
-    <GridFooterContainer>
-        <Typography variant="body2" color="text.secondary" sx={{ pl: 2 }}>
-            {runCount} runs{routeCount > 0 ? ` across ${routeCount} routes` : ''}
-        </Typography>
-        <GridPagination />
-    </GridFooterContainer>
-);
-
-const MapRunsView = ({ timeFilter }) => {
+const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
     const creatorFk = profile?.id;
-
-    const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
-    const { data: routes = [], isLoading: routesLoading } = useMapRoutes(creatorFk);
-    const selectedRouteIds = useTrendsStore(s => s.selectedRouteIds);
-
-    const runs = useMemo(() => {
-        let filtered = allRuns;
-        if (timeFilter) {
-            filtered = filtered.filter(run => {
-                const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
-                return t >= timeFilter.start && t < timeFilter.end;
-            });
-        }
-        if (selectedRouteIds.length > 0) {
-            const idSet = new Set(selectedRouteIds);
-            filtered = filtered.filter(run => idSet.has(run.map_route_fk));
-        }
-        return filtered;
-    }, [allRuns, timeFilter, selectedRouteIds]);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -308,8 +278,6 @@ const MapRunsView = ({ timeFilter }) => {
         }
     };
 
-    const isLoading = runsLoading || routesLoading;
-
     return (
         <Box sx={{ mt: 1, px: 2, maxWidth: TABLE_WIDTH }}>
             {selectedCount > 0 && (
@@ -334,14 +302,10 @@ const MapRunsView = ({ timeFilter }) => {
                     columns={columns}
                     loading={isLoading}
                     getRowHeight={() => 'auto'}
-                    slots={{ toolbar: GridToolbar, footer: CustomFooter }}
+                    slots={{ toolbar: GridToolbar }}
                     slotProps={{
                         toolbar: {
                             showQuickFilter: true,
-                        },
-                        footer: {
-                            runCount: runs.length,
-                            routeCount: routes.length,
                         },
                     }}
                     initialState={{
@@ -477,7 +441,7 @@ const MapRunsView = ({ timeFilter }) => {
                 }}
                 run={editingRun}
                 routes={routes}
-                allRuns={runs}
+                allRuns={allRuns}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
