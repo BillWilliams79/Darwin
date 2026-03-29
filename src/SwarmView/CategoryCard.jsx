@@ -371,7 +371,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const scheduledClick = (priorityIndex, priorityId) => {
 
         let newPrioritiesArray = [...prioritiesArray]
-        newPrioritiesArray[priorityIndex].scheduled = newPrioritiesArray[priorityIndex].scheduled ? 0 : 1;
+        const current = newPrioritiesArray[priorityIndex].scheduled || 0;
+        newPrioritiesArray[priorityIndex].scheduled = (current + 1) % 3;
 
         if (priorityId !== '') {
             let uri = `${darwinUri}/priorities`;
