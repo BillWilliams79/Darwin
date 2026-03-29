@@ -2,9 +2,10 @@ import React, { useContext, useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import {
-    NAV_GROUPS, NAV_LINKS, PROFILE_LINK, BIKE_MENU_LINKS,
+    NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY,
 } from './navConfig';
+import ProfileDialog from './ProfileDialog';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -17,8 +18,6 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import ListSubheader from '@mui/material/ListSubheader';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
@@ -41,20 +40,20 @@ const NavBarSidebar = () => {
     const isDesktop = useMediaQuery('(min-width:900px)');
 
     const [collapsed, setCollapsed] = useState(false);
-    const [bikeAnchor, setBikeAnchor] = useState(null);
+    const [profileDialogOpen, setProfileDialogOpen] = useState(false);
 
     // Filter nav groups/links based on profile app toggle settings
     const visibleGroups = useMemo(() =>
         NAV_GROUPS.filter(g => {
             const key = GROUP_PROFILE_KEY[g.id];
-            return !key || (profile?.[key] ?? 1) === 1;
+            return !key || Number(profile?.[key] ?? 1) === 1;
         }),
         [profile]
     );
     const visibleLinks = useMemo(() =>
         NAV_LINKS.filter(l => {
             const key = GROUP_PROFILE_KEY[l.group];
-            return !key || (profile?.[key] ?? 1) === 1;
+            return !key || Number(profile?.[key] ?? 1) === 1;
         }),
         [profile]
     );
@@ -64,61 +63,11 @@ const NavBarSidebar = () => {
         return location.pathname.startsWith(path);
     };
 
-    const bikeMenuOpen = Boolean(bikeAnchor);
+    const handleBikeClick = () => setProfileDialogOpen(true);
+    const handleProfileDialogClose = () => setProfileDialogOpen(false);
 
-    const handleBikeClick = (e) => {
-        if (idToken) setBikeAnchor(e.currentTarget);
-    };
-
-    const handleBikeClose = () => setBikeAnchor(null);
-
-    const handleBikeNav = (path) => {
-        handleBikeClose();
-        navigate(path);
-    };
-
-    // Shared bicycle menu (used by both desktop and mobile)
-    const bikeMenu = (
-        <Menu
-            anchorEl={bikeAnchor}
-            open={bikeMenuOpen}
-            onClose={handleBikeClose}
-            slotProps={{
-                paper: {
-                    sx: {
-                        bgcolor: '#1a1a1a',
-                        color: 'white',
-                        minWidth: 160,
-                    },
-                },
-            }}
-        >
-            {BIKE_MENU_LINKS.map((link) => {
-                const Icon = link.icon;
-                const active = isActive(link.path);
-                return (
-                    <MenuItem
-                        key={link.path}
-                        onClick={() => handleBikeNav(link.path)}
-                        sx={{
-                            bgcolor: active ? BG_ACTIVE : 'transparent',
-                            '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                            gap: 1.5,
-                            py: 1,
-                        }}
-                    >
-                        <Icon sx={{ fontSize: 18, color: active ? ACCENT : 'rgba(255,255,255,0.7)' }} />
-                        <Typography sx={{
-                            fontSize: 15,
-                            color: active ? 'white' : 'rgba(255,255,255,0.7)',
-                            fontWeight: active ? 600 : 400,
-                        }}>
-                            {link.label}
-                        </Typography>
-                    </MenuItem>
-                );
-            })}
-        </Menu>
+    const profileDialog = (
+        <ProfileDialog open={profileDialogOpen} onClose={handleProfileDialogClose} />
     );
 
     const renderNavItem = (link, showText) => {
@@ -265,7 +214,7 @@ const NavBarSidebar = () => {
                         }
                     </Box>
                 </Box>
-                {bikeMenu}
+                {profileDialog}
             </>
         );
     }
@@ -298,8 +247,8 @@ const NavBarSidebar = () => {
                 </Toolbar>
             </AppBar>
 
-            {/* Bicycle popover menu */}
-            {bikeMenu}
+            {/* Profile dialog */}
+            {profileDialog}
 
             {/* Bottom navigation — all 5 primary links */}
             <Paper
