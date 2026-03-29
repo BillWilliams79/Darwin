@@ -19,9 +19,7 @@ const ViewBar = ({ views, activeViewId, onViewSelect, onCreateClick, onEditClick
             sx={{
                 display: 'flex',
                 flexWrap: 'wrap',
-                gap: 1,
-                px: 2,
-                py: 1,
+                gap: 0.5,
                 alignItems: 'center',
             }}
         >

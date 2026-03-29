@@ -17,6 +17,10 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import Popover from '@mui/material/Popover';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import Checkbox from '@mui/material/Checkbox';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -25,6 +29,9 @@ import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import RouteIcon from '@mui/icons-material/Route';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
@@ -41,6 +48,8 @@ import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
 
+const DRILL_DOWN = { yearly: 'monthly', monthly: 'weekly', weekly: 'weekly' };
+
 const STORAGE_KEY = 'darwin-maps-view';
 
 const MapsPage = () => {
@@ -56,7 +65,11 @@ const MapsPage = () => {
     const { data: views = [] } = useMapViews(creatorFk);
 
     const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'table');
-    const { timeFilter, setTimeFilter, selectedRouteIds, setSelectedRouteIds } = useTrendsStore();
+    const {
+        metric, timeframe, chartType, timeFilter,
+        selectedRouteIds,
+        setMetric, setTimeframe, setChartType, setTimeFilter, setSelectedRouteIds,
+    } = useTrendsStore();
     const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -76,11 +89,16 @@ const MapsPage = () => {
         } catch { return null; }
     }, [activeView?.criteria]);
 
-    // Apply savable view filter, then trends timeFilter + route filter
-    const filteredRuns = useMemo(() => {
-        let result = applyViewFilter(allRuns, criteria);
+    // Stage 1: savable view filter (base for Trends and Table/Cards)
+    const viewFilteredRuns = useMemo(
+        () => applyViewFilter(allRuns, criteria),
+        [allRuns, criteria]
+    );
 
-        // Trends time filter (from chart bucket click)
+    // Stage 2: apply trends time + route filters on top (for Table/Cards)
+    const filteredRuns = useMemo(() => {
+        let result = viewFilteredRuns;
+
         if (timeFilter) {
             result = result.filter(run => {
                 const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
@@ -88,20 +106,59 @@ const MapsPage = () => {
             });
         }
 
-        // Trends route filter
         if (selectedRouteIds.length > 0) {
             const idSet = new Set(selectedRouteIds);
             result = result.filter(run => idSet.has(run.map_route_fk));
         }
 
         return result;
-    }, [allRuns, criteria, timeFilter, selectedRouteIds]);
+    }, [viewFilteredRuns, timeFilter, selectedRouteIds]);
+
+    // Count distinct routes in the filtered runs
+    const filteredRouteCount = useMemo(() => {
+        const ids = new Set();
+        for (const run of filteredRuns) {
+            if (run.map_route_fk != null) ids.add(run.map_route_fk);
+        }
+        return ids.size;
+    }, [filteredRuns]);
 
     // View dialog state
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
     const [editingView, setEditingView] = useState(null);
 
+    // Route picker state
+    const [routeAnchor, setRouteAnchor] = useState(null);
+    const [pendingRouteIds, setPendingRouteIds] = useState([]);
+
     const isLoading = runsLoading || routesLoading;
+
+    // Effective timeframe for trend controls display
+    const effectiveTimeframe = timeFilter
+        ? DRILL_DOWN[timeFilter.sourceTimeframe] || timeframe
+        : timeframe;
+
+    // Route picker: count activities per route (respects time filter but not route filter)
+    const routeCountMap = useMemo(() => {
+        let source = viewFilteredRuns;
+        if (timeFilter) {
+            source = source.filter(run => {
+                const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
+                return t >= timeFilter.start && t < timeFilter.end;
+            });
+        }
+        const counts = new Map();
+        for (const run of source) {
+            counts.set(run.map_route_fk, (counts.get(run.map_route_fk) || 0) + 1);
+        }
+        return counts;
+    }, [viewFilteredRuns, timeFilter]);
+
+    const routeOptions = useMemo(() => {
+        return [...routes]
+            .filter(r => (routeCountMap.get(r.id) || 0) > 0)
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [routes, routeCountMap]);
 
     const handleViewChange = (event, newView) => {
         if (newView !== null) {
@@ -125,10 +182,39 @@ const MapsPage = () => {
         setSelectedRouteIds([]);
     }, [setTimeFilter, setSelectedRouteIds]);
 
-    const handleResetFilter = useCallback(() => {
+    const handleClearFilters = useCallback(() => {
+        setMetric('distance');
+        setTimeframe('yearly');
         setTimeFilter(null);
         setSelectedRouteIds([]);
-    }, [setTimeFilter, setSelectedRouteIds]);
+    }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds]);
+
+    const handleMetric = (e, val) => { if (val !== null) setMetric(val); };
+    const handleTimeframe = (e, val) => { if (val !== null) setTimeframe(val); };
+    const handleChartType = (e, val) => { if (val !== null) setChartType(val); };
+
+    const handleOpenRoutes = (e) => {
+        setPendingRouteIds([...selectedRouteIds]);
+        setRouteAnchor(e.currentTarget);
+    };
+
+    const handleToggleRoute = (id) => {
+        setPendingRouteIds(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    };
+
+    const handleApplyRoutes = () => {
+        setSelectedRouteIds(pendingRouteIds);
+        setRouteAnchor(null);
+    };
+
+    const routeButtonLabel = selectedRouteIds.length === 0
+        ? 'Routes'
+        : `Routes (${selectedRouteIds.length})`;
+
+    const hasTrendFilters = !!timeFilter || selectedRouteIds.length > 0
+        || metric !== 'distance' || timeframe !== 'yearly';
 
     const handleDeleteAll = async () => {
         setDeleteDialogOpen(false);
@@ -154,31 +240,33 @@ const MapsPage = () => {
         }
     };
 
-    const title = timeFilter ? `Maps - ${timeFilter.label}` : 'Maps';
-
     return (
         <Box sx={{ mt: 3, minWidth: 0, overflow: 'hidden' }}>
+            {/* Header row */}
             <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
                 ...(view === 'table' ? { maxWidth: TABLE_WIDTH } : {}),
             }}>
-                <Typography variant="h5">{title}</Typography>
+                <Typography variant="h5" sx={{ flexShrink: 0 }}>
+                    {timeFilter ? `Maps - ${timeFilter.label}` : 'Maps'}
+                </Typography>
 
-                {timeFilter && (
-                    <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<CloseIcon />}
-                        onClick={handleResetFilter}
-                        data-testid="reset-filter-button"
-                    >
-                        Reset View
-                    </Button>
-                )}
+                <ViewBar
+                    views={views}
+                    activeViewId={activeViewId}
+                    onViewSelect={setActiveViewId}
+                    onCreateClick={handleCreateView}
+                    onEditClick={handleEditView}
+                />
+
+                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+                    {filteredRuns.length} runs
+                    {filteredRouteCount > 0 ? ` / ${filteredRouteCount} routes` : ''}
+                </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
 
-                {view !== 'trends' && !timeFilter && (
+                {!timeFilter && (
                     <>
                         <Button
                             variant="outlined"
@@ -250,16 +338,106 @@ const MapsPage = () => {
                 </Menu>
             </Box>
 
-            <ViewBar
-                views={views}
-                activeViewId={activeViewId}
-                onViewSelect={setActiveViewId}
-                onCreateClick={handleCreateView}
-                onEditClick={handleEditView}
-            />
+            {/* Temporal controls row — always on Trends, only when filtered on Table/Cards */}
+            {(view === 'trends' || hasTrendFilters) && (
+                <Box sx={{
+                    display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
+                    flexWrap: 'wrap',
+                }}>
+                    <ToggleButtonGroup value={metric} exclusive onChange={handleMetric} size="small" disabled={view !== 'trends'}>
+                        <ToggleButton value="distance" data-testid="metric-toggle-distance">Distance</ToggleButton>
+                        <ToggleButton value="time" data-testid="metric-toggle-time">Time</ToggleButton>
+                        <ToggleButton value="elevation" data-testid="metric-toggle-elevation">Elevation</ToggleButton>
+                        <ToggleButton value="count" data-testid="metric-toggle-count">Count</ToggleButton>
+                    </ToggleButtonGroup>
+
+                    <ToggleButtonGroup
+                        value={timeFilter ? effectiveTimeframe : timeframe}
+                        exclusive
+                        onChange={handleTimeframe}
+                        size="small"
+                        disabled={view !== 'trends' || !!timeFilter}
+                    >
+                        <ToggleButton value="yearly" data-testid="timeframe-toggle-yearly">Yearly</ToggleButton>
+                        <ToggleButton value="monthly" data-testid="timeframe-toggle-monthly">Monthly</ToggleButton>
+                        <ToggleButton value="weekly" data-testid="timeframe-toggle-weekly">Weekly</ToggleButton>
+                    </ToggleButtonGroup>
+
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<RouteIcon />}
+                        onClick={handleOpenRoutes}
+                        disabled={view !== 'trends'}
+                        data-testid="route-filter-button"
+                        sx={selectedRouteIds.length > 0 ? { borderColor: '#E91E63', color: '#E91E63' } : {}}
+                    >
+                        {routeButtonLabel}
+                    </Button>
+                    <Popover
+                        open={Boolean(routeAnchor)}
+                        anchorEl={routeAnchor}
+                        onClose={() => setRouteAnchor(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    >
+                        <Box sx={{ width: 300, display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
+                            <List dense sx={{ overflow: 'auto', flex: 1 }}>
+                                {routeOptions.map(route => (
+                                    <ListItemButton
+                                        key={route.id}
+                                        onClick={() => handleToggleRoute(route.id)}
+                                        dense
+                                    >
+                                        <Checkbox
+                                            edge="start"
+                                            checked={pendingRouteIds.includes(route.id)}
+                                            tabIndex={-1}
+                                            disableRipple
+                                            size="small"
+                                        />
+                                        <ListItemText
+                                            primary={route.name}
+                                            secondary={`${routeCountMap.get(route.id) || 0} activities`}
+                                        />
+                                    </ListItemButton>
+                                ))}
+                            </List>
+                            <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                                <Button size="small" onClick={() => { setPendingRouteIds([]); setSelectedRouteIds([]); setRouteAnchor(null); }}>
+                                    Clear
+                                </Button>
+                                <Button size="small" variant="contained" onClick={handleApplyRoutes}>
+                                    Apply
+                                </Button>
+                            </Box>
+                        </Box>
+                    </Popover>
+
+                    <ToggleButtonGroup value={chartType} exclusive onChange={handleChartType} size="small" disabled={view !== 'trends'}>
+                        <ToggleButton value="bar" data-testid="chart-type-toggle-bar">
+                            <BarChartIcon fontSize="small" />
+                        </ToggleButton>
+                        <ToggleButton value="line" data-testid="chart-type-toggle-line">
+                            <ShowChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </ToggleButtonGroup>
+
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CloseIcon />}
+                        onClick={handleClearFilters}
+                        disabled={!hasTrendFilters}
+                        data-testid="clear-filters-button"
+                    >
+                        Clear Filter
+                    </Button>
+                </Box>
+            )}
 
             {view === 'trends'
-                ? <TrendsView onBucketClick={handleBucketClick} />
+                ? <TrendsView runs={viewFilteredRuns} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
                     ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />
                     : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />

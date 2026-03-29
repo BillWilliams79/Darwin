@@ -16,7 +16,7 @@ import InputLabel from '@mui/material/InputLabel';
 import TextField from '@mui/material/TextField';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { DataGrid, GridToolbar, GridFooterContainer, GridPagination } from '@mui/x-data-grid';
+import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
@@ -40,15 +40,6 @@ function formatDuration(totalSeconds) {
     const seconds = s % 60;
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
-
-const CustomFooter = ({ runCount, routeCount }) => (
-    <GridFooterContainer>
-        <Typography variant="body2" color="text.secondary" sx={{ pl: 2 }}>
-            {runCount} runs{routeCount > 0 ? ` across ${routeCount} routes` : ''}
-        </Typography>
-        <GridPagination />
-    </GridFooterContainer>
-);
 
 const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
     const { darwinUri } = useContext(AppContext);
@@ -311,14 +302,10 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                     columns={columns}
                     loading={isLoading}
                     getRowHeight={() => 'auto'}
-                    slots={{ toolbar: GridToolbar, footer: CustomFooter }}
+                    slots={{ toolbar: GridToolbar }}
                     slotProps={{
                         toolbar: {
                             showQuickFilter: true,
-                        },
-                        footer: {
-                            runCount: runs.length,
-                            routeCount: routes.length,
                         },
                     }}
                     initialState={{
