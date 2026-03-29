@@ -6,7 +6,7 @@ export const useCalendarViewStore = create(
         (set) => ({
             viewType: 'dayGridMonth',
             currentDate: null,
-            mode: 'tasks',
+            mode: ['tasks'],
 
             setCalendarView: ({ viewType, currentDate }) =>
                 set({ viewType, currentDate }),
@@ -16,6 +16,18 @@ export const useCalendarViewStore = create(
         }),
         {
             name: 'darwin_calendar_view',
+            version: 1,
+            migrate: (persisted, version) => {
+                if (version === 0) {
+                    return {
+                        ...persisted,
+                        mode: typeof persisted.mode === 'string'
+                            ? [persisted.mode]
+                            : persisted.mode || ['tasks'],
+                    };
+                }
+                return persisted;
+            },
         }
     )
 );
