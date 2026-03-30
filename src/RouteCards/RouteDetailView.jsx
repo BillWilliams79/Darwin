@@ -16,7 +16,6 @@ import { useMapRuns, useMapRoutes, useMapCoordinates } from '../hooks/useDataQue
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import RouteMapFull from './RouteMapFull';
-import RouteStatsOverlay from './RouteStatsOverlay';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
 
@@ -130,8 +129,7 @@ const RouteDetailView = () => {
                 </Button>
             </Box>
 
-            <RouteMapFull coordinates={coordinates} isLoading={coordsLoading} />
-            <RouteStatsOverlay run={run} routeName={routeName} />
+            <RouteMapFull coordinates={coordinates} isLoading={coordsLoading} run={run} routeName={routeName} />
 
             {/* Edit Dialog */}
             <RideEditDialog
