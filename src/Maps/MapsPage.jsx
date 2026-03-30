@@ -47,8 +47,7 @@ import ViewDialog from './ViewDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
-
-const DRILL_DOWN = { yearly: 'monthly', monthly: 'weekly', weekly: 'weekly' };
+import { navigateTimeframe, DRILL_DOWN } from '../utils/trendsNavigation';
 
 const STORAGE_KEY = 'darwin-maps-view';
 
@@ -190,7 +189,13 @@ const MapsPage = () => {
     }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds]);
 
     const handleMetric = (e, val) => { if (val !== null) setMetric(val); };
-    const handleTimeframe = (e, val) => { if (val !== null) setTimeframe(val); };
+    const handleTimeframe = useCallback((e, val) => {
+        if (val === null) return;
+        const result = navigateTimeframe(val, timeFilter, effectiveTimeframe);
+        if (!result) return; // no-op (same level)
+        if (result.timeframe !== null) setTimeframe(result.timeframe);
+        if (result.timeFilter !== undefined) setTimeFilter(result.timeFilter);
+    }, [timeFilter, effectiveTimeframe, setTimeframe, setTimeFilter]);
     const handleChartType = (e, val) => { if (val !== null) setChartType(val); };
 
     const handleOpenRoutes = (e) => {
@@ -356,7 +361,7 @@ const MapsPage = () => {
                         exclusive
                         onChange={handleTimeframe}
                         size="small"
-                        disabled={view !== 'trends' || !!timeFilter}
+                        disabled={view !== 'trends'}
                     >
                         <ToggleButton value="yearly" data-testid="timeframe-toggle-yearly">Yearly</ToggleButton>
                         <ToggleButton value="monthly" data-testid="timeframe-toggle-monthly">Monthly</ToggleButton>
