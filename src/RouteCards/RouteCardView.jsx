@@ -26,7 +26,7 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false
         );
     }
 
-    const paginatedRuns = runs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const paginatedRuns = rowsPerPage === -1 ? runs : runs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
     const handleChangePage = (event, newPage) => {
         setPage(newPage);
@@ -66,7 +66,11 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false
                     onPageChange={handleChangePage}
                     rowsPerPage={rowsPerPage}
                     onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={runs.length > 100 ? [25, 50, 100] : [25, 50]}
+                    rowsPerPageOptions={(() => {
+                        const opts = runs.length > 100 ? [25, 50, 100] : [25, 50];
+                        if (runs.length >= 100 && runs.length <= 300) opts.push({ value: -1, label: 'All' });
+                        return opts;
+                    })()}
                     labelRowsPerPage="Maps per page"
                     data-testid="route-card-pagination"
                 />
