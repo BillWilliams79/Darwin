@@ -245,7 +245,7 @@ const MapsPage = () => {
             {/* Header row */}
             <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
-                ...(view === 'table' ? { maxWidth: TABLE_WIDTH } : {}),
+                maxWidth: TABLE_WIDTH,
             }}>
                 <Typography variant="h5" sx={{ flexShrink: 0 }}>
                     {timeFilter ? `Maps - ${timeFilter.label}` : 'Maps'}
@@ -342,7 +342,7 @@ const MapsPage = () => {
             {(view === 'trends' || hasTrendFilters) && (
                 <Box sx={{
                     display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
-                    flexWrap: 'wrap',
+                    flexWrap: 'wrap', maxWidth: TABLE_WIDTH,
                 }}>
                     <ToggleButtonGroup value={metric} exclusive onChange={handleMetric} size="small" disabled={view !== 'trends'}>
                         <ToggleButton value="distance" data-testid="metric-toggle-distance">Distance</ToggleButton>
