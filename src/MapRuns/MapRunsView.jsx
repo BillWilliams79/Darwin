@@ -316,7 +316,10 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                             paginationModel: { pageSize: 25 },
                         },
                     }}
-                    pageSizeOptions={[25, 50, 100]}
+                    pageSizeOptions={runs.length >= 100 && runs.length <= 300
+                        ? [25, 50, 100, { value: -1, label: 'All' }]
+                        : [25, 50, 100]
+                    }
                     checkboxSelection
                     disableRowSelectionOnClick
                     rowSelectionModel={rowSelectionModel}
