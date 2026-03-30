@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import TablePagination from '@mui/material/TablePagination';
 
 import RouteCard from './RouteCard';
+import { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 
 const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
     const [page, setPage] = useState(0);
@@ -38,7 +39,7 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false
     };
 
     return (
-        <Box sx={{ px: 3, pt: 1 }}>
+        <Box sx={{ px: 2, pt: 1, maxWidth: TABLE_WIDTH }}>
             {runs.length === 0 && (
                 <Typography variant="body2" color="text.disabled" sx={{ p: 2 }}>
                     No activities found. Import data via Maps &gt; Import.
