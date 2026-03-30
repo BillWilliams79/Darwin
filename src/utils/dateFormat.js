@@ -32,6 +32,24 @@ export function formatDate(dateStr, timezone) {
     return d.toLocaleDateString(undefined, options);
 }
 
+export function formatCardDateTime(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '—';
+    const datePart = d.toLocaleDateString('en-US', {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+        ...(timezone && { timeZone: timezone }),
+    });
+    const timeFmt = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric', minute: '2-digit', hour12: true,
+        ...(timezone && { timeZone: timezone }),
+    });
+    const parts = timeFmt.formatToParts(d);
+    const hour = parts.find(p => p.type === 'hour')?.value;
+    const minute = parts.find(p => p.type === 'minute')?.value;
+    const period = parts.find(p => p.type === 'dayPeriod')?.value?.toLowerCase();
+    return `${datePart} @ ${hour}:${minute}${period}`;
+}
+
 export function formatDateWithOptions(dateStr, timezone, extraOptions) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '—';
