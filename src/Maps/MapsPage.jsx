@@ -280,6 +280,9 @@ const MapsPage = () => {
                     onViewSelect={setActiveViewId}
                     onCreateClick={handleCreateView}
                     onEditClick={handleEditView}
+                    darwinUri={darwinUri}
+                    idToken={idToken}
+                    creatorFk={creatorFk}
                 />
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
@@ -489,6 +492,7 @@ const MapsPage = () => {
                 open={viewDialogOpen}
                 onClose={() => setViewDialogOpen(false)}
                 view={editingView}
+                views={views}
                 routes={routes}
                 partners={partners}
                 darwinUri={darwinUri}
