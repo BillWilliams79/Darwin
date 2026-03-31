@@ -24,6 +24,7 @@ import RouteMapThumbnail from './RouteMapThumbnail';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
 import { formatDuration } from '../utils/mapDataUtils';
+import { formatCardDateTime } from '../utils/dateFormat';
 
 const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [] }) => {
     const navigate = useNavigate();
@@ -41,16 +42,8 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
     const [editOpen, setEditOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
 
-    // Parse start_time for display
-    const startTimeStr = run.start_time;
-    const startDate = new Date(startTimeStr.endsWith('Z') ? startTimeStr : startTimeStr + 'Z');
-    const month = startDate.getUTCMonth() + 1;
-    const offsetHours = [1, 2, 3, 11, 12].includes(month) ? 8 : 7;
-    const localDate = new Date(startDate.getTime() - offsetHours * 3600 * 1000);
-
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dateStr = `${days[localDate.getUTCDay()]}, ${months[localDate.getUTCMonth()]} ${localDate.getUTCDate()}, ${localDate.getUTCFullYear()}`;
+    // Format start_time with timezone-aware date + time
+    const dateStr = formatCardDateTime(run.start_time, profile?.timezone);
 
     const distance = Number(run.distance_mi).toFixed(1);
     const avgSpeed = run.avg_speed_mph != null ? Number(run.avg_speed_mph).toFixed(1) : '—';
