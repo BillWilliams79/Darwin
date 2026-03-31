@@ -136,7 +136,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
 
                 <CardContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {dateStr}
+                        {run.activity_name ? `${run.activity_name} · ${dateStr}` : dateStr}
                     </Typography>
 
                     <Box component="table" sx={{ width: '100%', '& td': { py: 0.2 }, '& td:first-of-type': { color: 'text.secondary', pr: 1.5 } }}>
