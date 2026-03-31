@@ -17,11 +17,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import Popover from '@mui/material/Popover';
 import Divider from '@mui/material/Divider';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import Checkbox from '@mui/material/Checkbox';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -48,6 +44,7 @@ import ViewBar from './ViewBar';
 import ViewDialog from './ViewDialog';
 import ExportDialog from '../MapExport/ExportDialog';
 import TrendsFilterChips from './TrendsFilterChips';
+import PickerDialog from './PickerDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
@@ -72,8 +69,9 @@ const MapsPage = () => {
     const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'table');
     const {
         metric, timeframe, chartType, timeFilter,
-        selectedRouteIds,
-        setMetric, setTimeframe, setChartType, setTimeFilter, setSelectedRouteIds,
+        selectedRouteIds, selectedPartnerIds,
+        setMetric, setTimeframe, setChartType, setTimeFilter,
+        setSelectedRouteIds, setSelectedPartnerIds,
     } = useTrendsStore();
     const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
     const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -127,8 +125,16 @@ const MapsPage = () => {
             result = result.filter(run => idSet.has(run.map_route_fk));
         }
 
+        if (selectedPartnerIds.length > 0) {
+            const idSet = new Set(selectedPartnerIds);
+            result = result.filter(run => {
+                const pids = runPartnerMap.get(run.id) || [];
+                return pids.some(pid => idSet.has(pid));
+            });
+        }
+
         return result;
-    }, [viewFilteredRuns, timeFilter, selectedRouteIds]);
+    }, [viewFilteredRuns, timeFilter, selectedRouteIds, selectedPartnerIds, runPartnerMap]);
 
     // Count distinct routes in the filtered runs
     const filteredRouteCount = useMemo(() => {
@@ -150,16 +156,22 @@ const MapsPage = () => {
                 .filter(Boolean);
             if (names.length > 0) parts.push(names.join(', '));
         }
+        if (selectedPartnerIds.length > 0) {
+            const names = selectedPartnerIds
+                .map(id => partners.find(p => p.id === id)?.name)
+                .filter(Boolean);
+            if (names.length > 0) parts.push(names.join(', '));
+        }
         return parts.length > 0 ? parts.join(' \u2022 ') : '';
-    }, [activeView, timeFilter, selectedRouteIds, routes]);
+    }, [activeView, timeFilter, selectedRouteIds, selectedPartnerIds, routes, partners]);
 
     // View dialog state
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
     const [editingView, setEditingView] = useState(null);
 
-    // Route picker state
-    const [routeAnchor, setRouteAnchor] = useState(null);
-    const [pendingRouteIds, setPendingRouteIds] = useState([]);
+    // Picker dialog state
+    const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+    const [partnerDialogOpen, setPartnerDialogOpen] = useState(false);
 
     const isLoading = runsLoading || routesLoading;
 
@@ -185,10 +197,35 @@ const MapsPage = () => {
     }, [viewFilteredRuns, timeFilter]);
 
     const routeOptions = useMemo(() => {
-        return [...routes]
+        return routes
             .filter(r => (routeCountMap.get(r.id) || 0) > 0)
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .map(r => ({ ...r, ride_count: routeCountMap.get(r.id) || 0 }));
     }, [routes, routeCountMap]);
+
+    // Partner picker: count activities per partner (respects time filter but not partner filter)
+    const partnerCountMap = useMemo(() => {
+        let source = viewFilteredRuns;
+        if (timeFilter) {
+            source = source.filter(run => {
+                const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
+                return t >= timeFilter.start && t < timeFilter.end;
+            });
+        }
+        const sourceIds = new Set(source.map(r => r.id));
+        const counts = new Map();
+        for (const rp of runPartners) {
+            if (sourceIds.has(rp.map_run_fk)) {
+                counts.set(rp.map_partner_fk, (counts.get(rp.map_partner_fk) || 0) + 1);
+            }
+        }
+        return counts;
+    }, [viewFilteredRuns, timeFilter, runPartners]);
+
+    const partnerOptions = useMemo(() => {
+        return partners
+            .filter(p => (partnerCountMap.get(p.id) || 0) > 0)
+            .map(p => ({ ...p, ride_count: partnerCountMap.get(p.id) || 0 }));
+    }, [partners, partnerCountMap]);
 
     const handleViewChange = (event, newView) => {
         if (newView !== null) {
@@ -217,7 +254,8 @@ const MapsPage = () => {
         setTimeframe('yearly');
         setTimeFilter(null);
         setSelectedRouteIds([]);
-    }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds]);
+        setSelectedPartnerIds([]);
+    }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds, setSelectedPartnerIds]);
 
     const handleMetric = (e, val) => { if (val !== null) setMetric(val); };
     const handleTimeframe = useCallback((e, val) => {
@@ -229,27 +267,25 @@ const MapsPage = () => {
     }, [timeFilter, effectiveTimeframe, setTimeframe, setTimeFilter]);
     const handleChartType = (e, val) => { if (val !== null) setChartType(val); };
 
-    const handleOpenRoutes = (e) => {
-        setPendingRouteIds([...selectedRouteIds]);
-        setRouteAnchor(e.currentTarget);
+    const handleRouteRename = async (id, name) => {
+        await call_rest_api(`${darwinUri}/map_routes`, 'PUT', [{ id, name }], idToken);
+        queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
     };
 
-    const handleToggleRoute = (id) => {
-        setPendingRouteIds(prev =>
-            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-        );
-    };
-
-    const handleApplyRoutes = () => {
-        setSelectedRouteIds(pendingRouteIds);
-        setRouteAnchor(null);
+    const handlePartnerRename = async (id, name) => {
+        await call_rest_api(`${darwinUri}/map_partners`, 'PUT', [{ id, name }], idToken);
+        queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
     };
 
     const routeButtonLabel = selectedRouteIds.length === 0
         ? 'Routes'
         : `Routes (${selectedRouteIds.length})`;
 
-    const hasTrendFilters = !!timeFilter || selectedRouteIds.length > 0
+    const partnerButtonLabel = selectedPartnerIds.length === 0
+        ? 'Partners'
+        : `Partners (${selectedPartnerIds.length})`;
+
+    const hasTrendFilters = !!timeFilter || selectedRouteIds.length > 0 || selectedPartnerIds.length > 0
         || metric !== 'distance' || timeframe !== 'yearly';
 
     const handleDeleteAll = async () => {
@@ -428,52 +464,24 @@ const MapsPage = () => {
                         variant="outlined"
                         size="small"
                         startIcon={<RouteIcon />}
-                        onClick={handleOpenRoutes}
+                        onClick={() => setRouteDialogOpen(true)}
                         disabled={view !== 'trends'}
                         data-testid="route-filter-button"
                         sx={selectedRouteIds.length > 0 ? { borderColor: '#E91E63', color: '#E91E63' } : {}}
                     >
                         {routeButtonLabel}
                     </Button>
-                    <Popover
-                        open={Boolean(routeAnchor)}
-                        anchorEl={routeAnchor}
-                        onClose={() => setRouteAnchor(null)}
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<PeopleIcon />}
+                        onClick={() => setPartnerDialogOpen(true)}
+                        disabled={view !== 'trends'}
+                        data-testid="partner-filter-button"
+                        sx={selectedPartnerIds.length > 0 ? { borderColor: '#E91E63', color: '#E91E63' } : {}}
                     >
-                        <Box sx={{ width: 300, display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
-                            <List dense sx={{ overflow: 'auto', flex: 1 }}>
-                                {routeOptions.map(route => (
-                                    <ListItemButton
-                                        key={route.id}
-                                        onClick={() => handleToggleRoute(route.id)}
-                                        dense
-                                    >
-                                        <Checkbox
-                                            edge="start"
-                                            checked={pendingRouteIds.includes(route.id)}
-                                            tabIndex={-1}
-                                            disableRipple
-                                            size="small"
-                                        />
-                                        <ListItemText
-                                            primary={route.name}
-                                            secondary={`${routeCountMap.get(route.id) || 0} activities`}
-                                        />
-                                    </ListItemButton>
-                                ))}
-                            </List>
-                            <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                <Button size="small" onClick={() => { setPendingRouteIds([]); setSelectedRouteIds([]); setRouteAnchor(null); }}>
-                                    Clear
-                                </Button>
-                                <Button size="small" variant="contained" onClick={handleApplyRoutes}>
-                                    Apply
-                                </Button>
-                            </Box>
-                        </Box>
-                    </Popover>
+                        {partnerButtonLabel}
+                    </Button>
 
                     <ToggleButtonGroup value={chartType} exclusive onChange={handleChartType} size="small" disabled={view !== 'trends'}>
                         <ToggleButton value="bar" data-testid="chart-type-toggle-bar">
@@ -498,21 +506,45 @@ const MapsPage = () => {
             )}
 
             {/* Dismissible filter chips — Table/Cards only */}
-            {view !== 'trends' && (!!timeFilter || selectedRouteIds.length > 0) && (
+            {view !== 'trends' && (!!timeFilter || selectedRouteIds.length > 0 || selectedPartnerIds.length > 0) && (
                 <TrendsFilterChips
                     timeFilter={timeFilter}
                     selectedRouteIds={selectedRouteIds}
+                    selectedPartnerIds={selectedPartnerIds}
                     onClearTimeFilter={() => setTimeFilter(null)}
                     onClearRouteFilter={() => setSelectedRouteIds([])}
+                    onClearPartnerFilter={() => setSelectedPartnerIds([])}
                 />
             )}
 
             {view === 'trends'
-                ? <TrendsView runs={viewFilteredRuns} isLoading={isLoading} onBucketClick={handleBucketClick} />
+                ? <TrendsView runs={viewFilteredRuns} runPartnerMap={runPartnerMap} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
                     ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
                     : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
             }
+
+            <PickerDialog
+                open={routeDialogOpen}
+                onClose={() => setRouteDialogOpen(false)}
+                title="Filter by Route"
+                entityLabel="Route"
+                rows={routeOptions}
+                selectedIds={selectedRouteIds}
+                onApply={(ids) => setSelectedRouteIds(ids)}
+                onRename={handleRouteRename}
+            />
+
+            <PickerDialog
+                open={partnerDialogOpen}
+                onClose={() => setPartnerDialogOpen(false)}
+                title="Filter by Partner"
+                entityLabel="Partner"
+                rows={partnerOptions}
+                selectedIds={selectedPartnerIds}
+                onApply={(ids) => setSelectedPartnerIds(ids)}
+                onRename={handlePartnerRename}
+            />
 
             <ViewDialog
                 open={viewDialogOpen}
