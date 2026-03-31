@@ -46,6 +46,7 @@ import RouteCardView from '../RouteCards/RouteCardView';
 import TrendsView from '../Trends/TrendsView';
 import ViewBar from './ViewBar';
 import ViewDialog from './ViewDialog';
+import ExportDialog from '../MapExport/ExportDialog';
 import TrendsFilterChips from './TrendsFilterChips';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
@@ -75,6 +76,7 @@ const MapsPage = () => {
         setMetric, setTimeframe, setChartType, setTimeFilter, setSelectedRouteIds,
     } = useTrendsStore();
     const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -136,6 +138,20 @@ const MapsPage = () => {
         }
         return ids.size;
     }, [filteredRuns]);
+
+    // Build a human-readable description of active filters (for export dialog placeholder)
+    const filterDescription = useMemo(() => {
+        const parts = [];
+        if (activeView) parts.push(activeView.name);
+        if (timeFilter) parts.push(timeFilter.label);
+        if (selectedRouteIds.length > 0) {
+            const names = selectedRouteIds
+                .map(id => routes.find(r => r.id === id)?.name)
+                .filter(Boolean);
+            if (names.length > 0) parts.push(names.join(', '));
+        }
+        return parts.length > 0 ? parts.join(' \u2022 ') : '';
+    }, [activeView, timeFilter, selectedRouteIds, routes]);
 
     // View dialog state
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -291,27 +307,26 @@ const MapsPage = () => {
                 <Box sx={{ flexGrow: 1 }} />
 
                 {!timeFilter && (
-                    <>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<CloudUploadIcon />}
-                            onClick={() => navigate('/maps/import')}
-                        >
-                            Import
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<FileDownloadOutlinedIcon />}
-                            onClick={() => navigate('/maps/export')}
-                        >
-                            Export
-                        </Button>
-
-                        <Box sx={{ width: 16 }} />
-                    </>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CloudUploadIcon />}
+                        onClick={() => navigate('/maps/import')}
+                    >
+                        Import
+                    </Button>
                 )}
+                <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<FileDownloadOutlinedIcon />}
+                    onClick={() => setExportDialogOpen(true)}
+                    data-testid="export-button"
+                >
+                    Export
+                </Button>
+
+                {!timeFilter && <Box sx={{ width: 16 }} />}
 
                 <ToggleButtonGroup
                     value={view}
@@ -505,6 +520,16 @@ const MapsPage = () => {
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
+            />
+
+            <ExportDialog
+                open={exportDialogOpen}
+                onClose={() => setExportDialogOpen(false)}
+                runs={filteredRuns}
+                routes={routes}
+                darwinUri={darwinUri}
+                idToken={idToken}
+                filterDescription={filterDescription}
             />
 
             <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
