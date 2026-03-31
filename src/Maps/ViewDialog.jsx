@@ -20,7 +20,7 @@ import { mapViewKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 
-const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk }) => {
+const ViewDialog = ({ open, onClose, view, routes, partners = [], darwinUri, idToken, creatorFk }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
@@ -35,6 +35,7 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
     const [notesSearch, setNotesSearch] = useState('');
     const [distanceMin, setDistanceMin] = useState('');
     const [distanceMax, setDistanceMax] = useState('');
+    const [partnerIds, setPartnerIds] = useState([]);
     const [saving, setSaving] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(false);
 
@@ -49,6 +50,17 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
         for (const r of (routes || [])) m.set(r.id, r.name);
         return m;
     }, [routes]);
+
+    // Partner lookup for chip labels
+    const partnerMap = useMemo(() => {
+        const m = new Map();
+        for (const p of (partners || [])) m.set(p.id, p.name);
+        return m;
+    }, [partners]);
+
+    const sortedPartners = useMemo(() => {
+        return [...(partners || [])].sort((a, b) => a.name.localeCompare(b.name));
+    }, [partners]);
 
     // Reset form when view changes or dialog opens
     useEffect(() => {
@@ -68,6 +80,7 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
             setNotesSearch(criteria.notes_search || '');
             setDistanceMin(criteria.distance_min != null ? String(criteria.distance_min) : '');
             setDistanceMax(criteria.distance_max != null ? String(criteria.distance_max) : '');
+            setPartnerIds(criteria.partner_ids || []);
         } else {
             setName('');
             setRouteIds([]);
@@ -76,6 +89,7 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
             setNotesSearch('');
             setDistanceMin('');
             setDistanceMax('');
+            setPartnerIds([]);
         }
         setDeleteConfirm(false);
         setSaving(false);
@@ -89,6 +103,7 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
         if (notesSearch.trim()) criteria.notes_search = notesSearch.trim();
         if (distanceMin !== '') criteria.distance_min = Number(distanceMin);
         if (distanceMax !== '') criteria.distance_max = Number(distanceMax);
+        if (partnerIds.length > 0) criteria.partner_ids = partnerIds;
         return criteria;
     };
 
@@ -207,6 +222,33 @@ const ViewDialog = ({ open, onClose, view, routes, darwinUri, idToken, creatorFk
                         ))}
                     </Select>
                 </FormControl>
+
+                {/* Partner multi-select */}
+                {sortedPartners.length > 0 && (
+                    <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+                        <InputLabel>Partners</InputLabel>
+                        <Select
+                            multiple
+                            value={partnerIds}
+                            onChange={(e) => setPartnerIds(e.target.value)}
+                            input={<OutlinedInput label="Partners" />}
+                            renderValue={(selected) => (
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {selected.map(id => (
+                                        <Chip key={id} label={partnerMap.get(id) || id} size="small" />
+                                    ))}
+                                </Box>
+                            )}
+                            data-testid="view-partners-select"
+                        >
+                            {sortedPartners.map(partner => (
+                                <MenuItem key={partner.id} value={partner.id}>
+                                    {partner.name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                )}
 
                 {/* Date range */}
                 <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>

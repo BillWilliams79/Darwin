@@ -3,6 +3,7 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -24,7 +25,7 @@ import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
 import { formatDuration } from '../utils/mapDataUtils';
 
-const RouteCard = ({ run, routeName, routes, allRuns }) => {
+const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [] }) => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
@@ -161,6 +162,19 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
                             {run.notes}
                         </Typography>
                     )}
+
+                    {(() => {
+                        const partnerIds = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
+                        const partnerNames = partners.filter(p => partnerIds.includes(p.id));
+                        if (partnerNames.length === 0) return null;
+                        return (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }} data-testid="partner-chips">
+                                {partnerNames.map(p => (
+                                    <Chip key={p.id} label={p.name} size="small" variant="outlined" />
+                                ))}
+                            </Box>
+                        );
+                    })()}
                 </CardContent>
             </Card>
 
@@ -171,6 +185,8 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
                 run={run}
                 routes={routes}
                 allRuns={allRuns}
+                partners={partners}
+                runPartners={runPartners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
