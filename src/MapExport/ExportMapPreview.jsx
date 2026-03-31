@@ -60,6 +60,18 @@ const FitBounds = ({ allPositions }) => {
     return null;
 };
 
+/** Fix Leaflet tiles not rendering when map is inside a dialog or resizing container */
+const InvalidateSize = () => {
+    const map = useMap();
+    React.useEffect(() => {
+        // Delay to allow dialog open animation to finish
+        const t1 = setTimeout(() => map.invalidateSize(), 100);
+        const t2 = setTimeout(() => map.invalidateSize(), 400);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+    }, [map]);
+    return null;
+};
+
 const FullscreenControl = () => {
     const map = useMap();
     React.useEffect(() => {
@@ -118,7 +130,7 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const ExportMapPreview = ({ routeCoordinates }) => {
+const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false }) => {
     if (!routeCoordinates || routeCoordinates.length === 0) return null;
 
     const allPositions = routeCoordinates.map(coords =>
@@ -130,44 +142,49 @@ const ExportMapPreview = ({ routeCoordinates }) => {
     const firstPoint = allPositions[0][0];
 
     return (
-        <Box sx={{ height: 'calc(100vh - 200px)', minHeight: 400, width: '100%' }}>
+        <Box sx={{ height, width: '100%' }}>
             <MapContainer
                 center={firstPoint}
                 zoom={10}
                 style={{ height: '100%', width: '100%', borderRadius: 4 }}
                 zoomControl={false}
-                scrollWheelZoom={true}
-                doubleClickZoom={true}
-                dragging={true}
-                touchZoom={true}
-                boxZoom={true}
-                keyboard={true}
+                scrollWheelZoom={!compact}
+                doubleClickZoom={!compact}
+                dragging={!compact}
+                touchZoom={!compact}
+                boxZoom={!compact}
+                keyboard={!compact}
             >
-                <LayersControl position="topright">
-                    <LayersControl.BaseLayer checked name="Topographic">
-                        <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Satellite">
-                        <TileLayer url={ESRI_URL} attribution={ESRI_ATTR} />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Street">
-                        <TileLayer url={OSM_URL} attribution={OSM_ATTR} />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Cycling (CyclOSM)">
-                        <TileLayer url={CYCLOSM_URL} attribution={CYCLOSM_ATTR} />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="National Geographic">
-                        <TileLayer url={ESRI_NATGEO_URL} attribution={ESRI_NATGEO_ATTR} />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Voyager">
-                        <TileLayer url={CARTO_VOYAGER_URL} attribution={CARTO_ATTR} />
-                    </LayersControl.BaseLayer>
+                {compact ? (
+                    /* Compact: single tile layer, no controls */
+                    <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
+                ) : (
+                    <LayersControl position="topright">
+                        <LayersControl.BaseLayer checked name="Topographic">
+                            <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Satellite">
+                            <TileLayer url={ESRI_URL} attribution={ESRI_ATTR} />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Street">
+                            <TileLayer url={OSM_URL} attribution={OSM_ATTR} />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Cycling (CyclOSM)">
+                            <TileLayer url={CYCLOSM_URL} attribution={CYCLOSM_ATTR} />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="National Geographic">
+                            <TileLayer url={ESRI_NATGEO_URL} attribution={ESRI_NATGEO_ATTR} />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Voyager">
+                            <TileLayer url={CARTO_VOYAGER_URL} attribution={CARTO_ATTR} />
+                        </LayersControl.BaseLayer>
 
-                    <LayersControl.Overlay name="Cycling Routes">
-                        <TileLayer url={WAYMARKED_CYCLING_URL} attribution={WAYMARKED_ATTR} />
-                    </LayersControl.Overlay>
-                    <SatelliteLabelsOverlay />
-                </LayersControl>
+                        <LayersControl.Overlay name="Cycling Routes">
+                            <TileLayer url={WAYMARKED_CYCLING_URL} attribution={WAYMARKED_ATTR} />
+                        </LayersControl.Overlay>
+                        <SatelliteLabelsOverlay />
+                    </LayersControl>
+                )}
 
                 {allPositions.map((positions, i) => (
                     <Polyline
@@ -177,13 +194,18 @@ const ExportMapPreview = ({ routeCoordinates }) => {
                     />
                 ))}
                 <FitBounds allPositions={allPositions} />
+                <InvalidateSize />
 
-                <ZoomControl position="topleft" />
-                <ScaleControl position="bottomleft" metric={false} />
-                <FullscreenControl />
-                <LocateCtrl />
-                <ResetViewControl allPositions={allPositions} />
-                <CoordinateDisplay />
+                {!compact && (
+                    <>
+                        <ZoomControl position="topleft" />
+                        <ScaleControl position="bottomleft" metric={false} />
+                        <FullscreenControl />
+                        <LocateCtrl />
+                        <ResetViewControl allPositions={allPositions} />
+                        <CoordinateDisplay />
+                    </>
+                )}
             </MapContainer>
         </Box>
     );
