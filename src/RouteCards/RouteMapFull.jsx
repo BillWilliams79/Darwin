@@ -153,7 +153,7 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const RouteMapFull = ({ coordinates, isLoading, run, routeName }) => {
+const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPartners }) => {
     if (isLoading) {
         return (
             <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -223,7 +223,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName }) => {
             <LocateCtrl />
             <ResetViewControl positions={positions} />
             <CoordinateDisplay />
-            {run && <MapStatsCard run={run} routeName={routeName} />}
+            {run && <MapStatsCard run={run} routeName={routeName} partners={partners} runPartners={runPartners} />}
         </MapContainer>
     );
 };

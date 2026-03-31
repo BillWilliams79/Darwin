@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -10,7 +11,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 
 import { formatDuration } from '../utils/mapDataUtils';
 
-const MapStatsCard = ({ run, routeName }) => {
+const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
     const [expanded, setExpanded] = useState(true);
 
     if (!run) return null;
@@ -126,6 +127,20 @@ const MapStatsCard = ({ run, routeName }) => {
                             {run.notes}
                         </Typography>
                     )}
+
+                    {/* Partners */}
+                    {(() => {
+                        const partnerIds = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
+                        const partnerNames = partners.filter(p => partnerIds.includes(p.id));
+                        if (partnerNames.length === 0) return null;
+                        return (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }} data-testid="partner-chips">
+                                {partnerNames.map(p => (
+                                    <Chip key={p.id} label={p.name} size="small" variant="outlined" sx={{ height: 20, '& .MuiChip-label': { px: 1, fontSize: '0.7rem' } }} />
+                                ))}
+                            </Box>
+                        );
+                    })()}
                 </Paper>
             </Collapse>
 
