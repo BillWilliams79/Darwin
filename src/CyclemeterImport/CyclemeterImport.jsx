@@ -26,6 +26,7 @@ import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByC
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
 const CONCURRENCY_LIMIT = 5;
+const SINGLE_FILE_FORMATS = new Set(['cyclemeter-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
 
 /** Maps format IDs to extraction functions for the Save to Darwin flow */
 const EXTRACTORS = {
@@ -99,6 +100,25 @@ const CyclemeterImport = () => {
                 const info = await detectFormat(file);
                 console.log('[Import] Detected format:', info.format, info.label);
                 setFormatInfo(info);
+
+                // Auto-process single-file formats (GPX, KML) — skip the manual Process step
+                if (SINGLE_FILE_FORMATS.has(info.format)) {
+                    console.log('[Import] Auto-processing single-file format:', info.format);
+                    setProcessing(true);
+                    try {
+                        const buffer = await file.arrayBuffer();
+                        const config = buildConfig();
+                        const result = await runPipelineForFormat(buffer, config, info.format);
+                        console.log('[Import] Auto-process complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
+                        setStats(result.stats);
+                        setRunMeta(result.runs.map(r => ({ name: r.name, date: r.titleFormattedStart })));
+                    } catch (pipeErr) {
+                        console.error('[Import] Auto-process error:', pipeErr);
+                        setError(pipeErr.message || 'Pipeline failed');
+                    } finally {
+                        setProcessing(false);
+                    }
+                }
             } catch (err) {
                 console.error('[Import] Format detection failed:', err);
                 setError(err.message);
@@ -483,15 +503,17 @@ const CyclemeterImport = () => {
 
             {/* Actions */}
             <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-                <Button
-                    variant="contained"
-                    startIcon={processing ? <CircularProgress size={20} /> : <PlayArrowIcon />}
-                    onClick={handleProcess}
-                    disabled={!dbFile || !formatInfo || processing || saving}
-                    data-testid="process-button"
-                >
-                    {processing ? 'Processing...' : 'Process'}
-                </Button>
+                {(!formatInfo || !SINGLE_FILE_FORMATS.has(formatInfo.format) || !stats) && (
+                    <Button
+                        variant="contained"
+                        startIcon={processing ? <CircularProgress size={20} /> : <PlayArrowIcon />}
+                        onClick={handleProcess}
+                        disabled={!dbFile || !formatInfo || processing || saving}
+                        data-testid="process-button"
+                    >
+                        {processing ? 'Processing...' : 'Process'}
+                    </Button>
+                )}
                 {stats && !saving && (
                     <Button
                         variant="contained"
