@@ -3,7 +3,9 @@ import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
@@ -16,14 +18,14 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useQueryClient } from '@tanstack/react-query';
 
 import call_rest_api from '../RestApi/RestApi';
-import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
+import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { formatDuration, parseDuration } from '../utils/mapDataUtils';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 
 const CREATE_NEW = '__create_new__';
 const NO_ROUTE = '__no_route__';
 
-const RideEditDialog = ({ open, onClose, run, routes, allRuns, darwinUri, idToken, creatorFk }) => {
+const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], runPartners = [], darwinUri, idToken, creatorFk }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -34,6 +36,7 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, darwinUri, idToke
     const [rideTime, setRideTime] = useState('');
     const [stoppedTime, setStoppedTime] = useState('');
     const [notes, setNotes] = useState('');
+    const [selectedPartners, setSelectedPartners] = useState([]);
     const [saving, setSaving] = useState(false);
 
     // Route delete confirmation state
@@ -49,8 +52,16 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, darwinUri, idToke
             setStoppedTime(formatDuration(run.stopped_time_sec || 0));
             setNotes(run.notes || '');
             setDeleteRouteConfirm(false);
+            // Initialize selected partners from current run-partner links
+            const currentPartnerIds = runPartners
+                .filter(rp => rp.map_run_fk === run.id)
+                .map(rp => rp.map_partner_fk);
+            const currentPartnerNames = partners
+                .filter(p => currentPartnerIds.includes(p.id))
+                .map(p => p.name);
+            setSelectedPartners(currentPartnerNames);
         }
-    }, [run, open]);
+    }, [run, open, partners, runPartners]);
 
     // Compute ride counts per route from allRuns
     const rideCountByRoute = useMemo(() => {
@@ -121,7 +132,57 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, darwinUri, idToke
             if (result.httpStatus.httpStatus > 204) {
                 showError(result, 'Failed to update ride');
             } else {
+                // Save partner changes
+                const existingPartnerIds = runPartners
+                    .filter(rp => rp.map_run_fk === run.id)
+                    .map(rp => rp.map_partner_fk);
+                const existingPartnerNames = partners
+                    .filter(p => existingPartnerIds.includes(p.id))
+                    .map(p => p.name);
+
+                const toAdd = selectedPartners.filter(name => !existingPartnerNames.includes(name));
+                const toRemove = existingPartnerNames.filter(name => !selectedPartners.includes(name));
+
+                // Create new partners and add links
+                for (const name of toAdd) {
+                    let partner = partners.find(p => p.name === name);
+                    if (!partner) {
+                        // Create new partner
+                        const pResult = await call_rest_api(
+                            `${darwinUri}/map_partners`, 'POST',
+                            { name, creator_fk: creatorFk }, idToken
+                        );
+                        if (pResult.httpStatus.httpStatus === 200 && pResult.data?.[0]) {
+                            partner = pResult.data[0];
+                        } else {
+                            continue;
+                        }
+                    }
+                    // Add run-partner link
+                    await call_rest_api(
+                        `${darwinUri}/map_run_partners`, 'POST',
+                        { map_run_fk: run.id, map_partner_fk: partner.id }, idToken
+                    );
+                }
+
+                // Remove links for removed partners
+                for (const name of toRemove) {
+                    const partner = partners.find(p => p.name === name);
+                    if (!partner) continue;
+                    const link = runPartners.find(
+                        rp => rp.map_run_fk === run.id && rp.map_partner_fk === partner.id
+                    );
+                    if (link) {
+                        await call_rest_api(
+                            `${darwinUri}/map_run_partners`, 'DELETE',
+                            { id: link.id }, idToken
+                        );
+                    }
+                }
+
                 queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
+                queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
+                queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
                 onClose();
             }
         } catch (error) {
@@ -270,6 +331,32 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, darwinUri, idToke
                     value={notes} onChange={(e) => setNotes(e.target.value)}
                     sx={{ mt: 2 }}
                     data-testid="ride-edit-notes"
+                />
+
+                {/* Partners */}
+                <Autocomplete
+                    multiple
+                    freeSolo
+                    size="small"
+                    options={partners.map(p => p.name)}
+                    value={selectedPartners}
+                    onChange={(e, newValue) => setSelectedPartners(newValue)}
+                    renderTags={(value, getTagProps) =>
+                        value.map((option, index) => (
+                            <Chip
+                                variant="outlined"
+                                label={option}
+                                size="small"
+                                {...getTagProps({ index })}
+                                key={option}
+                            />
+                        ))
+                    }
+                    renderInput={(params) => (
+                        <TextField {...params} label="Partners" placeholder="Add partner..." />
+                    )}
+                    sx={{ mt: 2 }}
+                    data-testid="ride-edit-partners"
                 />
             </DialogContent>
             <DialogActions>

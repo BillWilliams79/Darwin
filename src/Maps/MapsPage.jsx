@@ -17,10 +17,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import Popover from '@mui/material/Popover';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import Checkbox from '@mui/material/Checkbox';
+import Divider from '@mui/material/Divider';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -30,6 +27,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import RouteIcon from '@mui/icons-material/Route';
+import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,18 +35,20 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useMapRuns, useMapRoutes, useMapViews } from '../hooks/useDataQueries';
-import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
+import { useMapRuns, useMapRoutes, useMapViews, useMapPartners, useMapRunPartners } from '../hooks/useDataQueries';
+import { mapRunKeys, mapRouteKeys, mapPartnerKeys } from '../hooks/useQueryKeys';
 import MapRunsView, { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 import RouteCardView from '../RouteCards/RouteCardView';
 import TrendsView from '../Trends/TrendsView';
 import ViewBar from './ViewBar';
 import ViewDialog from './ViewDialog';
+import ExportDialog from '../MapExport/ExportDialog';
+import TrendsFilterChips from './TrendsFilterChips';
+import PickerDialog from './PickerDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
-
-const DRILL_DOWN = { yearly: 'monthly', monthly: 'weekly', weekly: 'weekly' };
+import { navigateTimeframe, DRILL_DOWN } from '../utils/trendsNavigation';
 
 const STORAGE_KEY = 'darwin-maps-view';
 
@@ -63,14 +63,18 @@ const MapsPage = () => {
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [], isLoading: routesLoading } = useMapRoutes(creatorFk);
     const { data: views = [] } = useMapViews(creatorFk);
+    const { data: partners = [] } = useMapPartners(creatorFk);
+    const { data: runPartners = [] } = useMapRunPartners(creatorFk);
 
     const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'table');
     const {
         metric, timeframe, chartType, timeFilter,
-        selectedRouteIds,
-        setMetric, setTimeframe, setChartType, setTimeFilter, setSelectedRouteIds,
+        selectedRouteIds, selectedPartnerIds,
+        setMetric, setTimeframe, setChartType, setTimeFilter,
+        setSelectedRouteIds, setSelectedPartnerIds,
     } = useTrendsStore();
     const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -89,13 +93,23 @@ const MapsPage = () => {
         } catch { return null; }
     }, [activeView?.criteria]);
 
+    // Build run → partnerIds lookup for view filtering
+    const runPartnerMap = useMemo(() => {
+        const m = new Map();
+        for (const rp of runPartners) {
+            if (!m.has(rp.map_run_fk)) m.set(rp.map_run_fk, []);
+            m.get(rp.map_run_fk).push(rp.map_partner_fk);
+        }
+        return m;
+    }, [runPartners]);
+
     // Stage 1: savable view filter (base for Trends and Table/Cards)
     const viewFilteredRuns = useMemo(
-        () => applyViewFilter(allRuns, criteria),
-        [allRuns, criteria]
+        () => applyViewFilter(allRuns, criteria, runPartnerMap),
+        [allRuns, criteria, runPartnerMap]
     );
 
-    // Stage 2: apply trends time + route filters on top (for Table/Cards)
+    // Stage 2: apply trends time + route filters on top of view filter (for Table/Cards)
     const filteredRuns = useMemo(() => {
         let result = viewFilteredRuns;
 
@@ -111,8 +125,16 @@ const MapsPage = () => {
             result = result.filter(run => idSet.has(run.map_route_fk));
         }
 
+        if (selectedPartnerIds.length > 0) {
+            const idSet = new Set(selectedPartnerIds);
+            result = result.filter(run => {
+                const pids = runPartnerMap.get(run.id) || [];
+                return pids.some(pid => idSet.has(pid));
+            });
+        }
+
         return result;
-    }, [viewFilteredRuns, timeFilter, selectedRouteIds]);
+    }, [viewFilteredRuns, timeFilter, selectedRouteIds, selectedPartnerIds, runPartnerMap]);
 
     // Count distinct routes in the filtered runs
     const filteredRouteCount = useMemo(() => {
@@ -123,13 +145,33 @@ const MapsPage = () => {
         return ids.size;
     }, [filteredRuns]);
 
+    // Build a human-readable description of active filters (for export dialog placeholder)
+    const filterDescription = useMemo(() => {
+        const parts = [];
+        if (activeView) parts.push(activeView.name);
+        if (timeFilter) parts.push(timeFilter.label);
+        if (selectedRouteIds.length > 0) {
+            const names = selectedRouteIds
+                .map(id => routes.find(r => r.id === id)?.name)
+                .filter(Boolean);
+            if (names.length > 0) parts.push(names.join(', '));
+        }
+        if (selectedPartnerIds.length > 0) {
+            const names = selectedPartnerIds
+                .map(id => partners.find(p => p.id === id)?.name)
+                .filter(Boolean);
+            if (names.length > 0) parts.push(names.join(', '));
+        }
+        return parts.length > 0 ? parts.join(' \u2022 ') : '';
+    }, [activeView, timeFilter, selectedRouteIds, selectedPartnerIds, routes, partners]);
+
     // View dialog state
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
     const [editingView, setEditingView] = useState(null);
 
-    // Route picker state
-    const [routeAnchor, setRouteAnchor] = useState(null);
-    const [pendingRouteIds, setPendingRouteIds] = useState([]);
+    // Picker dialog state
+    const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+    const [partnerDialogOpen, setPartnerDialogOpen] = useState(false);
 
     const isLoading = runsLoading || routesLoading;
 
@@ -155,10 +197,35 @@ const MapsPage = () => {
     }, [viewFilteredRuns, timeFilter]);
 
     const routeOptions = useMemo(() => {
-        return [...routes]
+        return routes
             .filter(r => (routeCountMap.get(r.id) || 0) > 0)
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .map(r => ({ ...r, ride_count: routeCountMap.get(r.id) || 0 }));
     }, [routes, routeCountMap]);
+
+    // Partner picker: count activities per partner (respects time filter but not partner filter)
+    const partnerCountMap = useMemo(() => {
+        let source = viewFilteredRuns;
+        if (timeFilter) {
+            source = source.filter(run => {
+                const t = new Date(run.start_time.endsWith?.('Z') ? run.start_time : run.start_time + 'Z');
+                return t >= timeFilter.start && t < timeFilter.end;
+            });
+        }
+        const sourceIds = new Set(source.map(r => r.id));
+        const counts = new Map();
+        for (const rp of runPartners) {
+            if (sourceIds.has(rp.map_run_fk)) {
+                counts.set(rp.map_partner_fk, (counts.get(rp.map_partner_fk) || 0) + 1);
+            }
+        }
+        return counts;
+    }, [viewFilteredRuns, timeFilter, runPartners]);
+
+    const partnerOptions = useMemo(() => {
+        return partners
+            .filter(p => (partnerCountMap.get(p.id) || 0) > 0)
+            .map(p => ({ ...p, ride_count: partnerCountMap.get(p.id) || 0 }));
+    }, [partners, partnerCountMap]);
 
     const handleViewChange = (event, newView) => {
         if (newView !== null) {
@@ -187,33 +254,38 @@ const MapsPage = () => {
         setTimeframe('yearly');
         setTimeFilter(null);
         setSelectedRouteIds([]);
-    }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds]);
+        setSelectedPartnerIds([]);
+    }, [setMetric, setTimeframe, setTimeFilter, setSelectedRouteIds, setSelectedPartnerIds]);
 
     const handleMetric = (e, val) => { if (val !== null) setMetric(val); };
-    const handleTimeframe = (e, val) => { if (val !== null) setTimeframe(val); };
+    const handleTimeframe = useCallback((e, val) => {
+        if (val === null) return;
+        const result = navigateTimeframe(val, timeFilter, effectiveTimeframe);
+        if (!result) return; // no-op (same level)
+        if (result.timeframe !== null) setTimeframe(result.timeframe);
+        if (result.timeFilter !== undefined) setTimeFilter(result.timeFilter);
+    }, [timeFilter, effectiveTimeframe, setTimeframe, setTimeFilter]);
     const handleChartType = (e, val) => { if (val !== null) setChartType(val); };
 
-    const handleOpenRoutes = (e) => {
-        setPendingRouteIds([...selectedRouteIds]);
-        setRouteAnchor(e.currentTarget);
+    const handleRouteRename = async (id, name) => {
+        await call_rest_api(`${darwinUri}/map_routes`, 'PUT', [{ id, name }], idToken);
+        queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
     };
 
-    const handleToggleRoute = (id) => {
-        setPendingRouteIds(prev =>
-            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-        );
-    };
-
-    const handleApplyRoutes = () => {
-        setSelectedRouteIds(pendingRouteIds);
-        setRouteAnchor(null);
+    const handlePartnerRename = async (id, name) => {
+        await call_rest_api(`${darwinUri}/map_partners`, 'PUT', [{ id, name }], idToken);
+        queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
     };
 
     const routeButtonLabel = selectedRouteIds.length === 0
         ? 'Routes'
         : `Routes (${selectedRouteIds.length})`;
 
-    const hasTrendFilters = !!timeFilter || selectedRouteIds.length > 0
+    const partnerButtonLabel = selectedPartnerIds.length === 0
+        ? 'Partners'
+        : `Partners (${selectedPartnerIds.length})`;
+
+    const hasTrendFilters = !!timeFilter || selectedRouteIds.length > 0 || selectedPartnerIds.length > 0
         || metric !== 'distance' || timeframe !== 'yearly';
 
     const handleDeleteAll = async () => {
@@ -227,9 +299,13 @@ const MapsPage = () => {
             for (const route of routes) {
                 await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { id: route.id }, idToken);
             }
+            for (const partner of partners) {
+                await call_rest_api(`${darwinUri}/map_partners`, 'DELETE', { id: partner.id }, idToken);
+            }
 
             queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
 
             setSnackbar({ open: true, message: 'All map data deleted', severity: 'success' });
         } catch (err) {
@@ -245,10 +321,10 @@ const MapsPage = () => {
             {/* Header row */}
             <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
-                ...(view === 'table' ? { maxWidth: TABLE_WIDTH } : {}),
+                maxWidth: TABLE_WIDTH,
             }}>
                 <Typography variant="h5" sx={{ flexShrink: 0 }}>
-                    {timeFilter ? `Maps - ${timeFilter.label}` : 'Maps'}
+                    Maps
                 </Typography>
 
                 <ViewBar
@@ -257,37 +333,39 @@ const MapsPage = () => {
                     onViewSelect={setActiveViewId}
                     onCreateClick={handleCreateView}
                     onEditClick={handleEditView}
+                    darwinUri={darwinUri}
+                    idToken={idToken}
+                    creatorFk={creatorFk}
                 />
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-                    {filteredRuns.length} runs
+                    {filteredRuns.length} activities
                     {filteredRouteCount > 0 ? ` / ${filteredRouteCount} routes` : ''}
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
 
                 {!timeFilter && (
-                    <>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<CloudUploadIcon />}
-                            onClick={() => navigate('/maps/import')}
-                        >
-                            Import
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<FileDownloadOutlinedIcon />}
-                            onClick={() => navigate('/maps/export')}
-                        >
-                            Export
-                        </Button>
-
-                        <Box sx={{ width: 16 }} />
-                    </>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CloudUploadIcon />}
+                        onClick={() => navigate('/maps/import')}
+                    >
+                        Import
+                    </Button>
                 )}
+                <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<FileDownloadOutlinedIcon />}
+                    onClick={() => setExportDialogOpen(true)}
+                    data-testid="export-button"
+                >
+                    Export
+                </Button>
+
+                {!timeFilter && <Box sx={{ width: 16 }} />}
 
                 <ToggleButtonGroup
                     value={view}
@@ -323,6 +401,25 @@ const MapsPage = () => {
                     onClose={() => setSettingsAnchorEl(null)}
                 >
                     <MenuItem
+                        onClick={() => { setSettingsAnchorEl(null); navigate('/maps/settings/routes'); }}
+                        data-testid="manage-routes-button"
+                    >
+                        <ListItemIcon>
+                            <RouteIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Manage Routes</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                        onClick={() => { setSettingsAnchorEl(null); navigate('/maps/settings/partners'); }}
+                        data-testid="manage-partners-button"
+                    >
+                        <ListItemIcon>
+                            <PeopleIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Manage Partners</ListItemText>
+                    </MenuItem>
+                    <Divider />
+                    <MenuItem
                         onClick={() => {
                             setSettingsAnchorEl(null);
                             setDeleteDialogOpen(true);
@@ -338,11 +435,11 @@ const MapsPage = () => {
                 </Menu>
             </Box>
 
-            {/* Temporal controls row — always on Trends, only when filtered on Table/Cards */}
-            {(view === 'trends' || hasTrendFilters) && (
+            {/* Temporal controls row — Trends view only */}
+            {view === 'trends' && (
                 <Box sx={{
                     display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
-                    flexWrap: 'wrap',
+                    flexWrap: 'wrap', maxWidth: TABLE_WIDTH,
                 }}>
                     <ToggleButtonGroup value={metric} exclusive onChange={handleMetric} size="small" disabled={view !== 'trends'}>
                         <ToggleButton value="distance" data-testid="metric-toggle-distance">Distance</ToggleButton>
@@ -356,7 +453,7 @@ const MapsPage = () => {
                         exclusive
                         onChange={handleTimeframe}
                         size="small"
-                        disabled={view !== 'trends' || !!timeFilter}
+                        disabled={view !== 'trends'}
                     >
                         <ToggleButton value="yearly" data-testid="timeframe-toggle-yearly">Yearly</ToggleButton>
                         <ToggleButton value="monthly" data-testid="timeframe-toggle-monthly">Monthly</ToggleButton>
@@ -367,52 +464,24 @@ const MapsPage = () => {
                         variant="outlined"
                         size="small"
                         startIcon={<RouteIcon />}
-                        onClick={handleOpenRoutes}
+                        onClick={() => setRouteDialogOpen(true)}
                         disabled={view !== 'trends'}
                         data-testid="route-filter-button"
                         sx={selectedRouteIds.length > 0 ? { borderColor: '#E91E63', color: '#E91E63' } : {}}
                     >
                         {routeButtonLabel}
                     </Button>
-                    <Popover
-                        open={Boolean(routeAnchor)}
-                        anchorEl={routeAnchor}
-                        onClose={() => setRouteAnchor(null)}
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<PeopleIcon />}
+                        onClick={() => setPartnerDialogOpen(true)}
+                        disabled={view !== 'trends'}
+                        data-testid="partner-filter-button"
+                        sx={selectedPartnerIds.length > 0 ? { borderColor: '#E91E63', color: '#E91E63' } : {}}
                     >
-                        <Box sx={{ width: 300, display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
-                            <List dense sx={{ overflow: 'auto', flex: 1 }}>
-                                {routeOptions.map(route => (
-                                    <ListItemButton
-                                        key={route.id}
-                                        onClick={() => handleToggleRoute(route.id)}
-                                        dense
-                                    >
-                                        <Checkbox
-                                            edge="start"
-                                            checked={pendingRouteIds.includes(route.id)}
-                                            tabIndex={-1}
-                                            disableRipple
-                                            size="small"
-                                        />
-                                        <ListItemText
-                                            primary={route.name}
-                                            secondary={`${routeCountMap.get(route.id) || 0} activities`}
-                                        />
-                                    </ListItemButton>
-                                ))}
-                            </List>
-                            <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                <Button size="small" onClick={() => { setPendingRouteIds([]); setSelectedRouteIds([]); setRouteAnchor(null); }}>
-                                    Clear
-                                </Button>
-                                <Button size="small" variant="contained" onClick={handleApplyRoutes}>
-                                    Apply
-                                </Button>
-                            </Box>
-                        </Box>
-                    </Popover>
+                        {partnerButtonLabel}
+                    </Button>
 
                     <ToggleButtonGroup value={chartType} exclusive onChange={handleChartType} size="small" disabled={view !== 'trends'}>
                         <ToggleButton value="bar" data-testid="chart-type-toggle-bar">
@@ -436,28 +505,74 @@ const MapsPage = () => {
                 </Box>
             )}
 
+            {/* Dismissible filter chips — Table/Cards only */}
+            {view !== 'trends' && (!!timeFilter || selectedRouteIds.length > 0 || selectedPartnerIds.length > 0) && (
+                <TrendsFilterChips
+                    timeFilter={timeFilter}
+                    selectedRouteIds={selectedRouteIds}
+                    selectedPartnerIds={selectedPartnerIds}
+                    onClearTimeFilter={() => setTimeFilter(null)}
+                    onClearRouteFilter={() => setSelectedRouteIds([])}
+                    onClearPartnerFilter={() => setSelectedPartnerIds([])}
+                />
+            )}
+
             {view === 'trends'
-                ? <TrendsView runs={viewFilteredRuns} isLoading={isLoading} onBucketClick={handleBucketClick} />
+                ? <TrendsView runs={viewFilteredRuns} runPartnerMap={runPartnerMap} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
-                    ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />
-                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />
+                    ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
+                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
             }
+
+            <PickerDialog
+                open={routeDialogOpen}
+                onClose={() => setRouteDialogOpen(false)}
+                title="Filter by Route"
+                entityLabel="Route"
+                rows={routeOptions}
+                selectedIds={selectedRouteIds}
+                onApply={(ids) => setSelectedRouteIds(ids)}
+                onRename={handleRouteRename}
+            />
+
+            <PickerDialog
+                open={partnerDialogOpen}
+                onClose={() => setPartnerDialogOpen(false)}
+                title="Filter by Partner"
+                entityLabel="Partner"
+                rows={partnerOptions}
+                selectedIds={selectedPartnerIds}
+                onApply={(ids) => setSelectedPartnerIds(ids)}
+                onRename={handlePartnerRename}
+            />
 
             <ViewDialog
                 open={viewDialogOpen}
                 onClose={() => setViewDialogOpen(false)}
                 view={editingView}
+                views={views}
                 routes={routes}
+                partners={partners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
+            />
+
+            <ExportDialog
+                open={exportDialogOpen}
+                onClose={() => setExportDialogOpen(false)}
+                runs={filteredRuns}
+                routes={routes}
+                darwinUri={darwinUri}
+                idToken={idToken}
+                filterDescription={filterDescription}
             />
 
             <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
                 <DialogTitle>Delete All Map Data?</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        This will permanently delete all {allRuns.length} runs, their GPS coordinates,
+                        This will permanently delete all {allRuns.length} activities, their GPS coordinates,
                         and {routes.length} routes. This cannot be undone.
                     </DialogContentText>
                 </DialogContent>

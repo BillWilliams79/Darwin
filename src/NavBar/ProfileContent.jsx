@@ -3,6 +3,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchExportData, downloadJson } from '../services/exportService';
+import ExportDialog from './ExportDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
@@ -14,7 +15,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
@@ -33,6 +33,7 @@ const ProfileContent = ({ onClose }) => {
     const [name, setName] = useState(profile?.name || '');
     const [timezone, setTimezone] = useState(profile?.timezone || '');
     const [exporting, setExporting] = useState(false);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [appTasks, setAppTasks] = useState(Number(profile?.app_tasks ?? 1));
     const [appMaps, setAppMaps] = useState(Number(profile?.app_maps ?? 1));
     const [appSwarm, setAppSwarm] = useState(Number(profile?.app_swarm ?? 0));
@@ -106,16 +107,17 @@ const ProfileContent = ({ onClose }) => {
             .catch(error => showError(error, 'Unable to save profile'));
     }, [darwinUri, profile, idToken, setProfile, showError]);
 
-    const handleExport = async () => {
+    const handleExport = async (selectedApps) => {
         setExporting(true);
         try {
-            const data = await fetchExportData(darwinUri, profile.userName, idToken, profile);
+            const data = await fetchExportData(darwinUri, profile.userName, idToken, profile, selectedApps);
             const date = new Date().toISOString().slice(0, 10);
             downloadJson(data, `darwin-export-${date}.json`);
         } catch (err) {
             showError(err, 'Export failed. Please try again.');
         } finally {
             setExporting(false);
+            setExportDialogOpen(false);
         }
     };
 
@@ -379,13 +381,19 @@ const ProfileContent = ({ onClose }) => {
             </Box>
             <Button
                 variant="outlined"
-                startIcon={exporting ? <CircularProgress size={20} /> : <FileDownloadOutlinedIcon />}
-                onClick={handleExport}
-                disabled={exporting}
+                startIcon={<FileDownloadOutlinedIcon />}
+                onClick={() => setExportDialogOpen(true)}
                 data-testid="export-button"
             >
-                {exporting ? 'Exporting...' : 'Export My Data'}
+                Export My Data
             </Button>
+            <ExportDialog
+                open={exportDialogOpen}
+                onClose={() => setExportDialogOpen(false)}
+                enabledApps={{ tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }}
+                onExport={handleExport}
+                exporting={exporting}
+            />
             <Button
                 variant="outlined"
                 startIcon={<LogoutOutlined />}

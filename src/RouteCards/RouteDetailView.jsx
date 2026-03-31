@@ -12,11 +12,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useMapRuns, useMapRoutes, useMapCoordinates } from '../hooks/useDataQueries';
+import { useMapRuns, useMapRoutes, useMapCoordinates, useMapPartners, useMapRunPartners } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import RouteMapFull from './RouteMapFull';
-import RouteStatsOverlay from './RouteStatsOverlay';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
 
@@ -39,6 +38,8 @@ const RouteDetailView = () => {
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [] } = useMapRoutes(creatorFk);
     const { data: coordinates = [], isLoading: coordsLoading } = useMapCoordinates(Number(runId));
+    const { data: partners = [] } = useMapPartners(creatorFk);
+    const { data: runPartners = [] } = useMapRunPartners(creatorFk);
 
     // Dialog state
     const [editOpen, setEditOpen] = useState(false);
@@ -67,7 +68,7 @@ const RouteDetailView = () => {
                 <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
                     {backLabel}
                 </Button>
-                <Typography color="error">Run not found.</Typography>
+                <Typography color="error">Activity not found.</Typography>
             </Box>
         );
     }
@@ -130,8 +131,7 @@ const RouteDetailView = () => {
                 </Button>
             </Box>
 
-            <RouteMapFull coordinates={coordinates} isLoading={coordsLoading} />
-            <RouteStatsOverlay run={run} routeName={routeName} />
+            <RouteMapFull coordinates={coordinates} isLoading={coordsLoading} run={run} routeName={routeName} partners={partners} runPartners={runPartners} />
 
             {/* Edit Dialog */}
             <RideEditDialog
@@ -140,6 +140,8 @@ const RouteDetailView = () => {
                 run={run}
                 routes={routes}
                 allRuns={allRuns}
+                partners={partners}
+                runPartners={runPartners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
