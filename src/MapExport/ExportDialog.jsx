@@ -250,7 +250,7 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
                                 <Typography variant="subtitle2" gutterBottom>Export Summary</Typography>
                                 <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
                                     <tbody>
-                                        <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
+                                        <tr><td>Total Activities</td><td><strong>{stats.totalRuns}</strong></td></tr>
                                         <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
                                         <tr><td>GPS Coordinates</td><td><strong>{stats.totalCoordinates.toLocaleString()}</strong></td></tr>
                                     </tbody>

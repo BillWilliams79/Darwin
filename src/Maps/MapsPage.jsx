@@ -300,7 +300,7 @@ const MapsPage = () => {
                 />
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-                    {filteredRuns.length} runs
+                    {filteredRuns.length} activities
                     {filteredRouteCount > 0 ? ` / ${filteredRouteCount} routes` : ''}
                 </Typography>
 
@@ -536,7 +536,7 @@ const MapsPage = () => {
                 <DialogTitle>Delete All Map Data?</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        This will permanently delete all {allRuns.length} runs, their GPS coordinates,
+                        This will permanently delete all {allRuns.length} activities, their GPS coordinates,
                         and {routes.length} routes. This cannot be undone.
                     </DialogContentText>
                 </DialogContent>
