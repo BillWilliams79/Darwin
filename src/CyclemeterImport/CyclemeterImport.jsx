@@ -22,6 +22,7 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromMtbProjectGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff, normalizeRouteName } from '../cyclemeter/sqlMapper';
+import StravaImport from '../strava/StravaImport';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
@@ -369,7 +370,7 @@ const CyclemeterImport = () => {
         : 0;
 
     return (
-        <Box sx={{ maxWidth: 700, mx: 'auto', mt: 3, px: 2 }}>
+        <Box sx={{ maxWidth: 960, mx: 'auto', mt: 3, px: 2 }}>
             <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 1 }} size="small">
                 Maps
             </Button>
@@ -384,6 +385,13 @@ const CyclemeterImport = () => {
                 <Chip label="Strava GPX (.gpx)" size="small" variant="outlined" />
                 <Chip label="MTB Project GPX (.gpx)" size="small" variant="outlined" />
             </Box>
+
+            {/* Strava API Import */}
+            <StravaImport />
+
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', my: 2 }}>
+                — or import from file —
+            </Typography>
 
             {/* Drop Zone */}
             <Paper
