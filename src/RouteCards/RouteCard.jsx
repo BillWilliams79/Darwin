@@ -3,6 +3,7 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -23,8 +24,9 @@ import RouteMapThumbnail from './RouteMapThumbnail';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
 import { formatDuration } from '../utils/mapDataUtils';
+import { formatCardDateTime } from '../utils/dateFormat';
 
-const RouteCard = ({ run, routeName, routes, allRuns }) => {
+const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [] }) => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
@@ -40,16 +42,8 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
     const [editOpen, setEditOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
 
-    // Parse start_time for display
-    const startTimeStr = run.start_time;
-    const startDate = new Date(startTimeStr.endsWith('Z') ? startTimeStr : startTimeStr + 'Z');
-    const month = startDate.getUTCMonth() + 1;
-    const offsetHours = [1, 2, 3, 11, 12].includes(month) ? 8 : 7;
-    const localDate = new Date(startDate.getTime() - offsetHours * 3600 * 1000);
-
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dateStr = `${days[localDate.getUTCDay()]}, ${months[localDate.getUTCMonth()]} ${localDate.getUTCDate()}, ${localDate.getUTCFullYear()}`;
+    // Format start_time with timezone-aware date + time
+    const dateStr = formatCardDateTime(run.start_time, profile?.timezone);
 
     const distance = Number(run.distance_mi).toFixed(1);
     const avgSpeed = run.avg_speed_mph != null ? Number(run.avg_speed_mph).toFixed(1) : '—';
@@ -142,7 +136,7 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
 
                 <CardContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {dateStr}
+                        {run.activity_name ? `${run.activity_name} · ${dateStr}` : dateStr}
                     </Typography>
 
                     <Box component="table" sx={{ width: '100%', '& td': { py: 0.2 }, '& td:first-of-type': { color: 'text.secondary', pr: 1.5 } }}>
@@ -161,6 +155,19 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
                             {run.notes}
                         </Typography>
                     )}
+
+                    {(() => {
+                        const partnerIds = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
+                        const partnerNames = partners.filter(p => partnerIds.includes(p.id));
+                        if (partnerNames.length === 0) return null;
+                        return (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }} data-testid="partner-chips">
+                                {partnerNames.map(p => (
+                                    <Chip key={p.id} label={p.name} size="small" variant="outlined" />
+                                ))}
+                            </Box>
+                        );
+                    })()}
                 </CardContent>
             </Card>
 
@@ -171,6 +178,8 @@ const RouteCard = ({ run, routeName, routes, allRuns }) => {
                 run={run}
                 routes={routes}
                 allRuns={allRuns}
+                partners={partners}
+                runPartners={runPartners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}

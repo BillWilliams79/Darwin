@@ -35,8 +35,10 @@ import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import MapsPage from './Maps/MapsPage';
 import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
-import MapExportView from './MapExport/MapExportView';
+
 import RouteDetailView from './RouteCards/RouteDetailView';
+import MapRouteSettingsView from './Maps/MapRouteSettingsView';
+import MapPartnerSettingsView from './Maps/MapPartnerSettingsView';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -103,8 +105,12 @@ root.render(
                     <Route path="maps/import" element= {<AuthenticatedRoute>
                                                              <CyclemeterImport />
                                                          </AuthenticatedRoute>} />
-                    <Route path="maps/export" element= {<AuthenticatedRoute>
-                                                             <MapExportView />
+
+                    <Route path="maps/settings/routes" element= {<AuthenticatedRoute>
+                                                             <MapRouteSettingsView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/settings/partners" element= {<AuthenticatedRoute>
+                                                             <MapPartnerSettingsView />
                                                          </AuthenticatedRoute>} />
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />

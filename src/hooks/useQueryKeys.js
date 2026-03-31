@@ -81,3 +81,11 @@ export const mapCoordinateKeys = {
 export const mapViewKeys = {
     all: (creatorFk) => ['map_views', creatorFk],
 };
+
+export const mapPartnerKeys = {
+    all: (creatorFk) => ['map_partners', creatorFk],
+};
+
+export const mapRunPartnerKeys = {
+    all: (creatorFk) => ['map_run_partners', creatorFk],
+};
