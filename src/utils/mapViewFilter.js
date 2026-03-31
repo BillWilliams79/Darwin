@@ -10,9 +10,11 @@
  *   - notes_search: string — case-insensitive substring match on run.notes
  *   - distance_min: number — run.distance_mi must be >= this value
  *   - distance_max: number — run.distance_mi must be <= this value
+ *   - partner_ids: number[] — run must have at least one partner in this array
+ * @param {Map|null} runPartnerMap - Map<runId, partnerIds[]> for partner filtering
  * @returns {Array} Filtered runs (or all runs if no criteria)
  */
-export function applyViewFilter(runs, criteria) {
+export function applyViewFilter(runs, criteria, runPartnerMap = null) {
     if (!criteria || Object.keys(criteria).length === 0) return runs;
 
     return runs.filter(run => {
@@ -42,6 +44,12 @@ export function applyViewFilter(runs, criteria) {
         }
         if (criteria.distance_max != null) {
             if (Number(run.distance_mi) > criteria.distance_max) return false;
+        }
+
+        // Partner filter — run must have at least one of the specified partners
+        if (criteria.partner_ids?.length > 0 && runPartnerMap) {
+            const runPartnerIds = runPartnerMap.get(run.id) || [];
+            if (!criteria.partner_ids.some(pid => runPartnerIds.includes(pid))) return false;
         }
 
         return true;
