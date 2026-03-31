@@ -20,7 +20,7 @@ import { mapViewKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 
-const ViewDialog = ({ open, onClose, view, routes, partners = [], darwinUri, idToken, creatorFk }) => {
+const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], darwinUri, idToken, creatorFk }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
@@ -129,7 +129,7 @@ const ViewDialog = ({ open, onClose, view, routes, partners = [], darwinUri, idT
             } else {
                 const result = await call_rest_api(
                     `${darwinUri}/map_views`, 'POST',
-                    { name: name.trim(), criteria: JSON.stringify(criteria), creator_fk: creatorFk },
+                    { name: name.trim(), criteria: JSON.stringify(criteria), sort_order: views.length, creator_fk: creatorFk },
                     idToken
                 );
                 if (result.httpStatus.httpStatus === 200 && result.data?.[0]) {

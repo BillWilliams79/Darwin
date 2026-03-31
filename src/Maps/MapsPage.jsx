@@ -46,6 +46,8 @@ import RouteCardView from '../RouteCards/RouteCardView';
 import TrendsView from '../Trends/TrendsView';
 import ViewBar from './ViewBar';
 import ViewDialog from './ViewDialog';
+import ExportDialog from '../MapExport/ExportDialog';
+import TrendsFilterChips from './TrendsFilterChips';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
@@ -74,6 +76,7 @@ const MapsPage = () => {
         setMetric, setTimeframe, setChartType, setTimeFilter, setSelectedRouteIds,
     } = useTrendsStore();
     const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -135,6 +138,20 @@ const MapsPage = () => {
         }
         return ids.size;
     }, [filteredRuns]);
+
+    // Build a human-readable description of active filters (for export dialog placeholder)
+    const filterDescription = useMemo(() => {
+        const parts = [];
+        if (activeView) parts.push(activeView.name);
+        if (timeFilter) parts.push(timeFilter.label);
+        if (selectedRouteIds.length > 0) {
+            const names = selectedRouteIds
+                .map(id => routes.find(r => r.id === id)?.name)
+                .filter(Boolean);
+            if (names.length > 0) parts.push(names.join(', '));
+        }
+        return parts.length > 0 ? parts.join(' \u2022 ') : '';
+    }, [activeView, timeFilter, selectedRouteIds, routes]);
 
     // View dialog state
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -271,7 +288,7 @@ const MapsPage = () => {
                 maxWidth: TABLE_WIDTH,
             }}>
                 <Typography variant="h5" sx={{ flexShrink: 0 }}>
-                    {timeFilter ? `Maps - ${timeFilter.label}` : 'Maps'}
+                    Maps
                 </Typography>
 
                 <ViewBar
@@ -280,37 +297,39 @@ const MapsPage = () => {
                     onViewSelect={setActiveViewId}
                     onCreateClick={handleCreateView}
                     onEditClick={handleEditView}
+                    darwinUri={darwinUri}
+                    idToken={idToken}
+                    creatorFk={creatorFk}
                 />
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-                    {filteredRuns.length} runs
+                    {filteredRuns.length} activities
                     {filteredRouteCount > 0 ? ` / ${filteredRouteCount} routes` : ''}
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
 
                 {!timeFilter && (
-                    <>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<CloudUploadIcon />}
-                            onClick={() => navigate('/maps/import')}
-                        >
-                            Import
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<FileDownloadOutlinedIcon />}
-                            onClick={() => navigate('/maps/export')}
-                        >
-                            Export
-                        </Button>
-
-                        <Box sx={{ width: 16 }} />
-                    </>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CloudUploadIcon />}
+                        onClick={() => navigate('/maps/import')}
+                    >
+                        Import
+                    </Button>
                 )}
+                <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<FileDownloadOutlinedIcon />}
+                    onClick={() => setExportDialogOpen(true)}
+                    data-testid="export-button"
+                >
+                    Export
+                </Button>
+
+                {!timeFilter && <Box sx={{ width: 16 }} />}
 
                 <ToggleButtonGroup
                     value={view}
@@ -380,8 +399,8 @@ const MapsPage = () => {
                 </Menu>
             </Box>
 
-            {/* Temporal controls row — always on Trends, only when filtered on Table/Cards */}
-            {(view === 'trends' || hasTrendFilters) && (
+            {/* Temporal controls row — Trends view only */}
+            {view === 'trends' && (
                 <Box sx={{
                     display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
                     flexWrap: 'wrap', maxWidth: TABLE_WIDTH,
@@ -478,6 +497,16 @@ const MapsPage = () => {
                 </Box>
             )}
 
+            {/* Dismissible filter chips — Table/Cards only */}
+            {view !== 'trends' && (!!timeFilter || selectedRouteIds.length > 0) && (
+                <TrendsFilterChips
+                    timeFilter={timeFilter}
+                    selectedRouteIds={selectedRouteIds}
+                    onClearTimeFilter={() => setTimeFilter(null)}
+                    onClearRouteFilter={() => setSelectedRouteIds([])}
+                />
+            )}
+
             {view === 'trends'
                 ? <TrendsView runs={viewFilteredRuns} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
@@ -489,6 +518,7 @@ const MapsPage = () => {
                 open={viewDialogOpen}
                 onClose={() => setViewDialogOpen(false)}
                 view={editingView}
+                views={views}
                 routes={routes}
                 partners={partners}
                 darwinUri={darwinUri}
@@ -496,11 +526,21 @@ const MapsPage = () => {
                 creatorFk={creatorFk}
             />
 
+            <ExportDialog
+                open={exportDialogOpen}
+                onClose={() => setExportDialogOpen(false)}
+                runs={filteredRuns}
+                routes={routes}
+                darwinUri={darwinUri}
+                idToken={idToken}
+                filterDescription={filterDescription}
+            />
+
             <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
                 <DialogTitle>Delete All Map Data?</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        This will permanently delete all {allRuns.length} runs, their GPS coordinates,
+                        This will permanently delete all {allRuns.length} activities, their GPS coordinates,
                         and {routes.length} routes. This cannot be undone.
                     </DialogContentText>
                 </DialogContent>
