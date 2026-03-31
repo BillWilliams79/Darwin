@@ -201,7 +201,7 @@ const CyclemeterImport = () => {
             distanceOptimizer(rawRuns, config.minDelta);
 
             if (rawRuns.length === 0) {
-                setError('No runs found with current filter settings');
+                setError('No activities found with current filter settings');
                 setSaving(false);
                 return;
             }
@@ -222,7 +222,7 @@ const CyclemeterImport = () => {
             if (newRuns.length === 0) {
                 setSnackbar({
                     open: true,
-                    message: `All ${rawRuns.length} runs already imported (latest: ${cutoffDate})`,
+                    message: `All ${rawRuns.length} activities already imported (latest: ${cutoffDate})`,
                     severity: 'info',
                 });
                 setSaving(false);
@@ -320,8 +320,8 @@ const CyclemeterImport = () => {
             setSnackbar({
                 open: true,
                 message: skippedCount > 0
-                    ? `Saved ${completed} new runs (${skippedCount} already imported, skipped)`
-                    : `Saved ${completed} runs to Darwin`,
+                    ? `Saved ${completed} new activities (${skippedCount} already imported, skipped)`
+                    : `Saved ${completed} activities to Darwin`,
                 severity: 'success',
             });
 
@@ -521,7 +521,7 @@ const CyclemeterImport = () => {
             {saving && (
                 <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
-                        Saving run {saveProgress.current} of {saveProgress.total}
+                        Saving activity {saveProgress.current} of {saveProgress.total}
                     </Typography>
                     <LinearProgress variant="determinate" value={progressPercent} />
                 </Paper>
@@ -546,7 +546,7 @@ const CyclemeterImport = () => {
                     ))}
                     <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
                         <tbody>
-                            <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
+                            <tr><td>Total Activities</td><td><strong>{stats.totalRuns}</strong></td></tr>
                             <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
                             <tr><td>GPS Points Extracted</td><td><strong>{stats.totalExtracted.toLocaleString()}</strong></td></tr>
                             <tr><td>GPS Points Trimmed</td><td><strong>{(stats.totalTrimmed ?? 0).toLocaleString()}</strong></td></tr>

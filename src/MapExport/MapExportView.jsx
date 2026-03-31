@@ -109,8 +109,8 @@ const MapExportView = () => {
             </Button>
             <Typography variant="h5" gutterBottom>Export KML</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Generate a KML file from stored run data for Google MyMaps.
-                {!runsLoading && ` ${runs.length} runs available.`}
+                Generate a KML file from stored activity data for Google MyMaps.
+                {!runsLoading && ` ${runs.length} activities available.`}
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
@@ -180,7 +180,7 @@ const MapExportView = () => {
                             <Typography variant="subtitle2" gutterBottom>Export Summary</Typography>
                             <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
                                 <tbody>
-                                    <tr><td>Total Runs</td><td><strong>{stats.totalRuns}</strong></td></tr>
+                                    <tr><td>Total Activities</td><td><strong>{stats.totalRuns}</strong></td></tr>
                                     <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
                                     <tr><td>GPS Coordinates</td><td><strong>{stats.totalCoordinates.toLocaleString()}</strong></td></tr>
                                 </tbody>

@@ -68,7 +68,7 @@ const RouteDetailView = () => {
                 <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
                     {backLabel}
                 </Button>
-                <Typography color="error">Run not found.</Typography>
+                <Typography color="error">Activity not found.</Typography>
             </Box>
         );
     }
