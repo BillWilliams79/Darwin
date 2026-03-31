@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import TablePagination from '@mui/material/TablePagination';
 
 import RouteCard from './RouteCard';
+import { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 
 const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
     const [page, setPage] = useState(0);
@@ -26,7 +27,7 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
         );
     }
 
-    const paginatedRuns = runs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const paginatedRuns = rowsPerPage === -1 ? runs : runs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
     const handleChangePage = (event, newPage) => {
         setPage(newPage);
@@ -38,7 +39,7 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
     };
 
     return (
-        <Box sx={{ px: 3, pt: 1 }}>
+        <Box sx={{ px: 2, pt: 1, maxWidth: TABLE_WIDTH }}>
             {runs.length === 0 && (
                 <Typography variant="body2" color="text.disabled" sx={{ p: 2 }}>
                     No activities found. Import data via Maps &gt; Import.
@@ -68,7 +69,11 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
                     onPageChange={handleChangePage}
                     rowsPerPage={rowsPerPage}
                     onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={runs.length > 100 ? [25, 50, 100] : [25, 50]}
+                    rowsPerPageOptions={(() => {
+                        const opts = runs.length > 100 ? [25, 50, 100] : [25, 50];
+                        if (runs.length >= 100 && runs.length <= 300) opts.push({ value: -1, label: 'All' });
+                        return opts;
+                    })()}
                     labelRowsPerPage="Maps per page"
                     data-testid="route-card-pagination"
                 />

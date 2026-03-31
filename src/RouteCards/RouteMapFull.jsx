@@ -15,6 +15,8 @@ import 'leaflet-fullscreen';
 import { LocateControl as LeafletLocateControl } from 'leaflet.locatecontrol';
 import 'leaflet-easybutton';
 
+import MapStatsCard from './MapStatsCard';
+
 // --- Base layers (no key required) ---
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -151,10 +153,10 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const RouteMapFull = ({ coordinates, isLoading }) => {
+const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPartners }) => {
     if (isLoading) {
         return (
-            <Box sx={{ height: 'calc(100vh - 200px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <CircularProgress />
             </Box>
         );
@@ -162,7 +164,7 @@ const RouteMapFull = ({ coordinates, isLoading }) => {
 
     if (!coordinates || coordinates.length === 0) {
         return (
-            <Box sx={{ height: 'calc(100vh - 200px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
+            <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
                 No map data available
             </Box>
         );
@@ -174,7 +176,7 @@ const RouteMapFull = ({ coordinates, isLoading }) => {
         <MapContainer
             center={positions[0]}
             zoom={13}
-            style={{ height: 'calc(100vh - 200px)', minHeight: 400, width: '100%', borderRadius: 4 }}
+            style={{ height: 'calc(100vh - 120px)', minHeight: 400, width: '100%', borderRadius: 4 }}
             zoomControl={false}
             scrollWheelZoom={true}
             doubleClickZoom={true}
@@ -221,6 +223,7 @@ const RouteMapFull = ({ coordinates, isLoading }) => {
             <LocateCtrl />
             <ResetViewControl positions={positions} />
             <CoordinateDisplay />
+            {run && <MapStatsCard run={run} routeName={routeName} partners={partners} runPartners={runPartners} />}
         </MapContainer>
     );
 };
