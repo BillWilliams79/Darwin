@@ -42,6 +42,7 @@ const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
     const calories = run.calories != null ? Number(run.calories) : '—';
 
     const stats = [
+        { label: 'Activity', value: run.activity_name || 'Unknown' },
         { label: 'Date', value: dateStr },
         { label: 'Start Time', value: timeStr },
         { label: 'Distance', value: `${distance} mi` },

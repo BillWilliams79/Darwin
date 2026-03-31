@@ -401,7 +401,7 @@ export function useMapViews(creatorFk, { fields = 'id,name,criteria,sort_order',
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/map_views?fields=${fields}&sort=create_ts:asc`;
+    const uri = `${darwinUri}/map_views?fields=${fields}&sort=sort_order:asc,create_ts:asc`;
     const queryKey = mapViewKeys.all(creatorFk);
 
     return useQuery({
