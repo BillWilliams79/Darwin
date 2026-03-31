@@ -145,7 +145,7 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
         },
         {
             field: 'run_time_sec',
-            headerName: 'Run Time',
+            headerName: 'Duration',
             width: 110,
             valueFormatter: (value) => formatDuration(value),
         },
