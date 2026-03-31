@@ -26,12 +26,14 @@ export const useTrendsStore = create(
             chartType: 'bar',
             timeFilter: null, // { label, start: Date, end: Date, sourceTimeframe }
             selectedRouteIds: [],
+            selectedPartnerIds: [],
 
             setMetric: (metric) => set({ metric }),
             setTimeframe: (timeframe) => set({ timeframe }),
             setChartType: (chartType) => set({ chartType }),
             setTimeFilter: (timeFilter) => set({ timeFilter }),
             setSelectedRouteIds: (selectedRouteIds) => set({ selectedRouteIds }),
+            setSelectedPartnerIds: (selectedPartnerIds) => set({ selectedPartnerIds }),
         }),
         {
             name: 'darwin_trends_view',
