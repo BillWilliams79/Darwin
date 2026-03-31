@@ -18,6 +18,7 @@ import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Popover from '@mui/material/Popover';
+import Divider from '@mui/material/Divider';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import Checkbox from '@mui/material/Checkbox';
@@ -30,6 +31,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import RouteIcon from '@mui/icons-material/Route';
+import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { useQueryClient } from '@tanstack/react-query';
@@ -106,7 +108,7 @@ const MapsPage = () => {
         [allRuns, criteria, runPartnerMap]
     );
 
-    // Stage 2: apply trends time + route filters on top (for Table/Cards)
+    // Stage 2: apply trends time + route filters on top of view filter (for Table/Cards)
     const filteredRuns = useMemo(() => {
         let result = viewFilteredRuns;
 
@@ -343,6 +345,25 @@ const MapsPage = () => {
                     open={Boolean(settingsAnchorEl)}
                     onClose={() => setSettingsAnchorEl(null)}
                 >
+                    <MenuItem
+                        onClick={() => { setSettingsAnchorEl(null); navigate('/maps/settings/routes'); }}
+                        data-testid="manage-routes-button"
+                    >
+                        <ListItemIcon>
+                            <RouteIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Manage Routes</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                        onClick={() => { setSettingsAnchorEl(null); navigate('/maps/settings/partners'); }}
+                        data-testid="manage-partners-button"
+                    >
+                        <ListItemIcon>
+                            <PeopleIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Manage Partners</ListItemText>
+                    </MenuItem>
+                    <Divider />
                     <MenuItem
                         onClick={() => {
                             setSettingsAnchorEl(null);
