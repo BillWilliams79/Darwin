@@ -114,17 +114,22 @@ function roundTo(value, decimals) {
 export function formatRunData(runs) {
     for (const run of runs) {
         // Average speed: distance(m) / runTime(s) * MS_TO_MPH → mph, 2 decimals
-        run.averageSpeed = roundTo((run.distance / run.runTime) * MS_TO_MPH, 2);
+        run.averageSpeed = run.runTime > 0
+            ? roundTo((run.distance / run.runTime) * MS_TO_MPH, 2)
+            : 0;
 
         // Cap stopped time at 24h - 1s
         run.stoppedTime = Math.min(run.stoppedTime, MAX_STOPPED_TIME);
 
-        // TZ-adjust startTime
-        run.startTime = adjustTimezone(run.startTime);
-
-        // Pre-formatted date strings for KML templates
-        run.titleFormattedStart = formatTitleDate(run.startTime);
-        run.descFormattedStart = formatDescriptionTime(run.startTime);
+        // TZ-adjust startTime (null for timestamp-free formats like MTB Project GPX)
+        if (run.startTime != null) {
+            run.startTime = adjustTimezone(run.startTime);
+            run.titleFormattedStart = formatTitleDate(run.startTime);
+            run.descFormattedStart = formatDescriptionTime(run.startTime);
+        } else {
+            run.titleFormattedStart = 'Trail';
+            run.descFormattedStart = '';
+        }
 
         // Format durations as HH:MM:SS strings
         run.runTime = formatDuration(run.runTime);

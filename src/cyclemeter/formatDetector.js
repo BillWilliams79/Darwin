@@ -59,6 +59,20 @@ function isCyclemeterGpx(buffer) {
 }
 
 /**
+ * Check if file content is an MTB Project GPX export (GPX 1.0 namespace, no Cyclemeter marker).
+ * MTB Project exports trail files as GPX 1.0 with lat/lon-only trackpoints (no timestamps).
+ * @param {ArrayBuffer} buffer - File content
+ * @returns {boolean}
+ */
+function isMtbProjectGpx(buffer) {
+    if (buffer.byteLength < 10) return false;
+    const snippet = new TextDecoder('utf-8').decode(buffer.slice(0, 500));
+    return /<gpx[\s>]/i.test(snippet)
+        && /topografix\.com\/GPX\/1\/0/i.test(snippet)
+        && !/cyclemeter/i.test(snippet);
+}
+
+/**
  * Format registry — order matters (first match wins).
  * To add a new format: add an entry here and write a corresponding extractor.
  * @type {Array<{ test: function(ArrayBuffer): boolean } & FormatInfo>}
@@ -67,6 +81,7 @@ const FORMAT_REGISTRY = [
     { test: isSqliteFile,    format: 'cyclemeter',     label: 'Cyclemeter Database', source: 'cyclemeter' },
     { test: isCyclemeterKml, format: 'cyclemeter-kml', label: 'Cyclemeter KML',      source: 'cyclemeter-kml' },
     { test: isCyclemeterGpx, format: 'cyclemeter-gpx', label: 'Cyclemeter GPX',      source: 'cyclemeter-gpx' },
+    { test: isMtbProjectGpx, format: 'mtbproject-gpx', label: 'MTB Project GPX',     source: 'mtbproject' },
     { test: isGpxFile,       format: 'strava-gpx',     label: 'Strava GPX',          source: 'strava' },
 ];
 
@@ -86,6 +101,6 @@ export async function detectFormat(file) {
     }
 
     throw new Error(
-        'Unrecognized file format. Supported formats: Cyclemeter database (.db), Cyclemeter KML (.kml), Cyclemeter GPX (.gpx), Strava GPX (.gpx)'
+        'Unrecognized file format. Supported formats: Cyclemeter database (.db), Cyclemeter KML (.kml), Cyclemeter GPX (.gpx), Strava GPX (.gpx), MTB Project GPX (.gpx)'
     );
 }
