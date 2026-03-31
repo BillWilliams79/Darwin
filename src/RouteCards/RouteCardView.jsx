@@ -8,7 +8,7 @@ import TablePagination from '@mui/material/TablePagination';
 import RouteCard from './RouteCard';
 import { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 
-const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
+const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
 
@@ -55,6 +55,8 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], isLoading = false
                         routeName={routeMap.get(run.map_route_fk)}
                         routes={routes}
                         allRuns={allRuns}
+                        partners={partners}
+                        runPartners={runPartners}
                     />
                 ))}
             </Box>

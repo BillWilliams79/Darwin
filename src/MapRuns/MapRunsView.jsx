@@ -1,6 +1,8 @@
 import React, { useState, useContext, useMemo } from 'react';
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -22,12 +24,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
+import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import RideEditDialog from '../RouteCards/RideEditDialog';
 
 // Column widths + DataGrid chrome (borders + column separators + scrollbar gutter + cell padding)
-export const TABLE_WIDTH = 50 + 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 400 + 50;
+export const TABLE_WIDTH = 50 + 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 400 + 200 + 50;
 
 /**
  * Format seconds as "H:MM:SS".
@@ -41,7 +43,7 @@ function formatDuration(totalSeconds) {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }) => {
+const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
@@ -74,6 +76,10 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
     const [bulkNewRouteName, setBulkNewRouteName] = useState('');
     const [savingBulkEdit, setSavingBulkEdit] = useState(false);
 
+    // Bulk partner edit state
+    const [bulkAddPartners, setBulkAddPartners] = useState([]);
+    const [bulkRemovePartners, setBulkRemovePartners] = useState([]);
+
     // Build route lookup: map_routes.id → name
     const routeMap = useMemo(() => {
         const m = new Map();
@@ -82,6 +88,19 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
         }
         return m;
     }, [routes]);
+
+    // Build partner lookup: map_run_fk → partner names
+    const partnerMap = useMemo(() => {
+        const nameMap = new Map();
+        for (const p of partners) nameMap.set(p.id, p.name);
+        const m = new Map();
+        for (const rp of runPartners) {
+            if (!m.has(rp.map_run_fk)) m.set(rp.map_run_fk, []);
+            const name = nameMap.get(rp.map_partner_fk);
+            if (name) m.get(rp.map_run_fk).push(name);
+        }
+        return m;
+    }, [partners, runPartners]);
 
     // Format start_time using user's timezone from profile
     const dateFormatter = useMemo(() => {
@@ -178,6 +197,25 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                 </Box>
             ),
         },
+        {
+            field: 'partners',
+            headerName: 'Partners',
+            width: 200,
+            sortable: false,
+            filterable: false,
+            valueGetter: (value, row) => (partnerMap.get(row.id) || []).join(', '),
+            renderCell: (params) => {
+                const names = partnerMap.get(params.row.id) || [];
+                if (names.length === 0) return null;
+                return (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
+                        {names.map(name => (
+                            <Chip key={name} label={name} size="small" variant="outlined" />
+                        ))}
+                    </Box>
+                );
+            },
+        },
     ];
 
     const handleCellClick = (params) => {
@@ -226,6 +264,8 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
         setBulkRouteValue('');
         setBulkNewRouteName('');
         setBulkDeleteConfirm(false);
+        setBulkAddPartners([]);
+        setBulkRemovePartners([]);
         setBulkEditDialogOpen(true);
     };
 
@@ -273,6 +313,65 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
             }
         } catch (error) {
             showError(error, 'Failed to update rides');
+        } finally {
+            setSavingBulkEdit(false);
+        }
+    };
+
+    const handleBulkPartnerEdit = async () => {
+        if (bulkAddPartners.length === 0 && bulkRemovePartners.length === 0) return;
+        setSavingBulkEdit(true);
+        try {
+            const selectedIds = getSelectedIds();
+
+            // Add partners to selected rides
+            for (const name of bulkAddPartners) {
+                let partner = partners.find(p => p.name === name);
+                if (!partner) {
+                    const pResult = await call_rest_api(
+                        `${darwinUri}/map_partners`, 'POST',
+                        { name, creator_fk: creatorFk }, idToken
+                    );
+                    if (pResult.httpStatus.httpStatus === 200 && pResult.data?.[0]) {
+                        partner = pResult.data[0];
+                    } else {
+                        continue;
+                    }
+                }
+                for (const runId of selectedIds) {
+                    // UNIQUE constraint prevents duplicates
+                    await call_rest_api(
+                        `${darwinUri}/map_run_partners`, 'POST',
+                        { map_run_fk: runId, map_partner_fk: partner.id }, idToken
+                    ).catch(() => {}); // Ignore duplicate errors
+                }
+            }
+
+            // Remove partners from selected rides
+            for (const name of bulkRemovePartners) {
+                const partner = partners.find(p => p.name === name);
+                if (!partner) continue;
+                for (const runId of selectedIds) {
+                    const link = runPartners.find(
+                        rp => rp.map_run_fk === runId && rp.map_partner_fk === partner.id
+                    );
+                    if (link) {
+                        await call_rest_api(
+                            `${darwinUri}/map_run_partners`, 'DELETE',
+                            { id: link.id }, idToken
+                        );
+                    }
+                }
+            }
+
+            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
+            const count = selectedCount;
+            setSnackbar({ open: true, message: `Updated partners for ${count} ride${count !== 1 ? 's' : ''}`, severity: 'success' });
+            setRowSelectionModel({ type: 'include', ids: new Set() });
+            setBulkEditDialogOpen(false);
+        } catch (error) {
+            showError(error, 'Failed to update partners');
         } finally {
             setSavingBulkEdit(false);
         }
@@ -376,6 +475,48 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                         />
                     )}
 
+                    {/* Partner assignment */}
+                    <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>Add Partners</Typography>
+                    <Autocomplete
+                        multiple
+                        freeSolo
+                        size="small"
+                        options={partners.map(p => p.name)}
+                        value={bulkAddPartners}
+                        onChange={(e, newValue) => setBulkAddPartners(newValue)}
+                        renderTags={(value, getTagProps) =>
+                            value.map((option, index) => (
+                                <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={option} />
+                            ))
+                        }
+                        renderInput={(params) => (
+                            <TextField {...params} placeholder="Add partner..." />
+                        )}
+                        data-testid="bulk-add-partners"
+                    />
+
+                    {partners.length > 0 && (
+                        <>
+                            <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>Remove Partners</Typography>
+                            <Autocomplete
+                                multiple
+                                size="small"
+                                options={partners.map(p => p.name)}
+                                value={bulkRemovePartners}
+                                onChange={(e, newValue) => setBulkRemovePartners(newValue)}
+                                renderTags={(value, getTagProps) =>
+                                    value.map((option, index) => (
+                                        <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={option} />
+                                    ))
+                                }
+                                renderInput={(params) => (
+                                    <TextField {...params} placeholder="Remove partner..." />
+                                )}
+                                data-testid="bulk-remove-partners"
+                            />
+                        </>
+                    )}
+
                     {/* Delete section */}
                     <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                         {!bulkDeleteConfirm ? (
@@ -425,6 +566,14 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                         Cancel
                     </Button>
                     <Button
+                        onClick={handleBulkPartnerEdit}
+                        variant="contained"
+                        disabled={savingBulkEdit || (bulkAddPartners.length === 0 && bulkRemovePartners.length === 0) || deletingSelected}
+                        data-testid="bulk-partner-save-button"
+                    >
+                        Apply Partners
+                    </Button>
+                    <Button
                         onClick={handleBulkRouteEdit}
                         variant="contained"
                         disabled={savingBulkEdit || (!bulkRouteValue) || (bulkRouteValue === '__create_new__' && !bulkNewRouteName.trim()) || deletingSelected}
@@ -445,6 +594,8 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], isLoading = false }
                 run={editingRun}
                 routes={routes}
                 allRuns={allRuns}
+                partners={partners}
+                runPartners={runPartners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}

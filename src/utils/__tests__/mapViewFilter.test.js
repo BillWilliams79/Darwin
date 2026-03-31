@@ -156,6 +156,49 @@ describe('applyViewFilter', () => {
         });
     });
 
+    describe('partner filter', () => {
+        const partnerMap = new Map([
+            [1, [100, 101]],  // run 1 has partners 100, 101
+            [2, [100]],       // run 2 has partner 100
+            [3, [102]],       // run 3 has partner 102
+            // runs 4, 5 have no partners
+        ]);
+
+        it('filters by single partner_id', () => {
+            const result = applyViewFilter(runs, { partner_ids: [102] }, partnerMap);
+            expect(result.map(r => r.id)).toEqual([3]);
+        });
+
+        it('filters by multiple partner_ids (OR logic)', () => {
+            const result = applyViewFilter(runs, { partner_ids: [101, 102] }, partnerMap);
+            expect(result.map(r => r.id)).toEqual([1, 3]);
+        });
+
+        it('excludes runs with no partners', () => {
+            const result = applyViewFilter(runs, { partner_ids: [100] }, partnerMap);
+            expect(result.find(r => r.id === 4)).toBeUndefined();
+            expect(result.find(r => r.id === 5)).toBeUndefined();
+        });
+
+        it('does not filter when partner_ids is empty array', () => {
+            const result = applyViewFilter(runs, { partner_ids: [] }, partnerMap);
+            expect(result).toHaveLength(5);
+        });
+
+        it('does not filter when runPartnerMap is null', () => {
+            const result = applyViewFilter(runs, { partner_ids: [100] }, null);
+            expect(result).toHaveLength(5);
+        });
+
+        it('ANDs partner filter with other criteria', () => {
+            const result = applyViewFilter(runs, {
+                partner_ids: [100],
+                distance_min: 20,
+            }, partnerMap);
+            expect(result.map(r => r.id)).toEqual([2]);
+        });
+    });
+
     it('handles empty runs array', () => {
         expect(applyViewFilter([], { route_ids: [10] })).toEqual([]);
     });

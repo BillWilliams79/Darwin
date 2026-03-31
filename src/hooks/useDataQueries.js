@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -403,6 +403,34 @@ export function useMapViews(creatorFk, { fields = 'id,name,criteria,sort_order',
 
     const uri = `${darwinUri}/map_views?fields=${fields}&sort=create_ts:asc`;
     const queryKey = mapViewKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useMapPartners(creatorFk, { fields = 'id,name', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/map_partners?fields=${fields}&sort=name:asc`;
+    const queryKey = mapPartnerKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useMapRunPartners(creatorFk, { fields = 'id,map_run_fk,map_partner_fk', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/map_run_partners?fields=${fields}`;
+    const queryKey = mapRunPartnerKeys.all(creatorFk);
 
     return useQuery({
         queryKey,

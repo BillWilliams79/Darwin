@@ -37,8 +37,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useMapRuns, useMapRoutes, useMapViews } from '../hooks/useDataQueries';
-import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
+import { useMapRuns, useMapRoutes, useMapViews, useMapPartners, useMapRunPartners } from '../hooks/useDataQueries';
+import { mapRunKeys, mapRouteKeys, mapPartnerKeys } from '../hooks/useQueryKeys';
 import MapRunsView, { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 import RouteCardView from '../RouteCards/RouteCardView';
 import TrendsView from '../Trends/TrendsView';
@@ -62,6 +62,8 @@ const MapsPage = () => {
     const { data: allRuns = [], isLoading: runsLoading } = useMapRuns(creatorFk);
     const { data: routes = [], isLoading: routesLoading } = useMapRoutes(creatorFk);
     const { data: views = [] } = useMapViews(creatorFk);
+    const { data: partners = [] } = useMapPartners(creatorFk);
+    const { data: runPartners = [] } = useMapRunPartners(creatorFk);
 
     const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'table');
     const {
@@ -88,10 +90,20 @@ const MapsPage = () => {
         } catch { return null; }
     }, [activeView?.criteria]);
 
+    // Build run → partnerIds lookup for view filtering
+    const runPartnerMap = useMemo(() => {
+        const m = new Map();
+        for (const rp of runPartners) {
+            if (!m.has(rp.map_run_fk)) m.set(rp.map_run_fk, []);
+            m.get(rp.map_run_fk).push(rp.map_partner_fk);
+        }
+        return m;
+    }, [runPartners]);
+
     // Stage 1: savable view filter (base for Trends and Table/Cards)
     const viewFilteredRuns = useMemo(
-        () => applyViewFilter(allRuns, criteria),
-        [allRuns, criteria]
+        () => applyViewFilter(allRuns, criteria, runPartnerMap),
+        [allRuns, criteria, runPartnerMap]
     );
 
     // Stage 2: apply trends time + route filters on top (for Table/Cards)
@@ -232,9 +244,13 @@ const MapsPage = () => {
             for (const route of routes) {
                 await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { id: route.id }, idToken);
             }
+            for (const partner of partners) {
+                await call_rest_api(`${darwinUri}/map_partners`, 'DELETE', { id: partner.id }, idToken);
+            }
 
             queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
 
             setSnackbar({ open: true, message: 'All map data deleted', severity: 'success' });
         } catch (err) {
@@ -444,8 +460,8 @@ const MapsPage = () => {
             {view === 'trends'
                 ? <TrendsView runs={viewFilteredRuns} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
-                    ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />
-                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} isLoading={isLoading} />
+                    ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
+                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
             }
 
             <ViewDialog
@@ -453,6 +469,7 @@ const MapsPage = () => {
                 onClose={() => setViewDialogOpen(false)}
                 view={editingView}
                 routes={routes}
+                partners={partners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
