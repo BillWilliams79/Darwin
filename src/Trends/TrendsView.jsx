@@ -19,10 +19,10 @@ const METRIC_LABELS = {
 
 const DRILL_DOWN = { yearly: 'monthly', monthly: 'weekly', weekly: 'weekly' };
 
-const TrendsView = ({ runs: viewFilteredRuns = [], isLoading = false, onBucketClick }) => {
+const TrendsView = ({ runs: viewFilteredRuns = [], runPartnerMap = new Map(), isLoading = false, onBucketClick }) => {
     const {
         metric, timeframe, chartType, timeFilter,
-        selectedRouteIds,
+        selectedRouteIds, selectedPartnerIds,
     } = useTrendsStore();
 
     const allRuns = viewFilteredRuns;
@@ -45,8 +45,15 @@ const TrendsView = ({ runs: viewFilteredRuns = [], isLoading = false, onBucketCl
             const idSet = new Set(selectedRouteIds);
             runs = runs.filter(run => idSet.has(run.map_route_fk));
         }
+        if (selectedPartnerIds.length > 0) {
+            const idSet = new Set(selectedPartnerIds);
+            runs = runs.filter(run => {
+                const partnerIds = runPartnerMap.get(run.id) || [];
+                return partnerIds.some(pid => idSet.has(pid));
+            });
+        }
         return runs;
-    }, [allRuns, timeFilter, selectedRouteIds]);
+    }, [allRuns, timeFilter, selectedRouteIds, selectedPartnerIds, runPartnerMap]);
 
     const chartData = useMemo(
         () => aggregateTrends(filteredRuns, metric, effectiveTimeframe),
