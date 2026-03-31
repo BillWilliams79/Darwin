@@ -57,6 +57,23 @@ function makeGenericKmlFile() {
 }
 
 /**
+ * Create a File containing MTB Project GPX 1.0 content (no timestamps, no elevation).
+ */
+function makeMtbProjectGpxFile() {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<gpx version="1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.topografix.com/GPX/1/0" xsi:schemaLocation="http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd">
+  <trk>
+    <trkseg>
+      <trkpt lat="45.64227068" lon="-123.35918806"/>
+      <trkpt lat="45.64220159" lon="-123.35937671"/>
+    </trkseg>
+  </trk>
+</gpx>`;
+    const encoder = new TextEncoder();
+    return makeFile(encoder.encode(xml).buffer, 'MTBProject.gpx');
+}
+
+/**
  * Create a File containing Cyclemeter GPX content.
  */
 function makeCyclemeterGpxFile() {
@@ -109,6 +126,21 @@ describe('detectFormat', () => {
         expect(info.format).toBe('cyclemeter-gpx');
         expect(info.label).toBe('Cyclemeter GPX');
         expect(info.source).toBe('cyclemeter-gpx');
+    });
+
+    it('detects MTB Project GPX 1.0 as mtbproject-gpx', async () => {
+        const file = makeMtbProjectGpxFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('mtbproject-gpx');
+        expect(info.label).toBe('MTB Project GPX');
+        expect(info.source).toBe('mtbproject');
+    });
+
+    it('detects GPX 1.1 (Strava) as strava-gpx, not mtbproject-gpx', async () => {
+        const file = makeGpxFile(); // uses GPX 1.1 namespace
+        const info = await detectFormat(file);
+        expect(info.format).toBe('strava-gpx');
+        expect(info.source).toBe('strava');
     });
 
     it('detects non-Cyclemeter GPX as strava-gpx (fallback)', async () => {

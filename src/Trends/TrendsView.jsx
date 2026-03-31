@@ -118,7 +118,7 @@ const TrendsView = ({ runs: viewFilteredRuns = [], isLoading = false, onBucketCl
                                 color: '#e8e1d5',
                                 borderRadius: 4,
                             }}
-                            formatter={(value) => [`${value} ${unitLabel}`, '']}
+                            formatter={(value) => [`${value} ${unitLabel}`, null]}
                             labelStyle={{ color: '#e8e1d5' }}
                         />
                         {chartType === 'bar' ? (
