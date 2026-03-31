@@ -47,6 +47,7 @@ import TrendsView from '../Trends/TrendsView';
 import ViewBar from './ViewBar';
 import ViewDialog from './ViewDialog';
 import ExportDialog from '../MapExport/ExportDialog';
+import TrendsFilterChips from './TrendsFilterChips';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { applyViewFilter } from '../utils/mapViewFilter';
@@ -287,7 +288,7 @@ const MapsPage = () => {
                 maxWidth: TABLE_WIDTH,
             }}>
                 <Typography variant="h5" sx={{ flexShrink: 0 }}>
-                    {timeFilter ? `Maps - ${timeFilter.label}` : 'Maps'}
+                    Maps
                 </Typography>
 
                 <ViewBar
@@ -395,8 +396,8 @@ const MapsPage = () => {
                 </Menu>
             </Box>
 
-            {/* Temporal controls row — always on Trends, only when filtered on Table/Cards */}
-            {(view === 'trends' || hasTrendFilters) && (
+            {/* Temporal controls row — Trends view only */}
+            {view === 'trends' && (
                 <Box sx={{
                     display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
                     flexWrap: 'wrap', maxWidth: TABLE_WIDTH,
@@ -491,6 +492,16 @@ const MapsPage = () => {
                         Clear Filter
                     </Button>
                 </Box>
+            )}
+
+            {/* Dismissible filter chips — Table/Cards only */}
+            {view !== 'trends' && (!!timeFilter || selectedRouteIds.length > 0) && (
+                <TrendsFilterChips
+                    timeFilter={timeFilter}
+                    selectedRouteIds={selectedRouteIds}
+                    onClearTimeFilter={() => setTimeFilter(null)}
+                    onClearRouteFilter={() => setSelectedRouteIds([])}
+                />
             )}
 
             {view === 'trends'
