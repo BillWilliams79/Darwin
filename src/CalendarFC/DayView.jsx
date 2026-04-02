@@ -145,37 +145,6 @@ const DayView = ({
                 </Typography>
             ) : (
                 <>
-                    {/* ── Tasks section ── */}
-                    {isTasksMode && dayTasks.length > 0 && (
-                        <Card variant="outlined" sx={{ mb: 2 }}>
-                            <CardContent sx={{ pt: 1 }}>
-                                <Typography variant="overline" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-                                    Tasks
-                                </Typography>
-                                {taskDomainEntries.map(([domId, dom], di) => (
-                                    <Box key={domId} sx={{ mb: di < taskDomainEntries.length - 1 ? 2 : 0 }}>
-                                        <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 0.5 }}>
-                                            {dom.domain_name}
-                                        </Typography>
-                                        {Object.entries(dom.areas).map(([areaId, area]) => (
-                                            <Box key={areaId} sx={{ mb: 1.5, pl: 1 }}>
-                                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                                                    {area.area_name}
-                                                </Typography>
-                                                {area.tasks.map(task => (
-                                                    <Typography key={task.id} variant="body2" sx={{ pl: 1 }}>
-                                                        {task.description}
-                                                    </Typography>
-                                                ))}
-                                            </Box>
-                                        ))}
-                                        {di < taskDomainEntries.length - 1 && <Divider sx={{ mt: 1 }} />}
-                                    </Box>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    )}
-
                     {/* ── Activities section ── */}
                     {isActivitiesMode && dayActivities.length > 0 && (
                         <Box data-testid="activity-day-view" sx={{ mb: 2 }}>
@@ -196,6 +165,37 @@ const DayView = ({
                                 </Box>
                             ))}
                         </Box>
+                    )}
+
+                    {/* ── Tasks section ── */}
+                    {isTasksMode && dayTasks.length > 0 && (
+                        <Card variant="outlined" sx={{ mb: 2 }}>
+                            <CardContent sx={{ pt: 1 }}>
+                                <Typography variant="overline" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                                    Tasks
+                                </Typography>
+                                {taskDomainEntries.map(([domId, dom], di) => (
+                                    <Box key={domId} sx={{ mb: di < taskDomainEntries.length - 1 ? 2 : 0 }}>
+                                        <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 0.5 }}>
+                                            {dom.domain_name}
+                                        </Typography>
+                                        {Object.entries(dom.areas).map(([areaId, area]) => (
+                                            <Box key={areaId} sx={{ mb: 1.5, pl: 1 }}>
+                                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                                                    {area.area_name}
+                                                </Typography>
+                                                {area.tasks.map(task => (
+                                                    <Typography key={task.id} variant="body2" sx={{ pl: 1 }}>
+                                                        {task.priority === 1 ? `! ${task.description}` : task.description}
+                                                    </Typography>
+                                                ))}
+                                            </Box>
+                                        ))}
+                                        {di < taskDomainEntries.length - 1 && <Divider sx={{ mt: 1 }} />}
+                                    </Box>
+                                ))}
+                            </CardContent>
+                        </Card>
                     )}
 
                     {/* ── Priorities section ── */}
