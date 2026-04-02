@@ -420,21 +420,21 @@ const CyclemeterImport = () => {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Cyclemeter</Typography>
-                    <Chip label="Database (.db)" size="small" variant="outlined" />
-                    <Chip label="KML (.kml)" size="small" variant="outlined" />
-                    <Chip label="GPX (.gpx)" size="small" variant="outlined" />
+                    <Chip label="Database (Meter.db)" size="small" variant="outlined" />
+                    <Chip label="KML" size="small" variant="outlined" />
+                    <Chip label="GPX" size="small" variant="outlined" />
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Strava</Typography>
-                    <Chip label="GPX (.gpx)" size="small" variant="outlined" />
+                    <Chip label="GPX" size="small" variant="outlined" />
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>MTB Project</Typography>
-                    <Chip label="GPX (.gpx)" size="small" variant="outlined" />
+                    <Chip label="GPX" size="small" variant="outlined" />
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Darwin</Typography>
-                    <Chip label="KML (.kml)" size="small" variant="outlined" />
+                    <Chip label="KML" size="small" variant="outlined" />
                 </Box>
             </Box>
 
