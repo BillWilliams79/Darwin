@@ -7,6 +7,8 @@ import Typography from '@mui/material/Typography';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import IconButton from '@mui/material/IconButton';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
@@ -15,6 +17,9 @@ import call_rest_api from '../RestApi/RestApi';
 import { useMapRuns, useMapRoutes, useMapCoordinates, useMapPartners, useMapRunPartners } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { loadIndex, saveHandle } from '../photo-browser/handleDB.js';
+import { startScan } from '../photo-browser/scanUtils.js';
+import useScanStore from '../photo-browser/useScanStore.js';
 import RouteMapFull from './RouteMapFull';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
@@ -86,6 +91,33 @@ const RouteDetailView = () => {
     const dateStr = `${days[localDate.getUTCDay()]}, ${months[localDate.getUTCMonth()]} ${localDate.getUTCDate()}, ${localDate.getUTCFullYear()}`;
     const rideSummary = `${routeName || run.activity_name || 'Activity'}, ${dateStr}`;
 
+    const featureEnabled = localStorage.getItem('photo-browser-enabled') !== 'false';
+    const setDirHandle = useScanStore(s => s.setDirHandle);
+
+    const handlePhotosClick = async () => {
+        try {
+            const hasIndex = !!(await loadIndex());
+            if (hasIndex) {
+                navigate(`/maps/photos/${runId}`);
+            } else {
+                if (!('showDirectoryPicker' in window)) {
+                    navigate('/maps/settings/photos');
+                    return;
+                }
+                const handle = await window.showDirectoryPicker({ mode: 'read', startIn: 'pictures' });
+                const name = handle.name;
+                await saveHandle(handle);
+                setDirHandle(handle, name);
+                startScan(handle, name);
+                navigate('/maps/settings/photos');
+            }
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                showError(err, 'Could not access photos folder');
+            }
+        }
+    };
+
     const handleDeleteConfirm = async () => {
         try {
             const result = await call_rest_api(
@@ -110,6 +142,16 @@ const RouteDetailView = () => {
                     {backLabel}
                 </Button>
                 <Box sx={{ flexGrow: 1 }} />
+                {featureEnabled && (
+                    <IconButton
+                        size="small"
+                        onClick={handlePhotosClick}
+                        title="Photos from this activity"
+                        data-testid="detail-photos-btn"
+                    >
+                        <PhotoLibraryIcon fontSize="small" />
+                    </IconButton>
+                )}
                 <Button
                     startIcon={<EditIcon />}
                     variant="outlined"
