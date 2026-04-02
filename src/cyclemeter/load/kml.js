@@ -85,9 +85,41 @@ function generateLineStyle(colorId) {
         `<LineStyle><color>${LINE_COLOR}</color><width>${KML_LINE_WIDTH}</width></LineStyle></Style>`;
 }
 
+const DARWIN_NAMESPACE = 'https://darwin.one/kml/1';
+
+/**
+ * Build an ExtendedData block with darwin:-namespaced elements for lossless re-import.
+ * Only emitted when darwinCompatibility is enabled in config.
+ * @param {import('../types').TransformedRun} run
+ * @returns {string}
+ */
+function buildExtendedData(run) {
+    const el = (tag, value) => `<darwin:${tag}>${escapeXml(String(value ?? ''))}</darwin:${tag}>`;
+    const lines = ['<ExtendedData>'];
+    lines.push(el('startTimeUtc', run.startTimeUtc || ''));
+    lines.push(el('runTimeSec', run.runTimeSec ?? 0));
+    lines.push(el('stoppedTimeSec', run.stoppedTimeSec ?? 0));
+    lines.push(el('distanceMi', run.distance));
+    lines.push(el('ascentFt', run.ascent));
+    lines.push(el('descentFt', run.descent));
+    lines.push(el('maxSpeedMph', run.maxSpeed));
+    lines.push(el('avgSpeedMph', run.averageSpeed));
+    lines.push(el('calories', run.calories));
+    lines.push(el('routeName', run.name));
+    lines.push(el('activityName', run.activityName));
+    lines.push(el('notes', run.notes));
+    lines.push(el('source', run.source || ''));
+    if (run.partnerNames && run.partnerNames.length > 0) {
+        lines.push(el('partners', run.partnerNames.join(', ')));
+    }
+    lines.push('</ExtendedData>');
+    return lines.join('');
+}
+
 /**
  * Generate a complete KML document string from transformed runs.
  * Output format matches getterdone.kml exactly.
+ * When config.darwinCompatibility is true, adds darwin: ExtendedData for lossless re-import.
  * @param {import('../types').TransformedRun[]} runs
  * @param {import('../types').EtlConfig} config
  * @returns {string}
@@ -96,12 +128,17 @@ export function generateKml(runs, config) {
     const colorId = '1167B1';
     const currentDate = formatCurrentDate();
     const description = `${escapeXml(config.mapDescription)} Map updated ${currentDate}`;
+    const darwinCompat = config.darwinCompatibility || false;
 
     const parts = [];
 
     // Header
     parts.push('<?xml version="1.0" encoding="UTF-8"?>');
-    parts.push('<kml xmlns="http://www.opengis.net/kml/2.2">');
+    if (darwinCompat) {
+        parts.push(`<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:darwin="${DARWIN_NAMESPACE}">`);
+    } else {
+        parts.push('<kml xmlns="http://www.opengis.net/kml/2.2">');
+    }
     parts.push(`<Document>`);
     parts.push(`<name>${escapeXml(config.mapTitle)}</name>`);
     parts.push(`<description>${description}</description>`);
@@ -128,6 +165,9 @@ export function generateKml(runs, config) {
         parts.push(`<Placemark>`);
         parts.push(`<name>${run.activityName} ${runNumber} :: ${run.titleFormattedStart}</name>`);
         parts.push(`<description><![CDATA[${buildPointDescription(run)}]]></description>`);
+        if (darwinCompat) {
+            parts.push(buildExtendedData(run));
+        }
         parts.push(`<styleUrl>#${iconStyleId}</styleUrl>`);
         parts.push(`<Point><coordinates>${pointCoords}</coordinates></Point>`);
         parts.push('</Placemark>');
