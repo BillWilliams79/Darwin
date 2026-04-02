@@ -32,7 +32,16 @@ export default defineConfig({
   define: {
     global: 'globalThis',
   },
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 3000,
+    proxy: {
+      '/photos': {
+        target: 'http://localhost:8091',
+        changeOrigin: true,
+      },
+    },
   },
 })
