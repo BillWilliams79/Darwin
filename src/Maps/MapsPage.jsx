@@ -68,7 +68,7 @@ const MapsPage = () => {
     const { data: partners = [] } = useMapPartners(creatorFk);
     const { data: runPartners = [] } = useMapRunPartners(creatorFk);
 
-    const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'table');
+    const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'cards');
     const {
         metric, timeframe, chartType, timeFilter,
         selectedRouteIds, selectedPartnerIds,
@@ -325,9 +325,26 @@ const MapsPage = () => {
                 display: 'flex', alignItems: 'center', gap: 2, mb: 1, px: 2,
                 maxWidth: TABLE_WIDTH,
             }}>
-                <Typography variant="h5" sx={{ flexShrink: 0 }}>
-                    Maps
-                </Typography>
+                <ToggleButtonGroup
+                    value={view}
+                    exclusive
+                    onChange={handleViewChange}
+                    size="small"
+                    sx={{ flexShrink: 0 }}
+                >
+                    <ToggleButton value="cards" data-testid="view-toggle-cards">
+                        <ViewModuleIcon sx={{ mr: 0.5 }} fontSize="small" />
+                        Cards
+                    </ToggleButton>
+                    <ToggleButton value="trends" data-testid="view-toggle-trends">
+                        <TrendingUpIcon sx={{ mr: 0.5 }} fontSize="small" />
+                        Trends
+                    </ToggleButton>
+                    <ToggleButton value="table" data-testid="view-toggle-table">
+                        <TableChartIcon sx={{ mr: 0.5 }} fontSize="small" />
+                        Table
+                    </ToggleButton>
+                </ToggleButtonGroup>
 
                 <ViewBar
                     views={views}
@@ -366,29 +383,6 @@ const MapsPage = () => {
                 >
                     Export
                 </Button>
-
-                {!timeFilter && <Box sx={{ width: 16 }} />}
-
-                <ToggleButtonGroup
-                    value={view}
-                    exclusive
-                    onChange={handleViewChange}
-                    size="small"
-                    sx={{ flexShrink: 0 }}
-                >
-                    <ToggleButton value="table" data-testid="view-toggle-table">
-                        <TableChartIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Table
-                    </ToggleButton>
-                    <ToggleButton value="cards" data-testid="view-toggle-cards">
-                        <ViewModuleIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Cards
-                    </ToggleButton>
-                    <ToggleButton value="trends" data-testid="view-toggle-trends">
-                        <TrendingUpIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Trends
-                    </ToggleButton>
-                </ToggleButtonGroup>
 
                 <IconButton
                     onClick={(e) => setSettingsAnchorEl(e.currentTarget)}
