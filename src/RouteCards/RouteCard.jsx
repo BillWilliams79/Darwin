@@ -5,13 +5,7 @@ import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -39,10 +33,6 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
     const showError = useSnackBarStore(s => s.showError);
     const creatorFk = profile?.id;
 
-    // Menu state
-    const [menuAnchor, setMenuAnchor] = useState(null);
-    const menuOpen = Boolean(menuAnchor);
-
     // Dialog state
     const [editOpen, setEditOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -59,23 +49,14 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
 
     const rideSummary = `${routeName || run.activity_name || 'Activity'}, ${dateStr}`;
 
-    const handleMenuClick = (event) => {
+    const handleEditClick = (event) => {
         event.stopPropagation();
         event.preventDefault();
-        setMenuAnchor(event.currentTarget);
-    };
-
-    const handleMenuClose = () => {
-        setMenuAnchor(null);
-    };
-
-    const handleEdit = () => {
-        handleMenuClose();
         setEditOpen(true);
     };
 
-    const handleDelete = () => {
-        handleMenuClose();
+    const handleDeleteRide = () => {
+        setEditOpen(false);
         setDeleteOpen(true);
     };
 
@@ -136,33 +117,17 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                       '&:hover': { borderColor: 'primary.main' },
                   }}
             >
-                <Menu
-                    anchorEl={menuAnchor}
-                    open={menuOpen}
-                    onClose={handleMenuClose}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <MenuItem onClick={handleEdit} data-testid="route-card-edit-item">
-                        <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Edit</ListItemText>
-                    </MenuItem>
-                    <MenuItem onClick={handleDelete} data-testid="route-card-delete-item">
-                        <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
-                        <ListItemText>Delete</ListItemText>
-                    </MenuItem>
-                </Menu>
-
-                {/* Header: route name + menu button */}
+                {/* Header: route name + edit button */}
                 <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1.5 }}>
                     <Typography sx={{ fontSize: 24, fontWeight: 'normal', flexGrow: 1 }}>
                         {routeName || run.activity_name || 'Activity'}
                     </Typography>
                     <IconButton
                         size="small"
-                        onClick={handleMenuClick}
-                        data-testid="route-card-menu-btn"
+                        onClick={handleEditClick}
+                        data-testid="route-card-edit-btn"
                     >
-                        <MoreVertIcon />
+                        <EditIcon />
                     </IconButton>
                 </Box>
 
@@ -222,6 +187,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
             <RideEditDialog
                 open={editOpen}
                 onClose={() => setEditOpen(false)}
+                onDeleteRide={handleDeleteRide}
                 run={run}
                 routes={routes}
                 allRuns={allRuns}
