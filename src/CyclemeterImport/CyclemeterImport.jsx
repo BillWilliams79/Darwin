@@ -20,19 +20,20 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromMtbProjectGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
+import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromDarwinKml, extractFromMtbProjectGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff, normalizeRouteName } from '../cyclemeter/sqlMapper';
 import StravaImport from '../strava/StravaImport';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 500;
 const CONCURRENCY_LIMIT = 5;
-const SINGLE_FILE_FORMATS = new Set(['cyclemeter-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
+const SINGLE_FILE_FORMATS = new Set(['cyclemeter-kml', 'darwin-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
 
 /** Maps format IDs to extraction functions for the Save to Darwin flow */
 const EXTRACTORS = {
     'cyclemeter': extractFromCyclemeter,
     'cyclemeter-kml': extractFromCyclemeterKml,
+    'darwin-kml': extractFromDarwinKml,
     'cyclemeter-gpx': extractFromStravaGpx,
     'strava-gpx': extractFromStravaGpx,
     'mtbproject-gpx': extractFromMtbProjectGpx,
@@ -334,6 +335,42 @@ const CyclemeterImport = () => {
                     }
                 }
 
+                // Step 4: Save partner links (Darwin KML with ExtendedData)
+                if (run.partnerNames && run.partnerNames.length > 0) {
+                    for (const partnerName of run.partnerNames) {
+                        if (controller.signal.aborted) throw new Error('Save cancelled');
+
+                        // Find or create partner
+                        let partnerId = null;
+                        try {
+                            const existingResult = await call_rest_api(
+                                `${darwinUri}/map_partners?name=${encodeURIComponent(partnerName)}`, 'GET', null, idToken
+                            );
+                            if (existingResult.data?.[0]?.id) {
+                                partnerId = existingResult.data[0].id;
+                            }
+                        } catch (e) {
+                            if (e?.httpStatus?.httpStatus !== 404) throw e;
+                        }
+
+                        if (!partnerId) {
+                            const createResult = await call_rest_api(
+                                `${darwinUri}/map_partners`, 'POST', { name: partnerName }, idToken
+                            );
+                            if (createResult.httpStatus.httpStatus === 200 && createResult.data?.[0]?.id) {
+                                partnerId = createResult.data[0].id;
+                            }
+                        }
+
+                        if (partnerId) {
+                            await call_rest_api(
+                                `${darwinUri}/map_run_partners`, 'POST',
+                                { map_run_fk: sqlRunId, map_partner_fk: partnerId }, idToken
+                            );
+                        }
+                    }
+                }
+
                 completed++;
                 setSaveProgress({ current: completed, total: totalRuns });
             }, controller.signal);
@@ -381,6 +418,7 @@ const CyclemeterImport = () => {
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 3 }}>
                 <Chip label="Cyclemeter Database (.db)" size="small" variant="outlined" />
                 <Chip label="Cyclemeter KML (.kml)" size="small" variant="outlined" />
+                <Chip label="Darwin KML (.kml)" size="small" variant="outlined" />
                 <Chip label="Cyclemeter GPX (.gpx)" size="small" variant="outlined" />
                 <Chip label="Strava GPX (.gpx)" size="small" variant="outlined" />
                 <Chip label="MTB Project GPX (.gpx)" size="small" variant="outlined" />

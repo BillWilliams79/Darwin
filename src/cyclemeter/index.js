@@ -8,6 +8,7 @@
 import { extractFromCyclemeter } from './extract';
 import { extractFromStravaGpx } from './extractStrava';
 import { extractFromCyclemeterKml } from './extractCyclemeterKml';
+import { extractFromDarwinKml } from './extractDarwinKml';
 import { extractFromMtbProjectGpx } from './extractMtbProject';
 import { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 import { generateKml } from './load/kml';
@@ -19,6 +20,7 @@ import { generateKml } from './load/kml';
 const EXTRACTORS = {
     'cyclemeter': extractFromCyclemeter,
     'cyclemeter-kml': extractFromCyclemeterKml,
+    'darwin-kml': extractFromDarwinKml,
     'cyclemeter-gpx': extractFromStravaGpx,
     'strava-gpx': extractFromStravaGpx,
     'mtbproject-gpx': extractFromMtbProjectGpx,
@@ -111,6 +113,7 @@ export function computeStats(runs) {
 export { extractFromCyclemeter, applyRideTrim } from './extract';
 export { extractFromStravaGpx } from './extractStrava';
 export { extractFromCyclemeterKml } from './extractCyclemeterKml';
+export { extractFromDarwinKml } from './extractDarwinKml';
 export { extractFromMtbProjectGpx } from './extractMtbProject';
 export { detectFormat } from './formatDetector';
 export { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
