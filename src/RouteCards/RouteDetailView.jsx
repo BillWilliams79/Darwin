@@ -17,9 +17,9 @@ import call_rest_api from '../RestApi/RestApi';
 import { useMapRuns, useMapRoutes, useMapCoordinates, useMapPartners, useMapRunPartners } from '../hooks/useDataQueries';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { loadIndex, saveHandle } from '../photo-browser/handleDB.js';
-import { startScan } from '../photo-browser/scanUtils.js';
-import useScanStore from '../photo-browser/useScanStore.js';
+import { loadIndex, loadMeta } from '../photo-browser/handleDB.js';
+import { checkPhotosProxy, startScan } from '../photo-browser/scanUtils.js';
+import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import RouteMapFull from './RouteMapFull';
 import RideEditDialog from './RideEditDialog';
 import RideDeleteDialog from './RideDeleteDialog';
@@ -91,30 +91,23 @@ const RouteDetailView = () => {
     const dateStr = `${days[localDate.getUTCDay()]}, ${months[localDate.getUTCMonth()]} ${localDate.getUTCDate()}, ${localDate.getUTCFullYear()}`;
     const rideSummary = `${routeName || run.activity_name || 'Activity'}, ${dateStr}`;
 
-    const featureEnabled = localStorage.getItem('photo-browser-enabled') !== 'false';
-    const setDirHandle = useScanStore(s => s.setDirHandle);
+    const featureEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
 
     const handlePhotosClick = async () => {
-        try {
-            const hasIndex = !!(await loadIndex());
-            if (hasIndex) {
-                navigate(`/maps/photos/${runId}`);
-            } else {
-                if (!('showDirectoryPicker' in window)) {
-                    navigate('/maps/settings/photos');
-                    return;
-                }
-                const handle = await window.showDirectoryPicker({ mode: 'read', startIn: 'pictures' });
-                const name = handle.name;
-                await saveHandle(handle);
-                setDirHandle(handle, name);
-                startScan(handle, name);
-                navigate('/maps/settings/photos');
-            }
-        } catch (err) {
-            if (err.name !== 'AbortError') {
-                showError(err, 'Could not access photos folder');
-            }
+        const [savedIndex, meta, proxy] = await Promise.all([
+            loadIndex(), loadMeta(), checkPhotosProxy(),
+        ]);
+        // Trigger background rescan if proxy asset count changed
+        if (proxy.available && savedIndex && meta?.fileCount !== proxy.assetCount) {
+            startScan();
+        }
+        if (savedIndex) {
+            navigate(`/maps/photos/${runId}`);
+        } else if (proxy.available) {
+            startScan();
+            navigate('/maps/settings/photos');
+        } else {
+            navigate('/maps/settings/photos');
         }
     };
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -21,7 +20,7 @@ import 'yet-another-react-lightbox/styles.css';
 import AuthContext from '../Context/AuthContext';
 import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import useScanStore from './useScanStore.js';
-import { loadHandle, loadIndex } from './handleDB.js';
+import { loadIndex } from './handleDB.js';
 import { PHOTOS_PROXY_URL } from './proxyConfig.js';
 import ThumbnailGrid, { proxyFileUrl } from './ThumbnailGrid.jsx';
 
@@ -64,9 +63,7 @@ const PhotoBrowser = () => {
     const routeName = run ? routes.find((rt) => rt.id === run.map_route_fk)?.name : null;
 
     // Scan store
-    const dirHandle = useScanStore((s) => s.dirHandle);
     const index = useScanStore((s) => s.index);
-    const setDirHandle = useScanStore((s) => s.setDirHandle);
     const setIndex = useScanStore((s) => s.setIndex);
 
     // Time buffer state (minutes before/after activity, 0 = exact)
@@ -86,9 +83,6 @@ const PhotoBrowser = () => {
         };
     }, [run?.id, run?.start_time, run?.run_time_sec, beforeMin, afterMin]);
 
-    // Permission re-grant state
-    const [needsPermission, setNeedsPermission] = useState(false);
-    const [pendingHandle, setPendingHandle] = useState(null);
     const [loadingIndex, setLoadingIndex] = useState(true);
 
     // Lightbox state
@@ -96,11 +90,11 @@ const PhotoBrowser = () => {
     const [lightboxSlides, setLightboxSlides] = useState([]);
     const lightboxSlidesRef = useRef([]);
 
-    // On mount: load index + handle from IDB
+    // On mount: load index from IDB
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            const [savedIndex, savedHandle] = await Promise.all([loadIndex(), loadHandle()]);
+            const savedIndex = await loadIndex();
             if (cancelled) return;
 
             if (savedIndex && savedIndex.length > 0) {
@@ -108,21 +102,6 @@ const PhotoBrowser = () => {
             } else {
                 navigate('/maps/settings/photos', { replace: true });
                 return;
-            }
-
-            if (savedHandle) {
-                try {
-                    const perm = await savedHandle.queryPermission({ mode: 'read' });
-                    if (perm === 'granted') {
-                        setDirHandle(savedHandle);
-                    } else {
-                        setNeedsPermission(true);
-                        setPendingHandle(savedHandle);
-                    }
-                } catch {
-                    setNeedsPermission(true);
-                    setPendingHandle(savedHandle);
-                }
             }
             setLoadingIndex(false);
         })();
@@ -192,20 +171,6 @@ const PhotoBrowser = () => {
             return true;
         });
     }, [dedupedIndex, filterDates]);
-
-    const handleReGrantPermission = useCallback(async () => {
-        if (!pendingHandle) return;
-        try {
-            const result = await pendingHandle.requestPermission({ mode: 'read' });
-            if (result === 'granted') {
-                setDirHandle(pendingHandle);
-                setNeedsPermission(false);
-                setPendingHandle(null);
-            }
-        } catch {
-            // User denied
-        }
-    }, [pendingHandle]);
 
     const handleOpenLightbox = useCallback(async (idx) => {
         for (const s of lightboxSlidesRef.current) {
@@ -300,21 +265,6 @@ const PhotoBrowser = () => {
                 );
             })()}
 
-            {/* Permission re-grant */}
-            {needsPermission && (
-                <Alert
-                    severity="warning"
-                    sx={{ mb: 2 }}
-                    action={
-                        <Button size="small" onClick={handleReGrantPermission}>
-                            Allow Access
-                        </Button>
-                    }
-                >
-                    Permission to access your photos folder has expired.
-                </Alert>
-            )}
-
             {/* Images displayed control panel */}
             {index.length > 0 && run && (
                 <>
@@ -361,7 +311,6 @@ const PhotoBrowser = () => {
 
                     <ThumbnailGrid
                         items={filteredItems}
-                        dirHandle={dirHandle}
                         selectedPaths={new Set()}
                         onToggleSelect={() => {}}
                         onOpenLightbox={handleOpenLightbox}

@@ -15,9 +15,8 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { mapRunKeys, mapRouteKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { loadIndex, saveHandle } from '../photo-browser/handleDB.js';
-import { startScan } from '../photo-browser/scanUtils.js';
-import useScanStore from '../photo-browser/useScanStore.js';
+import { loadIndex, loadMeta } from '../photo-browser/handleDB.js';
+import { checkPhotosProxy, startScan } from '../photo-browser/scanUtils.js';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import RouteMapThumbnail from './RouteMapThumbnail';
 import RideEditDialog from './RideEditDialog';
@@ -61,31 +60,24 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
     };
 
     const featureEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
-    const setDirHandle = useScanStore(s => s.setDirHandle);
 
     const handlePhotosClick = async (e) => {
         e.stopPropagation();
         e.preventDefault();
-        try {
-            const hasIndex = !!(await loadIndex());
-            if (hasIndex) {
-                navigate(`/maps/photos/${run.id}`);
-            } else {
-                if (!('showDirectoryPicker' in window)) {
-                    navigate('/maps/settings/photos');
-                    return;
-                }
-                const handle = await window.showDirectoryPicker({ mode: 'read', startIn: 'pictures' });
-                const name = handle.name;
-                await saveHandle(handle);
-                setDirHandle(handle, name);
-                startScan(handle, name);
-                navigate('/maps/settings/photos');
-            }
-        } catch (err) {
-            if (err.name !== 'AbortError') {
-                showError(err, 'Could not access photos folder');
-            }
+        const [savedIndex, meta, proxy] = await Promise.all([
+            loadIndex(), loadMeta(), checkPhotosProxy(),
+        ]);
+        // Trigger background rescan if proxy asset count changed
+        if (proxy.available && savedIndex && meta?.fileCount !== proxy.assetCount) {
+            startScan();
+        }
+        if (savedIndex) {
+            navigate(`/maps/photos/${run.id}`);
+        } else if (proxy.available) {
+            startScan();
+            navigate('/maps/settings/photos');
+        } else {
+            navigate('/maps/settings/photos');
         }
     };
 
