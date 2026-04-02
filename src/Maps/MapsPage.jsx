@@ -21,8 +21,8 @@ import Divider from '@mui/material/Divider';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import CloudDownloadRoundedIcon from '@mui/icons-material/CloudDownloadRounded';
+import BackupRoundedIcon from '@mui/icons-material/BackupRounded';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
@@ -368,7 +368,7 @@ const MapsPage = () => {
                     <Button
                         variant="outlined"
                         size="small"
-                        startIcon={<CloudUploadIcon />}
+                        startIcon={<CloudDownloadRoundedIcon />}
                         onClick={() => navigate('/maps/import')}
                     >
                         Import
@@ -377,7 +377,7 @@ const MapsPage = () => {
                 <Button
                     variant="outlined"
                     size="small"
-                    startIcon={<FileDownloadOutlinedIcon />}
+                    startIcon={<BackupRoundedIcon />}
                     onClick={() => setExportDialogOpen(true)}
                     data-testid="export-button"
                 >
