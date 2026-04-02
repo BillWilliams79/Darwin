@@ -15,9 +15,10 @@ import { METERS_TO_MILES, METERS_TO_FEET, MS_TO_MPH, MAX_STOPPED_TIME } from './
  * @returns {Object} SQL-ready object for POST to /map_runs
  */
 export function mapRunToSql(run, mapRouteFk = null, source = 'cyclemeter') {
-    const avgSpeedMph = run.runTime > 0
-        ? Math.round((run.distance / run.runTime) * MS_TO_MPH * 100) / 100
-        : null;
+    const imperial = run._darwinImperial;
+
+    const avgSpeedMph = imperial ? imperial.averageSpeed :
+        (run.runTime > 0 ? Math.round((run.distance / run.runTime) * MS_TO_MPH * 100) / 100 : null);
 
     return {
         run_id: run.runID,
@@ -27,11 +28,11 @@ export function mapRunToSql(run, mapRouteFk = null, source = 'cyclemeter') {
         start_time: run.startTime,  // Raw UTC string from source
         run_time_sec: Math.floor(run.runTime),
         stopped_time_sec: Math.min(Math.floor(run.stoppedTime), MAX_STOPPED_TIME),
-        distance_mi: Math.round(run.distance * METERS_TO_MILES * 10) / 10,
-        ascent_ft: run.ascent != null ? Math.floor(run.ascent * METERS_TO_FEET) : null,
-        descent_ft: run.descent != null ? Math.floor(run.descent * METERS_TO_FEET) : null,
-        calories: run.calories != null ? Math.floor(run.calories) : null,
-        max_speed_mph: run.maxSpeed != null ? Math.round(run.maxSpeed * MS_TO_MPH * 10) / 10 : null,
+        distance_mi: imperial ? imperial.distance : Math.round(run.distance * METERS_TO_MILES * 10) / 10,
+        ascent_ft: imperial ? imperial.ascent : (run.ascent != null ? Math.floor(run.ascent * METERS_TO_FEET) : null),
+        descent_ft: imperial ? imperial.descent : (run.descent != null ? Math.floor(run.descent * METERS_TO_FEET) : null),
+        calories: imperial ? imperial.calories : (run.calories != null ? Math.floor(run.calories) : null),
+        max_speed_mph: imperial ? imperial.maxSpeed : (run.maxSpeed != null ? Math.round(run.maxSpeed * MS_TO_MPH * 10) / 10 : null),
         avg_speed_mph: avgSpeedMph,
         notes: run.notes || null,
         source,
