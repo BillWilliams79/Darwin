@@ -87,5 +87,10 @@ export function reconstructRun(sqlRun, coordinates, routeName) {
         extractedPoints: coordinates.length,
         currentPoints: coordinates.length,
         strippedPoints: 0,
+        // Raw SQL values for Darwin Compatibility ExtendedData export
+        startTimeUtc: startTimeStr,
+        runTimeSec: sqlRun.run_time_sec,
+        stoppedTimeSec: sqlRun.stopped_time_sec || 0,
+        source: sqlRun.source || '',
     };
 }
