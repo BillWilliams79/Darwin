@@ -150,7 +150,54 @@ describe('detectFormat', () => {
         expect(info.source).toBe('strava');
     });
 
-    it('throws for generic KML (non-Cyclemeter)', async () => {
+    it('detects Darwin KML with icon-1522 style', async () => {
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><name>Test</name>
+<Style id="icon-1522-1167B1"><IconStyle><scale>1</scale></IconStyle></Style>
+</Document></kml>`;
+        const encoder = new TextEncoder();
+        const file = makeFile(encoder.encode(xml).buffer, 'darwin.kml');
+        const info = await detectFormat(file);
+        expect(info.format).toBe('darwin-kml');
+        expect(info.label).toBe('Darwin KML');
+        expect(info.source).toBe('darwin-kml');
+    });
+
+    it('detects Darwin KML with icon-1596 only (hike-only file)', async () => {
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><name>Hike Map</name>
+<Style id="icon-1596-1167B1"><IconStyle><scale>1</scale></IconStyle></Style>
+</Document></kml>`;
+        const encoder = new TextEncoder();
+        const file = makeFile(encoder.encode(xml).buffer, 'hikes.kml');
+        const info = await detectFormat(file);
+        expect(info.format).toBe('darwin-kml');
+    });
+
+    it('detects Darwin KML with darwin.one/kml namespace (Compatibility mode)', async () => {
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:darwin="https://darwin.one/kml/1">
+<Document><name>Test</name></Document></kml>`;
+        const encoder = new TextEncoder();
+        const file = makeFile(encoder.encode(xml).buffer, 'compat.kml');
+        const info = await detectFormat(file);
+        expect(info.format).toBe('darwin-kml');
+    });
+
+    it('prioritizes Cyclemeter KML over Darwin KML (order matters)', async () => {
+        // A KML with both cyclemeter.com and icon-1522 should match Cyclemeter first
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:abvio="http://cyclemeter.com/xmlschemas/1">
+<Document><Style id="icon-1522-1167B1"></Style></Document></kml>`;
+        const encoder = new TextEncoder();
+        const file = makeFile(encoder.encode(xml).buffer, 'test.kml');
+        const info = await detectFormat(file);
+        expect(info.format).toBe('cyclemeter-kml');
+    });
+
+    it('rejects generic KML without Darwin markers', async () => {
         const file = makeGenericKmlFile();
         await expect(detectFormat(file)).rejects.toThrow('Unrecognized file format');
     });
