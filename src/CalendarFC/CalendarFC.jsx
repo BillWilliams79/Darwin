@@ -172,22 +172,6 @@ const CalendarFC = () => {
 
     const events = useMemo(() => {
         const result = [];
-        if (isTasksMode) {
-            for (const task of localTasksArray) {
-                const isHigh = task.priority === 1;
-                result.push({
-                    id: `t-${task.id}`,
-                    title: task.description,
-                    start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
-                    allDay: true,
-                    editable: true,
-                    backgroundColor: isHigh ? PRIORITY_STYLE.bg : taskEventColor,
-                    borderColor:     isHigh ? PRIORITY_STYLE.border : taskEventColor,
-                    textColor:       isHigh ? PRIORITY_STYLE.textColor : (isDark ? '#d9d0c4' : '#333'),
-                    extendedProps: { sourceType: 'tasks', priority: task.priority, rawId: String(task.id) },
-                });
-            }
-        }
         if (isActivitiesMode) {
             for (const activity of localActivitiesArray) {
                 const location = routeNameMap[activity.map_route_fk] || activity.activity_name || 'Activity';
@@ -203,6 +187,22 @@ const CalendarFC = () => {
                     textColor: isDark ? '#d9d0c4' : '#333',
                     classNames: ['fc-activity-event'],
                     extendedProps: { sourceType: 'activities', isActivity: true, statsLine, rawId: String(activity.id) },
+                });
+            }
+        }
+        if (isTasksMode) {
+            for (const task of localTasksArray) {
+                const isHigh = task.priority === 1;
+                result.push({
+                    id: `t-${task.id}`,
+                    title: isHigh ? `! ${task.description}` : task.description,
+                    start: task.done_ts ? toLocaleDateString(task.done_ts, profile?.timezone) : null,
+                    allDay: true,
+                    editable: true,
+                    backgroundColor: PRIORITY_STYLE.bg,
+                    borderColor:     PRIORITY_STYLE.border,
+                    textColor:       PRIORITY_STYLE.textColor,
+                    extendedProps: { sourceType: 'tasks', priority: task.priority, rawId: String(task.id) },
                 });
             }
         }
@@ -555,8 +555,8 @@ const CalendarFC = () => {
         );
     };
 
-    // Source-type ordering: tasks=0, activities=1, priorities=2
-    const SOURCE_ORDER = { tasks: 0, activities: 1, priorities: 2 };
+    // Source-type ordering: activities=0, tasks=1, priorities=2
+    const SOURCE_ORDER = { activities: 0, tasks: 1, priorities: 2 };
     const eventOrderFn = useCallback((a, b) => {
         const aOrder = SOURCE_ORDER[a.extendedProps.sourceType] ?? 9;
         const bOrder = SOURCE_ORDER[b.extendedProps.sourceType] ?? 9;
