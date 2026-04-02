@@ -1,12 +1,10 @@
 import { create } from 'zustand';
 
 /**
- * Global scan store — shared between RouteCard buttons, PhotoSettingsView, and PhotoBrowser.
- * Not persisted (FileSystemDirectoryHandle is not serializable).
+ * Global scan store — shared between PhotoSettingsView and PhotoBrowser.
+ * Not persisted (refreshes reset state to idle).
  */
 const useScanStore = create((set) => ({
-    dirHandle: null,
-    folderName: '',
     index: [],
     scanState: 'idle',      // 'idle' | 'scanning' | 'complete' | 'error'
     scanProgress: { scanned: 0 },
@@ -15,7 +13,6 @@ const useScanStore = create((set) => ({
     scanDiag: '',           // diagnostic log lines for debugging
     selectedPaths: new Set(),
 
-    setDirHandle: (handle, name = '') => set({ dirHandle: handle, folderName: name }),
     setIndex: (index) => set({ index }),
     setScanState: (scanState) => set({ scanState }),
     setScanProgress: (scanProgress) => set({ scanProgress }),

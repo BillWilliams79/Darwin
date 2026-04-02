@@ -4,10 +4,9 @@ import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
 import BrokenImageIcon from '@mui/icons-material/BrokenImage';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
-import { getFileHandleWithFallback } from './DirectoryScanner.js';
 import { PHOTOS_PROXY_URL } from './proxyConfig.js';
 
 const CELL_SIZE = 160;
@@ -28,13 +27,13 @@ export function proxyFileUrl(itemPath, { quality } = {}) {
 }
 
 /**
- * Individual thumbnail cell — lazy-loads the image/video via FileSystem API.
+ * Individual thumbnail cell — lazy-loads the image/video via proxy fetch.
  */
-const ThumbnailCell = React.memo(({ item, dirHandle, isSelected, onToggleSelect, onOpenLightbox, index }) => {
+const ThumbnailCell = React.memo(({ item, isSelected, onToggleSelect, onOpenLightbox, index }) => {
     const [objectUrl, setObjectUrl] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
-    const [isImageBlob, setIsImageBlob] = useState(false); // true when proxy served an image derivative (even for videos)
+    const [isImageBlob, setIsImageBlob] = useState(false);
     const urlRef = useRef(null);
 
     useEffect(() => {
@@ -42,27 +41,6 @@ const ThumbnailCell = React.memo(({ item, dirHandle, isSelected, onToggleSelect,
         let cancelled = false;
 
         (async () => {
-            // Try dirHandle first (works for loose folders)
-            if (dirHandle) {
-                try {
-                    const handle = await getFileHandleWithFallback(dirHandle, item.path);
-                    const file = await handle.getFile();
-                    const url = URL.createObjectURL(file);
-                    if (!cancelled) {
-                        urlRef.current = url;
-                        setObjectUrl(url);
-                        setIsImageBlob(false);
-                        setLoading(false);
-                    } else {
-                        URL.revokeObjectURL(url);
-                    }
-                    return;
-                } catch {
-                    // dirHandle failed — fall through to proxy
-                }
-            }
-
-            // Fallback: fetch from proxy (Photos Library items)
             try {
                 const url = proxyFileUrl(item.path);
                 const resp = await fetch(url);
@@ -93,7 +71,7 @@ const ThumbnailCell = React.memo(({ item, dirHandle, isSelected, onToggleSelect,
                 urlRef.current = null;
             }
         };
-    }, [dirHandle, item?.path]);
+    }, [item?.path]);
 
     const handleImageClick = useCallback((e) => {
         e.stopPropagation();
@@ -178,7 +156,7 @@ ThumbnailCell.displayName = 'ThumbnailCell';
 /**
  * react-window v2 cellComponent — receives { columnIndex, rowIndex, style, ...cellProps }
  */
-const GridCell = ({ columnIndex, rowIndex, style, items, dirHandle, selectedPaths, onToggleSelect, onOpenLightbox, columnCount }) => {
+const GridCell = ({ columnIndex, rowIndex, style, items, selectedPaths, onToggleSelect, onOpenLightbox, columnCount }) => {
     const idx = rowIndex * columnCount + columnIndex;
     if (idx >= items.length) return <div style={style} />;
     const item = items[idx];
@@ -186,7 +164,6 @@ const GridCell = ({ columnIndex, rowIndex, style, items, dirHandle, selectedPath
         <div style={{ ...style, padding: CELL_GAP / 2 }}>
             <ThumbnailCell
                 item={item}
-                dirHandle={dirHandle}
                 isSelected={selectedPaths.has(item.path)}
                 onToggleSelect={onToggleSelect}
                 onOpenLightbox={onOpenLightbox}
@@ -200,13 +177,12 @@ const GridCell = ({ columnIndex, rowIndex, style, items, dirHandle, selectedPath
  * ThumbnailGrid
  * Props:
  *   items: Array of index entries { name, path, dateTaken, lat, lon, size, mediaType }
- *   dirHandle: FileSystemDirectoryHandle (restored from IndexedDB)
  *   selectedPaths: Set<string>
  *   onToggleSelect: (path: string) => void
  *   onOpenLightbox: (index: number) => void
  *   height: number (container height in px, defaults to window.innerHeight - 300)
  */
-const ThumbnailGrid = ({ items, dirHandle, selectedPaths, onToggleSelect, onOpenLightbox, height }) => {
+const ThumbnailGrid = ({ items, selectedPaths, onToggleSelect, onOpenLightbox, height }) => {
     const containerRef = useRef(null);
     const [containerWidth, setContainerWidth] = useState(0);
 
@@ -239,7 +215,7 @@ const ThumbnailGrid = ({ items, dirHandle, selectedPaths, onToggleSelect, onOpen
                 <Grid
                     key={items.length}
                     cellComponent={GridCell}
-                    cellProps={{ items, dirHandle, selectedPaths, onToggleSelect, onOpenLightbox, columnCount }}
+                    cellProps={{ items, selectedPaths, onToggleSelect, onOpenLightbox, columnCount }}
                     columnCount={columnCount}
                     columnWidth={CELL_SIZE + CELL_GAP}
                     defaultHeight={gridHeight}
