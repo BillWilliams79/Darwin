@@ -11,10 +11,13 @@ import Paper from '@mui/material/Paper';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import Collapse from '@mui/material/Collapse';
+import Link from '@mui/material/Link';
 import BuildIcon from '@mui/icons-material/Build';
 import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
 import call_rest_api from '../RestApi/RestApi';
 import { generateKml, downloadFile } from '../cyclemeter';
@@ -32,6 +35,7 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
     const [routeCoordinates, setRouteCoordinates] = useState(null);
     const [expanded, setExpanded] = useState(false);
     const [darwinCompat, setDarwinCompat] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
 
     // Reset all state each time the dialog opens (filters may have changed)
     useEffect(() => {
@@ -45,6 +49,7 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
             setError(null);
             setExpanded(false);
             setDarwinCompat(false);
+            setShowHelp(false);
         }
     }, [open]);
 
@@ -188,6 +193,15 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
                     {runs.length} activities across {distinctRouteCount} routes
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
+                <IconButton
+                    onClick={() => setShowHelp(prev => !prev)}
+                    size="small"
+                    title="How to import into Google MyMaps"
+                    data-testid="export-help-button"
+                    color={showHelp ? 'primary' : 'default'}
+                >
+                    <HelpOutlineIcon />
+                </IconButton>
                 {expanded && (
                     <IconButton
                         onClick={() => setExpanded(false)}
@@ -211,6 +225,28 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
                 ) : (
                     /* Normal: config form, then map card after generation */
                     <Box>
+                        <Collapse in={showHelp}>
+                            <Paper
+                                variant="outlined"
+                                sx={{ p: 2, mb: 2, borderLeft: 3, borderLeftColor: 'info.main' }}
+                                data-testid="export-help-panel"
+                            >
+                                <Typography variant="subtitle2" gutterBottom>Importing into Google MyMaps</Typography>
+                                <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 0.5 } }}>
+                                    <li><Typography variant="body2">Click <strong>Generate KML</strong> then <strong>Download KML</strong> to save the file</Typography></li>
+                                    <li>
+                                        <Typography variant="body2">
+                                            Open{' '}
+                                            <Link href="https://www.google.com/maps/d/" target="_blank" rel="noopener noreferrer">
+                                                Google My Maps
+                                            </Link>
+                                        </Typography>
+                                    </li>
+                                    <li><Typography variant="body2">Click <strong>Create a New Map</strong></Typography></li>
+                                    <li><Typography variant="body2">In the map editor, click <strong>Import</strong> and select the downloaded KML file</Typography></li>
+                                </Box>
+                            </Paper>
+                        </Collapse>
                         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                             <Typography variant="subtitle2" gutterBottom>KML Configuration</Typography>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

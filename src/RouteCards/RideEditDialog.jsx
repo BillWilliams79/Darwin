@@ -25,7 +25,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 const CREATE_NEW = '__create_new__';
 const NO_ROUTE = '__no_route__';
 
-const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], runPartners = [], darwinUri, idToken, creatorFk }) => {
+const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, partners = [], runPartners = [], darwinUri, idToken, creatorFk }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -39,9 +39,6 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], ru
     const [selectedPartners, setSelectedPartners] = useState([]);
     const [saving, setSaving] = useState(false);
 
-    // Route delete confirmation state
-    const [deleteRouteConfirm, setDeleteRouteConfirm] = useState(false);
-
     // Reset form when run changes or dialog opens
     useEffect(() => {
         if (run && open) {
@@ -51,7 +48,6 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], ru
             setRideTime(formatDuration(run.run_time_sec));
             setStoppedTime(formatDuration(run.stopped_time_sec || 0));
             setNotes(run.notes || '');
-            setDeleteRouteConfirm(false);
             // Initialize selected partners from current run-partner links
             const currentPartnerIds = runPartners
                 .filter(rp => rp.map_run_fk === run.id)
@@ -78,9 +74,6 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], ru
     const sortedRoutes = useMemo(() => {
         return [...(routes || [])].sort((a, b) => a.name.localeCompare(b.name));
     }, [routes]);
-
-    const selectedRouteObj = sortedRoutes.find(r => r.id === routeValue);
-    const selectedRouteRideCount = selectedRouteObj ? (rideCountByRoute.get(selectedRouteObj.id) || 0) : 0;
 
     const handleSave = async () => {
         // Validate duration fields
@@ -192,98 +185,47 @@ const RideEditDialog = ({ open, onClose, run, routes, allRuns, partners = [], ru
         }
     };
 
-    const handleDeleteRoute = async () => {
-        if (!selectedRouteObj) return;
-        setSaving(true);
-        try {
-            const result = await call_rest_api(
-                `${darwinUri}/map_routes`, 'DELETE',
-                { id: selectedRouteObj.id }, idToken
-            );
-            if (result.httpStatus.httpStatus === 200) {
-                // DB ON DELETE SET NULL handles runs — invalidate both caches
-                queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
-                queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
-                setRouteValue(NO_ROUTE);
-                setDeleteRouteConfirm(false);
-            } else {
-                showError(result, 'Failed to delete route');
-            }
-        } catch (error) {
-            showError(error, 'Failed to delete route');
-        } finally {
-            setSaving(false);
-        }
-    };
-
     if (!run) return null;
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth data-testid="ride-edit-dialog">
-            <DialogTitle>Edit Ride</DialogTitle>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+                Edit Activity
+                <IconButton
+                    color="error"
+                    onClick={onDeleteRide}
+                    title="Delete activity"
+                    sx={{ ml: 'auto' }}
+                    data-testid="ride-edit-delete-ride-btn"
+                >
+                    <DeleteOutlineIcon sx={{ fontSize: 30 }} />
+                </IconButton>
+            </DialogTitle>
             <DialogContent>
                 {/* Route selection */}
-                <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mt: 1 }}>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>Route</InputLabel>
-                        <Select
-                            value={routeValue}
-                            onChange={(e) => {
-                                setRouteValue(e.target.value);
-                                setDeleteRouteConfirm(false);
-                                setNewRouteName('');
-                            }}
-                            label="Route"
-                            data-testid="ride-edit-route-select"
-                        >
-                            <MenuItem value={NO_ROUTE}><em>No route</em></MenuItem>
-                            {sortedRoutes.map(route => (
-                                <MenuItem key={route.id} value={route.id}>
-                                    {route.name}
-                                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                                        ({rideCountByRoute.get(route.id) || 0} rides)
-                                    </Typography>
-                                </MenuItem>
-                            ))}
-                            <MenuItem value={CREATE_NEW}><em>Create new...</em></MenuItem>
-                        </Select>
-                    </FormControl>
-                    {selectedRouteObj && !deleteRouteConfirm && (
-                        <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => setDeleteRouteConfirm(true)}
-                            title="Delete this route"
-                            data-testid="ride-edit-delete-route-btn"
-                        >
-                            <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                    )}
-                </Box>
-
-                {/* Route delete confirmation */}
-                {deleteRouteConfirm && selectedRouteObj && (
-                    <Box sx={{ mt: 1, p: 1.5, bgcolor: 'error.light', borderRadius: 1, color: 'error.contrastText' }}>
-                        <Typography variant="body2">
-                            Delete &ldquo;{selectedRouteObj.name}&rdquo;? {selectedRouteRideCount} ride{selectedRouteRideCount !== 1 ? 's' : ''} will have no route.
-                        </Typography>
-                        <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-                            <Button
-                                size="small" variant="contained" color="error"
-                                onClick={handleDeleteRoute} disabled={saving}
-                            >
-                                Delete Route
-                            </Button>
-                            <Button
-                                size="small" variant="outlined"
-                                onClick={() => setDeleteRouteConfirm(false)}
-                                sx={{ color: 'error.contrastText', borderColor: 'error.contrastText' }}
-                            >
-                                Cancel
-                            </Button>
-                        </Box>
-                    </Box>
-                )}
+                <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+                    <InputLabel>Route</InputLabel>
+                    <Select
+                        value={routeValue}
+                        onChange={(e) => {
+                            setRouteValue(e.target.value);
+                            setNewRouteName('');
+                        }}
+                        label="Route"
+                        data-testid="ride-edit-route-select"
+                    >
+                        <MenuItem value={NO_ROUTE}><em>No route</em></MenuItem>
+                        {sortedRoutes.map(route => (
+                            <MenuItem key={route.id} value={route.id}>
+                                {route.name}
+                                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                    ({rideCountByRoute.get(route.id) || 0} rides)
+                                </Typography>
+                            </MenuItem>
+                        ))}
+                        <MenuItem value={CREATE_NEW}><em>Create new...</em></MenuItem>
+                    </Select>
+                </FormControl>
 
                 {/* New route name input */}
                 {routeValue === CREATE_NEW && (
