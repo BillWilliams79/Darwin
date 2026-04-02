@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkPhotosProxy, detectProxyPathPrefix } from '../scanUtils.js';
+import { checkPhotosProxy } from '../scanUtils.js';
 
 describe('checkPhotosProxy', () => {
     let originalFetch;
@@ -67,69 +67,5 @@ describe('checkPhotosProxy', () => {
         const callArgs = globalThis.fetch.mock.calls[0];
         // In test/dev mode, PHOTOS_PROXY_URL is '' (relative URL via Vite proxy)
         expect(callArgs[0]).toBe('/photos/health');
-    });
-});
-
-describe('detectProxyPathPrefix', () => {
-    /** Helper: create a mock FileSystemDirectoryHandle */
-    function mockDirHandle({ getDirectoryHandleResult, entries = [] }) {
-        return {
-            getDirectoryHandle: vi.fn().mockImplementation((name) => {
-                if (getDirectoryHandleResult[name]) {
-                    return Promise.resolve(getDirectoryHandleResult[name]);
-                }
-                return Promise.reject(new DOMException('Not found', 'NotFoundError'));
-            }),
-            entries: vi.fn().mockImplementation(function* () {
-                for (const [name, handle] of entries) {
-                    yield [name, handle];
-                }
-            }),
-        };
-    }
-
-    it('returns empty string when dirHandle has "originals" directly (is .photoslibrary root)', async () => {
-        const handle = mockDirHandle({
-            getDirectoryHandleResult: { originals: {} },
-        });
-
-        const prefix = await detectProxyPathPrefix(handle);
-        expect(prefix).toBe('');
-    });
-
-    it('returns library name when dirHandle is parent containing .photoslibrary', async () => {
-        const libraryHandle = mockDirHandle({
-            getDirectoryHandleResult: { originals: {} },
-        });
-        const handle = mockDirHandle({
-            getDirectoryHandleResult: {},
-            entries: [['Photos Library.photoslibrary', { ...libraryHandle, kind: 'directory' }]],
-        });
-
-        const prefix = await detectProxyPathPrefix(handle);
-        expect(prefix).toBe('Photos Library.photoslibrary');
-    });
-
-    it('returns empty string when neither originals nor .photoslibrary found', async () => {
-        const handle = mockDirHandle({
-            getDirectoryHandleResult: {},
-            entries: [['Documents', { kind: 'directory' }], ['file.txt', { kind: 'file' }]],
-        });
-
-        const prefix = await detectProxyPathPrefix(handle);
-        expect(prefix).toBe('');
-    });
-
-    it('skips .photoslibrary entries without originals inside', async () => {
-        const emptyLibrary = mockDirHandle({
-            getDirectoryHandleResult: {},
-        });
-        const handle = mockDirHandle({
-            getDirectoryHandleResult: {},
-            entries: [['Old Photos.photoslibrary', { ...emptyLibrary, kind: 'directory' }]],
-        });
-
-        const prefix = await detectProxyPathPrefix(handle);
-        expect(prefix).toBe('');
     });
 });
