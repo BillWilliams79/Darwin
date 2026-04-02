@@ -30,6 +30,8 @@ import RouteIcon from '@mui/icons-material/Route';
 import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
@@ -418,6 +420,17 @@ const MapsPage = () => {
                         </ListItemIcon>
                         <ListItemText>Manage Partners</ListItemText>
                     </MenuItem>
+                    {IS_MACOS && (
+                        <MenuItem
+                            onClick={() => { setSettingsAnchorEl(null); navigate('/maps/settings/photos'); }}
+                            data-testid="manage-photos-button"
+                        >
+                            <ListItemIcon>
+                                <PhotoLibraryIcon fontSize="small" />
+                            </ListItemIcon>
+                            <ListItemText>Photo Settings</ListItemText>
+                        </MenuItem>
+                    )}
                     <Divider />
                     <MenuItem
                         onClick={() => {
