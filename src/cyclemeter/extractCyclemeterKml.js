@@ -106,11 +106,15 @@ export async function extractFromCyclemeterKml(arrayBuffer, config) {
     }
 
     // Extract metadata from abvio namespace
-    const runID = getAbvioFloat(extData, 'runID');
     const routeID = getAbvioFloat(extData, 'routeID');
     const routeName = getAbvioText(extData, 'routeName') || 'Untitled';
     const activityNameRaw = getAbvioText(extData, 'activityName') || '';
     const startTime = getAbvioText(extData, 'startTime') || '';
+
+    // Use unix timestamp as synthetic ID — avoids collision with cyclemeter bulk import IDs
+    const syntheticId = startTime
+        ? Math.floor(new Date(startTime).getTime() / 1000)
+        : 0;
     const runTime = getAbvioFloat(extData, 'runTime');
     const stoppedTime = getAbvioFloat(extData, 'stoppedTime');
     const distance = getAbvioFloat(extData, 'distance');
@@ -129,7 +133,7 @@ export async function extractFromCyclemeterKml(arrayBuffer, config) {
     }
 
     const run = {
-        runID,
+        runID: syntheticId,
         routeID,
         activityID,
         name: routeName,

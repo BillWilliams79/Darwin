@@ -192,9 +192,14 @@ function extractFromExtendedData(extData, coordinates, index) {
 
     const avgSpeedMph = getDarwinFloat(extData, 'avgSpeedMph');
 
+    // Use unix timestamp as synthetic ID — avoids collision with cyclemeter sequential IDs
+    const syntheticId = startTimeUtc
+        ? Math.floor(new Date(startTimeUtc).getTime() / 1000)
+        : index;
+
     const run = {
-        runID: index,
-        routeID: index,
+        runID: syntheticId,
+        routeID: syntheticId,
         activityID,
         name: routeName || `${activityName} ${index}`,
         startTime: startTimeUtc,
@@ -270,9 +275,14 @@ function extractFromDescription(placemarkName, description, coordinates, index) 
     const runTime = parseDurationToSeconds(runTimeStr);
     const stoppedTime = parseDurationToSeconds(stopTimeStr);
 
+    // Use unix timestamp as synthetic ID — avoids collision with cyclemeter sequential IDs
+    const syntheticId = startTime
+        ? Math.floor(new Date(startTime).getTime() / 1000)
+        : index;
+
     return {
-        runID: index,
-        routeID: index,
+        runID: syntheticId,
+        routeID: syntheticId,
         activityID,
         name: placemarkName || `${activityName} ${index}`,
         startTime,

@@ -122,8 +122,8 @@ describe('extractFromDarwinKml', () => {
 
             expect(runs).toHaveLength(1);
             const [run] = runs;
-            expect(run).toHaveProperty('runID', 1);
-            expect(run).toHaveProperty('routeID', 1);
+            expect(run.runID).toBeGreaterThan(1000000000); // unix timestamp, not sequential
+            expect(run.routeID).toBe(run.runID);
             expect(run).toHaveProperty('activityID', 4);
             expect(run).toHaveProperty('activityName', 'Ride');
             expect(run).toHaveProperty('lineIconId', 1522);
@@ -350,20 +350,27 @@ describe('extractFromDarwinKml', () => {
             const runs = await extractFromDarwinKml(kmlToBuffer(kml), DEFAULT_CONFIG);
 
             expect(runs).toHaveLength(3);
-            expect(runs[0].runID).toBe(1);
-            expect(runs[1].runID).toBe(2);
-            expect(runs[2].runID).toBe(3);
+            // Timestamp-based IDs — unique per run, not sequential
+            expect(runs[0].runID).toBeGreaterThan(1000000000);
+            expect(runs[1].runID).toBeGreaterThan(1000000000);
+            expect(runs[2].runID).toBeGreaterThan(1000000000);
+            expect(new Set([runs[0].runID, runs[1].runID, runs[2].runID]).size).toBe(3); // all unique
             expect(runs[2].activityName).toBe('Hike');
         });
 
-        it('assigns sequential routeIDs', async () => {
+        it('assigns unique timestamp-based routeIDs', async () => {
             const kml = buildDarwinKml({
-                runs: [{}, {}],
+                runs: [
+                    { date: 'THU :: 18 Aug 2011' },
+                    { date: 'FRI :: 19 Aug 2011' },
+                ],
             });
             const runs = await extractFromDarwinKml(kmlToBuffer(kml), DEFAULT_CONFIG);
 
-            expect(runs[0].routeID).toBe(1);
-            expect(runs[1].routeID).toBe(2);
+            // Timestamp-based IDs, not sequential
+            expect(runs[0].routeID).toBeGreaterThan(1000000000);
+            expect(runs[1].routeID).toBeGreaterThan(1000000000);
+            expect(runs[0].routeID).not.toBe(runs[1].routeID);
         });
     });
 
