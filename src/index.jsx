@@ -39,6 +39,8 @@ import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
 import RouteDetailView from './RouteCards/RouteDetailView';
 import MapRouteSettingsView from './Maps/MapRouteSettingsView';
 import MapPartnerSettingsView from './Maps/MapPartnerSettingsView';
+import PhotoBrowser from './photo-browser/PhotoBrowser';
+import PhotoSettingsView from './photo-browser/PhotoSettingsView';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -111,6 +113,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="maps/settings/partners" element= {<AuthenticatedRoute>
                                                              <MapPartnerSettingsView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/settings/photos" element= {<AuthenticatedRoute>
+                                                             <PhotoSettingsView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="maps/photos/:runId" element= {<AuthenticatedRoute>
+                                                             <PhotoBrowser />
                                                          </AuthenticatedRoute>} />
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
