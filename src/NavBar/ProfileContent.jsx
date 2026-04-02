@@ -37,6 +37,7 @@ const ProfileContent = ({ onClose }) => {
     const [appTasks, setAppTasks] = useState(Number(profile?.app_tasks ?? 1));
     const [appMaps, setAppMaps] = useState(Number(profile?.app_maps ?? 1));
     const [appSwarm, setAppSwarm] = useState(Number(profile?.app_swarm ?? 0));
+    const [appSolar, setAppSolar] = useState(Number(profile?.app_solar ?? 0));
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
@@ -47,6 +48,7 @@ const ProfileContent = ({ onClose }) => {
     const savedAppTasksRef = useRef(Number(profile?.app_tasks ?? 1));
     const savedAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
     const savedAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
+    const savedAppSolarRef = useRef(Number(profile?.app_solar ?? 0));
 
     // Fetch fresh profile from DB on mount — stale localStorage must not be authoritative
     useEffect(() => {
@@ -60,12 +62,14 @@ const ProfileContent = ({ onClose }) => {
                     setAppTasks(Number(db.app_tasks ?? 1));
                     setAppMaps(Number(db.app_maps ?? 1));
                     setAppSwarm(Number(db.app_swarm ?? 0));
+                    setAppSolar(Number(db.app_solar ?? 0));
                     savedNameRef.current = db.name || '';
                     savedTimezoneRef.current = db.timezone || '';
                     savedThemeModeRef.current = db.theme_mode || 'light';
                     savedAppTasksRef.current = Number(db.app_tasks ?? 1);
                     savedAppMapsRef.current = Number(db.app_maps ?? 1);
                     savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                    savedAppSolarRef.current = Number(db.app_solar ?? 0);
                     const updated = { ...profile, ...db };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
@@ -75,16 +79,16 @@ const ProfileContent = ({ onClose }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [idToken]);
 
-    const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm) => {
+    const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm, newAppSolar) => {
         if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current
             && newThemeMode === savedThemeModeRef.current
             && newAppTasks === savedAppTasksRef.current && newAppMaps === savedAppMapsRef.current
-            && newAppSwarm === savedAppSwarmRef.current) return;
+            && newAppSwarm === savedAppSwarmRef.current && newAppSolar === savedAppSolarRef.current) return;
 
         const uri = `${darwinUri}/profiles`;
         call_rest_api(uri, 'PUT', [{
             id: profile.id, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
-            app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+            app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm, app_solar: newAppSolar,
         }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
@@ -94,9 +98,10 @@ const ProfileContent = ({ onClose }) => {
                     savedAppTasksRef.current = newAppTasks;
                     savedAppMapsRef.current = newAppMaps;
                     savedAppSwarmRef.current = newAppSwarm;
+                    savedAppSolarRef.current = newAppSolar;
                     const updated = {
                         ...profile, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
-                        app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+                        app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm, app_solar: newAppSolar,
                     };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
@@ -156,7 +161,7 @@ const ProfileContent = ({ onClose }) => {
             <TextField  label="Name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm)}
+                        onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm, appSolar)}
                         id="Name"
                         key="Name"
                         variant="outlined"
@@ -175,7 +180,7 @@ const ProfileContent = ({ onClose }) => {
                         onChange={(e, newValue) => {
                             const newTz = newValue?.value || '';
                             setTimezone(newTz);
-                            saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm);
+                            saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm, appSolar);
                         }}
                         isOptionEqualToValue={(option, value) => option.value === value.value}
                         renderInput={(params) => (
@@ -191,10 +196,11 @@ const ProfileContent = ({ onClose }) => {
                     {[
                         { key: 'tasks', label: 'Tasks', value: appTasks, setValue: setAppTasks },
                         { key: 'maps', label: 'Maps', value: appMaps, setValue: setAppMaps },
+                        { key: 'solar', label: 'Solar', value: appSolar, setValue: setAppSolar },
                         { key: 'swarm', label: 'Swarm', value: appSwarm, setValue: setAppSwarm },
                     ].map((app) => {
                         const enabled = app.value === 1;
-                        const enabledCount = [appTasks, appMaps, appSwarm].filter(v => v === 1).length;
+                        const enabledCount = [appTasks, appMaps, appSolar, appSwarm].filter(v => v === 1).length;
 
                         const handleToggle = () => {
                             if (enabled && enabledCount <= 1) return;
@@ -203,7 +209,8 @@ const ProfileContent = ({ onClose }) => {
                             const newTasks = app.key === 'tasks' ? newVal : appTasks;
                             const newMaps = app.key === 'maps' ? newVal : appMaps;
                             const newSwarm = app.key === 'swarm' ? newVal : appSwarm;
-                            saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm);
+                            const newSolar = app.key === 'solar' ? newVal : appSolar;
+                            saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm, newSolar);
                         };
 
                         const renderPreview = () => {
@@ -231,6 +238,33 @@ const ProfileContent = ({ onClose }) => {
                                                 stroke={enabled ? '#1976d2' : '#bbb'} strokeWidth="2.5" strokeLinecap="round" />
                                             <circle cx="8" cy="32" r="3" fill={enabled ? '#e91e63' : '#ccc'} />
                                             <circle cx="52" cy="8" r="3" fill={enabled ? '#4caf50' : '#ccc'} />
+                                        </svg>
+                                    </Box>
+                                );
+                            }
+                            if (app.key === 'solar') {
+                                const panelColor = enabled ? '#4caf50' : '#888';
+                                const sunColor = enabled ? '#ff9800' : '#aaa';
+                                return (
+                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0.5 }}>
+                                        <svg width="60" height="40" viewBox="0 0 60 40">
+                                            {/* Sun */}
+                                            <circle cx="50" cy="8" r="5" fill={sunColor} />
+                                            {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+                                                <line key={angle}
+                                                    x1={50 + 7 * Math.cos(angle * Math.PI / 180)}
+                                                    y1={8 + 7 * Math.sin(angle * Math.PI / 180)}
+                                                    x2={50 + 9 * Math.cos(angle * Math.PI / 180)}
+                                                    y2={8 + 9 * Math.sin(angle * Math.PI / 180)}
+                                                    stroke={sunColor} strokeWidth="1" strokeLinecap="round" />
+                                            ))}
+                                            {/* 4x2 panel grid */}
+                                            {[0, 1, 2, 3].map((col) => [0, 1].map((row) => (
+                                                <rect key={`${col}-${row}`}
+                                                    x={4 + col * 12} y={16 + row * 10}
+                                                    width="10" height="8" rx="1"
+                                                    fill={panelColor} opacity={0.7 + row * 0.15} />
+                                            )))}
                                         </svg>
                                     </Box>
                                 );
@@ -328,7 +362,7 @@ const ProfileContent = ({ onClose }) => {
 
                         return (
                             <Box key={m}
-                                onClick={() => { setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm); }}
+                                onClick={() => { setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm, appSolar); }}
                                 sx={{
                                     cursor: 'pointer', textAlign: 'center',
                                     '&:hover .theme-thumb': { borderColor: 'primary.main' },
@@ -390,7 +424,7 @@ const ProfileContent = ({ onClose }) => {
             <ExportDialog
                 open={exportDialogOpen}
                 onClose={() => setExportDialogOpen(false)}
-                enabledApps={{ tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }}
+                enabledApps={{ tasks: appTasks === 1, maps: appMaps === 1, solar: appSolar === 1, swarm: appSwarm === 1 }}
                 onExport={handleExport}
                 exporting={exporting}
             />
