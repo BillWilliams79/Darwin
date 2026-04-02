@@ -15,6 +15,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
+import LinearProgress from '@mui/material/LinearProgress';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
@@ -79,6 +80,7 @@ const MapsPage = () => {
     const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [deleteStep, setDeleteStep] = useState(0); // 0=idle, 1=runs done, 2=routes done, 3=partners done
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
     // Savable view filter state
@@ -291,30 +293,38 @@ const MapsPage = () => {
         || metric !== 'distance' || timeframe !== 'yearly';
 
     const handleDeleteAll = async () => {
-        setDeleteDialogOpen(false);
         setDeleting(true);
+        setDeleteStep(0);
 
         try {
-            for (const run of allRuns) {
-                await call_rest_api(`${darwinUri}/map_runs`, 'DELETE', { id: run.id }, idToken);
+            if (allRuns.length > 0) {
+                await call_rest_api(`${darwinUri}/map_runs`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
-            for (const route of routes) {
-                await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { id: route.id }, idToken);
+            setDeleteStep(1);
+
+            if (routes.length > 0) {
+                await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
-            for (const partner of partners) {
-                await call_rest_api(`${darwinUri}/map_partners`, 'DELETE', { id: partner.id }, idToken);
+            setDeleteStep(2);
+
+            if (partners.length > 0) {
+                await call_rest_api(`${darwinUri}/map_partners`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
+            setDeleteStep(3);
 
             queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
 
+            setDeleteDialogOpen(false);
             setSnackbar({ open: true, message: 'All map data deleted', severity: 'success' });
         } catch (err) {
             console.error('[MapsPage] Delete error:', err);
+            setDeleteDialogOpen(false);
             setSnackbar({ open: true, message: 'Delete failed', severity: 'error' });
         } finally {
             setDeleting(false);
+            setDeleteStep(0);
         }
     };
 
@@ -577,20 +587,36 @@ const MapsPage = () => {
                 filterDescription={filterDescription}
             />
 
-            <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+            <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)}>
                 <DialogTitle>Delete All Map Data?</DialogTitle>
                 <DialogContent>
-                    <DialogContentText>
-                        This will permanently delete all {allRuns.length} activities, their GPS coordinates,
-                        and {routes.length} routes. This cannot be undone.
-                    </DialogContentText>
+                    {deleting ? (
+                        <Box sx={{ minWidth: 300 }}>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                                {deleteStep === 0 ? 'Deleting activities...' :
+                                 deleteStep === 1 ? 'Deleting routes...' :
+                                 'Deleting partners...'}
+                            </Typography>
+                            <LinearProgress
+                                variant="determinate"
+                                value={Math.round((deleteStep / 3) * 100)}
+                            />
+                        </Box>
+                    ) : (
+                        <DialogContentText>
+                            This will permanently delete all {allRuns.length} activities, their GPS coordinates,
+                            and {routes.length} routes. This cannot be undone.
+                        </DialogContentText>
+                    )}
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleDeleteAll} color="error" variant="contained">
-                        Delete All
-                    </Button>
-                </DialogActions>
+                {!deleting && (
+                    <DialogActions>
+                        <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleDeleteAll} color="error" variant="contained">
+                            Delete All
+                        </Button>
+                    </DialogActions>
+                )}
             </Dialog>
 
             <Snackbar
