@@ -97,7 +97,8 @@ describe('extractFromCyclemeterKml', () => {
         });
         const [run] = await extractFromCyclemeterKml(kmlToBuffer(kml), DEFAULT_CONFIG);
 
-        expect(run).toHaveProperty('runID', 2936);
+        // runID is now timestamp-based (not the abvio runID)
+        expect(run.runID).toBeGreaterThan(1000000000);
         expect(run).toHaveProperty('routeID', 31);
         expect(run).toHaveProperty('activityID', 4);
         expect(run).toHaveProperty('name', 'Los Alamitos Creek Trail');

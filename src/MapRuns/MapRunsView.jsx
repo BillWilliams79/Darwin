@@ -11,6 +11,7 @@ import DialogActions from '@mui/material/DialogActions';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
@@ -24,6 +25,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
+import { asyncPool } from '../utils/asyncPool';
 import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import RideEditDialog from '../RouteCards/RideEditDialog';
@@ -69,6 +71,7 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
     // Bulk delete state
     const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
     const [deletingSelected, setDeletingSelected] = useState(false);
+    const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
 
     // Bulk route edit state
     const [bulkEditDialogOpen, setBulkEditDialogOpen] = useState(false);
@@ -228,9 +231,10 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
         setDeletingSelected(true);
 
         const selectedIds = getSelectedIds();
+        setDeleteProgress({ current: 0, total: selectedIds.length });
         let failCount = 0;
 
-        for (const id of selectedIds) {
+        await asyncPool(10, selectedIds, async (id) => {
             try {
                 const result = await call_rest_api(
                     `${darwinUri}/map_runs`, 'DELETE', { id }, idToken
@@ -239,8 +243,10 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             } catch (err) {
                 console.error('[MapRuns] Delete error:', err);
                 failCount++;
+            } finally {
+                setDeleteProgress(prev => ({ ...prev, current: prev.current + 1 }));
             }
-        }
+        });
 
         queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
         queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
@@ -519,14 +525,26 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
 
                     {/* Delete section */}
                     <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                        {!bulkDeleteConfirm ? (
+                        {deletingSelected ? (
+                            <Box sx={{ mt: 1 }}>
+                                <Typography variant="body2" sx={{ mb: 1 }}>
+                                    Deleting {deleteProgress.current} of {deleteProgress.total}...
+                                </Typography>
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={deleteProgress.total > 0
+                                        ? Math.round((deleteProgress.current / deleteProgress.total) * 100)
+                                        : 0}
+                                />
+                            </Box>
+                        ) : !bulkDeleteConfirm ? (
                             <Button
                                 variant="outlined"
                                 color="error"
                                 size="small"
-                                startIcon={deletingSelected ? <CircularProgress size={16} /> : <DeleteIcon />}
+                                startIcon={<DeleteIcon />}
                                 onClick={() => setBulkDeleteConfirm(true)}
-                                disabled={deletingSelected || savingBulkEdit}
+                                disabled={savingBulkEdit}
                                 data-testid="delete-selected-button"
                             >
                                 Delete {selectedCount} Ride{selectedCount !== 1 ? 's' : ''}
@@ -540,7 +558,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
                                     <Button
                                         size="small" variant="contained" color="error"
                                         onClick={handleDeleteSelected}
-                                        disabled={deletingSelected}
                                         data-testid="bulk-delete-confirm-button"
                                     >
                                         Delete
