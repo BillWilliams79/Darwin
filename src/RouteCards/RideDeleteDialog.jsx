@@ -14,10 +14,10 @@ const RideDeleteDialog = ({ open, onClose, onConfirm, rideSummary }) => {
 
     return (
         <Dialog open={open} onClose={onClose} data-testid="ride-delete-dialog">
-            <DialogTitle>Delete Ride?</DialogTitle>
+            <DialogTitle>Delete Activity?</DialogTitle>
             <DialogContent>
                 <DialogContentText>
-                    Permanently delete this ride{rideSummary ? ` (${rideSummary})` : ''}?
+                    Permanently delete this activity{rideSummary ? ` (${rideSummary})` : ''}?
                     GPS coordinates will also be deleted. This cannot be undone.
                 </DialogContentText>
             </DialogContent>
