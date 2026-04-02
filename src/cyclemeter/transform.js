@@ -113,10 +113,16 @@ function roundTo(value, decimals) {
  */
 export function formatRunData(runs) {
     for (const run of runs) {
-        // Average speed: distance(m) / runTime(s) * MS_TO_MPH → mph, 2 decimals
-        run.averageSpeed = run.runTime > 0
-            ? roundTo((run.distance / run.runTime) * MS_TO_MPH, 2)
-            : 0;
+        const imperial = run._darwinImperial;
+
+        // Average speed
+        if (imperial) {
+            run.averageSpeed = imperial.averageSpeed;
+        } else {
+            run.averageSpeed = run.runTime > 0
+                ? roundTo((run.distance / run.runTime) * MS_TO_MPH, 2)
+                : 0;
+        }
 
         // Cap stopped time at 24h - 1s
         run.stoppedTime = Math.min(run.stoppedTime, MAX_STOPPED_TIME);
@@ -135,12 +141,20 @@ export function formatRunData(runs) {
         run.runTime = formatDuration(run.runTime);
         run.stoppedTime = formatDuration(run.stoppedTime);
 
-        // Unit conversions
-        run.distance = roundTo(run.distance * METERS_TO_MILES, 1);
-        run.ascent = Math.floor(run.ascent * METERS_TO_FEET);
-        run.descent = Math.floor(run.descent * METERS_TO_FEET);
-        run.maxSpeed = roundTo(run.maxSpeed * MS_TO_MPH, 1);
-        run.calories = Math.floor(run.calories);
+        // Unit conversions — use exact imperial values when available (Darwin KML ExtendedData)
+        if (imperial) {
+            run.distance = imperial.distance;
+            run.ascent = imperial.ascent;
+            run.descent = imperial.descent;
+            run.maxSpeed = imperial.maxSpeed;
+            run.calories = imperial.calories;
+        } else {
+            run.distance = roundTo(run.distance * METERS_TO_MILES, 1);
+            run.ascent = Math.floor(run.ascent * METERS_TO_FEET);
+            run.descent = Math.floor(run.descent * METERS_TO_FEET);
+            run.maxSpeed = roundTo(run.maxSpeed * MS_TO_MPH, 1);
+            run.calories = Math.floor(run.calories);
+        }
     }
 
     return runs;

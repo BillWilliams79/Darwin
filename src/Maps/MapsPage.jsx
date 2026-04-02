@@ -576,6 +576,8 @@ const MapsPage = () => {
                 onClose={() => setExportDialogOpen(false)}
                 runs={filteredRuns}
                 routes={routes}
+                partners={partners}
+                runPartners={runPartners}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 filterDescription={filterDescription}

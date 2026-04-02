@@ -5,8 +5,10 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
+import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import BuildIcon from '@mui/icons-material/Build';
@@ -19,7 +21,7 @@ import { generateKml, downloadFile } from '../cyclemeter';
 import { reconstructRun } from '../utils/mapDataUtils';
 import ExportMapPreview from './ExportMapPreview';
 
-const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterDescription }) => {
+const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners = [], darwinUri, idToken, filterDescription }) => {
     const [mapTitle, setMapTitle] = useState('');
     const [mapDescription, setMapDescription] = useState('');
     const [outputFilename, setOutputFilename] = useState('');
@@ -29,6 +31,7 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
     const [stats, setStats] = useState(null);
     const [routeCoordinates, setRouteCoordinates] = useState(null);
     const [expanded, setExpanded] = useState(false);
+    const [darwinCompat, setDarwinCompat] = useState(false);
 
     // Reset all state each time the dialog opens (filters may have changed)
     useEffect(() => {
@@ -41,8 +44,23 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
             setRouteCoordinates(null);
             setError(null);
             setExpanded(false);
+            setDarwinCompat(false);
         }
     }, [open]);
+
+    // Build partner lookup: run ID → array of partner names
+    const runPartnerNamesMap = useMemo(() => {
+        if (!darwinCompat) return new Map();
+        const partnerById = new Map();
+        for (const p of partners) partnerById.set(p.id, p.name);
+        const m = new Map();
+        for (const rp of runPartners) {
+            if (!m.has(rp.map_run_fk)) m.set(rp.map_run_fk, []);
+            const name = partnerById.get(rp.map_partner_fk);
+            if (name) m.get(rp.map_run_fk).push(name);
+        }
+        return m;
+    }, [darwinCompat, partners, runPartners]);
 
     // Build route lookup
     const routeMap = useMemo(() => {
@@ -97,6 +115,14 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
 
             transformedRuns.sort((a, b) => a.startTime - b.startTime);
 
+            // Attach partner names when Darwin Compatibility is enabled
+            if (darwinCompat) {
+                for (const tr of transformedRuns) {
+                    const names = runPartnerNamesMap.get(tr.runID);
+                    if (names && names.length > 0) tr.partnerNames = names;
+                }
+            }
+
             const effectiveTitle = mapTitle || 'Darwin Map Export';
             const effectiveDescription = mapDescription || filterDescription || 'All activities';
             const rawFilename = outputFilename || 'DarwinExport';
@@ -105,6 +131,7 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
                 mapTitle: effectiveTitle,
                 mapDescription: effectiveDescription,
                 outputFilename: effectiveFilename,
+                darwinCompatibility: darwinCompat,
             };
             const kml = generateKml(transformedRuns, config);
             setKmlContent(kml);
@@ -213,6 +240,24 @@ const ExportDialog = ({ open, onClose, runs, routes, darwinUri, idToken, filterD
                                     size="small"
                                     sx={{ maxWidth: 300 }}
                                     InputLabelProps={{ shrink: true }}
+                                />
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={darwinCompat}
+                                            onChange={(e) => setDarwinCompat(e.target.checked)}
+                                            size="small"
+                                            data-testid="darwin-compat-switch"
+                                        />
+                                    }
+                                    label={
+                                        <Box>
+                                            <Typography variant="body2">Darwin Compatibility</Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Include metadata for lossless re-import into Darwin
+                                            </Typography>
+                                        </Box>
+                                    }
                                 />
                             </Box>
                         </Paper>
