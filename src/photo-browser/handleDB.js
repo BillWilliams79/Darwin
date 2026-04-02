@@ -1,8 +1,8 @@
 /**
  * handleDB.js
- * IndexedDB helpers for persisting the directory handle and scan index.
+ * IndexedDB helpers for persisting the scan index from the Photos proxy.
  * DB: 'photo-browser-db', version 1
- * Stores: 'handles', 'index', 'meta'
+ * Stores: 'handles' (legacy, unused), 'index', 'meta'
  */
 
 import { openDB } from 'idb';
@@ -24,27 +24,6 @@ function getDB() {
             }
         },
     });
-}
-
-/**
- * Persist the root directory handle so it can be restored across sessions.
- * Browsers may require a one-click re-grant of permission on each new session.
- */
-export async function saveHandle(handle) {
-    const db = await getDB();
-    await db.put('handles', handle, 'photos-folder');
-}
-
-/**
- * Load the previously saved directory handle, or null if none exists.
- */
-export async function loadHandle() {
-    try {
-        const db = await getDB();
-        return await db.get('handles', 'photos-folder') ?? null;
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -85,7 +64,7 @@ export async function loadMeta() {
 }
 
 /**
- * Clear the index and meta (leaves the directory handle intact).
+ * Clear the index and meta.
  */
 export async function clearCache() {
     const db = await getDB();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -10,12 +10,11 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Switch from '@mui/material/Switch';
 import Typography from '@mui/material/Typography';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import FolderIcon from '@mui/icons-material/Folder';
 import ReplayIcon from '@mui/icons-material/Replay';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 
 import useScanStore from './useScanStore.js';
-import { loadHandle, loadMeta, clearCache, saveHandle } from './handleDB.js';
+import { loadMeta, clearCache } from './handleDB.js';
 import { startScan, checkPhotosProxy } from './scanUtils.js';
 
 const FEATURE_KEY = 'photo-browser-enabled';
@@ -24,15 +23,12 @@ const PhotoSettingsView = () => {
     const navigate = useNavigate();
 
     // Scan store
-    const dirHandle = useScanStore((s) => s.dirHandle);
-    const folderName = useScanStore((s) => s.folderName);
     const scanState = useScanStore((s) => s.scanState);
     const scanProgress = useScanStore((s) => s.scanProgress);
     const scanElapsed = useScanStore((s) => s.scanElapsed);
     const scanError = useScanStore((s) => s.scanError);
     const scanDiag = useScanStore((s) => s.scanDiag);
     const index = useScanStore((s) => s.index);
-    const setDirHandle = useScanStore((s) => s.setDirHandle);
     const setIndex = useScanStore((s) => s.setIndex);
     const setScanState = useScanStore((s) => s.setScanState);
 
@@ -67,46 +63,9 @@ const PhotoSettingsView = () => {
         localStorage.setItem(FEATURE_KEY, String(val));
     }, []);
 
-    const handleSelectFolder = useCallback(async () => {
-        try {
-            const handle = await window.showDirectoryPicker({ mode: 'read', startIn: 'pictures' });
-            const name = handle.name;
-            await saveHandle(handle);
-            setDirHandle(handle, name);
-            startScan(handle, name);
-        } catch (err) {
-            if (err.name !== 'AbortError') console.error('[PhotoSettings] folder picker error:', err);
-        }
-    }, [setDirHandle]);
-
-    const handleRescan = useCallback(async () => {
-        // Try to get an existing dirHandle (for filesystem walk fallback)
-        const handle = dirHandle || await loadHandle().catch(() => null);
-        if (handle) {
-            try {
-                const perm = await handle.queryPermission({ mode: 'read' });
-                if (perm !== 'granted') {
-                    const result = await handle.requestPermission({ mode: 'read' });
-                    if (result !== 'granted' && !proxyStatus?.available) return;
-                    if (result === 'granted') {
-                        setDirHandle(handle, handle.name);
-                    }
-                } else {
-                    setDirHandle(handle, handle.name);
-                }
-            } catch {
-                // Permission check failed — proxy-only scan if available
-            }
-        }
-
-        // Start scan — dirHandle may be null (proxy-only mode in Safari)
-        const activeHandle = useScanStore.getState().dirHandle;
-        if (!activeHandle && !proxyStatus?.available) {
-            handleSelectFolder();
-            return;
-        }
-        startScan(activeHandle, activeHandle?.name || 'Photos.sqlite');
-    }, [dirHandle, handleSelectFolder, setDirHandle, proxyStatus]);
+    const handleRescan = useCallback(() => {
+        startScan();
+    }, []);
 
     const handleClearCache = useCallback(async () => {
         setClearing(true);
@@ -129,13 +88,10 @@ const PhotoSettingsView = () => {
 
     const estimatedSizeBytes = index.length * 190;
 
-    const displayFolderName = folderName || meta?.folderName || null;
     const displayFileCount = (scanState === 'complete' ? index.length : null) ?? meta?.fileCount ?? null;
     const displayScannedAt = meta?.scannedAt ? new Date(meta.scannedAt).toLocaleDateString([], {
         year: 'numeric', month: 'short', day: 'numeric',
     }) : null;
-
-    const supportsFilePicker = 'showDirectoryPicker' in window;
 
     return (
         <Box sx={{ mt: 2, px: 2, pb: 4, maxWidth: 640 }}>
@@ -146,14 +102,6 @@ const PhotoSettingsView = () => {
                 </Button>
             </Box>
             <Typography variant="h5" sx={{ mb: 2 }}>Photo Settings</Typography>
-
-            {!supportsFilePicker && (
-                <Alert severity={proxyStatus?.available ? 'info' : 'warning'} sx={{ mb: 2 }}>
-                    {proxyStatus?.available
-                        ? 'Folder picker not available in this browser. Using Photos proxy for scanning and file access.'
-                        : 'Folder access requires Chrome or Edge 86+. Start the Photos proxy to scan in this browser.'}
-                </Alert>
-            )}
 
             <Divider sx={{ mb: 2 }} />
 
@@ -168,35 +116,9 @@ const PhotoSettingsView = () => {
 
             <Divider sx={{ mb: 2 }} />
 
-            {/* Folder */}
-            <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>FOLDER</Typography>
-                {displayFolderName ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <FolderIcon fontSize="small" color="action" />
-                        <Typography variant="body2">{displayFolderName}</Typography>
-                    </Box>
-                ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        No folder selected.
-                    </Typography>
-                )}
-                {supportsFilePicker && (
-                    <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={handleSelectFolder}
-                    >
-                        {displayFolderName ? 'Change Folder' : 'Select Folder'}
-                    </Button>
-                )}
-            </Box>
-
-            <Divider sx={{ mb: 2 }} />
-
             {/* Photos Proxy */}
             <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>PHOTOS PROXY</Typography>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>DARWIN PHOTOS APP</Typography>
                 {proxyStatus === null ? (
                     <Typography variant="body2" color="text.secondary">Checking...</Typography>
                 ) : proxyStatus.available ? (
@@ -215,14 +137,22 @@ const PhotoSettingsView = () => {
                         <Button
                             variant="contained"
                             size="small"
-                            href="https://www.darwin.one/downloads/Darwin-Photos.dmg"
+                            onClick={() => window.open('https://www.darwin.one/downloads/Darwin-Photos.dmg', '_blank')}
                             sx={{ mb: 1 }}
                         >
                             Download Darwin Photos
                         </Button>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                            After downloading: open the .dmg, drag Darwin Photos to Applications, launch it once,
-                            then grant Full Disk Access in System Settings &gt; Privacy &amp; Security.
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            1. Open the .dmg and drag Darwin Photos to Applications.
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            2. If macOS says "damaged," run in Terminal:{' '}
+                            <Box component="code" sx={{ fontSize: '0.7rem', bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5 }}>
+                                xattr -cr /Applications/Darwin\ Photos.app
+                            </Box>
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            3. Launch once, then grant Full Disk Access in System Settings &gt; Privacy &amp; Security.
                         </Typography>
                     </Box>
                 )}
@@ -240,13 +170,6 @@ const PhotoSettingsView = () => {
                             <Chip label={`Last scanned ${displayScannedAt}`} size="small" variant="outlined" />
                         )}
                         <Chip label={`~${formatBytes(estimatedSizeBytes)}`} size="small" variant="outlined" />
-                        {meta?.scanSource && (
-                            <Chip
-                                label={meta.scanSource === 'proxy' ? 'Photos.sqlite' : 'Filesystem scan'}
-                                size="small"
-                                variant="outlined"
-                            />
-                        )}
                     </Box>
                 ) : (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -259,9 +182,9 @@ const PhotoSettingsView = () => {
                         variant="outlined"
                         startIcon={<ReplayIcon />}
                         onClick={handleRescan}
-                        disabled={(!supportsFilePicker && !proxyStatus?.available) || scanState === 'scanning'}
+                        disabled={!proxyStatus?.available || scanState === 'scanning'}
                     >
-                        Re-scan
+                        {displayFileCount != null ? 'Re-scan' : 'Scan'}
                     </Button>
                     <Button
                         size="small"

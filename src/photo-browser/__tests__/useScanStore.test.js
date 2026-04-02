@@ -4,8 +4,6 @@ import useScanStore from '../useScanStore.js';
 // Reset store between tests
 beforeEach(() => {
     useScanStore.setState({
-        dirHandle: null,
-        folderName: '',
         index: [],
         scanState: 'idle',
         scanProgress: { scanned: 0 },
@@ -18,8 +16,6 @@ beforeEach(() => {
 describe('useScanStore initial state', () => {
     it('has correct defaults', () => {
         const s = useScanStore.getState();
-        expect(s.dirHandle).toBeNull();
-        expect(s.folderName).toBe('');
         expect(s.index).toEqual([]);
         expect(s.scanState).toBe('idle');
         expect(s.scanProgress).toEqual({ scanned: 0 });
