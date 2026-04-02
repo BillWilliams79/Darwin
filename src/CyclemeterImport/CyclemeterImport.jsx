@@ -11,11 +11,14 @@ import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import TuneIcon from '@mui/icons-material/Tune';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -42,7 +45,7 @@ const EXTRACTORS = {
 const CyclemeterImport = () => {
     const navigate = useNavigate();
     const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
 
     // File state
     const [dbFile, setDbFile] = useState(null);
@@ -61,10 +64,12 @@ const CyclemeterImport = () => {
     const [dateStart, setDateStart] = useState('');
     const [dateEnd, setDateEnd] = useState('');
 
+    // Advanced config toggle
+    const [showAdvanced, setShowAdvanced] = useState(false);
+
     // Pipeline state
     const [processing, setProcessing] = useState(false);
     const [stats, setStats] = useState(null);
-    const [runMeta, setRunMeta] = useState(null); // [{ name, date }] from last pipeline run
     const [error, setError] = useState(null);
 
     // Save to Darwin state
@@ -113,7 +118,6 @@ const CyclemeterImport = () => {
                         const result = await runPipelineForFormat(buffer, config, info.format);
                         console.log('[Import] Auto-process complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
                         setStats(result.stats);
-                        setRunMeta(result.runs.map(r => ({ name: r.name, date: r.titleFormattedStart })));
                     } catch (pipeErr) {
                         console.error('[Import] Auto-process error:', pipeErr);
                         setError(pipeErr.message || 'Pipeline failed');
@@ -156,7 +160,6 @@ const CyclemeterImport = () => {
         setProcessing(true);
         setError(null);
         setStats(null);
-        setRunMeta(null);
 
         try {
             console.log('[Import] Reading file as ArrayBuffer...');
@@ -168,7 +171,6 @@ const CyclemeterImport = () => {
             const result = await runPipelineForFormat(buffer, config, formatInfo.format);
             console.log('[Import] Pipeline complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
             setStats(result.stats);
-            setRunMeta(result.runs.map(r => ({ name: r.name, date: r.titleFormattedStart })));
         } catch (err) {
             console.error('[Import] Pipeline error:', err);
             setError(err.message || 'Pipeline failed');
@@ -415,21 +417,36 @@ const CyclemeterImport = () => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 Supported formats:
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 3 }}>
-                <Chip label="Cyclemeter Database (.db)" size="small" variant="outlined" />
-                <Chip label="Cyclemeter KML (.kml)" size="small" variant="outlined" />
-                <Chip label="Darwin KML (.kml)" size="small" variant="outlined" />
-                <Chip label="Cyclemeter GPX (.gpx)" size="small" variant="outlined" />
-                <Chip label="Strava GPX (.gpx)" size="small" variant="outlined" />
-                <Chip label="MTB Project GPX (.gpx)" size="small" variant="outlined" />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Cyclemeter</Typography>
+                    <Chip label="Database (Meter.db)" size="small" variant="outlined" />
+                    <Chip label="KML" size="small" variant="outlined" />
+                    <Chip label="GPX" size="small" variant="outlined" />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Strava</Typography>
+                    <Chip label="GPX" size="small" variant="outlined" />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>MTB Project</Typography>
+                    <Chip label="GPX" size="small" variant="outlined" />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Darwin</Typography>
+                    <Chip label="KML" size="small" variant="outlined" />
+                </Box>
             </Box>
 
-            {/* Strava API Import */}
-            <StravaImport />
-
-            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', my: 2 }}>
-                — or import from file —
-            </Typography>
+            {/* Strava API Import — only shown for the owner account */}
+            {profile?.id === '37df7531-000d-4470-8be4-1792d8261f69' && (
+                <>
+                    <StravaImport />
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', my: 2 }}>
+                        — or import from file —
+                    </Typography>
+                </>
+            )}
 
             {/* Drop Zone */}
             <Paper
@@ -458,94 +475,115 @@ const CyclemeterImport = () => {
                 )}
             </Paper>
 
-            {/* Configuration */}
-            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>Configuration</Typography>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField
-                        label="Min Delta (m)"
-                        type="number"
-                        value={minDelta}
-                        onChange={(e) => setMinDelta(e.target.value)}
-                        size="small"
-                        sx={{ width: 120 }}
-                    />
-                    <TextField
-                        label="Precision"
-                        type="number"
-                        value={precision}
-                        onChange={(e) => setPrecision(e.target.value)}
-                        size="small"
-                        sx={{ width: 100 }}
-                        inputProps={{ min: 0, max: 7 }}
-                    />
-                </Box>
-            </Paper>
-
-            {/* Query Filter — only shown for Cyclemeter (filters are DB-specific) */}
-            {(!formatInfo || formatInfo.format === 'cyclemeter') && <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>Query Filter</Typography>
-                <TextField
-                    select
-                    label="Filter Type"
-                    value={filterType}
-                    onChange={(e) => setFilterType(e.target.value)}
+            {/* Advanced toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <IconButton
                     size="small"
-                    sx={{ width: 200, mb: 2 }}
+                    onClick={() => setShowAdvanced(v => !v)}
+                    color={showAdvanced ? 'primary' : 'default'}
                 >
-                    {FILTER_TYPES.map(t => (
-                        <MenuItem key={t} value={t}>{t}</MenuItem>
-                    ))}
-                </TextField>
+                    <TuneIcon />
+                </IconButton>
+                <Typography
+                    variant="body2"
+                    color={showAdvanced ? 'primary' : 'text.secondary'}
+                    sx={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setShowAdvanced(v => !v)}
+                >
+                    Advanced
+                </Typography>
+            </Box>
 
-                {filterType === 'allRoutes' && (
-                    <Typography variant="body2" color="text.secondary">
-                        All routes in the file will be imported.
-                    </Typography>
-                )}
-                {filterType === 'routeIDs' && (
-                    <TextField
-                        label="Route IDs (comma-separated)"
-                        value={routeIDsInput}
-                        onChange={(e) => setRouteIDsInput(e.target.value)}
-                        size="small"
-                        fullWidth
-                        helperText="e.g., 56, 10"
-                    />
-                )}
-                {filterType === 'notesLike' && (
-                    <TextField
-                        label="Notes contains"
-                        value={notesLikeInput}
-                        onChange={(e) => setNotesLikeInput(e.target.value)}
-                        size="small"
-                        fullWidth
-                        helperText="e.g., Season2"
-                    />
-                )}
-                {filterType === 'dateRange' && (
+            <Collapse in={showAdvanced}>
+                {/* Configuration */}
+                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Configuration</Typography>
                     <Box sx={{ display: 'flex', gap: 2 }}>
                         <TextField
-                            label="Start Date"
-                            type="date"
-                            value={dateStart}
-                            onChange={(e) => setDateStart(e.target.value)}
+                            label="Min Delta (m)"
+                            type="number"
+                            value={minDelta}
+                            onChange={(e) => setMinDelta(e.target.value)}
                             size="small"
-                            InputLabelProps={{ shrink: true }}
-                            sx={{ flex: 1 }}
+                            sx={{ width: 120 }}
                         />
                         <TextField
-                            label="End Date"
-                            type="date"
-                            value={dateEnd}
-                            onChange={(e) => setDateEnd(e.target.value)}
+                            label="Precision"
+                            type="number"
+                            value={precision}
+                            onChange={(e) => setPrecision(e.target.value)}
                             size="small"
-                            InputLabelProps={{ shrink: true }}
-                            sx={{ flex: 1 }}
+                            sx={{ width: 100 }}
+                            inputProps={{ min: 0, max: 7 }}
                         />
                     </Box>
-                )}
-            </Paper>}
+                </Paper>
+
+                {/* Query Filter — only shown for Cyclemeter (filters are DB-specific) */}
+                {(!formatInfo || formatInfo.format === 'cyclemeter') && <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Query Filter</Typography>
+                    <TextField
+                        select
+                        label="Filter Type"
+                        value={filterType}
+                        onChange={(e) => setFilterType(e.target.value)}
+                        size="small"
+                        sx={{ width: 200, mb: 2 }}
+                    >
+                        {FILTER_TYPES.map(t => (
+                            <MenuItem key={t} value={t}>{t}</MenuItem>
+                        ))}
+                    </TextField>
+
+                    {filterType === 'allRoutes' && (
+                        <Typography variant="body2" color="text.secondary">
+                            All routes in the file will be imported.
+                        </Typography>
+                    )}
+                    {filterType === 'routeIDs' && (
+                        <TextField
+                            label="Route IDs (comma-separated)"
+                            value={routeIDsInput}
+                            onChange={(e) => setRouteIDsInput(e.target.value)}
+                            size="small"
+                            fullWidth
+                            helperText="e.g., 56, 10"
+                        />
+                    )}
+                    {filterType === 'notesLike' && (
+                        <TextField
+                            label="Notes contains"
+                            value={notesLikeInput}
+                            onChange={(e) => setNotesLikeInput(e.target.value)}
+                            size="small"
+                            fullWidth
+                            helperText="e.g., Season2"
+                        />
+                    )}
+                    {filterType === 'dateRange' && (
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <TextField
+                                label="Start Date"
+                                type="date"
+                                value={dateStart}
+                                onChange={(e) => setDateStart(e.target.value)}
+                                size="small"
+                                InputLabelProps={{ shrink: true }}
+                                sx={{ flex: 1 }}
+                            />
+                            <TextField
+                                label="End Date"
+                                type="date"
+                                value={dateEnd}
+                                onChange={(e) => setDateEnd(e.target.value)}
+                                size="small"
+                                InputLabelProps={{ shrink: true }}
+                                sx={{ flex: 1 }}
+                            />
+                        </Box>
+                    )}
+                </Paper>}
+            </Collapse>
 
             {/* Actions */}
             <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
@@ -606,12 +644,6 @@ const CyclemeterImport = () => {
             {stats && (
                 <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="stats-panel">
                     <Typography variant="subtitle2" gutterBottom>Results</Typography>
-                    {runMeta && runMeta.map((r, i) => (
-                        <Box key={i} sx={{ mb: 1 }}>
-                            <Typography variant="body2"><strong>{r.name}</strong></Typography>
-                            <Typography variant="body2" color="text.secondary">{r.date}</Typography>
-                        </Box>
-                    ))}
                     <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
                         <tbody>
                             <tr><td>Total Activities</td><td><strong>{stats.totalRuns}</strong></td></tr>
