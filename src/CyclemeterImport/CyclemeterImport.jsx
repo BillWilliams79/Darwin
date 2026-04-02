@@ -20,6 +20,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
+import { asyncPool } from '../utils/asyncPool';
 import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromDarwinKml, extractFromMtbProjectGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff, normalizeRouteName } from '../cyclemeter/sqlMapper';
 import StravaImport from '../strava/StravaImport';
@@ -175,29 +176,6 @@ const CyclemeterImport = () => {
         } finally {
             setProcessing(false);
         }
-    };
-
-    /**
-     * Concurrency-limited parallel execution.
-     * Processes tasks with at most `limit` running concurrently.
-     */
-    const asyncPool = async (limit, items, fn, signal) => {
-        const results = [];
-        const executing = new Set();
-
-        for (const [index, item] of items.entries()) {
-            if (signal?.aborted) throw new Error('Save cancelled');
-
-            const p = fn(item, index).finally(() => executing.delete(p));
-            results.push(p);
-            executing.add(p);
-
-            if (executing.size >= limit) {
-                await Promise.race(executing);
-            }
-        }
-
-        return Promise.allSettled(results);
     };
 
     const handleSaveToDarwin = async () => {
