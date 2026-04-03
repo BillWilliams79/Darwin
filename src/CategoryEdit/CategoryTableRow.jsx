@@ -10,11 +10,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 
 export const CATEGORY_GRID_COLUMNS = {
-    xs: '1fr 42px 40px 40px',
-    md: '220px 70px 80px 48px',
+    xs: '36px 1fr 42px 40px 40px',
+    md: '36px 220px 70px 80px 48px',
 };
 
-const CategoryTableRow = ({category, categoryIndex, changeCategoryName, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, priorityCounts, isDraggable, inputRef}) => {
+const CategoryTableRow = ({category, categoryIndex, changeCategoryName, changeCategoryColor, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, priorityCounts, isDraggable, inputRef}) => {
 
     const row = (provided = {}, snapshot = {}) => (
         <Box
@@ -35,6 +35,22 @@ const CategoryTableRow = ({category, categoryIndex, changeCategoryName, keyDownC
                 }),
             }}
         >
+            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <input
+                    type="color"
+                    value={category.color || '#4A90D9'}
+                    onChange={(event) => changeCategoryColor(event, categoryIndex, category.id)}
+                    style={{
+                        width: 28,
+                        height: 28,
+                        padding: 0,
+                        border: 'none',
+                        borderRadius: '50%',
+                        cursor: 'pointer',
+                        backgroundColor: 'transparent',
+                    }}
+                />
+            </Box>
             <Box sx={{ px: 1 }}>
                 <TextField variant="outlined"
                            value={category.category_name || ''}
