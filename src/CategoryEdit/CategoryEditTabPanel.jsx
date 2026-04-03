@@ -18,6 +18,8 @@ import CategoryDeleteDialog from './CategoryDeleteDialog';
 import CategoryTableRow from './CategoryTableRow';
 import { CATEGORY_GRID_COLUMNS } from './CategoryTableRow';
 
+const DEFAULT_CATEGORY_COLOR = '#4A90D9';
+
 const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
@@ -32,7 +34,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
 
     // TanStack Query — fetch categories for this project (open + closed) and priority counts
     const { data: serverCategories } = useCategories(profile?.userName, project.id, {
-        fields: 'id,category_name,closed,sort_order',
+        fields: 'id,category_name,closed,sort_order,color',
     });
     const { data: serverPriorityCounts } = usePriorityCounts(profile?.userName);
 
@@ -41,10 +43,10 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
         if (serverCategories) {
             const sorted = [...serverCategories];
             sorted.sort((a, b) => categorySortByClosedThenSortOrder(a, b));
-            sorted.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': parseInt(project.id), 'sort_order': null });
+            sorted.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': parseInt(project.id), 'sort_order': null, 'color': DEFAULT_CATEGORY_COLOR });
             setCategoriesArray(sorted);
         } else if (serverCategories && serverCategories.length === 0) {
-            setCategoriesArray([{'id':'', 'category_name':'', 'closed': 0, 'project_fk': parseInt(project.id) }]);
+            setCategoriesArray([{'id':'', 'category_name':'', 'closed': 0, 'project_fk': parseInt(project.id), 'color': DEFAULT_CATEGORY_COLOR }]);
         }
     }, [serverCategories]);
 
@@ -107,6 +109,25 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
         saveFn: (_event, index, id) => restUpdateCategoryName(index, id)
     });
 
+    const changeCategoryColor = (event, categoryIndex, categoryId) => {
+        const newColor = event.target.value;
+        let newCategoriesArray = [...categoriesArray];
+        newCategoriesArray[categoryIndex].color = newColor;
+        setCategoriesArray(newCategoriesArray);
+
+        if (categoryId !== '') {
+            let uri = `${darwinUri}/categories`;
+            call_rest_api(uri, 'PUT', [{'id': categoryId, 'color': newColor}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus > 204) {
+                        showError(result, 'Unable to update category color');
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to update category color');
+                });
+        }
+    };
+
     const restSaveNewCategory = (categoryIndex) => {
 
         let newCategoriesArray = [...categoriesArray];
@@ -118,7 +139,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                 if (result.httpStatus.httpStatus === 200) {
                     newCategoriesArray[categoryIndex] = {...result.data[0]};
                     newCategoriesArray.sort((a, b) => categorySortByClosedThenSortOrder(a, b));
-                    newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'sort_order': null });
+                    newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'sort_order': null, 'color': DEFAULT_CATEGORY_COLOR });
                     setCategoriesArray(newCategoriesArray);
 
                     let newPriorityCounts = {...priorityCounts};
@@ -243,6 +264,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                 { categoriesArray &&
                     <Box>
                         <Box sx={{ display: 'grid', gridTemplateColumns: CATEGORY_GRID_COLUMNS, alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                            <Box />
                             <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Priorities</Typography></Box>
@@ -260,6 +282,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                                                 category = {category}
                                                 categoryIndex = {idx}
                                                 changeCategoryName = {changeCategoryName}
+                                                changeCategoryColor = {changeCategoryColor}
                                                 keyDownCategoryName = {keyDownCategoryName}
                                                 blurCategoryName = {blurCategoryName}
                                                 clickCategoryClosed = {clickCategoryClosed}
@@ -280,6 +303,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                                 category = {category}
                                 categoryIndex = {categoriesArray.indexOf(category)}
                                 changeCategoryName = {changeCategoryName}
+                                changeCategoryColor = {changeCategoryColor}
                                 keyDownCategoryName = {keyDownCategoryName}
                                 blurCategoryName = {blurCategoryName}
                                 clickCategoryClosed = {clickCategoryClosed}
