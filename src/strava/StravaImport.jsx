@@ -109,8 +109,18 @@ const StravaImport = () => {
     const [activities, setActivities] = useState([]);
     const [page, setPage] = useState(0); // 0-indexed for DataGrid
     const [pageSize, setPageSize] = useState(25);
-    const [selectionModel, setSelectionModel] = useState({ type: 'include', ids: new Set() });
-    const selectedIdsArray = [...selectionModel.ids];
+    const [selectedIds, setSelectedIds] = useState([]);
+    const selectionModel = { type: 'include', ids: new Set(selectedIds) };
+    const handleSelectionChange = (model) => {
+        if (model?.type === 'exclude') {
+            // "Select all" in DataGrid v8: exclude mode with empty set = all selected
+            const excludedIds = model.ids || new Set();
+            const allIds = activities.map(a => a.id).filter(id => !excludedIds.has(id));
+            setSelectedIds(allIds);
+        } else {
+            setSelectedIds(model?.ids ? [...model.ids] : []);
+        }
+    };
     const [fetchingActivities, setFetchingActivities] = useState(false);
     const [hasFetched, setHasFetched] = useState(false); // user must click "Load Activities" first
 
@@ -253,7 +263,7 @@ const StravaImport = () => {
         setCommittedAfter(dateAfter);
         setCommittedBefore(dateBefore);
         setPage(0);
-        setSelectionModel({ type: 'include', ids: new Set() });
+        setSelectedIds([]);
         setHasFetched(true);
         setFetchTrigger(t => t + 1);
     };
@@ -272,19 +282,19 @@ const StravaImport = () => {
         clearCachedTokens();
         setStored(null);
         setActivities([]);
-        setSelectionModel({ type: 'include', ids: new Set() });
+        setSelectedIds([]);
     };
 
     // -----------------------------------------------------------------------
     // Import selected activities
     // -----------------------------------------------------------------------
     const handleImport = async () => {
-        if (selectedIdsArray.length === 0) return;
+        if (selectedIds.length === 0) return;
 
         const controller = new AbortController();
         abortRef.current = controller;
         setImporting(true);
-        setImportProgress({ current: 0, total: selectedIdsArray.length });
+        setImportProgress({ current: 0, total: selectedIds.length });
 
         try {
             const { accessToken, updatedStored } = await getValidAccessToken(stored, darwinUri, idToken, call_rest_api);
@@ -325,7 +335,7 @@ const StravaImport = () => {
             let skipped = 0;
 
             // Process each selected activity sequentially (respects rate limits)
-            for (const activityId of selectedIdsArray) {
+            for (const activityId of selectedIds) {
                 if (controller.signal.aborted) throw new Error('Import cancelled');
 
                 // Fetch detail + streams
@@ -341,7 +351,7 @@ const StravaImport = () => {
                 if (cutoffDate && new Date(run.startTime) <= new Date(cutoffDate)) {
                     skipped++;
                     completed++;
-                    setImportProgress({ current: completed, total: selectedIdsArray.length });
+                    setImportProgress({ current: completed, total: selectedIds.length });
                     continue;
                 }
 
@@ -393,7 +403,7 @@ const StravaImport = () => {
                 }
 
                 completed++;
-                setImportProgress({ current: completed, total: selectedIdsArray.length });
+                setImportProgress({ current: completed, total: selectedIds.length });
             }
 
             const imported = completed - skipped;
@@ -404,13 +414,14 @@ const StravaImport = () => {
                     : `Imported ${imported} activities to Darwin`,
                 severity: 'success',
             });
-            setSelectionModel({ type: 'include', ids: new Set() });
+            setSelectedIds([]);
         } catch (err) {
             if (err.message === 'Import cancelled') {
                 setSnackbar({ open: true, message: 'Import cancelled', severity: 'info' });
             } else {
                 console.error('[Strava] Import error:', err);
-                setSnackbar({ open: true, message: `Import failed: ${err.message}`, severity: 'error' });
+                const msg = err.message || err.httpStatus?.httpMessage || String(err);
+                setSnackbar({ open: true, message: `Import failed: ${msg}`, severity: 'error' });
             }
         } finally {
             setImporting(false);
@@ -534,7 +545,7 @@ const StravaImport = () => {
                     checkboxSelection
                     disableRowSelectionOnClick
                     rowSelectionModel={selectionModel}
-                    onRowSelectionModelChange={setSelectionModel}
+                    onRowSelectionModelChange={handleSelectionChange}
                     loading={fetchingActivities}
                     hideFooterPagination
                     hideFooter
@@ -589,9 +600,9 @@ const StravaImport = () => {
                     <Button
                         variant="contained"
                         onClick={handleImport}
-                        disabled={selectedIdsArray.length === 0 || importing}
+                        disabled={selectedIds.length === 0 || importing}
                     >
-                        Import {selectedIdsArray.length > 0 ? `${selectedIdsArray.length} Selected` : 'Selected'}
+                        Import {selectedIds.length > 0 ? `${selectedIds.length} Selected` : 'Selected'}
                     </Button>
                 )}
                 {importing && (
