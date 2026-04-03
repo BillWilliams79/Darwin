@@ -74,6 +74,72 @@ export function toLocaleDateString(dateStr, timezone) {
     return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+// ── Period summary utilities ────────────────────────────────────────────────
+
+// Return the YYYY-MM-DD string for the start of the current period.
+// mode: 'week' → Sunday of the current week, 'month' → 1st of the current month.
+export function currentPeriodStart(mode) {
+    const now = new Date();
+    if (mode === 'week') {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        d.setDate(d.getDate() - d.getDay()); // back to Sunday
+        return d.toISOString().slice(0, 10);
+    }
+    // month
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// Return { start, end } YYYY-MM-DD strings for the period containing dateStr.
+// mode: 'week' → 7-day span starting at dateStr, 'month' → full calendar month.
+export function periodDateRange(dateStr, mode) {
+    if (!dateStr) return { start: null, end: null };
+    const d = new Date(dateStr + 'T12:00:00'); // noon avoids DST edge
+    if (mode === 'week') {
+        const end = new Date(d);
+        end.setDate(end.getDate() + 6);
+        return { start: dateStr, end: end.toISOString().slice(0, 10) };
+    }
+    // month: start = 1st, end = last day
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12);
+    return { start: dateStr, end: lastDay.toISOString().slice(0, 10) };
+}
+
+// Shift a period start date forward (+1) or backward (-1).
+export function shiftPeriod(dateStr, mode, direction) {
+    const d = new Date(dateStr + 'T12:00:00');
+    if (mode === 'week') {
+        d.setDate(d.getDate() + direction * 7);
+    } else {
+        d.setMonth(d.getMonth() + direction);
+    }
+    return d.toISOString().slice(0, 10);
+}
+
+// Format a period label for display.
+// week: "Apr 6 – 12, 2026" or "Mar 30 – Apr 5, 2026" (cross-month)
+// month: "April 2026"
+export function formatPeriodLabel(dateStr, mode) {
+    if (!dateStr) return '';
+    const { start, end } = periodDateRange(dateStr, mode);
+    const s = new Date(start + 'T12:00:00');
+    const e = new Date(end + 'T12:00:00');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fullMonths = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+
+    if (mode === 'month') {
+        return `${fullMonths[s.getMonth()]} ${s.getFullYear()}`;
+    }
+    // week
+    if (s.getMonth() === e.getMonth()) {
+        return `${months[s.getMonth()]} ${s.getDate()} – ${e.getDate()}, ${s.getFullYear()}`;
+    }
+    if (s.getFullYear() === e.getFullYear()) {
+        return `${months[s.getMonth()]} ${s.getDate()} – ${months[e.getMonth()]} ${e.getDate()}, ${s.getFullYear()}`;
+    }
+    return `${months[s.getMonth()]} ${s.getDate()}, ${s.getFullYear()} – ${months[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;
+}
+
 // One representative per major timezone, Americas first, then east across the globe.
 const TIMEZONE_ENTRIES = [
     // Americas

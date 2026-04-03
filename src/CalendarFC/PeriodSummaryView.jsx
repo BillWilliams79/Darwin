@@ -1,8 +1,7 @@
 import React, { useContext, useMemo, useState } from 'react';
 import AuthContext from '../Context/AuthContext';
-import { useCalendarViewStore } from '../stores/useCalendarViewStore';
 import { useAllAreas, useDomains } from '../hooks/useDataQueries';
-import { toLocaleDateString } from '../utils/dateFormat';
+import { formatPeriodLabel } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -26,7 +25,14 @@ const formatHM = (s) => {
     return `${h}h ${m}m`;
 };
 
-// Lightweight accordion chevron
+// Sort helper: sort_order ascending, nulls last
+const bySortOrder = (a, b) => {
+    const aOrd = a.sort_order ?? Infinity;
+    const bOrd = b.sort_order ?? Infinity;
+    return aOrd - bOrd;
+};
+
+// Lightweight accordion chevron next to title
 const Chevron = ({ expanded, onClick }) => (
     <IconButton size="small" onClick={onClick} sx={{ ml: 0.25, p: 0.25 }}>
         <ExpandMoreIcon fontSize="small" sx={{
@@ -36,31 +42,32 @@ const Chevron = ({ expanded, onClick }) => (
     </IconButton>
 );
 
-const DayView = ({
-    mode, localTasksArray, localActivitiesArray, localPrioritiesArray,
+const PeriodSummaryView = ({
+    summaryMode, summaryDate, mode,
+    localTasksArray, localActivitiesArray, localPrioritiesArray,
     timezone, categoryList, categoryColorMap, routeNameMap,
     navigate, activityEventColor, priorityEventColor,
 }) => {
     const { profile } = useContext(AuthContext);
     const userName = profile?.userName;
-    const savedDate = useCalendarViewStore(s => s.currentDate);
 
     const isTasksMode = mode.includes('tasks');
     const isActivitiesMode = mode.includes('activities');
     const isPrioritiesMode = mode.includes('priorities');
 
-    // Accordion states — all open by default for day view (less detail)
+    // Top-level accordion states (Activities closed, Tasks/Priorities open by default)
     const [tasksExpanded, setTasksExpanded] = useState(true);
-    const [activitiesExpanded, setActivitiesExpanded] = useState(true);
+    const [activitiesExpanded, setActivitiesExpanded] = useState(false);
     const [prioritiesExpanded, setPrioritiesExpanded] = useState(true);
-    const [collapsedDomains, setCollapsedDomains] = useState({});
-    const [collapsedCategories, setCollapsedCategories] = useState({});
-    const toggleDomain = (id) => setCollapsedDomains(prev => ({ ...prev, [id]: !prev[id] }));
-    const toggleCategory = (id) => setCollapsedCategories(prev => ({ ...prev, [id]: !prev[id] }));
+    // Domain/category sub-accordions (collapsed by default — store expanded ones)
+    const [expandedDomains, setExpandedDomains] = useState({});
+    const [expandedCategories, setExpandedCategories] = useState({});
+    const toggleDomain = (id) => setExpandedDomains(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleCategory = (id) => setExpandedCategories(prev => ({ ...prev, [id]: !prev[id] }));
 
-    // Fetch all areas/domains for task grouping (only when tasks mode active)
-    const { data: allAreas = [], isLoading: areasLoading } = useAllAreas(userName, { fields: 'id,area_name,domain_fk', enabled: isTasksMode });
-    const { data: allDomains = [], isLoading: domainsLoading } = useDomains(userName, { fields: 'id,domain_name', enabled: isTasksMode });
+    // Fetch areas/domains for task grouping (include sort_order for correct ordering)
+    const { data: allAreas = [], isLoading: areasLoading } = useAllAreas(userName, { fields: 'id,area_name,domain_fk,sort_order', enabled: isTasksMode });
+    const { data: allDomains = [], isLoading: domainsLoading } = useDomains(userName, { fields: 'id,domain_name,sort_order', enabled: isTasksMode });
 
     const areasById = useMemo(() =>
         Object.fromEntries(allAreas.map(a => [a.id, a])),
@@ -70,7 +77,7 @@ const DayView = ({
         Object.fromEntries(allDomains.map(d => [d.id, d])),
     [allDomains]);
 
-    // Category name map for priority grouping
+    // Category name map
     const categoryNameMap = useMemo(() => {
         if (!categoryList) return {};
         const map = {};
@@ -78,116 +85,121 @@ const DayView = ({
         return map;
     }, [categoryList]);
 
-    // Filter data for the selected date
-    const dayTasks = useMemo(() => {
-        if (!savedDate || !isTasksMode) return [];
-        return localTasksArray.filter(t =>
-            toLocaleDateString(t.done_ts, timezone) === savedDate
-        );
-    }, [localTasksArray, savedDate, timezone, isTasksMode]);
+    // Category sort_order map
+    const categorySortMap = useMemo(() => {
+        if (!categoryList) return {};
+        const map = {};
+        for (const cat of categoryList) map[cat.id] = cat.sort_order ?? Infinity;
+        return map;
+    }, [categoryList]);
 
-    const dayActivities = useMemo(() => {
-        if (!savedDate || !isActivitiesMode) return [];
-        return localActivitiesArray.filter(a =>
-            toLocaleDateString(a.start_time, timezone) === savedDate
-        );
-    }, [localActivitiesArray, savedDate, timezone, isActivitiesMode]);
+    // Data arrays are already fetched for the summary date range — use directly
+    const periodTasks = isTasksMode ? localTasksArray : [];
+    const periodActivities = isActivitiesMode ? localActivitiesArray : [];
+    const periodPriorities = isPrioritiesMode ? localPrioritiesArray : [];
 
-    const dayPriorities = useMemo(() => {
-        if (!savedDate || !isPrioritiesMode) return [];
-        return localPrioritiesArray.filter(p =>
-            toLocaleDateString(p.completed_at, timezone) === savedDate
-        );
-    }, [localPrioritiesArray, savedDate, timezone, isPrioritiesMode]);
+    // Aggregate stats
+    const stats = useMemo(() => {
+        const taskCount = periodTasks.length;
+        const activityCount = periodActivities.length;
+        const totalDistance = periodActivities.reduce((sum, a) => sum + Number(a.distance_mi || 0), 0);
+        const totalDuration = periodActivities.reduce((sum, a) => sum + Number(a.run_time_sec || 0), 0);
+        const priorityCount = periodPriorities.length;
+        return { taskCount, activityCount, totalDistance, totalDuration, priorityCount };
+    }, [periodTasks, periodActivities, periodPriorities]);
 
-    // Group tasks: domainId → { domain_name, areas: { areaId → { area_name, tasks[] } } }
+    // Group tasks: domainId → { domain_name, sort_order, areas: { areaId → { area_name, sort_order, tasks[] } } }
     const groupedTasks = useMemo(() => {
         const result = {};
-        for (const task of dayTasks) {
+        for (const task of periodTasks) {
             const area = areasById[task.area_fk];
             if (!area) continue;
             const domain = domainsById[area.domain_fk];
             if (!domain) continue;
             const domId = area.domain_fk;
-            if (!result[domId]) result[domId] = { domain_name: domain.domain_name, areas: {} };
+            if (!result[domId]) result[domId] = { domain_name: domain.domain_name, sort_order: domain.sort_order, areas: {} };
             if (!result[domId].areas[task.area_fk])
-                result[domId].areas[task.area_fk] = { area_name: area.area_name, tasks: [] };
+                result[domId].areas[task.area_fk] = { area_name: area.area_name, sort_order: area.sort_order, tasks: [] };
             result[domId].areas[task.area_fk].tasks.push(task);
         }
+        // Sort tasks within each area: high priority first, then by id
+        for (const dom of Object.values(result)) {
+            for (const area of Object.values(dom.areas)) {
+                area.tasks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.id - b.id);
+            }
+        }
         return result;
-    }, [dayTasks, areasById, domainsById]);
+    }, [periodTasks, areasById, domainsById]);
 
+    // Sort domains by sort_order, areas within each domain by sort_order
     const taskDomainEntries = useMemo(() =>
-        Object.entries(groupedTasks).sort(([, a], [, b]) => a.domain_name.localeCompare(b.domain_name)),
+        Object.entries(groupedTasks)
+            .sort(([, a], [, b]) => bySortOrder(a, b))
+            .map(([domId, dom]) => [domId, {
+                ...dom,
+                sortedAreas: Object.entries(dom.areas).sort(([, a], [, b]) => bySortOrder(a, b)),
+            }]),
     [groupedTasks]);
 
-    // Group priorities: categoryId → { category_name, color, priorities[] }
+    // Group priorities: categoryId → { category_name, color, sort_order, priorities[] }
     const groupedPriorities = useMemo(() => {
         const result = {};
-        for (const priority of dayPriorities) {
+        for (const priority of periodPriorities) {
             const catId = priority.category_fk || 'uncategorized';
             if (!result[catId]) {
                 result[catId] = {
                     category_name: catId === 'uncategorized' ? 'Uncategorized' : (categoryNameMap[catId] || 'Unknown'),
                     color: catId === 'uncategorized' ? null : (categoryColorMap?.[catId] || null),
+                    sort_order: catId === 'uncategorized' ? Infinity : (categorySortMap[catId] ?? Infinity),
                     priorities: [],
                 };
             }
             result[catId].priorities.push(priority);
         }
+        // Sort priorities within each category by id (creation order)
+        for (const cat of Object.values(result)) {
+            cat.priorities.sort((a, b) => a.id - b.id);
+        }
         return result;
-    }, [dayPriorities, categoryNameMap, categoryColorMap]);
+    }, [periodPriorities, categoryNameMap, categoryColorMap, categorySortMap]);
 
+    // Sort categories by sort_order
     const priorityCategoryEntries = useMemo(() =>
-        Object.entries(groupedPriorities).sort(([, a], [, b]) => a.category_name.localeCompare(b.category_name)),
+        Object.entries(groupedPriorities).sort(([, a], [, b]) => bySortOrder(a, b)),
     [groupedPriorities]);
 
-    const formattedDate = savedDate
-        ? new Date(savedDate + 'T12:00:00').toLocaleDateString('en-US', {
-            weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-          })
-        : '';
-
-    const hasAnyData = dayTasks.length > 0 || dayActivities.length > 0 || dayPriorities.length > 0;
+    const periodLabel = formatPeriodLabel(summaryDate, summaryMode);
+    const hasAnyData = periodTasks.length > 0 || periodActivities.length > 0 || periodPriorities.length > 0;
     const isLoading = isTasksMode && (areasLoading || domainsLoading);
 
-    // Aggregate stats for section headers
-    const totalDistance = dayActivities.reduce((sum, a) => sum + Number(a.distance_mi || 0), 0);
-    const totalDuration = dayActivities.reduce((sum, a) => sum + Number(a.run_time_sec || 0), 0);
-
     return (
-        <Box data-testid="day-view" sx={{ px: 2, pb: 2, pt: 1 }}>
-            {/* Header: date */}
-            <Typography data-testid="day-view-date" sx={{ fontWeight: 500, fontSize: '1.1rem', mb: 2 }}>
-                {formattedDate}
-            </Typography>
-
+        <Box data-testid="period-summary" sx={{ px: 2, pb: 2, pt: 1 }}>
             {isLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
                     <CircularProgress size={24} />
                 </Box>
             ) : !hasAnyData ? (
                 <Typography color="text.secondary" textAlign="center" sx={{ mt: 2 }}>
-                    No events on {formattedDate}
+                    No events for {periodLabel}
                 </Typography>
             ) : (
                 <>
                     {/* ── Activities section ── */}
-                    {isActivitiesMode && dayActivities.length > 0 && (
-                        <Box data-testid="activity-day-view" sx={{ mb: 2 }}>
+                    {isActivitiesMode && periodActivities.length > 0 && (
+                        <Box data-testid="activity-period-summary" sx={{ mb: 2 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                 <Typography variant="h6" fontWeight={700}>
                                     Activities
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                                    {dayActivities.length} {dayActivities.length === 1 ? 'activity' : 'activities'}
-                                    {' · '}{totalDistance.toFixed(1)} mi
-                                    {' · '}{formatHM(totalDuration)}
+                                    {stats.activityCount} {stats.activityCount === 1 ? 'activity' : 'activities'}
+                                    {' · '}{stats.totalDistance.toFixed(1)} mi
+                                    {' · '}{formatHM(stats.totalDuration)}
                                 </Typography>
                                 <Chevron expanded={activitiesExpanded} onClick={() => setActivitiesExpanded(prev => !prev)} />
                             </Box>
                             <Collapse in={activitiesExpanded}>
-                                {dayActivities.map(activity => (
+                                {periodActivities.map(activity => (
                                     <Box key={activity.id}
                                          onClick={() => navigate(`/maps/${activity.id}`, { state: { from: 'calendar' } })}
                                          sx={{ p: 1.5, mb: 1, borderRadius: 1, cursor: 'pointer',
@@ -205,14 +217,14 @@ const DayView = ({
                     )}
 
                     {/* ── Tasks section ── */}
-                    {isTasksMode && dayTasks.length > 0 && (
+                    {isTasksMode && periodTasks.length > 0 && (
                         <Box sx={{ mb: 2 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                 <Typography variant="h6" fontWeight={700}>
                                     Tasks
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                                    {dayTasks.length} {dayTasks.length === 1 ? 'task' : 'tasks'}
+                                    {stats.taskCount} {stats.taskCount === 1 ? 'task' : 'tasks'}
                                 </Typography>
                                 <Chevron expanded={tasksExpanded} onClick={() => setTasksExpanded(prev => !prev)} />
                             </Box>
@@ -220,8 +232,8 @@ const DayView = ({
                                 <Card variant="outlined">
                                     <CardContent sx={{ pt: 1 }}>
                                         {taskDomainEntries.map(([domId, dom], di) => {
-                                            const domTaskCount = Object.values(dom.areas).reduce((sum, a) => sum + a.tasks.length, 0);
-                                            const domExpanded = !collapsedDomains[domId]; // open by default
+                                            const domTaskCount = dom.sortedAreas.reduce((sum, [, a]) => sum + a.tasks.length, 0);
+                                            const domExpanded = !!expandedDomains[domId];
                                             return (
                                             <Box key={domId} sx={{ mb: di < taskDomainEntries.length - 1 ? 2 : 0 }}>
                                                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -231,7 +243,7 @@ const DayView = ({
                                                     <Chevron expanded={domExpanded} onClick={() => toggleDomain(domId)} />
                                                 </Box>
                                                 <Collapse in={domExpanded}>
-                                                {Object.entries(dom.areas).map(([areaId, area]) => (
+                                                {dom.sortedAreas.map(([areaId, area]) => (
                                                     <Box key={areaId} sx={{ mb: 1.5, pl: 1 }}>
                                                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
                                                             {area.area_name}
@@ -260,14 +272,14 @@ const DayView = ({
                     )}
 
                     {/* ── Priorities section ── */}
-                    {isPrioritiesMode && dayPriorities.length > 0 && (
+                    {isPrioritiesMode && periodPriorities.length > 0 && (
                         <Box sx={{ mb: 2 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                 <Typography variant="h6" fontWeight={700}>
                                     Priorities
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                                    {dayPriorities.length} {dayPriorities.length === 1 ? 'priority' : 'priorities'}
+                                    {stats.priorityCount} {stats.priorityCount === 1 ? 'priority' : 'priorities'}
                                 </Typography>
                                 <Chevron expanded={prioritiesExpanded} onClick={() => setPrioritiesExpanded(prev => !prev)} />
                             </Box>
@@ -275,7 +287,7 @@ const DayView = ({
                                 <Card variant="outlined">
                                     <CardContent sx={{ pt: 1 }}>
                                         {priorityCategoryEntries.map(([catId, cat], ci) => {
-                                            const catExpanded = !collapsedCategories[catId]; // open by default
+                                            const catExpanded = !!expandedCategories[catId];
                                             return (
                                             <Box key={catId} sx={{ mb: ci < priorityCategoryEntries.length - 1 ? 2 : 0 }}>
                                                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -311,4 +323,4 @@ const DayView = ({
     );
 };
 
-export default DayView;
+export default PeriodSummaryView;

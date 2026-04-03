@@ -20,13 +20,18 @@ import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import DayView from './DayView';
+import PeriodSummaryView from './PeriodSummaryView';
+import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 // Module-level: session scroll memory for mobile (survives remount, cleared on page reload)
 let mobileScrollDate = null;
@@ -71,11 +76,15 @@ const CalendarFC = () => {
     const savedMode = useCalendarViewStore(s => s.mode);
     const setCalendarView = useCalendarViewStore(s => s.setCalendarView);
     const setPersistedMode = useCalendarViewStore(s => s.setMode);
+    const summaryMode = useCalendarViewStore(s => s.summaryMode);
+    const summaryDate = useCalendarViewStore(s => s.summaryDate);
+    const setSummaryMode = useCalendarViewStore(s => s.setSummaryMode);
+    const setSummaryDate = useCalendarViewStore(s => s.setSummaryDate);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
     // ── Shared state ─────────────────────────────────────────────────────────
-    const [mode, setMode] = useState(savedMode || ['tasks']);
+    const [mode, setMode] = useState(savedMode || ['tasks', 'activities', 'priorities']);
     const isTasksMode = mode.includes('tasks');
     const isPrioritiesMode = mode.includes('priorities');
     const isActivitiesMode = mode.includes('activities');
@@ -92,20 +101,28 @@ const CalendarFC = () => {
     const mobileStartStr = mobileFetchStart.toISOString().slice(0, 19);
     const mobileEndStr   = mobileFetchEnd.toISOString().slice(0, 19);
 
-    // ── Queries: mobile uses its own range, desktop uses FC range ─────────────
+    // ── Effective query range: summary mode overrides FC/mobile range ──────────
+    const summaryRange = useMemo(
+        () => summaryMode && summaryDate ? periodDateRange(summaryDate, summaryMode) : null,
+        [summaryMode, summaryDate]
+    );
+    const effectiveStart = summaryRange ? summaryRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
+    const effectiveEnd   = summaryRange ? summaryRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
+
+    // ── Queries: summary mode / mobile / desktop FC range ────────────────────
     const { data: serverTasks }      = useTasksDone(profile?.userName,
-        isMobile ? mobileStartStr : startStr,
-        isMobile ? mobileEndStr   : endStr,
+        effectiveStart,
+        effectiveEnd,
         { enabled: isTasksMode, fields: 'id,priority,done,description,done_ts,area_fk' });
     const { data: serverPriorities } = usePrioritiesDone(profile?.userName,
-        isMobile ? mobileStartStr : startStr,
-        isMobile ? mobileEndStr   : endStr,
+        effectiveStart,
+        effectiveEnd,
         { enabled: isPrioritiesMode, fields: 'id,title,completed_at,category_fk' });
     const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: isPrioritiesMode });
-    const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color', enabled: isPrioritiesMode });
+    const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color,sort_order', enabled: isPrioritiesMode });
     const { data: serverActivities } = useMapRunsDone(profile?.userName,
-        isMobile ? mobileStartStr : startStr,
-        isMobile ? mobileEndStr   : endStr,
+        effectiveStart,
+        effectiveEnd,
         { enabled: isActivitiesMode });
     const { data: routeList } = useMapRoutes(profile?.userName, { enabled: isActivitiesMode });
 
@@ -525,6 +542,56 @@ const CalendarFC = () => {
         setPersistedMode(newModes);
     };
 
+    // ── Unified navigation (works for both calendar and summary mode) ────────
+    const isDayView = savedViewType === 'dayGridDay';
+
+    const handlePrev = useCallback(() => {
+        if (summaryMode) {
+            setSummaryDate(shiftPeriod(summaryDate, summaryMode, -1));
+        } else {
+            calendarRef.current?.getApi().prev();
+        }
+    }, [summaryMode, summaryDate, setSummaryDate]);
+
+    const handleNext = useCallback(() => {
+        if (summaryMode) {
+            setSummaryDate(shiftPeriod(summaryDate, summaryMode, 1));
+        } else {
+            calendarRef.current?.getApi().next();
+        }
+    }, [summaryMode, summaryDate, setSummaryDate]);
+
+    const handleTodayClick = useCallback(() => {
+        if (summaryMode) setSummaryDate(currentPeriodStart(summaryMode));
+        calendarRef.current?.getApi().today();
+    }, [summaryMode, setSummaryDate]);
+
+    const handleCustomViewChange = useCallback((event, newView) => {
+        if (!newView) return;
+        calendarRef.current?.getApi().changeView(newView);
+        if (summaryMode) {
+            if (newView === 'dayGridDay') {
+                setSummaryMode(null); // day view uses DayView, not PeriodSummaryView
+            } else {
+                setSummaryMode(newView === 'dayGridMonth' ? 'month' : 'week');
+            }
+        }
+    }, [summaryMode, setSummaryMode]);
+
+    const handleSummaryToggle = useCallback(() => {
+        if (isDayView) return; // day view always shows DayView
+        if (summaryMode) {
+            setSummaryMode(null);
+        } else {
+            const mode = savedViewType === 'dayGridMonth' ? 'month' : 'week';
+            setSummaryMode(mode);
+        }
+    }, [isDayView, summaryMode, savedViewType, setSummaryMode]);
+
+    const displayTitle = summaryMode
+        ? formatPeriodLabel(summaryDate, summaryMode)
+        : calendarTitle;
+
     // Desktop FullCalendar event renderer
     const renderEventContent = (eventInfo) => {
         const { sourceType, isActivity, statsLine, catColor, priority } = eventInfo.event.extendedProps;
@@ -715,36 +782,70 @@ const CalendarFC = () => {
             ) : (
                 /* ── Desktop ── */
                 <>
-                    {/* FullCalendar: always visible; only calendar grid is hidden in day view */}
+                    {/* FullCalendar wrapper — original single-box layout for CSS Grid compat */}
                     <Box sx={{
                         px: 2,
-                        pb: savedViewType === 'dayGridDay' ? 0 : 2,
+                        pb: (summaryMode || savedViewType === 'dayGridDay') ? 0 : 2,
                         pt: '18pt',
                         position: 'relative',
-                        '& .fc-view-harness': { display: savedViewType === 'dayGridDay' ? 'none' : 'block' },
+                        '& .fc-view-harness': { display: (savedViewType === 'dayGridDay' || summaryMode) ? 'none' : 'block' },
+                        '& .fc-header-toolbar': { display: 'none' },
                     }}>
-                        <Typography sx={{
-                            position: 'absolute', left: 0, right: 0, top: '18pt',
-                            textAlign: 'center', lineHeight: '28px',
-                            fontFamily: "'Roboto',sans-serif", fontSize: '1.3em', fontWeight: 500,
-                            pointerEvents: 'none',
+                        {/* ── Unified toolbar ── */}
+                        <Box sx={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            mb: 1.5, flexWrap: 'wrap', gap: 1,
                         }}>
-                            {calendarTitle}
-                        </Typography>
-                        <ToggleButtonGroup value={mode} onChange={handleModeChange}
-                                           size="small" data-testid="calendar-mode-toggle"
-                                           sx={{ position: 'absolute', right: 16, top: '18pt', zIndex: 1 }}>
-                            <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
-                            <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
-                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
-                        </ToggleButtonGroup>
+                            {/* Left: view buttons + Today + Summary */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <ToggleButtonGroup value={savedViewType} exclusive onChange={handleCustomViewChange}
+                                                   size="small">
+                                    <ToggleButton value="dayGridMonth" className="cal-toggle-btn">Month</ToggleButton>
+                                    <ToggleButton value="dayGridWeek" className="cal-toggle-btn">Week</ToggleButton>
+                                    <ToggleButton value="dayGridDay" className="cal-toggle-btn">Day</ToggleButton>
+                                </ToggleButtonGroup>
+                                <Button onClick={handleTodayClick} size="small" className="cal-toggle-btn"
+                                        variant="outlined" sx={{ textTransform: 'none', ml: 0.5 }}>
+                                    Today
+                                </Button>
+                                <ToggleButton value="summary" size="small" className="cal-toggle-btn"
+                                              selected={!!summaryMode || isDayView}
+                                              disabled={isDayView}
+                                              onChange={handleSummaryToggle}
+                                              data-testid="summary-toggle"
+                                              sx={{ ml: 0.5 }}>
+                                    Summary
+                                </ToggleButton>
+                            </Box>
+                            {/* Center: ← Title → */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <IconButton onClick={handlePrev} size="small" data-testid="cal-prev">
+                                    <ChevronLeftIcon />
+                                </IconButton>
+                                <Typography sx={{
+                                    fontFamily: "'Roboto',sans-serif", fontSize: '1.3em', fontWeight: 500,
+                                    textAlign: 'center', minWidth: 180,
+                                }}>
+                                    {displayTitle}
+                                </Typography>
+                                <IconButton onClick={handleNext} size="small" data-testid="cal-next">
+                                    <ChevronRightIcon />
+                                </IconButton>
+                            </Box>
+                            {/* Right: mode toggle */}
+                            <ToggleButtonGroup value={mode} onChange={handleModeChange}
+                                               size="small" data-testid="calendar-mode-toggle">
+                                <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
+                                <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
+                                <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
+                            </ToggleButtonGroup>
+                        </Box>
                         <FullCalendar
                             ref={calendarRef}
                             plugins={[dayGridPlugin, interactionPlugin]}
                             initialView={desktopView}
                             initialDate={savedDate || undefined}
-                            headerToolbar={{ left: 'prev,next today dayGridMonth,dayGridWeek,dayGridDay', center: '', right: '' }}
-                            buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+                            headerToolbar={false}
                             events={events}
                             editable={hasDraggable}
                             datesSet={handleDatesSet}
@@ -757,8 +858,8 @@ const CalendarFC = () => {
                             fixedWeekCount={false}
                         />
                     </Box>
-                    {/* DayView content renders below the FullCalendar toolbar */}
-                    {savedViewType === 'dayGridDay' && mode.length > 0 && (
+                    {/* DayView — below FC box, same as production layout */}
+                    {!summaryMode && savedViewType === 'dayGridDay' && mode.length > 0 && (
                         <DayView
                             mode={mode}
                             localTasksArray={localTasksArray}
@@ -772,6 +873,26 @@ const CalendarFC = () => {
                             activityEventColor={activityEventColor}
                             priorityEventColor={priorityEventColor}
                         />
+                    )}
+                    {/* Summary mode — single wrapper div for CSS Grid (max 2 items in right column) */}
+                    {summaryMode && mode.length > 0 && (
+                        <div>
+                            <PeriodSummaryView
+                                summaryMode={summaryMode}
+                                summaryDate={summaryDate}
+                                mode={mode}
+                                localTasksArray={localTasksArray}
+                                localActivitiesArray={localActivitiesArray}
+                                localPrioritiesArray={localPrioritiesArray}
+                                timezone={profile?.timezone}
+                                categoryList={allCategoryList}
+                                categoryColorMap={categoryColorMap}
+                                routeNameMap={routeNameMap}
+                                navigate={navigate}
+                                activityEventColor={activityEventColor}
+                                priorityEventColor={priorityEventColor}
+                            />
+                        </div>
                     )}
                 </>
             )}
