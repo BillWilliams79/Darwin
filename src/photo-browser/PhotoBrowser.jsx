@@ -74,14 +74,14 @@ const PhotoBrowser = () => {
     const filterDates = useMemo(() => {
         if (!run) return { startDate: '', endDate: '' };
         const startUtc = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
-        const endUtc = new Date(startUtc.getTime() + (run.run_time_sec || 0) * 1000);
+        const endUtc = new Date(startUtc.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
         const filterStart = new Date(startUtc.getTime() - beforeMin * 60 * 1000);
         const filterEnd = new Date(endUtc.getTime() + afterMin * 60 * 1000);
         return {
             startDate: toDatetimeLocal(filterStart),
             endDate: toDatetimeLocal(filterEnd),
         };
-    }, [run?.id, run?.start_time, run?.run_time_sec, beforeMin, afterMin]);
+    }, [run?.id, run?.start_time, run?.run_time_sec, run?.stopped_time_sec, beforeMin, afterMin]);
 
     const [loadingIndex, setLoadingIndex] = useState(true);
 
@@ -213,7 +213,7 @@ const PhotoBrowser = () => {
     const handlePhotosSpotlight = useCallback(async () => {
         if (!run) return;
         const startUtc = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
-        const endUtc = new Date(startUtc.getTime() + (run.run_time_sec || 0) * 1000);
+        const endUtc = new Date(startUtc.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
         const filterStart = new Date(startUtc.getTime() - beforeMin * 60 * 1000);
         const filterEnd = new Date(endUtc.getTime() + afterMin * 60 * 1000);
         const fmt = (d) => d.toISOString().slice(0, 19);
@@ -256,7 +256,7 @@ const PhotoBrowser = () => {
             <Typography variant="h5">{pageTitle}</Typography>
             {run && (() => {
                 const s = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
-                const e = new Date(s.getTime() + (run.run_time_sec || 0) * 1000);
+                const e = new Date(s.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
                 const fmt = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                 return (
                     <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2 }}>
