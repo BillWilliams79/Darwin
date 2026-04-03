@@ -29,8 +29,9 @@ import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByC
 import StravaImport from '../strava/StravaImport';
 
 const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
-const COORD_BATCH_SIZE = 500;
-const CONCURRENCY_LIMIT = 5;
+const COORD_BATCH_SIZE = 2000;
+const CONCURRENCY_LIMIT = 10;
+const RUN_BATCH_SIZE = 50;
 const SINGLE_FILE_FORMATS = new Set(['cyclemeter-kml', 'darwin-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
 
 /** Maps format IDs to extraction functions for the Save to Darwin flow */
@@ -277,27 +278,58 @@ const CyclemeterImport = () => {
                 }
             }
 
-            // Step 2: Save new runs with concurrency limit
-            let completed = 0;
+            // Step 2: Bulk insert runs in batches of RUN_BATCH_SIZE
+            const sqlRuns = newRuns.map(run => {
+                const mapRouteFk = routeIdMap.get(run.routeID) || null;
+                return mapRunToSql(run, mapRouteFk, formatInfo.source);
+            });
 
-            await asyncPool(CONCURRENCY_LIMIT, newRuns, async (run) => {
+            const runIdMap = new Map(); // newRuns index → SQL map_runs id
+
+            for (let i = 0; i < sqlRuns.length; i += RUN_BATCH_SIZE) {
                 if (controller.signal.aborted) throw new Error('Save cancelled');
 
-                const mapRouteFk = routeIdMap.get(run.routeID) || null;
-                const sqlRun = mapRunToSql(run, mapRouteFk, formatInfo.source);
-
-                const runResult = await call_rest_api(
-                    `${darwinUri}/map_runs`, 'POST', sqlRun, idToken
+                const batch = sqlRuns.slice(i, i + RUN_BATCH_SIZE);
+                const result = await call_rest_api(
+                    `${darwinUri}/map_runs`, 'POST', batch, idToken
                 );
 
-                if (runResult.httpStatus.httpStatus !== 200 || !runResult.data?.[0]?.id) {
-                    console.warn('[Cyclemeter] Failed to save run:', run.runID);
+                // Bulk POST returns 201 with {inserted, first_id}
+                if (result.httpStatus.httpStatus === 201 && result.data?.first_id != null) {
+                    const firstId = result.data.first_id;
+                    for (let j = 0; j < batch.length; j++) {
+                        runIdMap.set(i + j, firstId + j);
+                    }
+                } else {
+                    // Fallback: if bulk didn't return first_id, insert individually
+                    console.warn('[Cyclemeter] Bulk POST did not return first_id, falling back to individual inserts');
+                    for (let j = 0; j < batch.length; j++) {
+                        if (controller.signal.aborted) throw new Error('Save cancelled');
+                        const runResult = await call_rest_api(
+                            `${darwinUri}/map_runs`, 'POST', batch[j], idToken
+                        );
+                        if (runResult.httpStatus.httpStatus === 200 && runResult.data?.[0]?.id) {
+                            runIdMap.set(i + j, runResult.data[0].id);
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Submit coordinates + partner links with concurrency
+            let completed = 0;
+
+            await asyncPool(CONCURRENCY_LIMIT, newRuns, async (run, index) => {
+                if (controller.signal.aborted) throw new Error('Save cancelled');
+
+                const sqlRunId = runIdMap.get(index);
+                if (!sqlRunId) {
+                    console.warn('[Cyclemeter] No run ID for index', index, '— skipping');
+                    completed++;
+                    setSaveProgress({ current: completed, total: totalRuns });
                     return;
                 }
 
-                const sqlRunId = runResult.data[0].id;
-
-                // Step 3: Batch POST coordinates
+                // Batch POST coordinates
                 if (run.coordinates.length > 0) {
                     const sqlCoords = mapCoordinatesToSql(run.coordinates);
 
@@ -315,7 +347,7 @@ const CyclemeterImport = () => {
                     }
                 }
 
-                // Step 4: Save partner links (Darwin KML with ExtendedData)
+                // Save partner links (Darwin KML with ExtendedData)
                 if (run.partnerNames && run.partnerNames.length > 0) {
                     for (const partnerName of run.partnerNames) {
                         if (controller.signal.aborted) throw new Error('Save cancelled');
@@ -605,7 +637,10 @@ const CyclemeterImport = () => {
             {saving && (
                 <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                     <Typography variant="body2" sx={{ mb: 1 }}>
-                        Saving activity {saveProgress.current} of {saveProgress.total}
+                        {saveProgress.current === 0 && saveProgress.total > 0
+                            ? `Inserting ${saveProgress.total} activities...`
+                            : `Saving coordinates: ${saveProgress.current} of ${saveProgress.total}`
+                        }
                     </Typography>
                     <LinearProgress variant="determinate" value={progressPercent} />
                 </Paper>
