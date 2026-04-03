@@ -11,6 +11,7 @@
  *   - distance_min: number — run.distance_mi must be >= this value
  *   - distance_max: number — run.distance_mi must be <= this value
  *   - partner_ids: number[] — run must have at least one partner in this array
+ *   - activity_ids: number[] — run.activity_id must be in this array
  * @param {Map|null} runPartnerMap - Map<runId, partnerIds[]> for partner filtering
  * @returns {Array} Filtered runs (or all runs if no criteria)
  */
@@ -18,6 +19,11 @@ export function applyViewFilter(runs, criteria, runPartnerMap = null) {
     if (!criteria || Object.keys(criteria).length === 0) return runs;
 
     return runs.filter(run => {
+        // Activity type filter
+        if (criteria.activity_ids?.length > 0) {
+            if (!criteria.activity_ids.includes(run.activity_id)) return false;
+        }
+
         // Route filter
         if (criteria.route_ids?.length > 0) {
             if (!criteria.route_ids.includes(run.map_route_fk)) return false;
