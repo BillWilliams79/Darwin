@@ -616,6 +616,7 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
+                timezone={profile?.timezone}
             />
 
             {/* Snackbar */}
