@@ -4,6 +4,7 @@ import { applyViewFilter } from '../mapViewFilter';
 const makeRun = (overrides = {}) => ({
     id: 1,
     map_route_fk: 10,
+    activity_id: 4,
     start_time: '2025-06-15 14:30:00',
     notes: 'Sunny day ride along the coast',
     distance_mi: '12.5',
@@ -11,11 +12,11 @@ const makeRun = (overrides = {}) => ({
 });
 
 const runs = [
-    makeRun({ id: 1, map_route_fk: 10, start_time: '2025-06-15 14:30:00', distance_mi: '12.5', notes: 'Sunny day ride' }),
-    makeRun({ id: 2, map_route_fk: 20, start_time: '2025-07-01 09:00:00', distance_mi: '25.0', notes: 'Morning loop' }),
-    makeRun({ id: 3, map_route_fk: 10, start_time: '2025-08-20 17:00:00', distance_mi: '5.2', notes: null }),
-    makeRun({ id: 4, map_route_fk: null, start_time: '2025-09-10 12:00:00', distance_mi: '30.1', notes: 'Rain and wind' }),
-    makeRun({ id: 5, map_route_fk: 30, start_time: '2025-12-25 08:00:00', distance_mi: '0.5', notes: '' }),
+    makeRun({ id: 1, map_route_fk: 10, activity_id: 4, start_time: '2025-06-15 14:30:00', distance_mi: '12.5', notes: 'Sunny day ride' }),
+    makeRun({ id: 2, map_route_fk: 20, activity_id: 4, start_time: '2025-07-01 09:00:00', distance_mi: '25.0', notes: 'Morning loop' }),
+    makeRun({ id: 3, map_route_fk: 10, activity_id: 5, start_time: '2025-08-20 17:00:00', distance_mi: '5.2', notes: null }),
+    makeRun({ id: 4, map_route_fk: null, activity_id: 5, start_time: '2025-09-10 12:00:00', distance_mi: '30.1', notes: 'Rain and wind' }),
+    makeRun({ id: 5, map_route_fk: 30, activity_id: 4, start_time: '2025-12-25 08:00:00', distance_mi: '0.5', notes: '' }),
 ];
 
 describe('applyViewFilter', () => {
@@ -196,6 +197,31 @@ describe('applyViewFilter', () => {
                 distance_min: 20,
             }, partnerMap);
             expect(result.map(r => r.id)).toEqual([2]);
+        });
+    });
+
+    describe('activity type filter', () => {
+        it('filters by single activity_id', () => {
+            const result = applyViewFilter(runs, { activity_ids: [4] });
+            expect(result.map(r => r.id)).toEqual([1, 2, 5]);
+        });
+
+        it('filters by multiple activity_ids', () => {
+            const result = applyViewFilter(runs, { activity_ids: [4, 5] });
+            expect(result.map(r => r.id)).toEqual([1, 2, 3, 4, 5]);
+        });
+
+        it('does not filter when activity_ids is empty array', () => {
+            const result = applyViewFilter(runs, { activity_ids: [] });
+            expect(result).toHaveLength(5);
+        });
+
+        it('ANDs activity type with other criteria', () => {
+            const result = applyViewFilter(runs, {
+                activity_ids: [5],
+                distance_min: 10,
+            });
+            expect(result.map(r => r.id)).toEqual([4]);
         });
     });
 

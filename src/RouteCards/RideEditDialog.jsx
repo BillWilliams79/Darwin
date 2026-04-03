@@ -191,15 +191,17 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth data-testid="ride-edit-dialog">
             <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
                 Edit Activity
-                <IconButton
-                    color="error"
-                    onClick={onDeleteRide}
-                    title="Delete activity"
-                    sx={{ ml: 'auto' }}
-                    data-testid="ride-edit-delete-ride-btn"
-                >
-                    <DeleteOutlineIcon sx={{ fontSize: 30 }} />
-                </IconButton>
+                {onDeleteRide && (
+                    <IconButton
+                        color="error"
+                        onClick={onDeleteRide}
+                        title="Delete activity"
+                        sx={{ ml: 'auto' }}
+                        data-testid="ride-edit-delete-ride-btn"
+                    >
+                        <DeleteOutlineIcon sx={{ fontSize: 30 }} />
+                    </IconButton>
+                )}
             </DialogTitle>
             <DialogContent>
                 {/* Route selection */}
