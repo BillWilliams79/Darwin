@@ -180,6 +180,7 @@ const RouteDetailView = () => {
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
+                timezone={profile?.timezone}
             />
 
             {/* Delete Dialog */}
