@@ -188,6 +188,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
+                timezone={profile?.timezone}
             />
 
             {/* Delete Dialog */}

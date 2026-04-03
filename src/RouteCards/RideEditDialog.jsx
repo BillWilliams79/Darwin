@@ -20,12 +20,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { formatDuration, parseDuration } from '../utils/mapDataUtils';
+import { toDateTimeLocalValue, fromDateTimeLocalValue } from '../utils/dateFormat';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 
 const CREATE_NEW = '__create_new__';
 const NO_ROUTE = '__no_route__';
 
-const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, partners = [], runPartners = [], darwinUri, idToken, creatorFk }) => {
+const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, partners = [], runPartners = [], darwinUri, idToken, creatorFk, timezone }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -35,6 +36,7 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
     const [distance, setDistance] = useState('');
     const [rideTime, setRideTime] = useState('');
     const [stoppedTime, setStoppedTime] = useState('');
+    const [startTime, setStartTime] = useState('');
     const [notes, setNotes] = useState('');
     const [selectedPartners, setSelectedPartners] = useState([]);
     const [saving, setSaving] = useState(false);
@@ -44,6 +46,7 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
         if (run && open) {
             setRouteValue(run.map_route_fk != null ? run.map_route_fk : NO_ROUTE);
             setNewRouteName('');
+            setStartTime(toDateTimeLocalValue(run.start_time, timezone));
             setDistance(Number(run.distance_mi).toFixed(1));
             setRideTime(formatDuration(run.run_time_sec));
             setStoppedTime(formatDuration(run.stopped_time_sec || 0));
@@ -57,7 +60,7 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
                 .map(p => p.name);
             setSelectedPartners(currentPartnerNames);
         }
-    }, [run, open, partners, runPartners]);
+    }, [run, open, partners, runPartners, timezone]);
 
     // Compute ride counts per route from allRuns
     const rideCountByRoute = useMemo(() => {
@@ -112,6 +115,7 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
             const updateBody = [{
                 id: run.id,
                 map_route_fk: newRouteId === null ? 'NULL' : newRouteId,
+                start_time: fromDateTimeLocalValue(startTime, timezone),
                 distance_mi: distanceVal,
                 run_time_sec: rideTimeSec,
                 stopped_time_sec: stoppedTimeSec,
@@ -239,6 +243,17 @@ const RideEditDialog = ({ open, onClose, onDeleteRide, run, routes, allRuns, par
                         data-testid="ride-edit-new-route-name"
                     />
                 )}
+
+                {/* Start Time */}
+                <TextField
+                    fullWidth size="small" type="datetime-local"
+                    label="Start Time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ mt: 2 }}
+                    data-testid="ride-edit-start-time"
+                />
 
                 {/* Distance */}
                 <TextField
