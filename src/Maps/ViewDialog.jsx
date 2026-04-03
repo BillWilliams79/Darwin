@@ -20,7 +20,7 @@ import { mapViewKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 
-const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], darwinUri, idToken, creatorFk }) => {
+const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], runs = [], darwinUri, idToken, creatorFk }) => {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
@@ -36,6 +36,7 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
     const [distanceMin, setDistanceMin] = useState('');
     const [distanceMax, setDistanceMax] = useState('');
     const [partnerIds, setPartnerIds] = useState([]);
+    const [activityIds, setActivityIds] = useState([]);
     const [saving, setSaving] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(false);
 
@@ -62,6 +63,17 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
         return [...(partners || [])].sort((a, b) => a.name.localeCompare(b.name));
     }, [partners]);
 
+    // Derive available activity types from runs data
+    const activityTypes = useMemo(() => {
+        const seen = new Map();
+        for (const r of (runs || [])) {
+            if (r.activity_id != null && !seen.has(r.activity_id)) {
+                seen.set(r.activity_id, r.activity_name || `Activity ${r.activity_id}`);
+            }
+        }
+        return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    }, [runs]);
+
     // Reset form when view changes or dialog opens
     useEffect(() => {
         if (!open) return;
@@ -81,6 +93,7 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
             setDistanceMin(criteria.distance_min != null ? String(criteria.distance_min) : '');
             setDistanceMax(criteria.distance_max != null ? String(criteria.distance_max) : '');
             setPartnerIds(criteria.partner_ids || []);
+            setActivityIds(criteria.activity_ids || []);
         } else {
             setName('');
             setRouteIds([]);
@@ -90,6 +103,7 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
             setDistanceMin('');
             setDistanceMax('');
             setPartnerIds([]);
+            setActivityIds([]);
         }
         setDeleteConfirm(false);
         setSaving(false);
@@ -104,6 +118,7 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
         if (distanceMin !== '') criteria.distance_min = Number(distanceMin);
         if (distanceMax !== '') criteria.distance_max = Number(distanceMax);
         if (partnerIds.length > 0) criteria.partner_ids = partnerIds;
+        if (activityIds.length > 0) criteria.activity_ids = activityIds;
         return criteria;
     };
 
@@ -197,6 +212,34 @@ const ViewDialog = ({ open, onClose, view, views = [], routes, partners = [], da
                     autoFocus
                     data-testid="view-name-input"
                 />
+
+                {/* Activity type multi-select */}
+                {activityTypes.length > 0 && (
+                    <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+                        <InputLabel>Activity Type</InputLabel>
+                        <Select
+                            multiple
+                            value={activityIds}
+                            onChange={(e) => setActivityIds(e.target.value)}
+                            input={<OutlinedInput label="Activity Type" />}
+                            renderValue={(selected) => (
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {selected.map(id => {
+                                        const at = activityTypes.find(a => a.id === id);
+                                        return <Chip key={id} label={at?.name || id} size="small" />;
+                                    })}
+                                </Box>
+                            )}
+                            data-testid="view-activity-type-select"
+                        >
+                            {activityTypes.map(at => (
+                                <MenuItem key={at.id} value={at.id}>
+                                    {at.name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                )}
 
                 {/* Route multi-select */}
                 <FormControl fullWidth size="small" sx={{ mt: 2 }}>
