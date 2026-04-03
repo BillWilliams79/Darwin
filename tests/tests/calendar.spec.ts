@@ -471,6 +471,30 @@ test.describe('Calendar Priorities', () => {
     await page.waitForURL(`**/swarm/priority/${testPriorityId}`, { timeout: 5000 });
     expect(page.url()).toContain(`/swarm/priority/${testPriorityId}`);
   });
+
+  test('CAL-20: back button from priority detail returns to calendar', async ({ page }) => {
+    await page.goto('/calview');
+    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await page.reload();
+    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
+
+    // Enable Priorities in toggle
+    const toggle = page.getByTestId('calendar-mode-toggle');
+    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await page.waitForTimeout(2000);
+
+    // Click the priority event
+    const event = page.locator('.fc-event').filter({ hasText: testPriorityTitle });
+    await expect(event).toBeVisible({ timeout: 10000 });
+    await event.click();
+
+    // Verify we're on the priority detail page
+    await page.waitForURL(`**/swarm/priority/${testPriorityId}`, { timeout: 5000 });
+
+    // Click Back — should return to calendar
+    await page.getByTestId('btn-back-to-swarm').click();
+    await expect(page).toHaveURL(/\/calview$/, { timeout: 5000 });
+  });
 });
 
 test.describe('Calendar View Persistence', () => {
