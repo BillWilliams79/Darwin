@@ -7,8 +7,8 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 
 const RideDeleteDialog = ({ open, onClose, onConfirm, rideSummary }) => {
-    const handleDelete = () => {
-        onConfirm();
+    const handleDelete = async () => {
+        await onConfirm();
         onClose();
     };
 
