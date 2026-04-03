@@ -34,8 +34,8 @@ import {
     deleteTokensFromDb,
 } from '../services/stravaService';
 
-const COORD_BATCH_SIZE = 500;
-const CONCURRENCY_LIMIT = 5;
+const COORD_BATCH_SIZE = 2000;
+const CONCURRENCY_LIMIT = 10;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const STRAVA_SOURCE = 'strava-api';
 
