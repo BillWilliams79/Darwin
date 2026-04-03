@@ -570,6 +570,7 @@ const MapsPage = () => {
                 views={views}
                 routes={routes}
                 partners={partners}
+                runs={allRuns}
                 darwinUri={darwinUri}
                 idToken={idToken}
                 creatorFk={creatorFk}
