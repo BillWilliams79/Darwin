@@ -56,7 +56,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
 
     const handleDeleteRide = () => {
         setEditOpen(false);
-        setDeleteOpen(true);
+        setTimeout(() => setDeleteOpen(true), 0);
     };
 
     const featureEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';

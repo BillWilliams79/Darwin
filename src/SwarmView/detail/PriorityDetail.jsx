@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore } from '../../stores/useShowClosedStore';
@@ -99,6 +99,10 @@ const PriorityDetail = () => {
 
     const { id } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const fromCalendar = location.state?.from === 'calendar';
+    const handleBack = () => navigate(fromCalendar ? '/calview' : '/swarm');
+    const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
@@ -298,9 +302,9 @@ const PriorityDetail = () => {
         <Box sx={{ p: 3, maxWidth: 800 }} data-testid="priority-detail">
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 <Button variant="outlined"
-                        onClick={() => navigate('/swarm')}
+                        onClick={handleBack}
                         data-testid="btn-back-to-swarm">
-                    Back to Roadmap
+                    {backLabel}
                 </Button>
             </Box>
 

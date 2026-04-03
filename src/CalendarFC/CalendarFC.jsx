@@ -126,6 +126,16 @@ const CalendarFC = () => {
         { enabled: isActivitiesMode });
     const { data: routeList } = useMapRoutes(profile?.userName, { enabled: isActivitiesMode });
 
+    // ── Restore scroll position when returning from priority detail ───────────
+    React.useEffect(() => {
+        const savedY = sessionStorage.getItem('calview_scrollY');
+        if (savedY !== null) {
+            const y = parseInt(savedY, 10);
+            sessionStorage.removeItem('calview_scrollY');
+            requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // ── Task local state (for edit dialog + drag-drop) ───────────────────────
     const [localTasksArray, setLocalTasksArray] = useState([]);
     React.useEffect(() => {
@@ -425,7 +435,8 @@ const CalendarFC = () => {
     }, [localTasksArray]);
 
     const handlePriorityClick = useCallback((info) => {
-        navigate(`/swarm/priority/${info.event.extendedProps.rawId}`);
+        sessionStorage.setItem('calview_scrollY', String(window.scrollY));
+        navigate(`/swarm/priority/${info.event.extendedProps.rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
     const handleActivityClick = useCallback((info) => {
@@ -449,7 +460,8 @@ const CalendarFC = () => {
     }, [localTasksArray]);
 
     const handleMobilePriorityClick = useCallback((rawId) => {
-        navigate(`/swarm/priority/${rawId}`);
+        sessionStorage.setItem('calview_scrollY', String(window.scrollY));
+        navigate(`/swarm/priority/${rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
     const handleMobileActivityClick = useCallback((rawId) => {
