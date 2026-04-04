@@ -8,11 +8,26 @@ import Collapse from '@mui/material/Collapse';
 import Tooltip from '@mui/material/Tooltip';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import TableChartIcon from '@mui/icons-material/TableChart';
 
 import { formatDuration } from '../utils/mapDataUtils';
+import CyclemeterStatsCard from './CyclemeterStatsCard';
+import CycloCompactCard from './CycloCompactCard';
 
 const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
     const [expanded, setExpanded] = useState(true);
+    const [cardStyle, setCardStyle] = useState(
+        () => localStorage.getItem('mapStatsStyle') || 'darwin'
+    );
+
+    const STYLE_CYCLE = ['darwin', 'cyclemeter', 'compact'];
+    const toggleStyle = () => {
+        const idx = STYLE_CYCLE.indexOf(cardStyle);
+        const next = STYLE_CYCLE[(idx + 1) % STYLE_CYCLE.length];
+        localStorage.setItem('mapStatsStyle', next);
+        setCardStyle(next);
+    };
 
     if (!run) return null;
 
@@ -77,6 +92,23 @@ const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
             data-testid="map-stats-card"
         >
             <Collapse in={expanded}>
+                {cardStyle === 'cyclemeter' ? (
+                    <CyclemeterStatsCard
+                        run={run}
+                        routeName={routeName}
+                        onCollapse={() => setExpanded(false)}
+                        onToggleStyle={toggleStyle}
+                    />
+                ) : cardStyle === 'compact' ? (
+                    <CycloCompactCard
+                        run={run}
+                        routeName={routeName}
+                        partners={partners}
+                        runPartners={runPartners}
+                        onCollapse={() => setExpanded(false)}
+                        onToggleStyle={toggleStyle}
+                    />
+                ) : (
                 <Paper
                     elevation={0}
                     {...stopEvents}
@@ -97,11 +129,21 @@ const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
                     }}
                     data-testid="map-stats-panel"
                 >
-                    {/* Header: route name + collapse button */}
+                    {/* Header: route name + style toggle + collapse button */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                         <Typography variant="body2" fontWeight="medium" noWrap sx={{ flex: 1, mr: 1 }}>
                             {routeName || run.activity_name || 'Activity'}
                         </Typography>
+                        <Tooltip title="Switch to Cyclemeter view">
+                            <IconButton
+                                size="small"
+                                onClick={(e) => { e.stopPropagation(); toggleStyle(); }}
+                                sx={{ color: 'text.secondary', p: 0.25 }}
+                                data-testid="map-stats-style-toggle-btn"
+                            >
+                                <PhoneAndroidIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
                         <IconButton
                             size="small"
                             onClick={() => setExpanded(false)}
@@ -143,6 +185,7 @@ const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
                         );
                     })()}
                 </Paper>
+                )}
             </Collapse>
 
             {!expanded && (
