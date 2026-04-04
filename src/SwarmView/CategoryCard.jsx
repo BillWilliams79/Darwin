@@ -533,6 +533,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 multiline
                                 autoComplete='off'
                                 size = 'small'
+                                sx={{
+                                    ...(category.color && { borderLeft: `4px solid ${category.color}`, pl: 1 }),
+                                }}
                                 slotProps={{
                                     input: {...((category.id !== '') ? {disableUnderline: true} : (category.category_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
                                     htmlInput: { maxLength: 128 }
