@@ -16,6 +16,8 @@ import { LocateControl as LeafletLocateControl } from 'leaflet.locatecontrol';
 import 'leaflet-easybutton';
 
 import MapStatsCard from './MapStatsCard';
+import { IS_MACOS } from '../photo-browser/proxyConfig.js';
+import PhotoMarkerLayer from './PhotoMarkerLayer';
 
 // --- Base layers (no key required) ---
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -154,6 +156,7 @@ const CoordinateDisplay = () => {
 };
 
 const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPartners }) => {
+    const photoMarkersEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
     if (isLoading) {
         return (
             <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -223,6 +226,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
             <LocateCtrl />
             <ResetViewControl positions={positions} />
             <CoordinateDisplay />
+            {photoMarkersEnabled && run && <PhotoMarkerLayer run={run} coordinates={coordinates} />}
             {run && <MapStatsCard run={run} routeName={routeName} partners={partners} runPartners={runPartners} />}
         </MapContainer>
     );
