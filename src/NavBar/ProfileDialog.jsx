@@ -15,7 +15,7 @@ const ProfileDialog = ({ open, onClose }) => {
                     <CloseIcon fontSize="small" />
                 </IconButton>
             </DialogTitle>
-            <DialogContent>
+            <DialogContent style={{ paddingTop: 12 }}>
                 <ProfileContent onClose={onClose} />
             </DialogContent>
         </Dialog>
