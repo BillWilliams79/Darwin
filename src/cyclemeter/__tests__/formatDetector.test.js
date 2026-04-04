@@ -87,7 +87,52 @@ function makeCyclemeterGpxFile() {
     return makeFile(encoder.encode(xml).buffer, 'Cycle-test.gpx');
 }
 
+/**
+ * Create a File containing a minimal valid FIT binary header.
+ * 14-byte header: byte 0 = 14 (header size), bytes 8-11 = '.FIT' magic.
+ */
+function makeFitFile() {
+    const buffer = new Uint8Array(100);
+    buffer[0] = 14;                   // header size
+    buffer[1] = 0x10;                 // protocol version 1.0
+    buffer[2] = 0x8C; buffer[3] = 0x08; // profile version (little-endian)
+    // bytes 4-7: data size (little-endian, 86 = 100 - 14)
+    buffer[4] = 86; buffer[5] = 0; buffer[6] = 0; buffer[7] = 0;
+    // bytes 8-11: '.FIT' magic
+    buffer[8] = 0x2E; buffer[9] = 0x46; buffer[10] = 0x49; buffer[11] = 0x54;
+    return makeFile(buffer.buffer, 'activity.fit');
+}
+
 describe('detectFormat', () => {
+    it('detects FIT file as wahoo-fit', async () => {
+        const file = makeFitFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('wahoo-fit');
+        expect(info.label).toBe('Wahoo FIT');
+        expect(info.source).toBe('wahoo-fit');
+    });
+
+    it('detects FIT file with 12-byte header variant', async () => {
+        const buffer = new Uint8Array(50);
+        buffer[0] = 12;  // 12-byte header (no CRC)
+        buffer[8] = 0x2E; buffer[9] = 0x46; buffer[10] = 0x49; buffer[11] = 0x54;
+        const file = makeFile(buffer.buffer, 'activity.fit');
+        const info = await detectFormat(file);
+        expect(info.format).toBe('wahoo-fit');
+    });
+
+    it('does not false-positive SQLite file as FIT', async () => {
+        const file = makeSqliteFile();
+        const info = await detectFormat(file);
+        expect(info.format).toBe('cyclemeter');
+    });
+
+    it('does not false-positive GPX file as FIT', async () => {
+        const file = makeGpxFile();
+        const info = await detectFormat(file);
+        expect(info.format).not.toBe('wahoo-fit');
+    });
+
     it('detects SQLite file as cyclemeter', async () => {
         const file = makeSqliteFile();
         const info = await detectFormat(file);

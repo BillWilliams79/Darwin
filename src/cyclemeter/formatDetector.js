@@ -14,6 +14,21 @@
 const SQLITE_MAGIC = 'SQLite format 3\0';
 
 /**
+ * Check if file content is a FIT (Flexible and Interoperable Data Transfer) binary file.
+ * FIT header: byte 0 = header size (12 or 14), bytes 8–11 = ASCII '.FIT'.
+ * @param {ArrayBuffer} buffer - File content
+ * @returns {boolean}
+ */
+function isFitFile(buffer) {
+    if (buffer.byteLength < 12) return false;
+    const view = new Uint8Array(buffer);
+    const headerSize = view[0];
+    if (headerSize !== 12 && headerSize !== 14) return false;
+    // Bytes 8–11 must be ASCII '.FIT' (0x2E 0x46 0x49 0x54)
+    return view[8] === 0x2E && view[9] === 0x46 && view[10] === 0x49 && view[11] === 0x54;
+}
+
+/**
  * Check if file content starts with SQLite magic bytes.
  * @param {ArrayBuffer} buffer - File content (only first 16 bytes needed)
  * @returns {boolean}
@@ -92,6 +107,7 @@ function isDarwinKml(buffer) {
  * @type {Array<{ test: function(ArrayBuffer): boolean } & FormatInfo>}
  */
 const FORMAT_REGISTRY = [
+    { test: isFitFile,       format: 'wahoo-fit',      label: 'Wahoo FIT',           source: 'wahoo-fit' },
     { test: isSqliteFile,    format: 'cyclemeter',     label: 'Cyclemeter Database', source: 'cyclemeter' },
     { test: isCyclemeterKml, format: 'cyclemeter-kml', label: 'Cyclemeter KML',      source: 'cyclemeter-kml' },
     { test: isDarwinKml,     format: 'darwin-kml',     label: 'Darwin KML',          source: 'darwin-kml' },
@@ -116,6 +132,6 @@ export async function detectFormat(file) {
     }
 
     throw new Error(
-        'Unrecognized file format. Supported formats: Cyclemeter database (.db), Cyclemeter KML (.kml), Darwin KML (.kml), Cyclemeter GPX (.gpx), Strava GPX (.gpx), MTB Project GPX (.gpx)'
+        'Unrecognized file format. Supported formats: FIT (.fit), Cyclemeter database (.db), Cyclemeter KML (.kml), Darwin KML (.kml), Cyclemeter GPX (.gpx), Strava GPX (.gpx), MTB Project GPX (.gpx)'
     );
 }
