@@ -35,6 +35,7 @@ import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import MapsPage from './Maps/MapsPage';
 import CyclemeterImport from './CyclemeterImport/CyclemeterImport';
+import SolarPage from './Solar/SolarPage';
 
 import RouteDetailView from './RouteCards/RouteDetailView';
 import MapRouteSettingsView from './Maps/MapRouteSettingsView';
@@ -100,6 +101,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="solar" element= {<AuthenticatedRoute>
+                                                             <SolarPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="maps" element= {<AuthenticatedRoute>
                                                              <MapsPage />
