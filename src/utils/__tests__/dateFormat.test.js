@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCardDateTime, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel } from '../dateFormat';
+import { formatCardDateTime, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue } from '../dateFormat';
 
 describe('formatCardDateTime', () => {
     // Use a fixed timezone to avoid test-environment dependence
@@ -51,6 +51,91 @@ describe('formatCardDateTime', () => {
         // Should not throw; exact output depends on environment TZ
         expect(typeof result).toBe('string');
         expect(result).not.toBe('—');
+    });
+});
+
+// ── toDateTimeLocalValue ────────────────────────────────────────────────────
+
+describe('toDateTimeLocalValue', () => {
+    const tz = 'America/Los_Angeles';
+
+    it('converts MySQL UTC datetime to local YYYY-MM-DDTHH:MM (PDT, UTC-7)', () => {
+        // 2024-06-15 19:30:00 UTC → 12:30 PM PDT
+        expect(toDateTimeLocalValue('2024-06-15 19:30:00', tz)).toBe('2024-06-15T12:30');
+    });
+
+    it('converts MySQL UTC datetime (PST, UTC-8)', () => {
+        // 2024-01-15 20:00:00 UTC → 12:00 PM PST
+        expect(toDateTimeLocalValue('2024-01-15 20:00:00', tz)).toBe('2024-01-15T12:00');
+    });
+
+    it('handles ISO format with Z suffix', () => {
+        expect(toDateTimeLocalValue('2024-06-15T19:30:00Z', tz)).toBe('2024-06-15T12:30');
+    });
+
+    it('returns empty string for null', () => {
+        expect(toDateTimeLocalValue(null, tz)).toBe('');
+    });
+
+    it('returns empty string for empty string', () => {
+        expect(toDateTimeLocalValue('', tz)).toBe('');
+    });
+
+    it('handles midnight UTC (pads hours to 2 digits)', () => {
+        // 2024-06-15 07:00:00 UTC → midnight PDT (00:00)
+        expect(toDateTimeLocalValue('2024-06-15 07:00:00', tz)).toBe('2024-06-15T00:00');
+    });
+
+    it('works without timezone (falls back to undefined)', () => {
+        const result = toDateTimeLocalValue('2024-06-15 19:30:00', null);
+        // Should return a valid YYYY-MM-DDTHH:MM string, exact value depends on env TZ
+        expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    });
+});
+
+// ── fromDateTimeLocalValue ──────────────────────────────────────────────────
+
+describe('fromDateTimeLocalValue', () => {
+    const tz = 'America/Los_Angeles';
+
+    it('converts PDT local datetime to MySQL UTC string', () => {
+        // 2024-06-15T12:30 PDT (UTC-7) → 2024-06-15 19:30:00 UTC
+        expect(fromDateTimeLocalValue('2024-06-15T12:30', tz)).toBe('2024-06-15 19:30:00');
+    });
+
+    it('converts PST local datetime to MySQL UTC string', () => {
+        // 2024-01-15T12:00 PST (UTC-8) → 2024-01-15 20:00:00 UTC
+        expect(fromDateTimeLocalValue('2024-01-15T12:00', tz)).toBe('2024-01-15 20:00:00');
+    });
+
+    it('returns null for null input', () => {
+        expect(fromDateTimeLocalValue(null, tz)).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+        expect(fromDateTimeLocalValue('', tz)).toBeNull();
+    });
+
+    it('roundtrips with toDateTimeLocalValue (PDT)', () => {
+        const original = '2024-06-15 19:30:00';
+        const local = toDateTimeLocalValue(original, tz);
+        const restored = fromDateTimeLocalValue(local, tz);
+        expect(restored).toBe(original);
+    });
+
+    it('roundtrips with toDateTimeLocalValue (PST)', () => {
+        const original = '2024-01-15 20:00:00';
+        const local = toDateTimeLocalValue(original, tz);
+        const restored = fromDateTimeLocalValue(local, tz);
+        expect(restored).toBe(original);
+    });
+
+    it('roundtrips across DST boundary (spring forward)', () => {
+        // 2024-03-10 10:00:00 UTC → 2:00 AM PST (clocks spring forward at 2am)
+        const original = '2024-03-10 10:00:00';
+        const local = toDateTimeLocalValue(original, tz);
+        const restored = fromDateTimeLocalValue(local, tz);
+        expect(restored).toBe(original);
     });
 });
 

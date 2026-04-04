@@ -74,6 +74,55 @@ export function toLocaleDateString(dateStr, timezone) {
     return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+// ── datetime-local input conversion ─────────────────────────────────────────
+
+// Convert MySQL UTC datetime string → 'YYYY-MM-DDTHH:MM' in the given timezone
+// (for use as an HTML5 datetime-local input value).
+export function toDateTimeLocalValue(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone || undefined,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const get = (type) => parts.find(p => p.type === type)?.value;
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`;
+}
+
+// Convert 'YYYY-MM-DDTHH:MM' in the given timezone → MySQL UTC DATETIME 'YYYY-MM-DD HH:MM:SS'.
+export function fromDateTimeLocalValue(localStr, timezone) {
+    if (!localStr) return null;
+    const [datePart, timePart] = localStr.split('T');
+    const [y, m, d] = datePart.split('-').map(Number);
+    const [h, min] = timePart.split(':').map(Number);
+
+    const getOffsetMs = (refDate) => {
+        if (!timezone) return -refDate.getTimezoneOffset() * 60000;
+        const str = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone, timeZoneName: 'shortOffset',
+        }).formatToParts(refDate)
+          .find(p => p.type === 'timeZoneName')?.value || '';
+        const match = str.match(/GMT([+-]?)(\d+)(?::(\d+))?/);
+        if (!match) return -refDate.getTimezoneOffset() * 60000;
+        const sign = match[1] === '-' ? -1 : 1;
+        return sign * (parseInt(match[2]) * 60 + parseInt(match[3] || '0')) * 60000;
+    };
+
+    // Treat the input components as UTC to get a starting reference
+    const asUtc = new Date(Date.UTC(y, m - 1, d, h, min, 0));
+
+    // Iterate twice to handle DST transitions correctly:
+    // first pass computes an approximate UTC, second pass re-checks the offset at that UTC
+    const utcGuess1 = new Date(asUtc.getTime() - getOffsetMs(asUtc));
+    const utcDate   = new Date(asUtc.getTime() - getOffsetMs(utcGuess1));
+
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${utcDate.getUTCFullYear()}-${pad(utcDate.getUTCMonth() + 1)}-${pad(utcDate.getUTCDate())} ` +
+           `${pad(utcDate.getUTCHours())}:${pad(utcDate.getUTCMinutes())}:${pad(utcDate.getUTCSeconds())}`;
+}
+
 // ── Period summary utilities ────────────────────────────────────────────────
 
 // Return the YYYY-MM-DD string for the start of the current period.
