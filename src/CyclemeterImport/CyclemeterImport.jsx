@@ -24,7 +24,7 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { asyncPool } from '../utils/asyncPool';
-import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromDarwinKml, extractFromMtbProjectGpx, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
+import { runPipelineForFormat, extractFromCyclemeter, extractFromStravaGpx, extractFromCyclemeterKml, extractFromDarwinKml, extractFromMtbProjectGpx, extractFromWahooFit, detectFormat, precisionOptimizer, distanceOptimizer, DEFAULT_CONFIG } from '../cyclemeter';
 import { mapRunToSql, mapCoordinatesToSql, extractUniqueRoutes, filterNewRunsByCutoff, normalizeRouteName } from '../cyclemeter/sqlMapper';
 import StravaImport from '../strava/StravaImport';
 
@@ -32,10 +32,11 @@ const FILTER_TYPES = ['allRoutes', 'routeIDs', 'notesLike', 'dateRange'];
 const COORD_BATCH_SIZE = 2000;
 const CONCURRENCY_LIMIT = 10;
 const RUN_BATCH_SIZE = 50;
-const SINGLE_FILE_FORMATS = new Set(['cyclemeter-kml', 'darwin-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
+const SINGLE_FILE_FORMATS = new Set(['wahoo-fit', 'cyclemeter-kml', 'darwin-kml', 'cyclemeter-gpx', 'strava-gpx', 'mtbproject-gpx']);
 
 /** Maps format IDs to extraction functions for the Save to Darwin flow */
 const EXTRACTORS = {
+    'wahoo-fit': extractFromWahooFit,
     'cyclemeter': extractFromCyclemeter,
     'cyclemeter-kml': extractFromCyclemeterKml,
     'darwin-kml': extractFromDarwinKml,
@@ -429,6 +430,10 @@ const CyclemeterImport = () => {
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Wahoo</Typography>
+                    <Chip label="FIT" size="small" variant="outlined" />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Cyclemeter</Typography>
                     <Chip label="Database (Meter.db)" size="small" variant="outlined" />
                     <Chip label="KML" size="small" variant="outlined" />
@@ -475,7 +480,7 @@ const CyclemeterImport = () => {
                 <Typography variant="body1">
                     {fileName
                         ? `${fileName} (${(dbFile.size / 1024 / 1024).toFixed(1)} MB)`
-                        : 'Drop Meter.db, .kml, or .gpx file here'
+                        : 'Drop .fit, Meter.db, .kml, or .gpx file here'
                     }
                 </Typography>
                 {formatInfo && (
