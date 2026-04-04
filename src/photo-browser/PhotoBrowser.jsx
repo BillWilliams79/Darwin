@@ -21,6 +21,7 @@ import AuthContext from '../Context/AuthContext';
 import { useMapRuns, useMapRoutes } from '../hooks/useDataQueries';
 import useScanStore from './useScanStore.js';
 import { loadIndex } from './handleDB.js';
+import { deduplicateIndex, computeRideTimeRange, filterByTimeRange } from './filterUtils.js';
 import { PHOTOS_PROXY_URL } from './proxyConfig.js';
 import ThumbnailGrid, { proxyFileUrl } from './ThumbnailGrid.jsx';
 
@@ -28,11 +29,6 @@ import ThumbnailGrid, { proxyFileUrl } from './ThumbnailGrid.jsx';
 function toDatetimeLocal(date) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** Parse a datetime-local string to a Date, or null */
-function fromDatetimeLocal(str) {
-    return str ? new Date(str) : null;
 }
 
 const BEFORE_OPTIONS = [
@@ -71,17 +67,17 @@ const PhotoBrowser = () => {
     const [afterMin, setAfterMin] = useState(0);
 
     // Computed filter dates from run + buffers
+    const timeRange = useMemo(
+        () => computeRideTimeRange(run, beforeMin, afterMin),
+        [run?.id, run?.start_time, run?.run_time_sec, run?.stopped_time_sec, beforeMin, afterMin]
+    );
     const filterDates = useMemo(() => {
-        if (!run) return { startDate: '', endDate: '' };
-        const startUtc = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
-        const endUtc = new Date(startUtc.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
-        const filterStart = new Date(startUtc.getTime() - beforeMin * 60 * 1000);
-        const filterEnd = new Date(endUtc.getTime() + afterMin * 60 * 1000);
+        if (!timeRange) return { startDate: '', endDate: '' };
         return {
-            startDate: toDatetimeLocal(filterStart),
-            endDate: toDatetimeLocal(filterEnd),
+            startDate: toDatetimeLocal(timeRange.filterStart),
+            endDate: toDatetimeLocal(timeRange.filterEnd),
         };
-    }, [run?.id, run?.start_time, run?.run_time_sec, run?.stopped_time_sec, beforeMin, afterMin]);
+    }, [timeRange]);
 
     const [loadingIndex, setLoadingIndex] = useState(true);
 
@@ -118,59 +114,13 @@ const PhotoBrowser = () => {
     }, []);
 
     // Deduplicate + sort index
-    const dedupedIndex = useMemo(() => {
-        const EXT_PREF = { '.jpeg': 0, '.jpg': 0, '.png': 1, '.heic': 2, '.heif': 2, '.mov': 3, '.mp4': 3, '.m4v': 3, '.tiff': 4, '.webp': 1, '.avi': 5 };
-        const isOriginal = (path) => path.includes('/originals/');
-
-        const byKey = new Map();
-        for (const item of index) {
-            const dotIdx = item.name.lastIndexOf('.');
-            const stem = dotIdx >= 0 ? item.name.slice(0, dotIdx) : item.name;
-            const ext = dotIdx >= 0 ? item.name.slice(dotIdx).toLowerCase() : '';
-            const uuid = stem.length >= 36 ? stem.slice(0, 36).toUpperCase() : stem.toLowerCase();
-
-            const existing = byKey.get(uuid);
-            if (!existing) {
-                byKey.set(uuid, { item, ext });
-            } else {
-                const newPref = EXT_PREF[ext] ?? 9;
-                const oldPref = EXT_PREF[existing.ext] ?? 9;
-                if (newPref < oldPref) {
-                    const merged = { ...item };
-                    if (!merged.dateTaken && existing.item.dateTaken) merged.dateTaken = existing.item.dateTaken;
-                    if (existing.item.lat != null && merged.lat == null) { merged.lat = existing.item.lat; merged.lon = existing.item.lon; }
-                    byKey.set(uuid, { item: merged, ext });
-                } else if (newPref === oldPref && isOriginal(item.path) && !isOriginal(existing.item.path)) {
-                    byKey.set(uuid, { item, ext });
-                } else {
-                    if (isOriginal(item.path) && item.dateTaken && !existing.item.dateTaken) existing.item.dateTaken = item.dateTaken;
-                    if (item.lat != null && existing.item.lat == null) { existing.item.lat = item.lat; existing.item.lon = item.lon; }
-                }
-            }
-        }
-        const deduped = [...byKey.values()].map((v) => v.item);
-        deduped.sort((a, b) => {
-            const da = a.dateTaken ? new Date(a.dateTaken).getTime() : 0;
-            const db = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
-            return da - db;
-        });
-        return deduped;
-    }, [index]);
+    const dedupedIndex = useMemo(() => deduplicateIndex(index), [index]);
 
     // Filter by date range — auto-updates when buffers change
-    const filteredItems = useMemo(() => {
-        const start = fromDatetimeLocal(filterDates.startDate);
-        const end = fromDatetimeLocal(filterDates.endDate);
-        if (!start && !end) return dedupedIndex;
-
-        return dedupedIndex.filter((item) => {
-            if (!item.dateTaken) return false;
-            const d = new Date(item.dateTaken);
-            if (start && d < start) return false;
-            if (end && d > end) return false;
-            return true;
-        });
-    }, [dedupedIndex, filterDates]);
+    const filteredItems = useMemo(
+        () => filterByTimeRange(dedupedIndex, timeRange?.filterStart, timeRange?.filterEnd),
+        [dedupedIndex, timeRange]
+    );
 
     const handleOpenLightbox = useCallback(async (idx) => {
         for (const s of lightboxSlidesRef.current) {
