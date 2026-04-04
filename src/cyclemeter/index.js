@@ -10,6 +10,7 @@ import { extractFromStravaGpx } from './extractStrava';
 import { extractFromCyclemeterKml } from './extractCyclemeterKml';
 import { extractFromDarwinKml } from './extractDarwinKml';
 import { extractFromMtbProjectGpx } from './extractMtbProject';
+import { extractFromWahooFit } from './extractWahooFit';
 import { precisionOptimizer, formatRunData, distanceOptimizer } from './transform';
 import { generateKml } from './load/kml';
 
@@ -18,6 +19,7 @@ import { generateKml } from './load/kml';
  * Format IDs match those returned by detectFormat() in formatDetector.js.
  */
 const EXTRACTORS = {
+    'wahoo-fit': extractFromWahooFit,
     'cyclemeter': extractFromCyclemeter,
     'cyclemeter-kml': extractFromCyclemeterKml,
     'darwin-kml': extractFromDarwinKml,
@@ -110,6 +112,7 @@ export function computeStats(runs) {
 }
 
 // Re-export individual modules for separate use
+export { extractFromWahooFit } from './extractWahooFit';
 export { extractFromCyclemeter, applyRideTrim } from './extract';
 export { extractFromStravaGpx } from './extractStrava';
 export { extractFromCyclemeterKml } from './extractCyclemeterKml';
