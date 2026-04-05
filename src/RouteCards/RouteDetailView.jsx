@@ -102,6 +102,7 @@ const RouteDetailView = () => {
             startScan();
         }
         if (savedIndex) {
+            sessionStorage.setItem('maps_scrollY', String(window.scrollY));
             navigate(`/maps/photos/${runId}`);
         } else if (proxy.available) {
             startScan();
