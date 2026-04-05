@@ -38,6 +38,7 @@ const PhotoSettingsView = () => {
         () => localStorage.getItem(FEATURE_KEY) !== 'false'
     );
     const [clearing, setClearing] = useState(false);
+    const [downloadError, setDownloadError] = useState(null);
     const [proxyStatus, setProxyStatus] = useState(null); // null=checking, { available, assetCount? }
 
     // Load meta from IDB on mount
@@ -137,11 +138,29 @@ const PhotoSettingsView = () => {
                         <Button
                             variant="contained"
                             size="small"
-                            onClick={() => window.open('https://www.darwin.one/downloads/Darwin-Photos.dmg', '_blank')}
+                            onClick={async () => {
+                                setDownloadError(null);
+                                const url = 'https://www.darwin.one/downloads/Darwin-Photos.dmg';
+                                try {
+                                    const resp = await fetch(url, { method: 'HEAD' });
+                                    if (resp.ok) {
+                                        window.open(url, '_blank');
+                                    } else {
+                                        setDownloadError('Download not available — the DMG has not been published yet.');
+                                    }
+                                } catch {
+                                    setDownloadError('Could not reach darwin.one — check your internet connection.');
+                                }
+                            }}
                             sx={{ mb: 1 }}
                         >
                             Download Darwin Photos
                         </Button>
+                        {downloadError && (
+                            <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setDownloadError(null)}>
+                                {downloadError}
+                            </Alert>
+                        )}
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
                             1. Open the .dmg and drag Darwin Photos to Applications.
                         </Typography>
