@@ -62,11 +62,29 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
     let anchorLatLng = latlng;
     let thumbSize = GRID_DEFAULT_THUMB;
     let cols = Math.min(GRID_DEFAULT_COLS, items.length);
+    let referenceZoom = map.getZoom();
+    let currentScale = 1;
+    let innerEl = null;
 
     // Wrapper — pointer-events:none so it doesn't block map clicks,
     // children set pointer-events:auto individually
     const el = document.createElement('div');
     el.className = 'photo-grid-overlay';
+
+    function applyZoomScale() {
+        if (!innerEl) return;
+        currentScale = Math.pow(2, map.getZoom() - referenceZoom);
+        currentScale = Math.min(4, Math.max(0.25, currentScale));
+        innerEl.style.transform = `scale(${currentScale})`;
+    }
+
+    function bakeScale() {
+        if (currentScale === 1) return;
+        thumbSize = Math.max(40, Math.round(thumbSize * currentScale));
+        referenceZoom = map.getZoom();
+        currentScale = 1;
+        if (innerEl) innerEl.style.transform = 'scale(1)';
+    }
 
     function positionAt(containerPt) {
         const layerPt = map.containerPointToLayerPoint(L.point(containerPt.x, containerPt.y));
@@ -76,6 +94,7 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
 
     function updatePosition() {
         positionAt(map.latLngToContainerPoint(anchorLatLng));
+        applyZoomScale();
     }
 
     // --- Drag (top bar) ---
@@ -141,6 +160,14 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
             document.removeEventListener('mouseup', onMouseUp);
         };
         zone.addEventListener('mousedown', (e) => {
+            // Bake current zoom scale into thumbSize so resize works at 1:1
+            bakeScale();
+            gridEl.style.gridTemplateColumns = `repeat(${cols}, ${thumbSize}px)`;
+            gridEl.querySelectorAll('.photo-grid-cell').forEach(cell => {
+                cell.style.width = `${thumbSize}px`;
+                cell.style.height = `${thumbSize}px`;
+            });
+
             resizing = true;
             startX = e.clientX; startY = e.clientY;
             startW = gridEl.getBoundingClientRect().width;
@@ -232,6 +259,8 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
         }
 
         el.appendChild(inner);
+        innerEl = inner;
+        applyZoomScale();
     }
 
     map.getPane('popupPane').appendChild(el);
@@ -252,6 +281,8 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
 
     function setItems(newItems) {
         items = newItems;
+        referenceZoom = map.getZoom();
+        currentScale = 1;
         render();
     }
 
