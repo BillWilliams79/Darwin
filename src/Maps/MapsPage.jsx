@@ -15,7 +15,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
-import LinearProgress from '@mui/material/LinearProgress';
+import CircularProgress from '@mui/material/CircularProgress';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
@@ -32,6 +32,8 @@ import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -80,7 +82,7 @@ const MapsPage = () => {
     const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
-    const [deleteStep, setDeleteStep] = useState(0); // 0=idle, 1=runs done, 2=routes done, 3=partners done
+    const [deleteResult, setDeleteResult] = useState(null); // null | 'success' | 'error'
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
     // Savable view filter state
@@ -294,37 +296,28 @@ const MapsPage = () => {
 
     const handleDeleteAll = async () => {
         setDeleting(true);
-        setDeleteStep(0);
 
         try {
             if (allRuns.length > 0) {
                 await call_rest_api(`${darwinUri}/map_runs`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
-            setDeleteStep(1);
-
             if (routes.length > 0) {
                 await call_rest_api(`${darwinUri}/map_routes`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
-            setDeleteStep(2);
-
             if (partners.length > 0) {
                 await call_rest_api(`${darwinUri}/map_partners`, 'DELETE', { creator_fk: creatorFk }, idToken);
             }
-            setDeleteStep(3);
 
             queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
 
-            setDeleteDialogOpen(false);
-            setSnackbar({ open: true, message: 'All map data deleted', severity: 'success' });
+            setDeleteResult('success');
         } catch (err) {
             console.error('[MapsPage] Delete error:', err);
-            setDeleteDialogOpen(false);
-            setSnackbar({ open: true, message: 'Delete failed', severity: 'error' });
+            setDeleteResult('error');
         } finally {
             setDeleting(false);
-            setDeleteStep(0);
         }
     };
 
@@ -439,6 +432,7 @@ const MapsPage = () => {
                     <MenuItem
                         onClick={() => {
                             setSettingsAnchorEl(null);
+                            setDeleteResult(null);
                             setDeleteDialogOpen(true);
                         }}
                         disabled={allRuns.length === 0 || deleting}
@@ -588,34 +582,53 @@ const MapsPage = () => {
                 filterDescription={filterDescription}
             />
 
-            <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)}>
-                <DialogTitle>Delete All Map Data?</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={deleteDialogOpen}
+                onClose={() => !deleting && setDeleteDialogOpen(false)}
+                PaperProps={{ sx: { width: 400, minHeight: 200 } }}
+            >
+                <DialogTitle>
+                    {deleting || deleteResult ? 'Delete All Map Data' : 'Delete All Map Data?'}
+                </DialogTitle>
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     {deleting ? (
-                        <Box sx={{ minWidth: 300 }}>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                                {deleteStep === 0 ? 'Deleting activities...' :
-                                 deleteStep === 1 ? 'Deleting routes...' :
-                                 'Deleting partners...'}
-                            </Typography>
-                            <LinearProgress
-                                variant="determinate"
-                                value={Math.round((deleteStep / 3) * 100)}
-                            />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <CircularProgress size={24} />
+                            <Typography variant="body2">Deleting all map data...</Typography>
+                        </Box>
+                    ) : deleteResult === 'success' ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <CheckCircleOutlineIcon color="success" />
+                            <DialogContentText sx={{ mb: 0 }}>
+                                All map data has been deleted.
+                            </DialogContentText>
+                        </Box>
+                    ) : deleteResult === 'error' ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <ErrorOutlineIcon color="error" />
+                            <DialogContentText sx={{ mb: 0 }}>
+                                Delete failed. Some data may not have been removed.
+                            </DialogContentText>
                         </Box>
                     ) : (
                         <DialogContentText>
                             This will permanently delete all {allRuns.length} activities, their GPS coordinates,
-                            and {routes.length} routes. This cannot be undone.
+                            {routes.length} routes, and {partners.length} partners. This cannot be undone.
                         </DialogContentText>
                     )}
                 </DialogContent>
                 {!deleting && (
                     <DialogActions>
-                        <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleDeleteAll} color="error" variant="contained">
-                            Delete All
-                        </Button>
+                        {deleteResult ? (
+                            <Button onClick={() => setDeleteDialogOpen(false)} variant="contained">OK</Button>
+                        ) : (
+                            <>
+                                <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                                <Button onClick={handleDeleteAll} color="error" variant="contained">
+                                    Delete All
+                                </Button>
+                            </>
+                        )}
                     </DialogActions>
                 )}
             </Dialog>
