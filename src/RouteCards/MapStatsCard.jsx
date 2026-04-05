@@ -18,7 +18,7 @@ import CycloCompactCard from './CycloCompactCard';
 const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
     const [expanded, setExpanded] = useState(true);
     const [cardStyle, setCardStyle] = useState(
-        () => localStorage.getItem('mapStatsStyle') || 'darwin'
+        () => localStorage.getItem('mapStatsStyle') || 'cyclemeter'
     );
 
     const STYLE_CYCLE = ['darwin', 'cyclemeter', 'compact'];
