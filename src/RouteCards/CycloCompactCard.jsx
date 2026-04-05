@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import DashboardIcon from '@mui/icons-material/Dashboard';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 
 import { formatDuration } from '../utils/mapDataUtils';
 
@@ -100,14 +100,14 @@ const CycloCompactCard = ({ run, routeName, partners = [], runPartners = [], onC
                 >
                     {routeName || run.activity_name || 'Activity'}
                 </Typography>
-                <Tooltip title="Switch to Classic view">
+                <Tooltip title="Switch to Cyclemeter view">
                     <IconButton
                         size="small"
                         onClick={onToggleStyle}
                         sx={{ color: 'rgba(255,255,255,0.45)', p: 0.25 }}
                         data-testid="map-stats-style-toggle-btn"
                     >
-                        <DashboardIcon fontSize="small" />
+                        <PhoneAndroidIcon fontSize="small" />
                     </IconButton>
                 </Tooltip>
                 <IconButton

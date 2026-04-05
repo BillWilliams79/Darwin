@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext, useMemo } from 'react';
+import React, { useState, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -85,6 +85,16 @@ const MapsPage = () => {
 
     // Savable view filter state
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
+
+    // ── Restore scroll position when returning from photo browser ────────────
+    useEffect(() => {
+        const savedY = sessionStorage.getItem('maps_scrollY');
+        if (savedY !== null) {
+            const y = parseInt(savedY, 10);
+            sessionStorage.removeItem('maps_scrollY');
+            requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+        }
+    }, []);
 
     // Parse active view criteria
     const activeView = views.find(v => v.id === activeViewId) || null;
