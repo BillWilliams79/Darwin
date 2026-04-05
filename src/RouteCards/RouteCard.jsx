@@ -163,7 +163,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
         e.stopPropagation();
         const [savedIndex, meta, proxy] = await Promise.all([loadIndex(), loadMeta(), checkPhotosProxy()]);
         if (proxy.available && savedIndex && meta?.fileCount !== proxy.assetCount) startScan();
-        if (savedIndex) navigate(`/maps/photos/${run.id}`);
+        if (savedIndex) { sessionStorage.setItem('maps_scrollY', String(window.scrollY)); navigate(`/maps/photos/${run.id}`); }
         else if (proxy.available) { startScan(); navigate('/maps/settings/photos'); }
         else navigate('/maps/settings/photos');
     };
@@ -205,7 +205,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                 </Box>
 
                 {/* Thumbnail — the only clickable element that navigates */}
-                <Box onClick={() => navigate(`/maps/${run.id}`)} sx={{ cursor: 'pointer' }} data-testid="route-card-thumbnail">
+                <Box onClick={() => { sessionStorage.setItem('maps_scrollY', String(window.scrollY)); navigate(`/maps/${run.id}`); }} sx={{ cursor: 'pointer' }} data-testid="route-card-thumbnail">
                     <RouteMapThumbnail runId={run.id} />
                 </Box>
 
@@ -385,7 +385,9 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                 open={deleteOpen}
                 onClose={() => setDeleteOpen(false)}
                 onConfirm={handleDeleteConfirm}
-                rideSummary={routeName || run.activity_name || 'Activity'}
+                run={run}
+                routeName={routeName}
+                timezone={timezone}
             />
         </>
     );
