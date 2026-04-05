@@ -80,17 +80,6 @@ const RouteDetailView = () => {
 
     const routeName = routeMap.get(run.map_route_fk);
 
-    // Build date string for delete confirmation
-    const startTimeStr = run.start_time;
-    const startDate = new Date(startTimeStr.endsWith('Z') ? startTimeStr : startTimeStr + 'Z');
-    const month = startDate.getUTCMonth() + 1;
-    const offsetHours = [1, 2, 3, 11, 12].includes(month) ? 8 : 7;
-    const localDate = new Date(startDate.getTime() - offsetHours * 3600 * 1000);
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dateStr = `${days[localDate.getUTCDay()]}, ${months[localDate.getUTCMonth()]} ${localDate.getUTCDate()}, ${localDate.getUTCFullYear()}`;
-    const rideSummary = `${routeName || run.activity_name || 'Activity'}, ${dateStr}`;
-
     const featureEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
 
     const handlePhotosClick = async () => {
@@ -188,7 +177,9 @@ const RouteDetailView = () => {
                 open={deleteOpen}
                 onClose={() => setDeleteOpen(false)}
                 onConfirm={handleDeleteConfirm}
-                rideSummary={rideSummary}
+                run={run}
+                routeName={routeName}
+                timezone={profile?.timezone}
             />
         </Box>
     );
