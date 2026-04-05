@@ -12,7 +12,7 @@ const MapStatsCard = ({ run, routeName, partners = [], runPartners = [] }) => {
     const [expanded, setExpanded] = useState(true);
     const [cardStyle, setCardStyle] = useState(() => {
         const saved = localStorage.getItem('mapStatsStyle');
-        return (saved === 'cyclemeter' || saved === 'compact') ? saved : 'compact';
+        return (saved === 'cyclemeter' || saved === 'compact') ? saved : 'cyclemeter';
     });
 
     const toggleStyle = () => {

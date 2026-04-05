@@ -78,11 +78,11 @@ function footerDateStr(run) {
 
 // ── sub-component: a single stat cell ─────────────────────────────────────────
 
-const StatCell = ({ label, value, unit, color, fontSize = '2.15rem' }) => (
-    <Box sx={{ flex: 1, py: '6px', pl: 0, pr: '2px', textAlign: 'right' }}>
+const StatCell = ({ label, value, unit, color, fontSize = '2.15rem', letterSpacing: valueLs }) => (
+    <Box sx={{ flex: 1, py: '4px', pl: 0, pr: '2px', textAlign: 'right' }}>
         <Typography component="div" sx={{
             color: '#ffffff',
-            fontSize: '9px',
+            fontSize: '11px',
             fontWeight: 400,
             letterSpacing: '0.09em',
             textTransform: 'uppercase',
@@ -97,14 +97,14 @@ const StatCell = ({ label, value, unit, color, fontSize = '2.15rem' }) => (
             fontWeight: 700,
             lineHeight: 1.05,
             fontVariantNumeric: 'tabular-nums',
-            letterSpacing: '-0.01em',
+            letterSpacing: valueLs || '-0.01em',
         }}>
             {value}
         </Typography>
         {unit && (
             <Typography component="div" sx={{
                 color: '#ffffff',
-                fontSize: '10px',
+                fontSize: '12px',
                 lineHeight: 1.3,
                 mt: '1px',
             }}>
@@ -114,18 +114,11 @@ const StatCell = ({ label, value, unit, color, fontSize = '2.15rem' }) => (
     </Box>
 );
 
-// ── divider between columns ───────────────────────────────────────────────────
-
-const ColDivider = () => (
-    <Box sx={{ width: '1px', bgcolor: 'rgba(255,255,255,0.10)', alignSelf: 'stretch', flexShrink: 0 }} />
-);
-
 // ── row wrapper ───────────────────────────────────────────────────────────────
 
-const StatRow = ({ children, noBorder }) => (
+const StatRow = ({ children }) => (
     <Box sx={{
         display: 'flex',
-        borderBottom: noBorder ? 'none' : '1px solid rgba(255,255,255,0.08)',
     }}>
         {children}
     </Box>
@@ -194,8 +187,9 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
 
     if (!run) return null;
 
-    const rideTime = formatDuration(run.run_time_sec);
-    const stopTime = formatDuration(run.stopped_time_sec || 0);
+    const fmtHM = (s) => { s = Math.floor(s); return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`; };
+    const rideTime = fmtHM(run.run_time_sec);
+    const stopTime = fmtHM(run.stopped_time_sec || 0);
     const distDisplay = Number(run.distance_mi).toFixed(2);
     const ascent = run.ascent_ft != null ? Math.round(Number(run.ascent_ft)) : '—';
     const avgSpeed = run.avg_speed_mph != null ? Number(run.avg_speed_mph).toFixed(2) : '—';
@@ -222,8 +216,7 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
                 pointerEvents: 'auto',
                 bgcolor: '#000000',
                 borderRadius: 1,
-                width: 340,
-                border: '1px solid rgba(255,255,255,0.15)',
+                width: 280,
                 overflow: 'hidden',
             }}
         >
@@ -235,7 +228,6 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
                 px: 1.5,
                 pt: 1,
                 pb: 0.5,
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
             }}>
                 <Typography sx={{
                     color: '#FFB300',
@@ -281,54 +273,48 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
             {/* ── Row 1: Ride Time | Stopped Time ────────────────────────── */}
             <StatRow>
                 <StatCell label="RIDE TIME"    value={rideTime} unit=""   color="#FF7700" fontSize="1.85rem" />
-                <ColDivider />
                 <StatCell label="STOPPED TIME" value={stopTime} unit=""   color="#FF7700" fontSize="1.85rem" />
             </StatRow>
 
             {/* ── Row 2: Distance | Ascent ───────────────────────────────── */}
             <StatRow>
                 <StatCell label="DISTANCE"     value={distDisplay} unit="miles" color="#00DD00" />
-                <ColDivider />
                 <StatCell label="ASCENT"       value={String(ascent)} unit="feet"  color="#00DD00" />
             </StatRow>
 
             {/* ── Row 3: Average Speed | Heart Rate ─────────────────────── */}
             <StatRow>
                 <StatCell label="AVERAGE SPEED" value={avgSpeed} unit="mph"  color="#CC44FF" />
-                <ColDivider />
                 <StatCell
                     label="HEART RATE"
-                    value="– – –"
+                    value="━━━"
                     unit="bpm"
                     color="#FF3B30"
                     fontSize="1.1rem"
+                    letterSpacing="0.05em"
                 />
             </StatRow>
 
             {/* ── Row 4: This Week | Last Week ──────────────────────────── */}
             <StatRow>
                 <StatCell label="THIS WEEK"  value={tw} unit="miles" color="#3399FF" fontSize="1.55rem" />
-                <ColDivider />
                 <StatCell label="LAST WEEK"  value={lw} unit="miles" color="#3399FF" fontSize="1.55rem" />
             </StatRow>
 
             {/* ── Row 5: This Month | Last Month ───────────────────────── */}
             <StatRow>
                 <StatCell label="THIS MONTH" value={tm} unit="miles" color="#3399FF" fontSize="1.55rem" />
-                <ColDivider />
                 <StatCell label="LAST MONTH" value={lm} unit="miles" color="#3399FF" fontSize="1.55rem" />
             </StatRow>
 
             {/* ── Row 6: This Year | Clock ──────────────────────────────── */}
-            <StatRow noBorder>
-                <StatCell label="THIS YEAR"  value={ty}           unit="miles" color="#5BC8FA" />
-                <ColDivider />
-                <StatCell label="CLOCK"      value={clockStr(now)} unit=""      color="#FFFFFF" fontSize="1.9rem" />
+            <StatRow>
+                <StatCell label="THIS YEAR"  value={ty}           unit="miles" color="#3399FF" />
+                <StatCell label="CLOCK"      value={clockStr(now)} unit=""      color="#FFFFFF" fontSize="2.15rem" />
             </StatRow>
 
             {/* ── Footer ─────────────────────────────────────────────────── */}
             <Box sx={{
-                borderTop: '1px solid rgba(255,255,255,0.08)',
                 py: '5px',
                 px: 1,
                 textAlign: 'center',
