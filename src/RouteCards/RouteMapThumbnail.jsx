@@ -9,7 +9,7 @@ import { useMapCoordinates } from '../hooks/useDataQueries';
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
 const TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, USGS';
 
-const MAP_HEIGHT = 240;
+const DEFAULT_HEIGHT = 240;
 
 /** Auto-fit map bounds to the polyline */
 const FitBounds = ({ positions }) => {
@@ -30,12 +30,12 @@ const wrapperSx = {
     border: '2px solid #bdbdbd',
 };
 
-const RouteMapThumbnail = ({ runId }) => {
+const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT }) => {
     const { data: coords = [], isLoading } = useMapCoordinates(runId);
 
     if (isLoading) {
         return (
-            <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...wrapperSx }}>
+            <Box sx={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', ...wrapperSx }}>
                 <CircularProgress size={24} />
             </Box>
         );
@@ -43,7 +43,7 @@ const RouteMapThumbnail = ({ runId }) => {
 
     if (coords.length === 0) {
         return (
-            <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', ...wrapperSx }}>
+            <Box sx={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', ...wrapperSx }}>
                 No map data
             </Box>
         );
@@ -56,7 +56,7 @@ const RouteMapThumbnail = ({ runId }) => {
             <MapContainer
                 center={positions[0]}
                 zoom={13}
-                style={{ height: MAP_HEIGHT, width: '100%' }}
+                style={{ height, width: '100%' }}
                 dragging={false}
                 scrollWheelZoom={false}
                 doubleClickZoom={false}
