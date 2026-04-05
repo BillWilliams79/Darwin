@@ -385,7 +385,9 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                 open={deleteOpen}
                 onClose={() => setDeleteOpen(false)}
                 onConfirm={handleDeleteConfirm}
-                rideSummary={routeName || run.activity_name || 'Activity'}
+                run={run}
+                routeName={routeName}
+                timezone={timezone}
             />
         </>
     );
