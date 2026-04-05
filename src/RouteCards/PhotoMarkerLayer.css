@@ -57,6 +57,7 @@
     pointer-events: auto;
     position: relative;
     display: inline-block;
+    transform-origin: top left;
 }
 
 /* Controls bar — drag handle */
