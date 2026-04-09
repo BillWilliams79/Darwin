@@ -1,0 +1,230 @@
+import { test, expect } from '@playwright/test';
+import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { dragAndDrop } from '../helpers/react-dnd-drag';
+
+test.describe('Task Management', () => {
+  // Production can be slow due to Lambda cold starts + many domains
+  test.setTimeout(60000);
+  let idToken: string;
+  let testDomainId: string;
+  let testAreaId: string;
+  let testArea2Id: string;
+  const testDomainName = uniqueName('TaskDomain');
+  const testAreaName = uniqueName('TaskArea');
+  const testArea2Name = uniqueName('TaskArea2');
+  const createdTaskIds: string[] = [];
+
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    idToken = await getIdToken(page);
+    await context.close();
+
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create test domain
+    const domResult = await apiCall('domains', 'POST', {
+      creator_fk: sub, domain_name: testDomainName, closed: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!domResult?.length) throw new Error('Failed to create test domain');
+    testDomainId = domResult[0].id;
+
+    // Create two test areas
+    const area1 = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: testAreaName, domain_fk: testDomainId, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!area1?.length) throw new Error('Failed to create test area 1');
+    testAreaId = area1[0].id;
+
+    const area2 = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: testArea2Name, domain_fk: testDomainId, closed: 0, sort_order: 1,
+    }, idToken) as Array<{ id: string }>;
+    if (!area2?.length) throw new Error('Failed to create test area 2');
+    testArea2Id = area2[0].id;
+  });
+
+  test.afterAll(async () => {
+    // Hard-delete the domain (ON DELETE CASCADE handles child areas/tasks)
+    try { await apiDelete('domains', testDomainId, idToken); } catch {}
+  });
+
+  /** Navigate to TaskPlanView and select the test domain tab. */
+  async function goToTestDomain(page: import('@playwright/test').Page) {
+    await page.goto('/taskcards');
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    // Wait for area card to render with tasks loaded (not a fixed timeout)
+    await page.waitForSelector(`[data-testid="area-card-${testAreaId}"] [data-testid^="task-"]`, { timeout: 15000 });
+  }
+
+  test('TASK-01: create task via template pattern', async ({ page }) => {
+    const taskDesc = uniqueName('Task');
+
+    await goToTestDomain(page);
+
+    // Find the first area card and its task template
+    const areaCard = page.getByTestId(`area-card-${testAreaId}`);
+    await expect(areaCard).toBeVisible({ timeout: 5000 });
+
+    // The task template is the last task row with id=''
+    const template = areaCard.getByTestId('task-template');
+    await expect(template).toBeVisible();
+
+    // Type description in the template's text field and press Enter
+    const descField = template.locator('textarea, input[type="text"]').first();
+    await descField.fill(taskDesc);
+    await descField.press('Enter');
+
+    // Verify the task appears in the area card (with a real id, not template)
+    const taskElement = areaCard.locator('[data-testid^="task-"]:not([data-testid="task-template"])').filter({ hasText: taskDesc });
+    await expect(taskElement).toBeVisible({ timeout: 10000 });
+
+    // A new blank template should still exist
+    await expect(areaCard.getByTestId('task-template')).toBeVisible();
+
+    // Track for cleanup
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const tasks = await apiCall(
+      `tasks?creator_fk=${sub}&area_fk=${testAreaId}&done=0`,
+      'GET', '', idToken,
+    ) as Array<{ id: string; description: string }>;
+    const created = tasks?.find(t => t.description === taskDesc);
+    if (created) createdTaskIds.push(created.id);
+  });
+
+  test('TASK-02: toggle task done', async ({ page }) => {
+    // Create a task via API
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const taskDesc = uniqueName('DoneTask');
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test task');
+    const taskId = result[0].id;
+    createdTaskIds.push(taskId);
+
+    await goToTestDomain(page);
+
+    // Find the task row
+    const taskRow = page.getByTestId(`task-${taskId}`);
+    await expect(taskRow).toBeVisible({ timeout: 5000 });
+
+    // Click the done checkbox (second checkbox in the task row)
+    const checkboxes = taskRow.getByRole('checkbox');
+    await checkboxes.nth(1).click();
+
+    // Local state marks done=1 immediately — verify the checkbox reflects it
+    // before the PUT + invalidation cycle removes the task from the DOM.
+    await expect(checkboxes.nth(1)).toBeChecked({ timeout: 2000 });
+
+    // After PUT completes, query invalidation triggers a refetch (done=0 filter).
+    // The task is automatically removed from the card — no reload required.
+    await expect(taskRow).not.toBeVisible({ timeout: 5000 });
+
+    // Belt-and-suspenders: also confirm task is absent after a full reload
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForSelector(`[data-testid="area-card-${testAreaId}"]`, { timeout: 15000 });
+    await expect(taskRow).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('TASK-03: toggle task priority', async ({ page }) => {
+    // Create a task via API
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const taskDesc = uniqueName('PrioTask');
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test task');
+    const taskId = result[0].id;
+    createdTaskIds.push(taskId);
+
+    await goToTestDomain(page);
+
+    // Find the task row
+    const taskRow = page.getByTestId(`task-${taskId}`);
+    await expect(taskRow).toBeVisible({ timeout: 5000 });
+
+    // Click the priority checkbox (first checkbox in the task row)
+    const checkboxes = taskRow.getByRole('checkbox');
+    await checkboxes.nth(0).click();
+
+    // Verify task is still visible and priority is toggled
+    await expect(taskRow).toBeVisible({ timeout: 5000 });
+
+    // The priority checkbox should now be checked
+    const priorityCheckbox = checkboxes.nth(0);
+    await expect(priorityCheckbox).toBeChecked();
+  });
+
+  test('TASK-04: delete task with confirmation', async ({ page }) => {
+    // Create a task via API
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const taskDesc = uniqueName('DeleteTask');
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test task');
+    const taskId = result[0].id;
+    // Don't add to createdTaskIds — we're deleting it in the test
+
+    await goToTestDomain(page);
+
+    // Find the task row
+    const taskRow = page.getByTestId(`task-${taskId}`);
+    await expect(taskRow).toBeVisible({ timeout: 5000 });
+
+    // Click the delete icon (the IconButton in the task row)
+    await taskRow.getByRole('button').click();
+
+    // Confirm in TaskDeleteDialog
+    const deleteDialog = page.getByTestId('task-delete-dialog');
+    await expect(deleteDialog).toBeVisible();
+    await deleteDialog.getByRole('button', { name: 'Delete' }).click();
+
+    // Verify task is removed
+    await expect(taskRow).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('TASK-05: DnD task between areas (react-dnd)', async ({ page }) => {
+    // Create a task in area 1 (include sort_order to avoid lazy-fill race)
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const taskDesc = uniqueName('DragTask');
+    const result = await apiCall('tasks', 'POST', {
+      creator_fk: sub, description: taskDesc, area_fk: testAreaId, priority: 0, done: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create test task');
+    const taskId = result[0].id;
+    createdTaskIds.push(taskId);
+
+    await goToTestDomain(page);
+
+    // Find the source task and target area card
+    const sourceTask = page.getByTestId(`task-${taskId}`);
+    const targetCard = page.getByTestId(`area-card-${testArea2Id}`);
+    await expect(sourceTask).toBeVisible({ timeout: 5000 });
+    await expect(targetCard).toBeVisible({ timeout: 5000 });
+
+    // Perform the drag-and-drop
+    await dragAndDrop(page, sourceTask, targetCard);
+
+    // Verify task moved to area 2 (should appear in the target card)
+    const taskInTarget = targetCard.getByTestId(`task-${taskId}`);
+    await expect(taskInTarget).toBeVisible({ timeout: 10000 });
+
+    // Verify task no longer in area 1
+    const sourceCard = page.getByTestId(`area-card-${testAreaId}`);
+    const taskInSource = sourceCard.getByTestId(`task-${taskId}`);
+    await expect(taskInSource).not.toBeVisible();
+
+    // Verify persists after reload
+    await page.reload();
+    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
+    await page.getByRole('tab', { name: testDomainName }).click();
+    await page.waitForSelector(`[data-testid="area-card-${testArea2Id}"]`, { timeout: 15000 });
+
+    const targetAfterReload = page.getByTestId(`area-card-${testArea2Id}`);
+    await expect(targetAfterReload.getByTestId(`task-${taskId}`)).toBeVisible({ timeout: 10000 });
+  });
+});

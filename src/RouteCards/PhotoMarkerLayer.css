@@ -1,0 +1,198 @@
+/* PhotoMarkerLayer — cluster icons + floating photo grid overlay */
+
+/* Strip default Leaflet marker chrome */
+.photo-marker-icon {
+    background: none !important;
+    border: none !important;
+}
+
+/* Cluster badges — blue circles with white count */
+.photo-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    cursor: pointer;
+}
+.photo-cluster-small {
+    width: 36px;
+    height: 36px;
+    font-size: 12px;
+    background: rgba(25, 118, 210, 0.75);
+}
+.photo-cluster-medium {
+    width: 44px;
+    height: 44px;
+    font-size: 13px;
+    background: rgba(25, 118, 210, 0.8);
+}
+.photo-cluster-large {
+    width: 52px;
+    height: 52px;
+    font-size: 14px;
+    background: rgba(25, 118, 210, 0.85);
+}
+.photo-cluster-single {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+    background: rgba(25, 118, 210, 0.7);
+}
+
+/* --- Floating photo grid overlay --- */
+
+/* Outer wrapper — pointer-events:none so map clicks pass through */
+.photo-grid-overlay {
+    position: absolute;
+    z-index: 800;
+    pointer-events: none;
+}
+
+/* Inner wrapper — receives pointer events, contains all visible content */
+.photo-grid-inner {
+    pointer-events: auto;
+    position: relative;
+    display: inline-block;
+    transform-origin: top left;
+}
+
+/* Controls bar — drag handle */
+.photo-grid-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 4px;
+    margin-bottom: 3px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    user-select: none;
+}
+.photo-grid-drag-hint {
+    font-size: 14px;
+    color: #888;
+    margin-right: 2px;
+}
+.photo-grid-count {
+    font-size: 11px;
+    color: #fff;
+    font-weight: 600;
+}
+.photo-grid-spacer {
+    flex: 1;
+}
+.photo-grid-close {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin-left: 4px;
+}
+.photo-grid-close:hover {
+    background: rgba(255, 80, 80, 0.6);
+}
+
+/* Photo grid */
+.photo-grid {
+    display: grid;
+}
+
+/* Individual photo cell */
+.photo-grid-cell {
+    background: #333;
+    border-radius: 3px;
+    background-size: cover;
+    background-position: center;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease;
+}
+.photo-grid-cell:hover {
+    transform: scale(1.05);
+    z-index: 1;
+}
+.photo-grid-cell-loaded {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.photo-grid-video-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-size: 12px;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+/* Resize zones — invisible hotspots on all four corners */
+.photo-grid-resize-zone {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    z-index: 2;
+}
+.photo-grid-resize-br {
+    bottom: 0; right: 0;
+    cursor: nwse-resize;
+}
+.photo-grid-resize-bl {
+    bottom: 0; left: 0;
+    cursor: nesw-resize;
+}
+.photo-grid-resize-tr {
+    top: 0; right: 0;
+    cursor: nesw-resize;
+}
+.photo-grid-resize-tl {
+    top: 0; left: 0;
+    cursor: nwse-resize;
+}
+/* Visible thumb on bottom-right only — bright white, hidden until hover */
+.photo-grid-resize-br::after {
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.photo-grid-inner:hover .photo-grid-resize-br::after {
+    opacity: 1;
+}
+
+/* Spinner + error */
+.photo-popup-spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #555;
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: photo-spin 0.8s linear infinite;
+}
+.photo-popup-error {
+    font-size: 16px;
+    color: #666;
+}
+@keyframes photo-spin {
+    to { transform: rotate(360deg); }
+}

@@ -1,0 +1,322 @@
+import '../index.css';
+// eslint-disable-next-line no-unused-vars
+import varDump from '../classifier/classifier';
+import AuthContext from '../Context/AuthContext'
+import AppContext from '../Context/AppContext';
+import call_rest_api from '../RestApi/RestApi';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useDragTabStore } from '../stores/useDragTabStore';
+import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
+import { useDomains } from '../hooks/useDataQueries';
+import { domainKeys } from '../hooks/useQueryKeys';
+
+import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
+import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
+import AreaTabPanel from './AreaTabPanel';
+import TaskDragLayer from '../Components/TaskEdit/TaskDragLayer';
+
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+
+import Box from '@mui/material/Box';
+import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import Tab from '@mui/material/Tab';
+import { CircularProgress, Tabs } from '@mui/material';
+import Tooltip from '@mui/material/Tooltip';
+import IconButton from '@mui/material/IconButton';
+import FlagIcon from '@mui/icons-material/Flag';
+import DroppableTab from './DroppableTab';
+import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import CategoryIcon from '@mui/icons-material/Category';
+
+// Small component to subscribe to per-domain priority card show state
+const PriorityFlagButton = ({ domainId, togglePriorityCard }) => {
+    const show = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.show ?? false);
+    return (
+        <Tooltip title={show ? 'Hide Priority Card' : 'Show Priority Card'}>
+            <IconButton
+                size="small"
+                onClick={() => togglePriorityCard(domainId)}
+                color={show ? 'primary' : 'default'}
+                data-testid={`priority-card-toggle-${domainId}`}
+                sx={{ flexShrink: 0, mx: 1 }}
+            >
+                <FlagIcon />
+            </IconButton>
+        </Tooltip>
+    );
+};
+
+const TaskPlanView = () => {
+
+    const { idToken, profile } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
+
+    // Corresponds to crud_app.rest_api table for user, and UI/js index
+    const [domainsArray, setDomainsArray] = useState()
+
+    // Domain Tabs state — from Zustand store
+    const activeTab = useDragTabStore(s => s.activeTab);
+    const setActiveTab = useDragTabStore(s => s.setActiveTab);
+
+    const showError = useSnackBarStore(s => s.showError);
+    const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
+    const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
+
+    // Priority card toggle (used by PriorityFlagButton via prop)
+    const togglePriorityCard = usePriorityCardStore(s => s.togglePriorityCard);
+
+    // TanStack Query — fetch open domains
+    const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
+
+    // Seed local state from query data (hybrid pattern — local state owns DnD)
+    useEffect(() => {
+        if (serverDomains) {
+            const sorted = [...serverDomains];
+            sorted.sort((a, b) => {
+                if (a.sort_order === null && b.sort_order === null) return 0;
+                if (a.sort_order === null) return 1;
+                if (b.sort_order === null) return -1;
+                return a.sort_order - b.sort_order;
+            });
+
+            // Restore working domain from localStorage, fall back to first tab
+            const storedId = getWorkingDomain();
+            let initialTab = 0;
+            if (storedId) {
+                const idx = sorted.findIndex(d => String(d.id) === storedId);
+                if (idx >= 0) initialTab = idx;
+            }
+            setActiveTab(initialTab);
+            setDomainsArray(sorted);
+        }
+    }, [serverDomains]);
+
+    // Ref to track blue-line insertion index during domain tab drag
+    const domainInsertIndexRef = useRef(null);
+    const setDomainInsertIndex = useCallback((index) => {
+        domainInsertIndexRef.current = index;
+    }, []);
+
+    const renameDomain = useCallback((domainId, newName) => {
+        const uri = `${darwinUri}/domains`;
+        call_rest_api(uri, 'PUT', [{ id: domainId, domain_name: newName }], idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus === 200) {
+                    setDomainsArray(prev => prev.map(d =>
+                        d.id === domainId ? { ...d, domain_name: newName } : d
+                    ));
+                } else {
+                    showError(result, 'Unable to rename domain');
+                }
+            })
+            .catch(error => showError(error, 'Unable to rename domain'));
+    }, [darwinUri, idToken, showError]);
+
+    const domainClose = useConfirmDialog({
+        onConfirm: ({ domainName, domainId, domainIndex }) => {
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'PUT', [{'id': domainId, 'closed': 1, 'sort_order': 'NULL'}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newDomainsArray = [...domainsArray];
+                        newDomainsArray = newDomainsArray.filter(domain => domain.id !== domainId );
+                        setDomainsArray(newDomainsArray);
+                        if (parseInt(activeTab) === domainIndex ) {
+                            setActiveTab(0);
+                        }
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+                    } else {
+                        showError(result, `Unable to close ${domainName}`)
+                    }
+                }).catch(error => {
+                    showError(error, `Unable to close ${domainName}`)
+                });
+        }
+    });
+
+    const domainAdd = useConfirmDialog({
+        onConfirm: (newDomainName) => {
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'POST', {'domain_name': newDomainName, 'closed': 0, 'sort_order': domainsArray.length}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newDomainsArray = [...domainsArray];
+                        newDomainsArray.push(result.data[0]);
+                        setDomainsArray(newDomainsArray);
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+                    } else if (result.httpStatus.httpStatus === 201) {
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+                    } else {
+                        showError(result, `Unable to create ${newDomainName}`)
+                    }
+                }).catch(error => {
+                    showError(error, `Unable to create ${newDomainName}`)
+                });
+        },
+        defaultInfo: ''
+    });
+
+    // Persist working domain whenever active tab changes
+    useEffect(() => {
+        if (domainsArray && domainsArray.length > 0) {
+            const tabIndex = parseInt(activeTab);
+            if (tabIndex >= 0 && tabIndex < domainsArray.length) {
+                setWorkingDomain(domainsArray[tabIndex].id);
+            }
+        }
+    }, [activeTab, domainsArray]);
+
+    const changeActiveTab = (event, newValue) => {
+        // The tab with value 9999 is the add new tab button, hence no change
+        if (newValue === 9999)
+            return;
+        setActiveTab(newValue);
+    }
+
+    const domainCloseClick = (event, domainName, domainId, domainIndex) => {
+        domainClose.openDialog({ domainName, domainId, domainIndex });
+    }
+
+    const addDomain = (event) => {
+        domainAdd.openDialog();
+     }
+
+    const persistDomainOrder = useCallback((didDrop, dragDomainId) => {
+        const insertIndex = domainInsertIndexRef.current;
+        domainInsertIndexRef.current = null;
+
+        if (!didDrop || insertIndex === null) return;
+
+        let restDataArray = null;
+
+        setDomainsArray(prev => {
+            if (!prev) return prev;
+
+            const dragIndex = prev.findIndex(d => d.id === dragDomainId);
+            if (dragIndex < 0) return prev;
+
+            // Adjust insert index: if dragging rightward, removing the item shifts indices left
+            const adjustedIndex = insertIndex > dragIndex ? insertIndex - 1 : insertIndex;
+            if (adjustedIndex === dragIndex) return prev;
+
+            const updated = [...prev];
+            const [moved] = updated.splice(dragIndex, 1);
+            updated.splice(adjustedIndex, 0, moved);
+
+            // Track active tab by domain ID
+            const currentTabIndex = parseInt(activeTab);
+            if (currentTabIndex >= 0 && currentTabIndex < prev.length) {
+                const activeDomainId = prev[currentTabIndex].id;
+                const newIndex = updated.findIndex(d => d.id === activeDomainId);
+                if (newIndex >= 0 && newIndex !== currentTabIndex) {
+                    setActiveTab(newIndex);
+                }
+            }
+
+            // Renumber sort_order
+            const renumbered = updated.map((dom, idx) => ({ ...dom, sort_order: idx }));
+            restDataArray = renumbered.map(dom => ({ 'id': dom.id, 'sort_order': dom.sort_order }));
+
+            return renumbered;
+        });
+
+        // Persist and invalidate cache outside the state updater
+        if (restDataArray) {
+            let uri = `${darwinUri}/domains`;
+            call_rest_api(uri, 'PUT', restDataArray, idToken)
+                .then(result => {
+                    if ((result.httpStatus.httpStatus === 200) ||
+                        (result.httpStatus.httpStatus === 204)) {
+                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
+                    } else {
+                        showError(result, 'Unable to save domain sort order')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to save domain sort order')
+                });
+        }
+    }, [activeTab, darwinUri, idToken, showError, setActiveTab, queryClient, profile]);
+
+    return (
+        <>
+        <TaskDragLayer />
+        {domainsArray ?
+            <>
+            <Box className="app-content-planpage">
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
+                         className="app-content-tabs"
+                    >
+                        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto" >
+                                {domainsArray.map( (domain, domainIndex) =>
+                                    <DroppableTab key={domain.id}
+                                         domainIndex={domainIndex}
+                                         domainId={domain.id}
+                                         domainName={domain.domain_name}
+                                         setDomainInsertIndex={setDomainInsertIndex}
+                                         persistDomainOrder={persistDomainOrder}
+                                         renameDomain={renameDomain}
+                                         icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
+                                         label={domain.domain_name}
+                                         value={domainIndex.toString()}
+                                         iconPosition="end" />
+                                )}
+                                <Tab key={'add-domain'}
+                                     icon={<AddIcon onClick={addDomain}/>}
+                                     iconPosition="start"
+                                     value={9999} // this value is used in changeActiveTab()
+                                />
+                            </Tabs>
+                        </Box>
+                        {domainsArray[parseInt(activeTab)] && (() => {
+                            const activeDomainId = domainsArray[parseInt(activeTab)].id;
+                            return (
+                                <PriorityFlagButton domainId={activeDomainId} togglePriorityCard={togglePriorityCard} />
+                            );
+                        })()}
+                        <SettingsMenu
+                            tooltipTitle="Manage Domains & Areas"
+                            links={[
+                                { path: '/domainedit', label: 'Domains', icon: AccountTreeIcon },
+                                { path: '/areaedit', label: 'Areas', icon: CategoryIcon },
+                            ]}
+                        />
+                    </Box>
+                        {   domainsArray.map( (domain, domainIndex) =>
+                                <AreaTabPanel key={domain.id}
+                                              domain = {domain}
+                                              domainIndex = {domainIndex}
+                                              activeTab = {activeTab}>
+                                </AreaTabPanel>
+                            )
+                        }
+            </Box>
+            <DomainCloseDialog domainCloseDialogOpen={domainClose.dialogOpen}
+                               setDomainCloseDialogOpen={domainClose.setDialogOpen}
+                               domainCloseId={domainClose.infoObject}
+                               setDomainCloseId={domainClose.setInfoObject}
+                               setDomainCloseConfirmed={domainClose.setConfirmed} />
+            <DomainAddDialog domainAddDialogOpen={domainAdd.dialogOpen}
+                             setDomainAddDialogOpen={domainAdd.setDialogOpen}
+                             newDomainInfo={domainAdd.infoObject}
+                             setNewDomainInfo={domainAdd.setInfoObject}
+                             setDomainAddConfirmed={domainAdd.setConfirmed} />
+            </>
+            :
+            <CircularProgress/>
+        }
+        </>
+    );
+
+}
+
+export default TaskPlanView;

@@ -12,12 +12,22 @@
 
 # testing
 /coverage
+/tests/.auth/
+/tests/.tmp/
+/tests/test-results/
+/tests/playwright-report/
+/playwright-report/
+/test-results/
+/.tmp-playwright/
 
 # production
 /build
+/dist
+/_deploy_backups
 
 # misc
 .DS_Store
+.devserver
 .env.local
 .env.development.local
 .env.test.local
