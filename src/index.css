@@ -83,12 +83,12 @@
     -webkit-touch-callout: none;
 }
 
-.task.priority-row {
+.task.requirement-row {
     grid-template-columns: 24px auto auto auto 1fr auto;
 }
 
 @media screen and (max-width: 899px) {
-    .task.priority-row {
+    .task.requirement-row {
         grid-template-columns: 24px auto auto auto 1fr auto;
     }
 }

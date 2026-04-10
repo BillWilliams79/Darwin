@@ -37,9 +37,9 @@ const Chevron = ({ expanded, onClick }) => (
 );
 
 const DayView = ({
-    mode, localTasksArray, localActivitiesArray, localPrioritiesArray,
+    mode, localTasksArray, localActivitiesArray, localRequirementsArray,
     timezone, categoryList, categoryColorMap, routeNameMap,
-    navigate, activityEventColor, priorityEventColor,
+    navigate, activityEventColor, requirementEventColor,
 }) => {
     const { profile } = useContext(AuthContext);
     const userName = profile?.userName;
@@ -47,12 +47,12 @@ const DayView = ({
 
     const isTasksMode = mode.includes('tasks');
     const isActivitiesMode = mode.includes('activities');
-    const isPrioritiesMode = mode.includes('priorities');
+    const isRequirementsMode = mode.includes('requirements');
 
     // Accordion states — all open by default for day view (less detail)
     const [tasksExpanded, setTasksExpanded] = useState(true);
     const [activitiesExpanded, setActivitiesExpanded] = useState(true);
-    const [prioritiesExpanded, setPrioritiesExpanded] = useState(true);
+    const [requirementsExpanded, setRequirementsExpanded] = useState(true);
     const [collapsedDomains, setCollapsedDomains] = useState({});
     const [collapsedCategories, setCollapsedCategories] = useState({});
     const toggleDomain = (id) => setCollapsedDomains(prev => ({ ...prev, [id]: !prev[id] }));
@@ -93,12 +93,12 @@ const DayView = ({
         );
     }, [localActivitiesArray, savedDate, timezone, isActivitiesMode]);
 
-    const dayPriorities = useMemo(() => {
-        if (!savedDate || !isPrioritiesMode) return [];
-        return localPrioritiesArray.filter(p =>
+    const dayRequirements = useMemo(() => {
+        if (!savedDate || !isRequirementsMode) return [];
+        return localRequirementsArray.filter(p =>
             toLocaleDateString(p.completed_at, timezone) === savedDate
         );
-    }, [localPrioritiesArray, savedDate, timezone, isPrioritiesMode]);
+    }, [localRequirementsArray, savedDate, timezone, isRequirementsMode]);
 
     // Group tasks: domainId → { domain_name, areas: { areaId → { area_name, tasks[] } } }
     const groupedTasks = useMemo(() => {
@@ -121,26 +121,26 @@ const DayView = ({
         Object.entries(groupedTasks).sort(([, a], [, b]) => a.domain_name.localeCompare(b.domain_name)),
     [groupedTasks]);
 
-    // Group priorities: categoryId → { category_name, color, priorities[] }
-    const groupedPriorities = useMemo(() => {
+    // Group requirements: categoryId → { category_name, color, requirements[] }
+    const groupedRequirements = useMemo(() => {
         const result = {};
-        for (const priority of dayPriorities) {
-            const catId = priority.category_fk || 'uncategorized';
+        for (const requirement of dayRequirements) {
+            const catId = requirement.category_fk || 'uncategorized';
             if (!result[catId]) {
                 result[catId] = {
                     category_name: catId === 'uncategorized' ? 'Uncategorized' : (categoryNameMap[catId] || 'Unknown'),
                     color: catId === 'uncategorized' ? null : (categoryColorMap?.[catId] || null),
-                    priorities: [],
+                    requirements: [],
                 };
             }
-            result[catId].priorities.push(priority);
+            result[catId].requirements.push(requirement);
         }
         return result;
-    }, [dayPriorities, categoryNameMap, categoryColorMap]);
+    }, [dayRequirements, categoryNameMap, categoryColorMap]);
 
-    const priorityCategoryEntries = useMemo(() =>
-        Object.entries(groupedPriorities).sort(([, a], [, b]) => a.category_name.localeCompare(b.category_name)),
-    [groupedPriorities]);
+    const requirementCategoryEntries = useMemo(() =>
+        Object.entries(groupedRequirements).sort(([, a], [, b]) => a.category_name.localeCompare(b.category_name)),
+    [groupedRequirements]);
 
     const formattedDate = savedDate
         ? new Date(savedDate + 'T12:00:00').toLocaleDateString('en-US', {
@@ -148,7 +148,7 @@ const DayView = ({
           })
         : '';
 
-    const hasAnyData = dayTasks.length > 0 || dayActivities.length > 0 || dayPriorities.length > 0;
+    const hasAnyData = dayTasks.length > 0 || dayActivities.length > 0 || dayRequirements.length > 0;
     const isLoading = isTasksMode && (areasLoading || domainsLoading);
 
     // Aggregate stats for section headers
@@ -259,44 +259,44 @@ const DayView = ({
                         </Box>
                     )}
 
-                    {/* ── Priorities section ── */}
-                    {isPrioritiesMode && dayPriorities.length > 0 && (
+                    {/* ── Requirements section ── */}
+                    {isRequirementsMode && dayRequirements.length > 0 && (
                         <Box sx={{ mb: 2 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                 <Typography variant="h6" fontWeight={700}>
-                                    Priorities
+                                    Requirements
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                                    {dayPriorities.length} {dayPriorities.length === 1 ? 'priority' : 'priorities'}
+                                    {dayRequirements.length} {dayRequirements.length === 1 ? 'requirement' : 'requirements'}
                                 </Typography>
-                                <Chevron expanded={prioritiesExpanded} onClick={() => setPrioritiesExpanded(prev => !prev)} />
+                                <Chevron expanded={requirementsExpanded} onClick={() => setRequirementsExpanded(prev => !prev)} />
                             </Box>
-                            <Collapse in={prioritiesExpanded}>
+                            <Collapse in={requirementsExpanded}>
                                 <Card variant="outlined">
                                     <CardContent sx={{ pt: 1 }}>
-                                        {priorityCategoryEntries.map(([catId, cat], ci) => {
+                                        {requirementCategoryEntries.map(([catId, cat], ci) => {
                                             const catExpanded = !collapsedCategories[catId]; // open by default
                                             return (
-                                            <Box key={catId} sx={{ mb: ci < priorityCategoryEntries.length - 1 ? 2 : 0 }}>
+                                            <Box key={catId} sx={{ mb: ci < requirementCategoryEntries.length - 1 ? 2 : 0 }}>
                                                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                                     <Typography variant="subtitle1" fontWeight={600} sx={{
                                                         ...(cat.color && { borderLeft: `3px solid ${cat.color}`, pl: 1 }),
                                                     }}>
-                                                        {cat.category_name} ({cat.priorities.length})
+                                                        {cat.category_name} ({cat.requirements.length})
                                                     </Typography>
                                                     <Chevron expanded={catExpanded} onClick={() => toggleCategory(catId)} />
                                                 </Box>
                                                 <Collapse in={catExpanded}>
-                                                    {cat.priorities.map(priority => (
-                                                        <Typography key={priority.id} variant="body2" sx={{
+                                                    {cat.requirements.map(requirement => (
+                                                        <Typography key={requirement.id} variant="body2" sx={{
                                                             pl: 2, cursor: 'pointer', '&:hover': { textDecoration: 'underline' },
                                                         }}
-                                                            onClick={() => navigate(`/swarm/priority/${priority.id}`)}>
-                                                            {priority.title}
+                                                            onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}>
+                                                            {requirement.title}
                                                         </Typography>
                                                     ))}
                                                 </Collapse>
-                                                {ci < priorityCategoryEntries.length - 1 && <Divider sx={{ mt: 1 }} />}
+                                                {ci < requirementCategoryEntries.length - 1 && <Divider sx={{ mt: 1 }} />}
                                             </Box>
                                             );
                                         })}

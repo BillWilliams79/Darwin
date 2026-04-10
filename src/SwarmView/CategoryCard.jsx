@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import PriorityRow from './PriorityRow';
-import PriorityDeleteDialog from './PriorityDeleteDialog';
+import RequirementRow from './RequirementRow';
+import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { usePriorities, useSessions } from '../hooks/useDataQueries';
-import { priorityKeys } from '../hooks/useQueryKeys';
+import { useRequirements, useSessions } from '../hooks/useDataQueries';
+import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
-import { PriorityActionsContext } from '../hooks/usePriorityActions';
+import { RequirementActionsContext } from '../hooks/useRequirementActions';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -45,13 +45,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
 
-    const [prioritiesArray, setPrioritiesArray] = useState()
+    const [requirementsArray, setRequirementsArray] = useState()
     const [sessionStatusMap, setSessionStatusMap] = useState({});
 
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
 
-    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
+    const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
     const [sortMode, setSortMode] = useState(category.sort_mode || 'hand');
 
@@ -59,11 +59,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (newMode === null) return;
         setSortMode(newMode);
 
-        if (prioritiesArray) {
-            const sortFn = newMode === 'hand' ? priorityHandSort : createdSort;
-            const sorted = [...prioritiesArray];
+        if (requirementsArray) {
+            const sortFn = newMode === 'hand' ? requirementHandSort : createdSort;
+            const sorted = [...requirementsArray];
             sorted.sort((a, b) => sortFn(a, b));
-            setPrioritiesArray(sorted);
+            setRequirementsArray(sorted);
         }
 
         if (category.id !== '') {
@@ -84,27 +84,27 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const showError = useSnackBarStore(s => s.showError);
 
-    const priorityDelete = useConfirmDialog({
-        onConfirm: ({ priorityId }) => {
-            let uri = `${darwinUri}/priorities`;
-            call_rest_api(uri, 'DELETE', {'id': priorityId}, idToken)
+    const requirementDelete = useConfirmDialog({
+        onConfirm: ({ requirementId }) => {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'DELETE', {'id': requirementId}, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        let newPrioritiesArray = [...prioritiesArray]
-                        newPrioritiesArray = newPrioritiesArray.filter(p => p.id !== priorityId );
-                        setPrioritiesArray(newPrioritiesArray);
-                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                        let newRequirementsArray = [...requirementsArray]
+                        newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
+                        setRequirementsArray(newRequirementsArray);
+                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     } else {
-                        showError(result, 'Unable to delete priority')
+                        showError(result, 'Unable to delete requirement')
                     }
                 }).catch(error => {
-                    showError(error, 'Unable to delete priority')
+                    showError(error, 'Unable to delete requirement')
                 });
         }
     });
 
-    // TanStack Query — fetch all priorities for this category (client-side filtering via chips)
-    const { data: serverPriorities } = usePriorities(profile?.userName, category.id, {
+    // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
+    const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
         enabled: category.id !== '',
     });
 
@@ -115,47 +115,47 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     // Seed local state from query data (hybrid pattern — local state owns DnD + template)
     useEffect(() => {
-        if (serverPriorities && serverPriorities.length > 0) {
-            let sortedPrioritiesArray = [...serverPriorities];
+        if (serverRequirements && serverRequirements.length > 0) {
+            let sortedRequirementsArray = [...serverRequirements];
 
-            // Lazy fill: if any priority has null sort_order, assign sequential values
-            const needsFill = sortedPrioritiesArray.some(t => t.sort_order === null || t.sort_order === undefined);
+            // Lazy fill: if any requirement has null sort_order, assign sequential values
+            const needsFill = sortedRequirementsArray.some(t => t.sort_order === null || t.sort_order === undefined);
             if (needsFill) {
-                sortedPrioritiesArray.sort((a, b) => createdSort(a, b));
+                sortedRequirementsArray.sort((a, b) => createdSort(a, b));
                 const bulkUpdate = [];
-                sortedPrioritiesArray.forEach((t, idx) => {
+                sortedRequirementsArray.forEach((t, idx) => {
                     t.sort_order = idx;
                     bulkUpdate.push({ id: t.id, sort_order: idx });
                 });
-                let uri = `${darwinUri}/priorities`;
+                let uri = `${darwinUri}/requirements`;
                 call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
             }
 
-            // Client-side filtering based on priority status chips
-            sortedPrioritiesArray = sortedPrioritiesArray.filter(p => {
-                if (p.priority_status === 'completed') return priorityStatusFilter.includes('completed');
-                if (p.priority_status === 'deferred') return priorityStatusFilter.includes('deferred');
-                return priorityStatusFilter.includes('open');
+            // Client-side filtering based on requirement status chips
+            sortedRequirementsArray = sortedRequirementsArray.filter(p => {
+                if (p.requirement_status === 'completed') return requirementStatusFilter.includes('completed');
+                if (p.requirement_status === 'deferred') return requirementStatusFilter.includes('deferred');
+                return requirementStatusFilter.includes('open');
             });
 
-            sortedPrioritiesArray.sort((a, b) => activeSort(a, b));
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'priority_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
-            setPrioritiesArray(sortedPrioritiesArray);
-        } else if (serverPriorities && serverPriorities.length === 0) {
-            let sortedPrioritiesArray = [];
-            sortedPrioritiesArray.push({'id':'', 'title':'', 'priority_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
-            setPrioritiesArray(sortedPrioritiesArray);
+            sortedRequirementsArray.sort((a, b) => activeSort(a, b));
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            setRequirementsArray(sortedRequirementsArray);
+        } else if (serverRequirements && serverRequirements.length === 0) {
+            let sortedRequirementsArray = [];
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            setRequirementsArray(sortedRequirementsArray);
         }
-    }, [serverPriorities, priorityStatusFilter]);
+    }, [serverRequirements, requirementStatusFilter]);
 
     // Build session status map from query data
     useEffect(() => {
         if (serverSessions && serverSessions.length > 0) {
             const map = {};
             serverSessions.forEach(s => {
-                const m = s.source_ref && s.source_ref.match(/^priority:(\d+)$/);
+                const m = s.source_ref && s.source_ref.match(/^(priority|requirement):(\d+)$/);
                 if (m) {
-                    const pid = parseInt(m[1]);
+                    const pid = parseInt(m[2]);
                     if (!map[pid] || s.id > map[pid].id) {
                         map[pid] = s.swarm_status;
                     }
@@ -165,20 +165,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     }, [serverSessions]);
 
-    // For template cards (category.id === ''), keep prioritiesArray undefined
+    // For template cards (category.id === ''), keep requirementsArray undefined
     useEffect(() => {
-        if (category.id === '' && !prioritiesArray) {
-            setPrioritiesArray(undefined);
+        if (category.id === '' && !requirementsArray) {
+            setRequirementsArray(undefined);
         }
     }, [category.id]);
 
     const [{ isOver }, drop] = useDrop(() => ({
 
-        accept: ["priorityRow", "categoryCard"],
+        accept: ["requirementRow", "categoryCard"],
 
         drop: (item, monitor) => {
-            if (monitor.getItemType() === "priorityRow") {
-                return addPriorityToCategory(item);
+            if (monitor.getItemType() === "requirementRow") {
+                return addRequirementToCategory(item);
             }
             if (item.sourceDomainId && item.sourceDomainId !== projectId) {
                 return { crossDomain: true };
@@ -213,7 +213,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             isOver: monitor.isOver() && monitor.getItemType() === "categoryCard",
         }),
 
-    }), [prioritiesArray, categoryIndex, projectId, isTemplate, moveCard]);
+    }), [requirementsArray, categoryIndex, projectId, isTemplate, moveCard]);
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "categoryCard",
@@ -241,23 +241,23 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         drag(drop(node));
     }, [drag, drop]);
 
-    const addPriorityToCategory = (priority) => {
+    const addRequirementToCategory = (requirement) => {
 
         const insertIndex = crossCardInsertIndexRef.current;
         crossCardInsertIndexRef.current = null;
 
         // Same-card drop
-        let matchPriority = prioritiesArray.find( p => p.id === priority.id)
+        let matchRequirement = requirementsArray.find( p => p.id === requirement.id)
 
-        if (matchPriority !== undefined) {
+        if (matchRequirement !== undefined) {
             if (sortMode === 'hand' && insertIndex !== null) {
-                const draggedIdx = prioritiesArray.findIndex(t => t.id === priority.id);
-                if (draggedIdx === -1) return { priority: null };
+                const draggedIdx = requirementsArray.findIndex(t => t.id === requirement.id);
+                if (draggedIdx === -1) return { requirement: null };
 
                 const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
-                if (adjustedIndex === draggedIdx) return { priority: null };
+                if (adjustedIndex === draggedIdx) return { requirement: null };
 
-                const updated = [...prioritiesArray];
+                const updated = [...requirementsArray];
                 const [moved] = updated.splice(draggedIdx, 1);
                 updated.splice(adjustedIndex, 0, moved);
 
@@ -269,209 +269,209 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
                 });
 
-                let priorityUri = `${darwinUri}/priorities`;
-                call_rest_api(priorityUri, 'PUT', bulkUpdate, idToken)
+                let requirementUri = `${darwinUri}/requirements`;
+                call_rest_api(requirementUri, 'PUT', bulkUpdate, idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            showError(result, 'Unable to save priority sort order');
+                            showError(result, 'Unable to save requirement sort order');
                         }
                     }).catch(error => {
-                        showError(error, 'Unable to save priority sort order');
+                        showError(error, 'Unable to save requirement sort order');
                     });
 
-                setPrioritiesArray(updated);
+                setRequirementsArray(updated);
             }
-            return { priority: null };
+            return { requirement: null };
         }
 
         // Cross-card drop
-        let priorityUri = `${darwinUri}/priorities`;
+        let requirementUri = `${darwinUri}/requirements`;
 
         // Optimistic cache update — prevent TanStack refetches from overwriting local state
-        const sourceKey = priorityKeys.byCategoryWithClosed(profile.userName, priority.category_fk);
-        const targetKey = priorityKeys.byCategoryWithClosed(profile.userName, category.id);
+        const sourceKey = requirementKeys.byCategoryWithClosed(profile.userName, requirement.category_fk);
+        const targetKey = requirementKeys.byCategoryWithClosed(profile.userName, category.id);
         queryClient.cancelQueries({ queryKey: sourceKey });
         queryClient.cancelQueries({ queryKey: targetKey });
         const previousSource = queryClient.getQueryData(sourceKey);
         const previousTarget = queryClient.getQueryData(targetKey);
-        queryClient.setQueryData(sourceKey, (old) => old ? old.filter(p => p.id !== priority.id) : old);
+        queryClient.setQueryData(sourceKey, (old) => old ? old.filter(p => p.id !== requirement.id) : old);
 
         if (sortMode === 'hand' && insertIndex !== null) {
-            const realPriorities = prioritiesArray.filter(t => t.id !== '');
-            const template = prioritiesArray.find(t => t.id === '');
-            const clampedIndex = Math.min(insertIndex, realPriorities.length);
-            realPriorities.splice(clampedIndex, 0, {...priority, category_fk: parseInt(category.id)});
+            const realRequirements = requirementsArray.filter(t => t.id !== '');
+            const template = requirementsArray.find(t => t.id === '');
+            const clampedIndex = Math.min(insertIndex, realRequirements.length);
+            realRequirements.splice(clampedIndex, 0, {...requirement, category_fk: parseInt(category.id)});
 
-            const bulkUpdate = realPriorities.map((t, idx) => {
+            const bulkUpdate = realRequirements.map((t, idx) => {
                 t.sort_order = idx;
                 const update = { id: t.id, sort_order: idx };
-                if (t.id === priority.id) update.category_fk = parseInt(category.id);
+                if (t.id === requirement.id) update.category_fk = parseInt(category.id);
                 return update;
             });
 
-            queryClient.setQueryData(targetKey, () => realPriorities.map(p => ({...p})));
+            queryClient.setQueryData(targetKey, () => realRequirements.map(p => ({...p})));
 
-            call_rest_api(priorityUri, 'PUT', bulkUpdate, idToken)
+            call_rest_api(requirementUri, 'PUT', bulkUpdate, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         queryClient.setQueryData(sourceKey, previousSource);
                         queryClient.setQueryData(targetKey, previousTarget);
-                        showError(result, "Unable to save priority order");
+                        showError(result, "Unable to save requirement order");
                     }
                 }).catch(error => {
                     queryClient.setQueryData(sourceKey, previousSource);
                     queryClient.setQueryData(targetKey, previousTarget);
-                    showError(error, "Unable to save priority order");
+                    showError(error, "Unable to save requirement order");
                 }).finally(() => {
                     queryClient.invalidateQueries({ queryKey: sourceKey });
                     queryClient.invalidateQueries({ queryKey: targetKey });
                 });
 
-            const final = [...realPriorities];
+            const final = [...realRequirements];
             if (template) final.push(template);
-            setPrioritiesArray(final);
+            setRequirementsArray(final);
         } else {
-            const maxSortOrder = Math.max(0, ...prioritiesArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
+            const maxSortOrder = Math.max(0, ...requirementsArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
             const newSortOrder = maxSortOrder + 1;
 
-            var newPrioritiesArray = [...prioritiesArray];
-            priority.sort_order = newSortOrder;
-            priority.category_fk = parseInt(category.id);
-            newPrioritiesArray.push(priority);
-            newPrioritiesArray.sort((a, b) => activeSort(a, b));
-            setPrioritiesArray(newPrioritiesArray);
+            var newRequirementsArray = [...requirementsArray];
+            requirement.sort_order = newSortOrder;
+            requirement.category_fk = parseInt(category.id);
+            newRequirementsArray.push(requirement);
+            newRequirementsArray.sort((a, b) => activeSort(a, b));
+            setRequirementsArray(newRequirementsArray);
 
             queryClient.setQueryData(targetKey, (old) => {
                 if (!old) return old;
-                return [...old, {...priority}];
+                return [...old, {...requirement}];
             });
 
-            call_rest_api(priorityUri, 'PUT', [{'id': priority.id, 'category_fk': category.id, 'sort_order': newSortOrder }], idToken)
+            call_rest_api(requirementUri, 'PUT', [{'id': requirement.id, 'category_fk': category.id, 'sort_order': newSortOrder }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         queryClient.setQueryData(sourceKey, previousSource);
                         queryClient.setQueryData(targetKey, previousTarget);
-                        setPrioritiesArray(prev => prev.filter(t => t.id !== priority.id));
-                        showError(result, "Unable to change priority's category");
+                        setRequirementsArray(prev => prev.filter(t => t.id !== requirement.id));
+                        showError(result, "Unable to change requirement's category");
                     }
                 }).catch(error => {
                     queryClient.setQueryData(sourceKey, previousSource);
                     queryClient.setQueryData(targetKey, previousTarget);
-                    setPrioritiesArray(prev => prev.filter(t => t.id !== priority.id));
-                    showError(error, "Unable to change priority's category");
+                    setRequirementsArray(prev => prev.filter(t => t.id !== requirement.id));
+                    showError(error, "Unable to change requirement's category");
                 }).finally(() => {
                     queryClient.invalidateQueries({ queryKey: sourceKey });
                     queryClient.invalidateQueries({ queryKey: targetKey });
                 });
         }
 
-        return {priority: priority.id};
+        return {requirement: requirement.id};
     };
 
-    const scheduledClick = (priorityIndex, priorityId) => {
+    const scheduledClick = (requirementIndex, requirementId) => {
 
-        let newPrioritiesArray = [...prioritiesArray]
-        const current = newPrioritiesArray[priorityIndex].scheduled || 0;
-        newPrioritiesArray[priorityIndex].scheduled = (current + 1) % 3;
+        let newRequirementsArray = [...requirementsArray]
+        const current = newRequirementsArray[requirementIndex].scheduled || 0;
+        newRequirementsArray[requirementIndex].scheduled = (current + 1) % 3;
 
-        if (priorityId !== '') {
-            let uri = `${darwinUri}/priorities`;
-            call_rest_api(uri, 'PUT', [{'id': priorityId, 'scheduled': newPrioritiesArray[priorityIndex].scheduled}], idToken)
+        if (requirementId !== '') {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'scheduled': newRequirementsArray[requirementIndex].scheduled}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        showError(result, "Unable to change priority's scheduled flag")
+                        showError(result, "Unable to change requirement's scheduled flag")
                     }
                 }).catch(error => {
-                    showError(error, "Unable to change priority's scheduled flag")
+                    showError(error, "Unable to change requirement's scheduled flag")
                 }
             );
         } else if (savingRef.current) {
-            pendingMutationsRef.current.scheduled = newPrioritiesArray[priorityIndex].scheduled;
+            pendingMutationsRef.current.scheduled = newRequirementsArray[requirementIndex].scheduled;
         }
 
-        setPrioritiesArray(newPrioritiesArray);
+        setRequirementsArray(newRequirementsArray);
     }
 
-    const updatePriority = (event, priorityIndex, priorityId) => {
+    const updateRequirement = (event, requirementIndex, requirementId) => {
 
         const noop = ()=>{};
 
-        if ((priorityId === '') &&
-            (prioritiesArray[priorityIndex].title === '')) {
+        if ((requirementId === '') &&
+            (requirementsArray[requirementIndex].title === '')) {
             noop();
         } else {
-            if (priorityId === '') {
-                savePriority(event, priorityIndex)
+            if (requirementId === '') {
+                saveRequirement(event, requirementIndex)
             } else {
-                let uri = `${darwinUri}/priorities`;
-                call_rest_api(uri, 'PUT', [{'id': priorityId, 'title': prioritiesArray[priorityIndex].title}], idToken)
+                let uri = `${darwinUri}/requirements`;
+                call_rest_api(uri, 'PUT', [{'id': requirementId, 'title': requirementsArray[requirementIndex].title}], idToken)
                     .then(result => {
                         if (result.httpStatus.httpStatus > 204) {
-                            showError(result, 'Priority title not updated, HTTP error')
+                            showError(result, 'Requirement title not updated, HTTP error')
                         }
                     }).catch(error => {
-                        showError(error, 'Priority title not updated, HTTP error')
+                        showError(error, 'Requirement title not updated, HTTP error')
                     });
             }
         }
     }
 
     const { fieldChange: titleChange, fieldKeyDown: titleKeyDown, fieldOnBlur: titleOnBlur } = useCrudCallbacks({
-        items: prioritiesArray, setItems: setPrioritiesArray, fieldName: 'title', saveFn: updatePriority
+        items: requirementsArray, setItems: setRequirementsArray, fieldName: 'title', saveFn: updateRequirement
     });
 
-    const savePriority = (event, priorityIndex) => {
+    const saveRequirement = (event, requirementIndex) => {
         if (savingRef.current) return;
         savingRef.current = true;
 
-        const maxSortOrder = Math.max(0, ...prioritiesArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
-        const priorityToSave = { ...prioritiesArray[priorityIndex], sort_order: maxSortOrder + 1, project_fk: null };
+        const maxSortOrder = Math.max(0, ...requirementsArray.filter(t => t.id !== '').map(t => t.sort_order ?? 0));
+        const requirementToSave = { ...requirementsArray[requirementIndex], sort_order: maxSortOrder + 1, project_fk: null };
 
-        let uri = `${darwinUri}/priorities`;
-        call_rest_api(uri, 'POST', priorityToSave, idToken)
+        let uri = `${darwinUri}/requirements`;
+        call_rest_api(uri, 'POST', requirementToSave, idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
-                    let newPrioritiesArray = [...prioritiesArray];
-                    newPrioritiesArray[priorityIndex] = {...result.data[0]};
+                    let newRequirementsArray = [...requirementsArray];
+                    newRequirementsArray[requirementIndex] = {...result.data[0]};
 
                     const pending = pendingMutationsRef.current;
                     if (Object.keys(pending).length > 0) {
-                        Object.assign(newPrioritiesArray[priorityIndex], pending);
+                        Object.assign(newRequirementsArray[requirementIndex], pending);
                         call_rest_api(uri, 'PUT', [{'id': result.data[0].id, ...pending}], idToken)
                             .then(putResult => {
                                 if (putResult.httpStatus.httpStatus !== 200) {
-                                    showError(putResult, 'Unable to update priority after save');
+                                    showError(putResult, 'Unable to update requirement after save');
                                 }
                             }).catch(putError => {
-                                showError(putError, 'Unable to update priority after save');
+                                showError(putError, 'Unable to update requirement after save');
                             });
                     }
 
-                    newPrioritiesArray.sort((a, b) => activeSort(a, b));
-                    newPrioritiesArray.push({'id':'', 'title':'', 'priority_status': 'idle', 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
-                    setPrioritiesArray(newPrioritiesArray);
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
-                    navigate(`/swarm/priority/${result.data[0].id}`);
+                    newRequirementsArray.sort((a, b) => activeSort(a, b));
+                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
+                    setRequirementsArray(newRequirementsArray);
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                    navigate(`/swarm/requirement/${result.data[0].id}`);
                 } else if (result.httpStatus.httpStatus === 201) {
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                 } else {
-                    showError(result, 'Priority not saved, HTTP error')
+                    showError(result, 'Requirement not saved, HTTP error')
                 }
             }).catch(error => {
-                showError(error, 'Priority not saved, HTTP error')
+                showError(error, 'Requirement not saved, HTTP error')
             }).finally(() => {
                 savingRef.current = false;
                 pendingMutationsRef.current = {};
             });
     }
 
-    const deleteClick = (event, priorityId) => {
-        const priority = prioritiesArray?.find(p => p.id === priorityId);
-        priorityDelete.openDialog({
-            priorityId,
-            title: priority?.title || '',
-            scheduled: priority?.scheduled || 0,
-            priority_status: priority?.priority_status || 'idle',
+    const deleteClick = (event, requirementId) => {
+        const requirement = requirementsArray?.find(p => p.id === requirementId);
+        requirementDelete.openDialog({
+            requirementId,
+            title: requirement?.title || '',
+            scheduled: requirement?.scheduled || 0,
+            requirement_status: requirement?.requirement_status || 'idle',
         });
     }
 
@@ -481,7 +481,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return a.id - b.id;
     }
 
-    const priorityHandSort = (a, b) => {
+    const requirementHandSort = (a, b) => {
         if (a.id === '') return 1;
         if (b.id === '') return -1;
         const aOrder = a.sort_order ?? Infinity;
@@ -495,20 +495,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (a.id === '') return 1;
         if (b.id === '') return -1;
         // Three-state sort: open (0) < deferred (1) < completed (2)
-        const aState = STATUS_SORT[a.priority_status] ?? 0;
-        const bState = STATUS_SORT[b.priority_status] ?? 0;
+        const aState = STATUS_SORT[a.requirement_status] ?? 0;
+        const bState = STATUS_SORT[b.requirement_status] ?? 0;
         if (aState !== bState) return aState - bState;
-        if (a.priority_status === 'completed' && b.priority_status === 'completed') {
+        if (a.requirement_status === 'completed' && b.requirement_status === 'completed') {
             const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
             const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
-        if (a.priority_status === 'deferred' && b.priority_status === 'deferred') {
+        if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
             const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
-        return sortMode === 'hand' ? priorityHandSort(a, b) : createdSort(a, b);
+        return sortMode === 'hand' ? requirementHandSort(a, b) : createdSort(a, b);
     }
 
     return (
@@ -587,8 +587,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 <MenuItem
                                     onClick={(event) => {
                                         handleMenuClose();
-                                        const priorityCount = prioritiesArray ? prioritiesArray.filter(t => t.id !== '').length : 0;
-                                        clickCardDelete(event, category.category_name, category.id, priorityCount);
+                                        const requirementCount = requirementsArray ? requirementsArray.filter(t => t.id !== '').length : 0;
+                                        clickCardDelete(event, category.category_name, category.id, requirementCount);
                                     }}
                                     data-testid={`menu-delete-category-${category.id}`}
                                     sx={{ color: 'error.main' }}
@@ -600,25 +600,25 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         </>
                     )}
                 </Box>
-                { (prioritiesArray) ?
-                    <PriorityActionsContext.Provider value={{ scheduledClick,
-                        titleChange, titleKeyDown, titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
+                { (requirementsArray) ?
+                    <RequirementActionsContext.Provider value={{ scheduledClick,
+                        titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
                         sortMode, setCrossCardInsertIndex, sessionStatusMap }}>
-                        {prioritiesArray.map((priority, priorityIndex) => (
-                            <PriorityRow {...{key: priority.id, supportDrag: true, priority, priorityIndex,
+                        {requirementsArray.map((requirement, requirementIndex) => (
+                            <RequirementRow {...{key: requirement.id, supportDrag: true, requirement, requirementIndex,
                                 categoryId: category.id, categoryName: category.category_name }}
                             />
                         ))}
-                    </PriorityActionsContext.Provider>
+                    </RequirementActionsContext.Provider>
                   :
                     category.id  === '' ? '' : <CircularProgress/>
                 }
             </CardContent>
-            <PriorityDeleteDialog deleteDialogOpen = {priorityDelete.dialogOpen}
-                              setDeleteDialogOpen = {priorityDelete.setDialogOpen}
-                              setDeleteId = {priorityDelete.setInfoObject}
-                              setDeleteConfirmed = {priorityDelete.setConfirmed}
-                              priority = {priorityDelete.infoObject} />
+            <RequirementDeleteDialog deleteDialogOpen = {requirementDelete.dialogOpen}
+                              setDeleteDialogOpen = {requirementDelete.setDialogOpen}
+                              setDeleteId = {requirementDelete.setInfoObject}
+                              setDeleteConfirmed = {requirementDelete.setConfirmed}
+                              requirement = {requirementDelete.infoObject} />
         </Card>
     )
 }

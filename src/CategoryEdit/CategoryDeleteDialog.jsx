@@ -8,16 +8,16 @@ import Button from '@mui/material/Button';
 
 const CategoryDeleteDialog = ({ categoryDeleteDialogOpen, setCategoryDeleteDialogOpen, categoryInfo, setCategoryInfo, setCategoryDeleteConfirmed }) => {
 
-    const { categoryName, prioritiesCount } = categoryInfo;
+    const { categoryName, requirementsCount } = categoryInfo;
 
-    let priorityString = ` and its ${prioritiesCount} related priorities?`;
+    let requirementString = ` and its ${requirementsCount} related requirements?`;
 
-    if (prioritiesCount === undefined) {
-        priorityString = '?';
-    } else if (prioritiesCount === 0) {
-        priorityString = '? This category has no priorities.';
-    } else if (prioritiesCount === 1) {
-        priorityString = ' and its 1 related priority?';
+    if (requirementsCount === undefined) {
+        requirementString = '?';
+    } else if (requirementsCount === 0) {
+        requirementString = '? This category has no requirements.';
+    } else if (requirementsCount === 1) {
+        requirementString = ' and its 1 related requirement?';
     }
 
     const dialogCleanUp = () => {
@@ -40,7 +40,7 @@ const CategoryDeleteDialog = ({ categoryDeleteDialogOpen, setCategoryDeleteDialo
             </DialogTitle>
             <DialogContent>
                 <DialogContentText>
-                    {`Permanently delete the category ${categoryName}${priorityString}`}
+                    {`Permanently delete the category ${categoryName}${requirementString}`}
                 </DialogContentText>
             </DialogContent>
             <DialogActions>

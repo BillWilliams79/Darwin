@@ -71,8 +71,8 @@
     background-color: #e0e0e0 !important;
 }
 
-/* Priority events — pointer cursor to indicate clickable */
-.fc-event.fc-priority-event {
+/* Requirement events — pointer cursor to indicate clickable */
+.fc-event.fc-requirement-event {
     cursor: pointer !important;
 }
 
@@ -81,7 +81,7 @@
     cursor: pointer !important;
 }
 
-/* Tasks/Priorities toggle — match FullCalendar segmented button style */
+/* Tasks/Requirements toggle — match FullCalendar segmented button style */
 .cal-toggle-btn.Mui-selected {
     background-color: #616161 !important;
     border-color: #515151 !important;

@@ -10,7 +10,7 @@ test.describe.serial('Category Management P1', () => {
   let testProjectId: string;
   const testProjectName = uniqueName('CatP1Project');
   const createdCategoryIds: string[] = [];
-  const createdPriorityIds: string[] = [];
+  const createdRequirementIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -27,7 +27,7 @@ test.describe.serial('Category Management P1', () => {
   });
 
   test.afterAll(async () => {
-    // Hard-delete project (ON DELETE CASCADE handles categories → priorities)
+    // Hard-delete project (ON DELETE CASCADE handles categories → requirements)
     try { await apiDelete('projects', testProjectId, idToken); } catch { /* best-effort */ }
   });
 
@@ -222,7 +222,7 @@ test.describe.serial('Category Management P1', () => {
     expect(reloadSecondY).toBeLessThan(reloadFirstY);
   });
 
-  test('CAT-07: verify Priorities count column is accurate', async ({ page }) => {
+  test('CAT-07: verify Requirements count column is accurate', async ({ page }) => {
     const categoryName = uniqueName('CountsCat');
 
     // Create category
@@ -236,23 +236,23 @@ test.describe.serial('Category Management P1', () => {
     // Navigate and verify 0 count initially
     const panel = await goToTestProject(page);
 
-    // The priority count is displayed as text in the row.
+    // The requirement count is displayed as text in the row.
     // CategoryTableRow doesn't have a specific data-testid for the count,
     // so we check the text content of the row.
     const catRow = panel.getByTestId(`category-row-${categoryId}`);
     await expect(catRow).toBeVisible({ timeout: 5000 });
 
-    // The third column (index 2) contains the priority count — should show 0
+    // The third column (index 2) contains the requirement count — should show 0
     const countCell = catRow.locator('> div').nth(2);
     await expect(countCell).toHaveText('0');
 
-    // Create 3 priorities under this category
+    // Create 3 requirements under this category
     for (let i = 0; i < 3; i++) {
-      const result = await apiCall('priorities', 'POST', {
-        creator_fk: sub, title: uniqueName(`CatPri-${i}`), category_fk: categoryId,
-        priority_status: 'open', sort_order: i,
+      const result = await apiCall('requirements', 'POST', {
+        creator_fk: sub, title: uniqueName(`CatReq-${i}`), category_fk: categoryId,
+        requirement_status: 'idle', sort_order: i,
       }, idToken) as Array<{ id: string }>;
-      if (result?.length) createdPriorityIds.push(result[0].id);
+      if (result?.length) createdRequirementIds.push(result[0].id);
     }
 
     // Reload and verify updated count

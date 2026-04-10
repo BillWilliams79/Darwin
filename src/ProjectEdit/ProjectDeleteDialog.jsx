@@ -8,16 +8,16 @@ import Button from '@mui/material/Button';
 
 const ProjectDeleteDialog = ({ projectDeleteDialogOpen, setProjectDeleteDialogOpen, projectInfo, setProjectInfo, setProjectDeleteConfirmed }) => {
 
-    const { projectName, prioritiesCount } = projectInfo;
+    const { projectName, requirementsCount } = projectInfo;
 
-    let priorityString = ` and its ${prioritiesCount} related priorities?`;
+    let requirementString = ` and its ${requirementsCount} related requirements?`;
 
-    if (prioritiesCount === undefined) {
-        priorityString = '?';
-    } else if (prioritiesCount === 0) {
-        priorityString = '? This project has no priorities.';
-    } else if (prioritiesCount === 1) {
-        priorityString = ' and its 1 related priority?';
+    if (requirementsCount === undefined) {
+        requirementString = '?';
+    } else if (requirementsCount === 0) {
+        requirementString = '? This project has no requirements.';
+    } else if (requirementsCount === 1) {
+        requirementString = ' and its 1 related requirement?';
     }
 
     const dialogCleanUp = () => {
@@ -40,7 +40,7 @@ const ProjectDeleteDialog = ({ projectDeleteDialogOpen, setProjectDeleteDialogOp
             </DialogTitle>
             <DialogContent>
                 <DialogContentText>
-                    {`Permanently delete the project ${projectName}${priorityString}`}
+                    {`Permanently delete the project ${projectName}${requirementString}`}
                 </DialogContentText>
             </DialogContent>
             <DialogActions>

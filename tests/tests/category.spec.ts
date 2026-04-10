@@ -36,7 +36,7 @@ test.describe.serial('Category Management', () => {
   });
 
   test.afterAll(async () => {
-    // Hard-delete projects (ON DELETE CASCADE handles categories → priorities)
+    // Hard-delete projects (ON DELETE CASCADE handles categories → requirements)
     try { await apiDelete('projects', testProjectId, idToken); } catch { /* best-effort */ }
     try { await apiDelete('projects', testProject2Id, idToken); } catch { /* best-effort */ }
   });
