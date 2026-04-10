@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useDevServers, useSessions, useAllPriorities } from '../hooks/useDataQueries';
+import { useDevServers, useSessions, useAllRequirements } from '../hooks/useDataQueries';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
@@ -35,20 +35,20 @@ const getDevServerColumns = (navigate, timezone) => [
         ),
     },
     {
-        field: 'priority_id',
+        field: 'requirement_id',
         headerName: 'Roadmap ID',
         width: 110,
         renderCell: (params) => params.value
             ? <Link component="button" variant="body2"
-                    onClick={() => navigate(`/swarm/priority/${params.value}`)}
-                    data-testid="dev-server-priority-id-link">
+                    onClick={() => navigate(`/swarm/requirement/${params.value}`)}
+                    data-testid="dev-server-requirement-id-link">
                 #{params.value}
               </Link>
             : '—',
     },
     {
-        field: 'priority_title',
-        headerName: 'Roadmap Priority',
+        field: 'requirement_title',
+        headerName: 'Roadmap Requirement',
         width: 300,
         renderCell: (params) => params.value ?? '—',
     },
@@ -89,11 +89,11 @@ const DevServerCard = ({ server, navigate, timezone }) => {
                         <Typography variant="caption" color="text.secondary">No session</Typography>
                     )}
                 </Box>
-                {server.priority_id && server.priority_title ? (
+                {server.requirement_id && server.requirement_title ? (
                     <Link component="button" variant="body2" sx={{ mb: 0.5, display: 'block', textAlign: 'left' }}
-                          onClick={() => navigate(`/swarm/priority/${server.priority_id}`)}
-                          data-testid="dev-server-priority-link">
-                        {server.priority_title}
+                          onClick={() => navigate(`/swarm/requirement/${server.requirement_id}`)}
+                          data-testid="dev-server-requirement-link">
+                        {server.requirement_title}
                     </Link>
                 ) : null}
                 <Typography variant="body2" sx={{ mb: 0.5, wordBreak: 'break-all' }}>
@@ -120,32 +120,32 @@ const DevServersView = () => {
 
     const { data: devServersArray } = useDevServers(profile?.userName);
     const { data: sessionsArray } = useSessions(profile?.userName);
-    const { data: allPriorities } = useAllPriorities(profile?.userName);
+    const { data: allRequirements } = useAllRequirements(profile?.userName);
 
-    const sessionToPriorityId = useMemo(() => {
+    const sessionToRequirementId = useMemo(() => {
         if (!sessionsArray) return {};
         const map = {};
         sessionsArray.forEach(s => {
-            const m = s.source_ref?.match(/^priority:(\d+)$/);
-            if (m) map[s.id] = parseInt(m[1], 10);
+            const m = s.source_ref?.match(/^(priority|requirement):(\d+)$/);
+            if (m) map[s.id] = parseInt(m[2], 10);
         });
         return map;
     }, [sessionsArray]);
 
-    const priorityMap = useMemo(() => {
-        if (!allPriorities) return {};
+    const requirementMap = useMemo(() => {
+        if (!allRequirements) return {};
         const map = {};
-        allPriorities.forEach(p => { map[p.id] = p; });
+        allRequirements.forEach(p => { map[p.id] = p; });
         return map;
-    }, [allPriorities]);
+    }, [allRequirements]);
 
     const enrichedServers = useMemo(() => devServersArray?.map(s => ({
         ...s,
-        priority_id: s.session_fk ? sessionToPriorityId[s.session_fk] ?? null : null,
-        priority_title: s.session_fk
-            ? priorityMap[sessionToPriorityId[s.session_fk]]?.title ?? null
+        requirement_id: s.session_fk ? sessionToRequirementId[s.session_fk] ?? null : null,
+        requirement_title: s.session_fk
+            ? requirementMap[sessionToRequirementId[s.session_fk]]?.title ?? null
             : null,
-    })), [devServersArray, sessionToPriorityId, priorityMap]);
+    })), [devServersArray, sessionToRequirementId, requirementMap]);
 
     const sortedServers = enrichedServers
         ? [...enrichedServers].sort((a, b) => b.id - a.id)

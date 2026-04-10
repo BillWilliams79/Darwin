@@ -9,7 +9,7 @@ test.describe.serial('Project Management P1', () => {
   const sub = process.env.E2E_TEST_COGNITO_SUB!;
   const createdProjectIds: string[] = [];
   const createdCategoryIds: string[] = [];
-  const createdPriorityIds: string[] = [];
+  const createdRequirementIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -19,9 +19,9 @@ test.describe.serial('Project Management P1', () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup in reverse dependency order: priorities → categories → projects
-    for (const id of createdPriorityIds) {
-      try { await apiDelete('priorities', id, idToken); } catch { /* best-effort */ }
+    // Cleanup in reverse dependency order: requirements → categories → projects
+    for (const id of createdRequirementIds) {
+      try { await apiDelete('requirements', id, idToken); } catch { /* best-effort */ }
     }
     for (const id of createdCategoryIds) {
       try { await apiDelete('categories', id, idToken); } catch { /* best-effort */ }
@@ -208,7 +208,7 @@ test.describe.serial('Project Management P1', () => {
     expect(reloadSecondY).toBeLessThan(reloadFirstY);
   });
 
-  test('PROJ-07: verify Categories and Priorities count columns', async ({ page }) => {
+  test('PROJ-07: verify Categories and Requirements count columns', async ({ page }) => {
     const projectName = uniqueName('CountsProj');
 
     // Create project
@@ -223,7 +223,7 @@ test.describe.serial('Project Management P1', () => {
     await navigateToProjectEdit(page);
 
     const catCount = page.getByTestId(`category-count-${projectId}`);
-    const priCount = page.getByTestId(`priority-count-${projectId}`);
+    const priCount = page.getByTestId(`requirement-count-${projectId}`);
 
     await expect(catCount).toHaveText('0');
     await expect(priCount).toHaveText('0');
@@ -239,19 +239,19 @@ test.describe.serial('Project Management P1', () => {
     if (!cat1Result?.length || !cat2Result?.length) throw new Error('Failed to create categories');
     createdCategoryIds.push(cat1Result[0].id, cat2Result[0].id);
 
-    // Create 3 priorities under cat1 and 1 under cat2 (4 total)
+    // Create 3 requirements under cat1 and 1 under cat2 (4 total)
     for (let i = 0; i < 3; i++) {
-      const result = await apiCall('priorities', 'POST', {
-        creator_fk: sub, title: uniqueName(`Pri1-${i}`), category_fk: cat1Result[0].id,
-        priority_status: 'open', sort_order: i,
+      const result = await apiCall('requirements', 'POST', {
+        creator_fk: sub, title: uniqueName(`Req1-${i}`), category_fk: cat1Result[0].id,
+        requirement_status: 'open', sort_order: i,
       }, idToken) as Array<{ id: string }>;
-      if (result?.length) createdPriorityIds.push(result[0].id);
+      if (result?.length) createdRequirementIds.push(result[0].id);
     }
-    const priResult = await apiCall('priorities', 'POST', {
-      creator_fk: sub, title: uniqueName('Pri2-0'), category_fk: cat2Result[0].id,
-      priority_status: 'open', sort_order: 0,
+    const priResult = await apiCall('requirements', 'POST', {
+      creator_fk: sub, title: uniqueName('Req2-0'), category_fk: cat2Result[0].id,
+      requirement_status: 'open', sort_order: 0,
     }, idToken) as Array<{ id: string }>;
-    if (priResult?.length) createdPriorityIds.push(priResult[0].id);
+    if (priResult?.length) createdRequirementIds.push(priResult[0].id);
 
     // Reload and verify updated counts
     await page.reload();

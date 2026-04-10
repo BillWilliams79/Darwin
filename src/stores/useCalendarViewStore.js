@@ -7,7 +7,7 @@ export const useCalendarViewStore = create(
         (set) => ({
             viewType: 'dayGridMonth',
             currentDate: new Date().toISOString().slice(0, 10),
-            mode: ['tasks', 'activities', 'priorities'],
+            mode: ['tasks', 'activities', 'requirements'],
             summaryMode: null,   // null | 'week' | 'month'
             summaryDate: null,   // YYYY-MM-DD start of viewed period
 
@@ -28,14 +28,14 @@ export const useCalendarViewStore = create(
         }),
         {
             name: 'darwin_calendar_view',
-            version: 2,
+            version: 3,
             migrate: (persisted, version) => {
                 if (version === 0) {
                     return {
                         ...persisted,
                         mode: typeof persisted.mode === 'string'
                             ? [persisted.mode]
-                            : persisted.mode || ['tasks', 'activities', 'priorities'],
+                            : persisted.mode || ['tasks', 'activities', 'requirements'],
                         summaryMode: null,
                         summaryDate: null,
                     };
@@ -45,6 +45,12 @@ export const useCalendarViewStore = create(
                         ...persisted,
                         summaryMode: null,
                         summaryDate: null,
+                    };
+                }
+                if (version === 2) {
+                    return {
+                        ...persisted,
+                        mode: (persisted.mode || []).map(m => m === 'priorities' ? 'requirements' : m),
                     };
                 }
                 return persisted;

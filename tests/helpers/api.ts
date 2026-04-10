@@ -149,8 +149,8 @@ export async function clickSortMode(page: Page, areaId: string, mode: 'priority'
 
 /**
  * Clean up all stale E2E data for the current test user.
- * Deletes in FK-safe order: priority_sessions → swarm_sessions → projects → domains.
- * CASCADE handles children (categories/priorities under projects, areas/tasks under domains).
+ * Deletes in FK-safe order: requirement_sessions → swarm_sessions → projects → domains.
+ * CASCADE handles children (categories/requirements under projects, areas/tasks under domains).
  * Called once at the start of each test run from auth.setup.ts.
  */
 export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; sessions: number }> {
@@ -159,7 +159,7 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
 
   const summary = { domains: 0, projects: 0, sessions: 0 };
 
-  // 1. Fetch and delete swarm_sessions (and their priority_sessions links)
+  // 1. Fetch and delete swarm_sessions (and their requirement_sessions links)
   try {
     const sessions = await apiCall(
       `swarm_sessions?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
@@ -167,8 +167,8 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
     if (Array.isArray(sessions)) {
       for (const sess of sessions) {
         try {
-          // Delete priority_sessions linking to this session
-          await fetch(`${DARWIN_API}/priority_sessions`, {
+          // Delete requirement_sessions linking to this session
+          await fetch(`${DARWIN_API}/requirement_sessions`, {
             method: 'DELETE',
             headers: { Authorization: idToken },
             body: JSON.stringify({ session_fk: sess.id }),
@@ -180,7 +180,7 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
     }
   } catch { /* best-effort */ }
 
-  // 2. Fetch and delete projects (CASCADE handles categories → priorities)
+  // 2. Fetch and delete projects (CASCADE handles categories → requirements)
   try {
     const projects = await apiCall(
       `projects?creator_fk=${sub}&fields=id`, 'GET', '', idToken,

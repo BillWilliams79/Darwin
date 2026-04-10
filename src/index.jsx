@@ -27,7 +27,7 @@ import CategoryEdit from './CategoryEdit/CategoryEdit';
 import Profile from './NavBar/Profile';
 import Error404 from './Error404/Error404';
 import SwarmView from './SwarmView/SwarmView';
-import PriorityDetail from './SwarmView/detail/PriorityDetail';
+import RequirementDetail from './SwarmView/detail/RequirementDetail';
 import SessionsView from './SwarmView/SessionsView';
 import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
@@ -83,8 +83,8 @@ root.render(
                     <Route path="swarm"        element= {<AuthenticatedRoute>
                                                              <SwarmView />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/priority/:id" element= {<AuthenticatedRoute>
-                                                             <PriorityDetail />
+                    <Route path="swarm/requirement/:id" element= {<AuthenticatedRoute>
+                                                             <RequirementDetail />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/sessions" element= {<AuthenticatedRoute>
                                                              <SessionsView />

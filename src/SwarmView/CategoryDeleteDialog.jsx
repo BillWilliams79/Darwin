@@ -8,7 +8,7 @@ import Button from '@mui/material/Button';
 
 const CategoryDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, categoryDeleteInfo, setCategoryDeleteInfo, setDeleteConfirmed }) => {
 
-    const { categoryName, priorityCount } = categoryDeleteInfo;
+    const { categoryName, requirementCount } = categoryDeleteInfo;
 
     const truncatedName = categoryName && categoryName.length > 20
         ? categoryName.substring(0, 20) + '...'
@@ -24,9 +24,9 @@ const CategoryDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, categoryD
         setDeleteDialogOpen(false);
     };
 
-    const actionText = priorityCount === 0
-        ? `Delete "${truncatedName}"? This category has no priorities.`
-        : `Delete "${truncatedName}" and its ${priorityCount} priorit${priorityCount === 1 ? 'y' : 'ies'}?`;
+    const actionText = requirementCount === 0
+        ? `Delete "${truncatedName}"? This category has no requirements.`
+        : `Delete "${truncatedName}" and its ${requirementCount} requirement${requirementCount === 1 ? '' : 's'}?`;
 
     return (
         <Dialog open={deleteDialogOpen}

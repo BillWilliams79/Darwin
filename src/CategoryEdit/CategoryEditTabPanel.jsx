@@ -1,7 +1,7 @@
 import React, {useState, useContext, useEffect, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useCategories, usePriorityCounts } from '../hooks/useDataQueries';
+import { useCategories, useRequirementCounts } from '../hooks/useDataQueries';
 import { categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -27,16 +27,16 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
     const queryClient = useQueryClient();
 
     const [categoriesArray, setCategoriesArray] = useState();
-    const [priorityCounts, setPriorityCounts] = useState({});
+    const [requirementCounts, setRequirementCounts] = useState({});
     const templateInputRef = useRef(null);
 
     const showError = useSnackBarStore(s => s.showError);
 
-    // TanStack Query — fetch categories for this project (open + closed) and priority counts
+    // TanStack Query — fetch categories for this project (open + closed) and requirement counts
     const { data: serverCategories } = useCategories(profile?.userName, project.id, {
         fields: 'id,category_name,closed,sort_order,color',
     });
-    const { data: serverPriorityCounts } = usePriorityCounts(profile?.userName);
+    const { data: serverRequirementCounts } = useRequirementCounts(profile?.userName);
 
     // Seed local state from query data
     useEffect(() => {
@@ -50,16 +50,16 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
         }
     }, [serverCategories]);
 
-    // Compute priority counts from query data
+    // Compute requirement counts from query data
     useEffect(() => {
-        if (serverPriorityCounts) {
-            const newPriorityCounts = {};
-            serverPriorityCounts.forEach((countData) => {
-                newPriorityCounts[countData.category_fk] = countData['count(*)'];
+        if (serverRequirementCounts) {
+            const newRequirementCounts = {};
+            serverRequirementCounts.forEach((countData) => {
+                newRequirementCounts[countData.category_fk] = countData['count(*)'];
             });
-            setPriorityCounts(newPriorityCounts);
+            setRequirementCounts(newRequirementCounts);
         }
-    }, [serverPriorityCounts]);
+    }, [serverRequirementCounts]);
 
     const categoryDelete = useConfirmDialog({
         onConfirm: ({ categoryId }) => {
@@ -142,9 +142,9 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                     newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'sort_order': null, 'color': DEFAULT_CATEGORY_COLOR });
                     setCategoriesArray(newCategoriesArray);
 
-                    let newPriorityCounts = {...priorityCounts};
-                    newPriorityCounts[result.data[0].id] = 0;
-                    setPriorityCounts(newPriorityCounts);
+                    let newRequirementCounts = {...requirementCounts};
+                    newRequirementCounts[result.data[0].id] = 0;
+                    setRequirementCounts(newRequirementCounts);
 
                     queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                     setTimeout(() => templateInputRef.current?.focus(), 0);
@@ -187,7 +187,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
     }
 
     const clickCategoryDelete = (event, categoryId, categoryName) => {
-        categoryDelete.openDialog({ categoryName, categoryId, prioritiesCount: priorityCounts[categoryId] });
+        categoryDelete.openDialog({ categoryName, categoryId, requirementsCount: requirementCounts[categoryId] });
     }
 
     const categorySortByClosedThenSortOrder = (a, b) => {
@@ -267,7 +267,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                             <Box />
                             <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
-                            <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Priorities</Typography></Box>
+                            <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Requirements</Typography></Box>
                             <Box />
                         </Box>
                         <DragDropContext onDragEnd={dragEnd}>
@@ -287,7 +287,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                                                 blurCategoryName = {blurCategoryName}
                                                 clickCategoryClosed = {clickCategoryClosed}
                                                 clickCategoryDelete = {clickCategoryDelete}
-                                                priorityCounts = {priorityCounts}
+                                                requirementCounts = {requirementCounts}
                                                 isDraggable />
                                         ))}
                                         {provided.placeholder}
@@ -308,7 +308,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                                 blurCategoryName = {blurCategoryName}
                                 clickCategoryClosed = {clickCategoryClosed}
                                 clickCategoryDelete = {clickCategoryDelete}
-                                priorityCounts = {priorityCounts}
+                                requirementCounts = {requirementCounts}
                                 isDraggable={false}
                                 inputRef={category.id === '' ? templateInputRef : undefined} />
                         ))}

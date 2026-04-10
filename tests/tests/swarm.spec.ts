@@ -5,15 +5,15 @@ test.describe('Swarm View', () => {
   let idToken: string;
   let testProjectId: string;
   let testCategoryId: string;
-  let testPriorityId: string;
-  let testIdlePriorityId: string;
+  let testRequirementId: string;
+  let testIdleRequirementId: string;
   let testSessionId: string;
   let testIssueSessionId: string;
 
   const testProjectName = uniqueName('SwarmProj');
   const testCategoryName = uniqueName('SwarmCat');
-  const testPriorityTitle = uniqueName('SwarmPri');
-  const testIdlePriorityTitle = uniqueName('SwarmIdle');
+  const testRequirementTitle = uniqueName('SwarmReq');
+  const testIdleRequirementTitle = uniqueName('SwarmIdle');
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -38,29 +38,29 @@ test.describe('Swarm View', () => {
     if (!catResult?.length) throw new Error('Failed to create test category');
     testCategoryId = catResult[0].id;
 
-    // Create priority
-    const priResult = await apiCall('priorities', 'POST', {
-      creator_fk: sub, title: testPriorityTitle, category_fk: testCategoryId,
-      priority_status: 'in_progress', sort_order: 0,
+    // Create requirement
+    const priResult = await apiCall('requirements', 'POST', {
+      creator_fk: sub, title: testRequirementTitle, category_fk: testCategoryId,
+      requirement_status: 'in_progress', sort_order: 0,
     }, idToken) as Array<{ id: string }>;
-    if (!priResult?.length) throw new Error('Failed to create test priority');
-    testPriorityId = priResult[0].id;
+    if (!priResult?.length) throw new Error('Failed to create test requirement');
+    testRequirementId = priResult[0].id;
 
-    // Create idle priority (not in_progress) for scheduled toggle test
-    const idlePriResult = await apiCall('priorities', 'POST', {
-      creator_fk: sub, title: testIdlePriorityTitle, category_fk: testCategoryId,
-      priority_status: 'idle', sort_order: 1,
+    // Create idle requirement (not in_progress) for scheduled toggle test
+    const idlePriResult = await apiCall('requirements', 'POST', {
+      creator_fk: sub, title: testIdleRequirementTitle, category_fk: testCategoryId,
+      requirement_status: 'idle', sort_order: 1,
     }, idToken) as Array<{ id: string }>;
-    if (!idlePriResult?.length) throw new Error('Failed to create idle test priority');
-    testIdlePriorityId = idlePriResult[0].id;
+    if (!idlePriResult?.length) throw new Error('Failed to create idle test requirement');
+    testIdleRequirementId = idlePriResult[0].id;
 
-    // Create swarm session linked to priority via source_ref
+    // Create swarm session linked to requirement via source_ref
     const sessResult = await apiCall('swarm_sessions', 'POST', {
       creator_fk: sub,
       branch: 'feature/e2e-test',
       task_name: 'e2e-test-task',
       source_type: 'roadmap',
-      source_ref: `priority:${testPriorityId}`,
+      source_ref: `requirement:${testRequirementId}`,
       title: 'E2E Test Session',
       pr_url: 'https://github.com/BillWilliams79/Darwin/pull/99',
       swarm_status: 'active',
@@ -68,9 +68,9 @@ test.describe('Swarm View', () => {
     if (!sessResult?.length) throw new Error('Failed to create test swarm session');
     testSessionId = sessResult[0].id;
 
-    // Link priority to session via junction table
-    await apiCall('priority_sessions', 'POST', {
-      priority_fk: testPriorityId, session_fk: testSessionId,
+    // Link requirement to session via junction table
+    await apiCall('requirement_sessions', 'POST', {
+      requirement_fk: testRequirementId, session_fk: testSessionId,
     }, idToken);
 
     // Create a second session with issue source_ref
@@ -91,11 +91,11 @@ test.describe('Swarm View', () => {
   test.afterAll(async () => {
     test.setTimeout(60000);
     // Delete in FK-safe order
-    try { await apiDelete('priority_sessions', `${testPriorityId}`, idToken); } catch {}
+    try { await apiDelete('requirement_sessions', `${testRequirementId}`, idToken); } catch {}
     try { await apiDelete('swarm_sessions', testSessionId, idToken); } catch {}
     try { await apiDelete('swarm_sessions', testIssueSessionId, idToken); } catch {}
-    try { await apiDelete('priorities', testPriorityId, idToken); } catch {}
-    try { await apiDelete('priorities', testIdlePriorityId, idToken); } catch {}
+    try { await apiDelete('requirements', testRequirementId, idToken); } catch {}
+    try { await apiDelete('requirements', testIdleRequirementId, idToken); } catch {}
     // CASCADE handles categories when project is deleted
     try { await apiDelete('projects', testProjectId, idToken); } catch {}
   });
@@ -113,30 +113,30 @@ test.describe('Swarm View', () => {
     await expect(page.getByTestId(`category-card-${testCategoryId}`)).toBeVisible({ timeout: 10000 });
   });
 
-  test('SWM-12: Priority row visible within category card', async ({ page }) => {
+  test('SWM-12: Requirement row visible within category card', async ({ page }) => {
     await page.goto('/swarm');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
   });
 
-  test('SWM-12a: Priority row shows row number', async ({ page }) => {
+  test('SWM-12a: Requirement row shows row number', async ({ page }) => {
     await page.goto('/swarm');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
-    // Row number "1" should be visible in the priority row
-    const row = page.getByTestId(`priority-${testPriorityId}`);
+    await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
+    // Row number "1" should be visible in the requirement row
+    const row = page.getByTestId(`requirement-${testRequirementId}`);
     await expect(row.locator('p').first()).toContainText('1');
   });
 
-  test('SWM-12b: Scheduled toggle works on idle priority row', async ({ page }) => {
+  test('SWM-12b: Scheduled toggle works on idle requirement row', async ({ page }) => {
     await page.goto('/swarm');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`priority-${testIdlePriorityId}`)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`requirement-${testIdleRequirementId}`)).toBeVisible({ timeout: 10000 });
 
-    const toggleBtn = page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`);
+    const toggleBtn = page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`);
     await expect(toggleBtn).toBeVisible({ timeout: 5000 });
 
     // Click to schedule
@@ -145,36 +145,36 @@ test.describe('Swarm View', () => {
     await page.reload();
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`)).toBeVisible({ timeout: 10000 });
 
     // Click twice more to cycle back to idle (scheduled→auto-start→idle)
-    await page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`).click();
-    await page.getByTestId(`scheduled-toggle-${testIdlePriorityId}`).click();
+    await page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`).click();
+    await page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`).click();
   });
 
-  test('SWM-12c: Scheduled toggle hidden on in-progress priority', async ({ page }) => {
+  test('SWM-12c: Scheduled toggle hidden on in-progress requirement', async ({ page }) => {
     await page.goto('/swarm');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`priority-${testPriorityId}`)).toBeVisible({ timeout: 10000 });
-    // The in-progress priority should NOT have a scheduled toggle
-    await expect(page.getByTestId(`scheduled-toggle-${testPriorityId}`)).not.toBeVisible();
+    await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
+    // The in-progress requirement should NOT have a scheduled toggle
+    await expect(page.getByTestId(`scheduled-toggle-${testRequirementId}`)).not.toBeVisible();
   });
 
-  test('SWM-13: /swarm/priority/:id renders PriorityDetail with correct title', async ({ page }) => {
-    await page.goto(`/swarm/priority/${testPriorityId}`);
-    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
-    const titleInput = page.getByTestId('priority-title').locator('input');
-    await expect(titleInput).toHaveValue(testPriorityTitle, { timeout: 10000 });
+  test('SWM-13: /swarm/requirement/:id renders RequirementDetail with correct title', async ({ page }) => {
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
+    await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
+    const titleInput = page.getByTestId('requirement-title').locator('input');
+    await expect(titleInput).toHaveValue(testRequirementTitle, { timeout: 10000 });
   });
 
-  test('SWM-14: PriorityDetail shows linked sessions grid', async ({ page }) => {
-    await page.goto(`/swarm/priority/${testPriorityId}`);
+  test('SWM-14: RequirementDetail shows linked sessions grid', async ({ page }) => {
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('linked-sessions-grid')).toBeVisible({ timeout: 10000 });
   });
 
-  test('SWM-15: PriorityDetail session chip shows correct status color', async ({ page }) => {
-    await page.goto(`/swarm/priority/${testPriorityId}`);
+  test('SWM-15: RequirementDetail session chip shows correct status color', async ({ page }) => {
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('linked-sessions-grid')).toBeVisible({ timeout: 10000 });
     // 'active' uses custom bgcolor #4caf50
     const statusChip = page.getByTestId('linked-sessions-grid').locator('.MuiChip-root').first();
@@ -195,11 +195,11 @@ test.describe('Swarm View', () => {
     await expect(chip).toHaveCSS('background-color', 'rgb(76, 175, 80)');
   });
 
-  test('SWM-18: Session detail shows priority link — click navigates', async ({ page }) => {
+  test('SWM-18: Session detail shows requirement link — click navigates', async ({ page }) => {
     await page.goto(`/swarm/session/${testSessionId}`);
-    await expect(page.getByTestId('source-priority-link')).toBeVisible({ timeout: 10000 });
-    await page.getByTestId('source-priority-link').click();
-    await expect(page).toHaveURL(new RegExp(`/swarm/priority/${testPriorityId}`));
+    await expect(page.getByTestId('source-requirement-link')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('source-requirement-link').click();
+    await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${testRequirementId}`));
   });
 
   test('SWM-19: Session detail shows GitHub issue link for issue source_ref', async ({ page }) => {
@@ -233,41 +233,41 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm$/);
   });
 
-  test('SWM-24: priority detail shows numerical index', async ({ page }) => {
-    await page.goto(`/swarm/priority/${testPriorityId}`);
-    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
-    const indexEl = page.getByTestId('priority-index');
+  test('SWM-24: requirement detail shows numerical index', async ({ page }) => {
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
+    await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
+    const indexEl = page.getByTestId('requirement-index');
     await expect(indexEl).toBeVisible({ timeout: 10000 });
     await expect(indexEl).toContainText('1.');
   });
 
-  test('SWM-25: up/down navigation between priorities', async ({ page }) => {
-    // Navigate to first priority — prev disabled, next enabled
-    await page.goto(`/swarm/priority/${testPriorityId}`);
-    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+  test('SWM-25: up/down navigation between requirements', async ({ page }) => {
+    // Navigate to first requirement — prev disabled, next enabled
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
+    await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
 
     // Wait for siblings to load (next becomes enabled)
-    await expect(page.getByTestId('btn-next-priority')).not.toBeDisabled({ timeout: 10000 });
-    await expect(page.getByTestId('btn-prev-priority')).toBeDisabled();
+    await expect(page.getByTestId('btn-next-requirement')).not.toBeDisabled({ timeout: 10000 });
+    await expect(page.getByTestId('btn-prev-requirement')).toBeDisabled();
 
-    // Navigate to next priority
-    await page.getByTestId('btn-next-priority').click();
-    await expect(page).toHaveURL(new RegExp(`/swarm/priority/${testIdlePriorityId}`), { timeout: 10000 });
+    // Navigate to next requirement
+    await page.getByTestId('btn-next-requirement').click();
+    await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${testIdleRequirementId}`), { timeout: 10000 });
 
-    // Now at last priority — prev enabled, next disabled
-    await expect(page.getByTestId('btn-prev-priority')).not.toBeDisabled({ timeout: 10000 });
-    await expect(page.getByTestId('btn-next-priority')).toBeDisabled();
+    // Now at last requirement — prev enabled, next disabled
+    await expect(page.getByTestId('btn-prev-requirement')).not.toBeDisabled({ timeout: 10000 });
+    await expect(page.getByTestId('btn-next-requirement')).toBeDisabled();
   });
 
-  test('SWM-26: navigation does not enter closed priorities when Show Closed is off', async ({ page }) => {
+  test('SWM-26: navigation does not enter closed requirements when Show Closed is off', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
-    // Create a closed priority after the two open ones
-    const closedResult = await apiCall('priorities', 'POST', {
+    // Create a closed requirement after the two open ones
+    const closedResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: uniqueName('ClosedNav'), category_fk: testCategoryId,
-      priority_status: 'completed', sort_order: 99,
+      requirement_status: 'completed', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
-    const closedPriorityId = closedResult[0].id;
+    const closedRequirementId = closedResult[0].id;
 
     try {
       // Ensure closed filter chip is OFF (default) by navigating to /swarm first
@@ -280,23 +280,23 @@ test.describe('Swarm View', () => {
         await completedChip.click();
       }
 
-      // Navigate to the idle priority (sort_order=1, second open item — last open item)
-      await page.goto(`/swarm/priority/${testIdlePriorityId}`);
-      await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+      // Navigate to the idle requirement (sort_order=1, second open item — last open item)
+      await page.goto(`/swarm/requirement/${testIdleRequirementId}`);
+      await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
 
-      // prev should be enabled (first open priority exists before this one)
-      await expect(page.getByTestId('btn-prev-priority')).not.toBeDisabled({ timeout: 5000 });
+      // prev should be enabled (first open requirement exists before this one)
+      await expect(page.getByTestId('btn-prev-requirement')).not.toBeDisabled({ timeout: 5000 });
       // next should be DISABLED because the only next item is closed and Show Closed is off
-      await expect(page.getByTestId('btn-next-priority')).toBeDisabled({ timeout: 5000 });
+      await expect(page.getByTestId('btn-next-requirement')).toBeDisabled({ timeout: 5000 });
     } finally {
-      try { await apiDelete('priorities', closedPriorityId, idToken); } catch {}
+      try { await apiDelete('requirements', closedRequirementId, idToken); } catch {}
     }
   });
 
-  test('SWM-27: closed priorities sort by most recently closed first', async ({ page }) => {
+  test('SWM-27: closed requirements sort by most recently closed first', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
-    // Create 3 closed priorities with distinct completed_at timestamps
+    // Create 3 closed requirements with distinct completed_at timestamps
     const now = Date.now();
     const oldClosed = new Date(now - 3 * 86400000).toISOString().slice(0, 19);   // 3 days ago
     const midClosed = new Date(now - 1 * 86400000).toISOString().slice(0, 19);   // 1 day ago
@@ -306,17 +306,17 @@ test.describe('Swarm View', () => {
     const midTitle = uniqueName('ClosedMid');
     const newTitle = uniqueName('ClosedNew');
 
-    const oldResult = await apiCall('priorities', 'POST', {
+    const oldResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: oldTitle, category_fk: testCategoryId,
-      priority_status: 'completed', sort_order: 90, completed_at: oldClosed,
+      requirement_status: 'completed', sort_order: 90, completed_at: oldClosed,
     }, idToken) as Array<{ id: string }>;
-    const midResult = await apiCall('priorities', 'POST', {
+    const midResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: midTitle, category_fk: testCategoryId,
-      priority_status: 'completed', sort_order: 91, completed_at: midClosed,
+      requirement_status: 'completed', sort_order: 91, completed_at: midClosed,
     }, idToken) as Array<{ id: string }>;
-    const newResult = await apiCall('priorities', 'POST', {
+    const newResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: newTitle, category_fk: testCategoryId,
-      priority_status: 'completed', sort_order: 92, completed_at: newClosed,
+      requirement_status: 'completed', sort_order: 92, completed_at: newClosed,
     }, idToken) as Array<{ id: string }>;
 
     const oldId = oldResult[0].id;
@@ -338,17 +338,17 @@ test.describe('Swarm View', () => {
         await completedChip.click();
       }
 
-      // Wait for closed priorities to appear
-      await expect(page.getByTestId(`priority-${newId}`)).toBeVisible({ timeout: 10000 });
+      // Wait for closed requirements to appear
+      await expect(page.getByTestId(`requirement-${newId}`)).toBeVisible({ timeout: 10000 });
 
-      // Extract titles from priority rows in this category card (excluding template)
+      // Extract titles from requirement rows in this category card (excluding template)
       const card = page.getByTestId(`category-card-${testCategoryId}`);
-      const priorityRows = card.locator('[data-testid^="priority-"]:not([data-testid="priority-template"])');
+      const requirementRows = card.locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"])');
 
       const titles: string[] = [];
-      const count = await priorityRows.count();
+      const count = await requirementRows.count();
       for (let i = 0; i < count; i++) {
-        const titleField = priorityRows.nth(i).locator('textarea[name="title"], input[name="title"]').first();
+        const titleField = requirementRows.nth(i).locator('textarea[name="title"], input[name="title"]').first();
         titles.push(await titleField.inputValue());
       }
 
@@ -372,26 +372,26 @@ test.describe('Swarm View', () => {
         await closedChip.click();
       }
     } finally {
-      try { await apiDelete('priorities', oldId, idToken); } catch {}
-      try { await apiDelete('priorities', midId, idToken); } catch {}
-      try { await apiDelete('priorities', newId, idToken); } catch {}
+      try { await apiDelete('requirements', oldId, idToken); } catch {}
+      try { await apiDelete('requirements', midId, idToken); } catch {}
+      try { await apiDelete('requirements', newId, idToken); } catch {}
     }
   });
 
-  test('SWM-23: PriorityDetail delete button removes priority and navigates to /swarm', async ({ page }) => {
+  test('SWM-23: RequirementDetail delete button removes requirement and navigates to /swarm', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const deleteTitle = uniqueName('DeleteMe');
-    const result = await apiCall('priorities', 'POST', {
+    const result = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: deleteTitle, category_fk: testCategoryId,
-      priority_status: 'idle', sort_order: 99,
+      requirement_status: 'idle', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
     const deleteId = result[0].id;
 
-    await page.goto(`/swarm/priority/${deleteId}`);
-    await expect(page.getByTestId('priority-detail')).toBeVisible({ timeout: 10000 });
+    await page.goto(`/swarm/requirement/${deleteId}`);
+    await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId('btn-delete-priority').click();
-    await expect(page.getByTestId('priority-delete-dialog')).toBeVisible({ timeout: 5000 });
+    await page.getByTestId('btn-delete-requirement').click();
+    await expect(page.getByTestId('requirement-delete-dialog')).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Delete' }).click();
 
     await expect(page).toHaveURL(/\/swarm$/, { timeout: 10000 });

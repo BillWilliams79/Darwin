@@ -5,14 +5,14 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
-import { useShowClosedStore, ALL_PRIORITY_STATUSES } from '../stores/useShowClosedStore';
+import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
 import CategoryTabPanel from './CategoryTabPanel';
-import PriorityDragLayer from './PriorityDragLayer';
+import RequirementDragLayer from './RequirementDragLayer';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,7 +29,7 @@ import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 
-const priorityStatusChipProps = (status) => {
+const requirementStatusChipProps = (status) => {
     switch (status) {
         case 'open':      return { color: 'primary' };
         case 'deferred':  return { sx: { bgcolor: '#ff9800', color: '#fff' } };
@@ -52,9 +52,9 @@ const SwarmView = () => {
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingProject = useWorkingProjectStore(s => s.getWorkingProject);
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
-    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
-    const togglePriorityStatus = useShowClosedStore(s => s.togglePriorityStatus);
-    const showClosed = priorityStatusFilter.includes('completed');
+    const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+    const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
+    const showClosed = requirementStatusFilter.includes('completed');
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
@@ -194,16 +194,16 @@ const SwarmView = () => {
                                  value={9999}
                             />
                         </Tabs>
-                        <Stack direction="row" spacing={0.5} sx={{ ml: 1, mr: 1 }} data-testid="priority-status-filter">
-                            {ALL_PRIORITY_STATUSES.map(status => {
-                                const selected = priorityStatusFilter.includes(status);
-                                const chipProps = priorityStatusChipProps(status);
+                        <Stack direction="row" spacing={0.5} sx={{ ml: 1, mr: 1 }} data-testid="requirement-status-filter">
+                            {ALL_REQUIREMENT_STATUSES.map(status => {
+                                const selected = requirementStatusFilter.includes(status);
+                                const chipProps = requirementStatusChipProps(status);
                                 return (
                                     <Chip
                                         key={status}
                                         label={status}
                                         size="small"
-                                        onClick={() => togglePriorityStatus(status)}
+                                        onClick={() => toggleRequirementStatus(status)}
                                         {...(selected ? chipProps : { variant: 'outlined' })}
                                         sx={{
                                             ...(selected ? chipProps.sx : {}),
@@ -248,7 +248,7 @@ const SwarmView = () => {
                          newProjectInfo={projectAdd.infoObject}
                          setNewProjectInfo={projectAdd.setInfoObject}
                          setAddConfirmed={projectAdd.setConfirmed} />
-        <PriorityDragLayer />
+        <RequirementDragLayer />
         </>
     );
 
