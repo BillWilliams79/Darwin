@@ -4,22 +4,22 @@ import { persist } from 'zustand/middleware';
 export const ALL_SESSION_STATUSES = ['starting', 'active', 'paused', 'completing', 'completed'];
 export const DEFAULT_SESSION_STATUSES = ['starting', 'active', 'completing'];
 
-export const ALL_PRIORITY_STATUSES = ['open', 'deferred', 'completed'];
-export const DEFAULT_PRIORITY_STATUSES = ['open'];
+export const ALL_REQUIREMENT_STATUSES = ['open', 'deferred', 'completed'];
+export const DEFAULT_REQUIREMENT_STATUSES = ['open'];
 
 export const useShowClosedStore = create(
     persist(
         (set) => ({
-            priorityStatusFilter: DEFAULT_PRIORITY_STATUSES,
+            requirementStatusFilter: DEFAULT_REQUIREMENT_STATUSES,
             sessionStatusFilter: DEFAULT_SESSION_STATUSES,
 
-            togglePriorityStatus: (status) =>
+            toggleRequirementStatus: (status) =>
                 set((state) => {
-                    const current = state.priorityStatusFilter;
+                    const current = state.requirementStatusFilter;
                     if (current.includes(status)) {
-                        return { priorityStatusFilter: current.filter(s => s !== status) };
+                        return { requirementStatusFilter: current.filter(s => s !== status) };
                     }
-                    return { priorityStatusFilter: [...current, status] };
+                    return { requirementStatusFilter: [...current, status] };
                 }),
 
             toggleSessionStatus: (status) =>
@@ -33,7 +33,7 @@ export const useShowClosedStore = create(
         }),
         {
             name: 'darwin_show_closed',
-            version: 4,
+            version: 5,
             migrate: (persisted, version) => {
                 if (version === 0) {
                     const { showClosedSessions, showClosedPriorities, ...rest } = persisted;
@@ -42,9 +42,9 @@ export const useShowClosedStore = create(
                         sessionStatusFilter: showClosedSessions
                             ? ALL_SESSION_STATUSES
                             : DEFAULT_SESSION_STATUSES,
-                        priorityStatusFilter: showClosedPriorities
+                        requirementStatusFilter: showClosedPriorities
                             ? ['open', 'closed']
-                            : DEFAULT_PRIORITY_STATUSES,
+                            : DEFAULT_REQUIREMENT_STATUSES,
                     };
                 }
                 if (version === 1) {
@@ -52,25 +52,32 @@ export const useShowClosedStore = create(
                     return {
                         ...rest,
                         sessionStatusFilter: DEFAULT_SESSION_STATUSES,
-                        priorityStatusFilter: showClosedPriorities
+                        requirementStatusFilter: showClosedPriorities
                             ? ['open', 'closed']
-                            : DEFAULT_PRIORITY_STATUSES,
+                            : DEFAULT_REQUIREMENT_STATUSES,
                     };
                 }
                 if (version === 2) {
                     const { showClosedPriorities, toggleShowClosedPriorities, ...rest } = persisted;
                     return {
                         ...rest,
-                        priorityStatusFilter: showClosedPriorities
+                        requirementStatusFilter: showClosedPriorities
                             ? ['open', 'closed']
-                            : DEFAULT_PRIORITY_STATUSES,
+                            : DEFAULT_REQUIREMENT_STATUSES,
                     };
                 }
                 if (version === 3) {
                     return {
                         ...persisted,
-                        priorityStatusFilter: (persisted.priorityStatusFilter || DEFAULT_PRIORITY_STATUSES)
+                        requirementStatusFilter: (persisted.priorityStatusFilter || DEFAULT_REQUIREMENT_STATUSES)
                             .map(s => s === 'closed' ? 'completed' : s),
+                    };
+                }
+                if (version === 4) {
+                    const { priorityStatusFilter, togglePriorityStatus, ...rest } = persisted;
+                    return {
+                        ...rest,
+                        requirementStatusFilter: priorityStatusFilter || DEFAULT_REQUIREMENT_STATUSES,
                     };
                 }
                 return persisted;

@@ -76,7 +76,7 @@ describe('fetchExportData', () => {
         expect(result.domains).toBeUndefined();
         expect(result.recurringTasks).toBeUndefined();
         expect(result.mapRoutes).toBeUndefined();
-        expect(result.priorities).toBeUndefined();
+        expect(result.requirements).toBeUndefined();
         expect(result.swarmSessions).toBeUndefined();
     });
 
@@ -215,23 +215,23 @@ describe('fetchExportData', () => {
     describe('Swarm app', () => {
         const SELECTED = { tasks: false, maps: false, swarm: true };
 
-        it('exports priorities with all fields including deferred_at and FKs', async () => {
+        it('exports requirements with all fields including deferred_at and FKs', async () => {
             mockApi({
-                '/priorities': [{ id: 1, title: 'P1', description: 'desc', priority_status: 'idle', scheduled: 0, sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
+                '/requirements': [{ id: 1, title: 'P1', description: 'desc', requirement_status: 'idle', scheduled: 0, sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
             });
 
             const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
-            expect(result.priorities[0].deferred_at).toBe('2026-03-01');
-            expect(result.priorities[0].project_fk).toBe(5);
-            expect(result.priorities[0].category_fk).toBe(10);
+            expect(result.requirements[0].deferred_at).toBe('2026-03-01');
+            expect(result.requirements[0].project_fk).toBe(5);
+            expect(result.requirements[0].category_fk).toBe(10);
         });
 
         it('exports swarm sessions with summary, telemetry, and plan fields', async () => {
             mockApi({
-                '/priorities': [],
+                '/requirements': [],
                 '/swarm_sessions': [{ id: 1, branch: 'feature/x', task_name: 'x', source_type: 'roadmap', source_ref: 'p:1', title: 'X', pr_url: 'https://github.com/x', swarm_status: 'completed', worktree_path: '/tmp/x', started_at: 't', completed_at: 't2', start_summary: 'Started work', complete_summary: 'Done', telemetry: 'data', plan: '## Plan', create_ts: 't', update_ts: null }],
                 '/projects': [],
                 '/categories': [],
@@ -248,7 +248,7 @@ describe('fetchExportData', () => {
 
         it('exports projects and categories with correct field names', async () => {
             mockApi({
-                '/priorities': [],
+                '/requirements': [],
                 '/swarm_sessions': [],
                 '/projects': [{ id: 1, project_name: 'Proj1', sort_order: 1, closed: 0, create_ts: 't', update_ts: null }],
                 '/categories': [{ id: 1, category_name: 'Cat1', project_fk: 1, sort_order: 1, sort_mode: 'hand', color: '#ff0000', closed: 0, create_ts: 't', update_ts: null }],
@@ -275,7 +275,7 @@ describe('fetchExportData', () => {
                 '/map_views': [],
                 '/map_partners': [],
                 '/map_run_partners': [],
-                '/priorities': [],
+                '/requirements': [],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
@@ -287,7 +287,7 @@ describe('fetchExportData', () => {
 
             expect(result.domains).toBeDefined();
             expect(result.mapRoutes).toBeDefined();
-            expect(result.priorities).toBeDefined();
+            expect(result.requirements).toBeDefined();
             expect(result.swarmSessions).toBeDefined();
         });
     });

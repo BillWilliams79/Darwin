@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, priorityKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -175,12 +175,12 @@ export function useAllCategories(creatorFk, { fields = 'id,project_fk', closed, 
     });
 }
 
-export function usePriorityCounts(creatorFk, { enabled = true } = {}) {
+export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?fields=count(*),category_fk`;
-    const queryKey = priorityKeys.counts(creatorFk);
+    const uri = `${darwinUri}/requirements?fields=count(*),category_fk`;
+    const queryKey = requirementKeys.counts(creatorFk);
 
     return useQuery({
         queryKey,
@@ -189,12 +189,12 @@ export function usePriorityCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-export function usePriorities(creatorFk, categoryId, { fields = 'id,title,priority_status,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
+export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,scheduled,category_fk,sort_order,completed_at,deferred_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?category_fk=${categoryId}&fields=${fields}`;
-    const queryKey = priorityKeys.byCategoryWithClosed(creatorFk, categoryId);
+    const uri = `${darwinUri}/requirements?category_fk=${categoryId}&fields=${fields}`;
+    const queryKey = requirementKeys.byCategoryWithClosed(creatorFk, categoryId);
 
     return useQuery({
         queryKey,
@@ -234,12 +234,12 @@ export function useSession(sessionId, { enabled = true } = {}) {
     });
 }
 
-export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,title,completed_at', enabled = true } = {}) {
+export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,title,completed_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?priority_status=completed&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
-    const queryKey = priorityKeys.done(creatorFk, `${startStr}_${endStr}`);
+    const uri = `${darwinUri}/requirements?requirement_status=completed&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
+    const queryKey = requirementKeys.done(creatorFk, `${startStr}_${endStr}`);
 
     return useQuery({
         queryKey,
@@ -248,12 +248,12 @@ export function usePrioritiesDone(creatorFk, startStr, endStr, { fields = 'id,ti
     });
 }
 
-export function useAllPriorities(creatorFk, { fields = 'id,title', enabled = true } = {}) {
+export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/priorities?fields=${fields}`;
-    const queryKey = priorityKeys.all(creatorFk);
+    const uri = `${darwinUri}/requirements?fields=${fields}`;
+    const queryKey = requirementKeys.all(creatorFk);
 
     return useQuery({
         queryKey,

@@ -9,8 +9,8 @@ import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
-import { priorityKeys } from '../../hooks/useQueryKeys';
-import PriorityDeleteDialog from '../PriorityDeleteDialog';
+import { requirementKeys } from '../../hooks/useQueryKeys';
+import RequirementDeleteDialog from '../RequirementDeleteDialog';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -79,15 +79,15 @@ const siblingCreatedSort = (a, b) => a.id - b.id;
 const STATUS_SORT_ORDER = { idle: 0, in_progress: 0, deferred: 1, completed: 2 };
 
 const siblingActiveSort = (sortMode, a, b) => {
-    const aState = STATUS_SORT_ORDER[a.priority_status] ?? 0;
-    const bState = STATUS_SORT_ORDER[b.priority_status] ?? 0;
+    const aState = STATUS_SORT_ORDER[a.requirement_status] ?? 0;
+    const bState = STATUS_SORT_ORDER[b.requirement_status] ?? 0;
     if (aState !== bState) return aState - bState;
-    if (a.priority_status === 'completed' && b.priority_status === 'completed') {
+    if (a.requirement_status === 'completed' && b.requirement_status === 'completed') {
         const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
         const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
         if (aTime !== bTime) return bTime - aTime;
     }
-    if (a.priority_status === 'deferred' && b.priority_status === 'deferred') {
+    if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
         const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
         const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
         if (aTime !== bTime) return bTime - aTime;
@@ -95,7 +95,7 @@ const siblingActiveSort = (sortMode, a, b) => {
     return sortMode === 'hand' ? siblingHandSort(a, b) : siblingCreatedSort(a, b);
 };
 
-const PriorityDetail = () => {
+const RequirementDetail = () => {
 
     const { id } = useParams();
     const navigate = useNavigate();
@@ -107,59 +107,59 @@ const PriorityDetail = () => {
     const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
 
-    const [priority, setPriority] = useState(null);
+    const [requirement, setRequirement] = useState(null);
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
-    const priorityStatusFilter = useShowClosedStore(s => s.priorityStatusFilter);
-    // Map chip filter values to DB priority_status values for sibling query
+    const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+    // Map chip filter values to DB requirement_status values for sibling query
     const siblingStatuses = [];
-    if (priorityStatusFilter.includes('open')) siblingStatuses.push('idle', 'in_progress');
-    if (priorityStatusFilter.includes('deferred')) siblingStatuses.push('deferred');
-    if (priorityStatusFilter.includes('completed')) siblingStatuses.push('completed');
-    const showClosed = priorityStatusFilter.includes('completed');
+    if (requirementStatusFilter.includes('open')) siblingStatuses.push('idle', 'in_progress');
+    if (requirementStatusFilter.includes('deferred')) siblingStatuses.push('deferred');
+    if (requirementStatusFilter.includes('completed')) siblingStatuses.push('completed');
+    const showClosed = requirementStatusFilter.includes('completed');
 
     const queryClient = useQueryClient();
 
-    const priorityDelete = useConfirmDialog({
-        onConfirm: ({ priorityId }) => {
-            const uri = `${darwinUri}/priorities`;
-            call_rest_api(uri, 'DELETE', { id: priorityId }, idToken)
+    const requirementDelete = useConfirmDialog({
+        onConfirm: ({ requirementId }) => {
+            const uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'DELETE', { id: requirementId }, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
-                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                         navigate('/swarm');
                     } else {
-                        showError(result, 'Unable to delete priority');
+                        showError(result, 'Unable to delete requirement');
                     }
                 })
-                .catch(error => showError(error, 'Unable to delete priority'));
+                .catch(error => showError(error, 'Unable to delete requirement'));
         }
     });
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const priorityUri = `${darwinUri}/priorities?id=${id}`;
-                const result = await call_rest_api(priorityUri, 'GET', '', idToken);
+                const requirementUri = `${darwinUri}/requirements?id=${id}`;
+                const result = await call_rest_api(requirementUri, 'GET', '', idToken);
 
                 if (result.httpStatus.httpStatus !== 200 || result.data.length === 0) {
-                    showError(result, 'Unable to load priority');
+                    showError(result, 'Unable to load requirement');
                     setLoading(false);
                     return;
                 }
 
                 const p = result.data[0];
-                setPriority(p);
+                setRequirement(p);
 
                 // Fetch sessions, siblings, and category sort_mode in parallel
-                const siblingFilter = siblingStatuses.length === 4 ? '' : `&priority_status=(${siblingStatuses.join(',')})`;
+                const siblingFilter = siblingStatuses.length === 4 ? '' : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
-                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=priority:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/priorities?category_fk=${p.category_fk}&fields=id,priority_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -173,7 +173,7 @@ const PriorityDetail = () => {
                     setSibSortMode(categoryResult.data[0].sort_mode || 'hand');
                 }
             } catch (error) {
-                showError(error, 'Unable to load priority');
+                showError(error, 'Unable to load requirement');
             } finally {
                 setLoading(false);
             }
@@ -183,13 +183,13 @@ const PriorityDetail = () => {
     }, [id, idToken, darwinUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
-        let uri = `${darwinUri}/priorities`;
+        let uri = `${darwinUri}/requirements`;
         call_rest_api(uri, 'PUT', [{ id: parseInt(id), [field]: value }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     showError(result, `Unable to update ${field}`);
                 } else {
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                 }
             }).catch(error => {
                 showError(error, `Unable to update ${field}`);
@@ -197,75 +197,75 @@ const PriorityDetail = () => {
     };
 
     const handleTitleBlur = () => {
-        if (priority) saveField('title', priority.title);
+        if (requirement) saveField('title', requirement.title);
     };
 
     const handleTitleKeyDown = (event) => {
         if (event.key === 'Enter') {
             event.preventDefault();
-            saveField('title', priority.title);
+            saveField('title', requirement.title);
         }
     };
 
     const handleDescriptionBlur = () => {
-        if (priority) saveField('description', priority.description || '');
+        if (requirement) saveField('description', requirement.description || '');
     };
 
     const handleScheduledToggle = (event, newVal) => {
         if (newVal === null) return;
         const scheduledMap = { idle: 0, scheduled: 1, auto: 2 };
         const numVal = scheduledMap[newVal];
-        setPriority(prev => ({ ...prev, scheduled: numVal }));
+        setRequirement(prev => ({ ...prev, scheduled: numVal }));
         saveField('scheduled', numVal);
     };
 
-    const scheduledState = priority?.scheduled === 2 ? 'auto' : priority?.scheduled === 1 ? 'scheduled' : 'idle';
+    const scheduledState = requirement?.scheduled === 2 ? 'auto' : requirement?.scheduled === 1 ? 'scheduled' : 'idle';
 
-    // Map DB priority_status to toggle button value: idle/in_progress → 'open'
-    const currentState = priority
-        ? (priority.priority_status === 'completed' ? 'closed'
-            : priority.priority_status === 'deferred' ? 'deferred'
+    // Map DB requirement_status to toggle button value: idle/in_progress → 'open'
+    const currentState = requirement
+        ? (requirement.requirement_status === 'completed' ? 'closed'
+            : requirement.requirement_status === 'deferred' ? 'deferred'
             : 'open')
         : 'open';
 
     // Confirmation dialog for transitions FROM completed state
-    const priorityReopen = useConfirmDialog({
+    const requirementReopen = useConfirmDialog({
         onConfirm: ({ targetState }) => {
             executeStateChange(targetState);
         }
     });
 
     const executeStateChange = (newState) => {
-        // Map toggle values to priority_status
+        // Map toggle values to requirement_status
         const statusMap = { open: 'idle', deferred: 'deferred', closed: 'completed' };
         const newStatus = statusMap[newState];
         const now = new Date().toISOString();
 
         const updates = {
-            priority_status: newStatus,
+            requirement_status: newStatus,
             started_at: 'NULL',
             completed_at: newState === 'closed' ? now : 'NULL',
             deferred_at: newState === 'deferred' ? now : 'NULL',
         };
 
-        setPriority(prev => ({
+        setRequirement(prev => ({
             ...prev,
-            priority_status: newStatus,
+            requirement_status: newStatus,
             started_at: null,
             completed_at: newState === 'closed' ? now : null,
             deferred_at: newState === 'deferred' ? now : null,
         }));
 
-        let uri = `${darwinUri}/priorities`;
+        let uri = `${darwinUri}/requirements`;
         call_rest_api(uri, 'PUT', [{ id: parseInt(id), ...updates }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                    showError(result, 'Unable to update priority state');
+                    showError(result, 'Unable to update requirement state');
                 } else {
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                 }
             }).catch(error => {
-                showError(error, 'Unable to update priority state');
+                showError(error, 'Unable to update requirement state');
             });
     };
 
@@ -274,7 +274,7 @@ const PriorityDetail = () => {
 
         // Require confirmation when leaving completed state
         if (currentState === 'closed') {
-            priorityReopen.openDialog({ targetState: newState });
+            requirementReopen.openDialog({ targetState: newState });
             return;
         }
 
@@ -296,10 +296,10 @@ const PriorityDetail = () => {
     const displayIndex = currentIndex >= 0 ? currentIndex + 1 : null;
 
     if (loading) return <CircularProgress />;
-    if (!priority) return <Typography>Priority not found.</Typography>;
+    if (!requirement) return <Typography>Requirement not found.</Typography>;
 
     return (
-        <Box sx={{ p: 3, maxWidth: 800 }} data-testid="priority-detail">
+        <Box sx={{ p: 3, maxWidth: 800 }} data-testid="requirement-detail">
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 <Button variant="outlined"
                         onClick={handleBack}
@@ -310,15 +310,15 @@ const PriorityDetail = () => {
 
             <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
                 <Typography
-                    data-testid="priority-index"
+                    data-testid="requirement-index"
                     sx={{ fontSize: 24, fontWeight: 500, color: 'text.secondary', lineHeight: 1.4, pb: '3px', whiteSpace: 'nowrap' }}
                 >
                     {displayIndex !== null ? `${displayIndex}.` : ''}
                 </Typography>
                 <TextField
                     variant="standard"
-                    value={priority.title || ''}
-                    onChange={(e) => setPriority(prev => ({ ...prev, title: e.target.value }))}
+                    value={requirement.title || ''}
+                    onChange={(e) => setRequirement(prev => ({ ...prev, title: e.target.value }))}
                     onBlur={handleTitleBlur}
                     onKeyDown={handleTitleKeyDown}
                     fullWidth
@@ -327,7 +327,7 @@ const PriorityDetail = () => {
                         input: { style: { fontSize: 24, fontWeight: 500 } },
                         htmlInput: { maxLength: 256 }
                     }}
-                    data-testid="priority-title"
+                    data-testid="requirement-title"
                 />
             </Box>
 
@@ -335,7 +335,7 @@ const PriorityDetail = () => {
                 {(() => {
                     const activeStatuses = ['starting', 'active', 'completing'];
                     const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
-                    const isDisabled = hasActiveSession || priority.priority_status === 'completed' || priority.priority_status === 'deferred';
+                    const isDisabled = hasActiveSession || requirement.requirement_status === 'completed' || requirement.requirement_status === 'deferred';
                     return (
                         <ToggleButtonGroup
                             value={scheduledState}
@@ -366,7 +366,7 @@ const PriorityDetail = () => {
                 {(() => {
                     const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
                     const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
-                    const status = priority.priority_status;
+                    const status = requirement.requirement_status;
                     const label = status === 'completed' ? "Completed" :
                         status === 'deferred' ? "Deferred" :
                         hasPausedSession ? "Paused" :
@@ -392,7 +392,7 @@ const PriorityDetail = () => {
                     exclusive
                     onChange={handleStateChange}
                     size="small"
-                    data-testid="priority-state-selector"
+                    data-testid="requirement-state-selector"
                 >
                     <ToggleButton value="open" data-testid="state-open"
                         sx={{ textTransform: 'capitalize', ...(currentState === 'open' && { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' }, '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } } }) }}
@@ -404,34 +404,34 @@ const PriorityDetail = () => {
                         sx={{ textTransform: 'capitalize', ...(currentState === 'closed' && { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' }, '&.Mui-selected': { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' } } }) }}
                     >Closed</ToggleButton>
                 </ToggleButtonGroup>
-                <Tooltip title="Previous priority" enterDelay={400}>
+                <Tooltip title="Previous requirement" enterDelay={400}>
                     <span>
                         <IconButton
-                            onClick={() => navigate(`/swarm/priority/${prevId}`)}
+                            onClick={() => navigate(`/swarm/requirement/${prevId}`)}
                             disabled={!prevId}
-                            data-testid="btn-prev-priority"
+                            data-testid="btn-prev-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
                         >
                             <NorthIcon />
                         </IconButton>
                     </span>
                 </Tooltip>
-                <Tooltip title="Next priority" enterDelay={400}>
+                <Tooltip title="Next requirement" enterDelay={400}>
                     <span>
                         <IconButton
-                            onClick={() => navigate(`/swarm/priority/${nextId}`)}
+                            onClick={() => navigate(`/swarm/requirement/${nextId}`)}
                             disabled={!nextId}
-                            data-testid="btn-next-priority"
+                            data-testid="btn-next-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
                         >
                             <SouthIcon />
                         </IconButton>
                     </span>
                 </Tooltip>
-                <Tooltip title="Delete priority" enterDelay={400} enterNextDelay={200}>
+                <Tooltip title="Delete requirement" enterDelay={400} enterNextDelay={200}>
                     <IconButton
-                        onClick={() => priorityDelete.openDialog({ priorityId: parseInt(id) })}
-                        data-testid="btn-delete-priority"
+                        onClick={() => requirementDelete.openDialog({ requirementId: parseInt(id) })}
+                        data-testid="btn-delete-requirement"
                         sx={{ maxWidth: '25px', maxHeight: '25px' }}
                     >
                         <DeleteIcon />
@@ -443,8 +443,8 @@ const PriorityDetail = () => {
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
                 <TextField
                     variant="outlined"
-                    value={priority.description || ''}
-                    onChange={(e) => setPriority(prev => ({ ...prev, description: e.target.value }))}
+                    value={requirement.description || ''}
+                    onChange={(e) => setRequirement(prev => ({ ...prev, description: e.target.value }))}
                     onBlur={handleDescriptionBlur}
                     fullWidth
                     multiline
@@ -452,36 +452,36 @@ const PriorityDetail = () => {
                     autoComplete="off"
                     autoFocus
                     size="small"
-                    data-testid="priority-description"
+                    data-testid="requirement-description"
                 />
             </Box>
 
             <Box sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>ID</Typography>
-                <Typography variant="body2" data-testid="priority-id">
-                    {priority.id}
+                <Typography variant="body2" data-testid="requirement-id">
+                    {requirement.id}
                 </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', gap: 4, mb: 3 }}>
-                {/* Priority timings — left column */}
+                {/* Requirement timings — left column */}
                 <Box sx={{ flex: 1 }}>
                     <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Created</Typography>
-                        <Typography variant="body2" data-testid="priority-create-ts">
-                            {priority.create_ts ? formatDateTime(priority.create_ts, timezone) : '—'}
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Requirement Created</Typography>
+                        <Typography variant="body2" data-testid="requirement-create-ts">
+                            {requirement.create_ts ? formatDateTime(requirement.create_ts, timezone) : '—'}
                         </Typography>
                     </Box>
                     <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Updated</Typography>
-                        <Typography variant="body2" data-testid="priority-update-ts">
-                            {priority.update_ts ? formatDateTime(priority.update_ts, timezone) : '—'}
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Requirement Updated</Typography>
+                        <Typography variant="body2" data-testid="requirement-update-ts">
+                            {requirement.update_ts ? formatDateTime(requirement.update_ts, timezone) : '—'}
                         </Typography>
                     </Box>
                     <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Priority Deferred</Typography>
-                        <Typography variant="body2" data-testid="priority-deferred-at">
-                            {priority.deferred_at ? formatDateTime(priority.deferred_at, timezone) : '—'}
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Requirement Deferred</Typography>
+                        <Typography variant="body2" data-testid="requirement-deferred-at">
+                            {requirement.deferred_at ? formatDateTime(requirement.deferred_at, timezone) : '—'}
                         </Typography>
                     </Box>
                 </Box>
@@ -489,14 +489,14 @@ const PriorityDetail = () => {
                 <Box sx={{ flex: 1 }}>
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Started</Typography>
-                        <Typography variant="body2" data-testid="priority-started-at">
-                            {priority.started_at ? formatDateTime(priority.started_at, timezone) : '—'}
+                        <Typography variant="body2" data-testid="requirement-started-at">
+                            {requirement.started_at ? formatDateTime(requirement.started_at, timezone) : '—'}
                         </Typography>
                     </Box>
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Completed</Typography>
-                        <Typography variant="body2" data-testid="priority-completed-at">
-                            {priority.completed_at ? formatDateTime(priority.completed_at, timezone) : '—'}
+                        <Typography variant="body2" data-testid="requirement-completed-at">
+                            {requirement.completed_at ? formatDateTime(requirement.completed_at, timezone) : '—'}
                         </Typography>
                     </Box>
                 </Box>
@@ -505,7 +505,7 @@ const PriorityDetail = () => {
             <Typography variant="h6" gutterBottom>Linked Sessions</Typography>
             {sessions.length === 0 ? (
                 <Typography variant="body2" color="text.secondary" data-testid="no-linked-sessions">
-                    No sessions linked to this priority.
+                    No sessions linked to this requirement.
                 </Typography>
             ) : (
                 <Box data-testid="linked-sessions-grid">
@@ -521,33 +521,33 @@ const PriorityDetail = () => {
                 </Box>
             )}
 
-            <PriorityDeleteDialog
-                deleteDialogOpen={priorityDelete.dialogOpen}
-                setDeleteDialogOpen={priorityDelete.setDialogOpen}
-                setDeleteId={priorityDelete.setInfoObject}
-                setDeleteConfirmed={priorityDelete.setConfirmed}
+            <RequirementDeleteDialog
+                deleteDialogOpen={requirementDelete.dialogOpen}
+                setDeleteDialogOpen={requirementDelete.setDialogOpen}
+                setDeleteId={requirementDelete.setInfoObject}
+                setDeleteConfirmed={requirementDelete.setConfirmed}
             />
 
             <Dialog
-                open={priorityReopen.dialogOpen}
-                onClose={() => { priorityReopen.setDialogOpen(false); priorityReopen.setInfoObject({}); }}
-                data-testid="priority-reopen-dialog"
+                open={requirementReopen.dialogOpen}
+                onClose={() => { requirementReopen.setDialogOpen(false); requirementReopen.setInfoObject({}); }}
+                data-testid="requirement-reopen-dialog"
             >
                 <DialogTitle>
-                    {priorityReopen.infoObject.targetState === 'deferred' ? 'Defer Priority' : 'Re-open Priority'}
+                    {requirementReopen.infoObject.targetState === 'deferred' ? 'Defer Requirement' : 'Re-open Requirement'}
                 </DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        {priorityReopen.infoObject.targetState === 'deferred'
-                            ? 'This will clear the completion date and mark the priority as deferred. Continue?'
+                        {requirementReopen.infoObject.targetState === 'deferred'
+                            ? 'This will clear the completion date and mark the requirement as deferred. Continue?'
                             : 'Re-opening will clear the completion date. Continue?'}
                     </DialogContentText>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => { priorityReopen.setConfirmed(true); priorityReopen.setDialogOpen(false); }} variant="outlined">
-                        {priorityReopen.infoObject.targetState === 'deferred' ? 'Defer' : 'Re-open'}
+                    <Button onClick={() => { requirementReopen.setConfirmed(true); requirementReopen.setDialogOpen(false); }} variant="outlined">
+                        {requirementReopen.infoObject.targetState === 'deferred' ? 'Defer' : 'Re-open'}
                     </Button>
-                    <Button onClick={() => { priorityReopen.setDialogOpen(false); priorityReopen.setInfoObject({}); }} variant="outlined" autoFocus>
+                    <Button onClick={() => { requirementReopen.setDialogOpen(false); requirementReopen.setInfoObject({}); }} variant="outlined" autoFocus>
                         Cancel
                     </Button>
                 </DialogActions>
@@ -556,4 +556,4 @@ const PriorityDetail = () => {
     );
 };
 
-export default PriorityDetail;
+export default RequirementDetail;

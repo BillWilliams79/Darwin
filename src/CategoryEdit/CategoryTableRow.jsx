@@ -14,7 +14,7 @@ export const CATEGORY_GRID_COLUMNS = {
     md: '36px 220px 70px 80px 48px',
 };
 
-const CategoryTableRow = ({category, categoryIndex, changeCategoryName, changeCategoryColor, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, priorityCounts, isDraggable, inputRef}) => {
+const CategoryTableRow = ({category, categoryIndex, changeCategoryName, changeCategoryColor, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, requirementCounts, isDraggable, inputRef}) => {
 
     const row = (provided = {}, snapshot = {}) => (
         <Box
@@ -72,8 +72,8 @@ const CategoryTableRow = ({category, categoryIndex, changeCategoryName, changeCa
             <Box sx={{ textAlign: 'center' }}>
                 <Typography variant='body1'>
                     { category.id === '' ? '' :
-                        priorityCounts[`${category.id}`] === undefined ? 0 :
-                            priorityCounts[`${category.id}`] === '' ? '' : priorityCounts[`${category.id}`]
+                        requirementCounts[`${category.id}`] === undefined ? 0 :
+                            requirementCounts[`${category.id}`] === '' ? '' : requirementCounts[`${category.id}`]
                     }
                 </Typography>
             </Box>

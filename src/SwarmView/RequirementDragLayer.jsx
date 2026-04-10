@@ -19,7 +19,7 @@ const layerStyles = {
     height: '100%',
 };
 
-const PriorityDragLayer = () => {
+const RequirementDragLayer = () => {
     const { itemType, isDragging, item, currentOffset } = useDragLayer((monitor) => ({
         item: monitor.getItem(),
         itemType: monitor.getItemType(),
@@ -37,7 +37,7 @@ const PriorityDragLayer = () => {
         return () => { document.body.style.userSelect = ''; };
     }, [isDragging]);
 
-    if (!isDragging || !currentOffset || itemType !== 'priorityRow') {
+    if (!isDragging || !currentOffset || itemType !== 'requirementRow') {
         return null;
     }
 
@@ -45,7 +45,7 @@ const PriorityDragLayer = () => {
 
     return (
         <div style={layerStyles}>
-            <Box className="task priority-row" sx={{
+            <Box className="task requirement-row" sx={{
                 transform,
                 WebkitTransform: transform,
                 transformOrigin: 'top left',
@@ -68,7 +68,7 @@ const PriorityDragLayer = () => {
                     value={item?.title || ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
-                    sx={{...(item?.priority_status === 'completed' && { textDecoration: 'line-through' })}}
+                    sx={{...(item?.requirement_status === 'completed' && { textDecoration: 'line-through' })}}
                 />
                 <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
                     <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
@@ -83,4 +83,4 @@ const PriorityDragLayer = () => {
     );
 };
 
-export default PriorityDragLayer;
+export default RequirementDragLayer;

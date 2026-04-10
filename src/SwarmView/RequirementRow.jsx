@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDrag, useDrop } from "react-dnd";
 import { getEmptyImage } from "react-dnd-html5-backend";
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
-import { usePriorityActions } from '../hooks/usePriorityActions';
+import { useRequirementActions } from '../hooks/useRequirementActions';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -23,49 +23,49 @@ import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 
-const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categoryName }) => {
+const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
     const { scheduledClick, titleChange, titleKeyDown,
-        titleOnBlur, deleteClick, prioritiesArray, setPrioritiesArray,
-        sortMode, setCrossCardInsertIndex, sessionStatusMap } = usePriorityActions();
+        titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
+        sortMode, setCrossCardInsertIndex, sessionStatusMap } = useRequirementActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
     const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: "priorityRow",
+        type: "requirementRow",
         item: () => {
             const rect = rowRef.current?.getBoundingClientRect();
-            return {...priority, priorityIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
+            return {...requirement, requirementIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
         },
         canDrag: () => true,
         end: (item, monitor) => {
             const dropResult = monitor.getDropResult();
-            if (!dropResult || dropResult.priority === null) {
+            if (!dropResult || dropResult.requirement === null) {
                 setCrossCardInsertIndex(null);
                 revertDragTabSwitch();
                 return;
             }
-            removePriorityFromCategory(item, monitor);
+            removeRequirementFromCategory(item, monitor);
         },
         collect: (monitor) => ({
           isDragging: !!monitor.isDragging(),
         }),
-    }),[prioritiesArray, priorityIndex]);
+    }),[requirementsArray, requirementIndex]);
 
     useEffect(() => {
         preview(getEmptyImage());
     }, [preview]);
 
-    const [{ isPriorityOver }, priorityDrop] = useDrop(() => ({
-        accept: "priorityRow",
+    const [{ isRequirementOver }, requirementDrop] = useDrop(() => ({
+        accept: "requirementRow",
         canDrop: () => false,
         hover: (dragItem, monitor) => {
             if (sortMode !== 'hand') return;
-            if (priority.id === '') return;
+            if (requirement.id === '') return;
 
-            if (dragItem.category_fk === priority.category_fk && dragItem.priorityIndex === priorityIndex) return;
+            if (dragItem.category_fk === requirement.category_fk && dragItem.requirementIndex === requirementIndex) return;
 
             const hoverRect = rowRef.current?.getBoundingClientRect();
             if (!hoverRect) return;
@@ -76,45 +76,45 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
             if (hoverClientY < hoverMiddleY) {
                 setInsertIndicator('above');
-                setCrossCardInsertIndex(priorityIndex);
+                setCrossCardInsertIndex(requirementIndex);
             } else {
                 setInsertIndicator('below');
-                setCrossCardInsertIndex(priorityIndex + 1);
+                setCrossCardInsertIndex(requirementIndex + 1);
             }
         },
         collect: (monitor) => ({
-            isPriorityOver: monitor.isOver(),
+            isRequirementOver: monitor.isOver(),
         }),
-    }), [sortMode, priority.id, priority.category_fk, priorityIndex, setCrossCardInsertIndex]);
+    }), [sortMode, requirement.id, requirement.category_fk, requirementIndex, setCrossCardInsertIndex]);
 
     useEffect(() => {
-        if (!isPriorityOver) setInsertIndicator(null);
-    }, [isPriorityOver]);
+        if (!isRequirementOver) setInsertIndicator(null);
+    }, [isRequirementOver]);
 
-    const removePriorityFromCategory = async (item, monitor) => {
+    const removeRequirementFromCategory = async (item, monitor) => {
         var dropResult = monitor.getDropResult();
-        if (!dropResult || dropResult.priority === null) {
+        if (!dropResult || dropResult.requirement === null) {
             revertDragTabSwitch();
             return;
         }
         clearDragTabSwitch();
-        var newPrioritiesArray = [...prioritiesArray];
-        newPrioritiesArray = newPrioritiesArray.filter( p => p.id !== item.id);
-        setPrioritiesArray(newPrioritiesArray);
+        var newRequirementsArray = [...requirementsArray];
+        newRequirementsArray = newRequirementsArray.filter( p => p.id !== item.id);
+        setRequirementsArray(newRequirementsArray);
     }
 
     const rowRef = useRef(null);
     const mergedRef = useCallback((node) => {
         rowRef.current = node;
         drag(node);
-        priorityDrop(node);
-    }, [drag, priorityDrop]);
+        requirementDrop(node);
+    }, [drag, requirementDrop]);
 
     // Determine status for indicator
-    const sessionStatus = sessionStatusMap && sessionStatusMap[priority.id];
-    const status = priority.priority_status;
+    const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
+    const status = requirement.requirement_status;
     const getStatusIcon = () => {
-        if (priority.id === '') return null;
+        if (requirement.id === '') return null;
         if (status === 'completed') {
             return <Tooltip title="Completed" enterDelay={400} enterNextDelay={200}><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
         }
@@ -134,10 +134,10 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
     };
 
     return (
-        <Box className="task priority-row"
-             data-testid={priority.id === '' ? 'priority-template' : `priority-${priority.id}`}
-             key={`box-${priority.id}`}
-             ref={priority.id === '' ? null :
+        <Box className="task requirement-row"
+             data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
+             key={`box-${requirement.id}`}
+             ref={requirement.id === '' ? null :
                   supportDrag === false ? null : mergedRef}
              sx = {{
                  ...(isDragging && sortMode === 'hand' && {
@@ -158,14 +158,14 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                 variant="body2"
                 sx={{ color: 'text.secondary', textAlign: 'center', minWidth: 24, userSelect: 'none' }}
             >
-                {priority.id !== '' ? priorityIndex + 1 : ''}
+                {requirement.id !== '' ? requirementIndex + 1 : ''}
             </Typography>
 
             {/* Col 2: Scheduled toggle — hidden when closed or in-progress, disabled when session is active */}
-            <Box className="priority-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {priority.id !== '' && status === 'idle' ? (() => {
+            <Box className="requirement-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                {requirement.id !== '' && status === 'idle' ? (() => {
                     const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
-                    const scheduledVal = priority.scheduled || 0;
+                    const scheduledVal = requirement.scheduled || 0;
                     const iconColor = isActiveSession ? 'text.disabled'
                         : scheduledVal === 2 ? 'success.main'
                         : scheduledVal === 1 ? 'primary.main'
@@ -175,9 +175,9 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         : "Schedule for Swarm-Start";
                     const btn = (
                         <IconButton
-                            onClick={() => scheduledClick(priorityIndex, priority.id)}
+                            onClick={() => scheduledClick(requirementIndex, requirement.id)}
                             disabled={isActiveSession}
-                            data-testid={`scheduled-toggle-${priority.id}`}
+                            data-testid={`scheduled-toggle-${requirement.id}`}
                             sx={{ maxWidth: 28, maxHeight: 28 }}
                         >
                             {scheduledVal > 0 ?
@@ -196,10 +196,10 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
             {/* Col 3: Details link */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {priority.id !== '' ? (
+                {requirement.id !== '' ? (
                     <Tooltip title="Details" enterDelay={400} enterNextDelay={200}>
-                        <IconButton onClick={() => navigate(`/swarm/priority/${priority.id}`)}
-                                    key={`navigate-${priority.id}`}
+                        <IconButton onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}
+                                    key={`navigate-${requirement.id}`}
                                     sx={{ maxWidth: 25, maxHeight: 25 }}
                         >
                             <SettingsIcon sx={{ fontSize: 18 }} />
@@ -217,11 +217,11 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
 
             {/* Col 5: Title */}
             <TextField variant="outlined"
-                        value={priority.title || ''}
+                        value={requirement.title || ''}
                         name='title'
-                        onChange = {(event) => titleChange(event, priorityIndex) }
-                        onKeyDown = {(event) => titleKeyDown(event, priorityIndex, priority.id)}
-                        onBlur = {(event) => titleOnBlur(event, priorityIndex, priority.id)}
+                        onChange = {(event) => titleChange(event, requirementIndex) }
+                        onKeyDown = {(event) => titleKeyDown(event, requirementIndex, requirement.id)}
+                        onBlur = {(event) => titleOnBlur(event, requirementIndex, requirement.id)}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                         multiline
@@ -230,29 +230,29 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
                         sx = {{...(status === 'completed' && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
-                        key={`title-${priority.id}`}
+                        key={`title-${requirement.id}`}
              />
 
             {/* Col 6: Delete / Savings */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            { priority.id === '' ?
-                    <IconButton key={`savings-${priority.id}`}
+            { requirement.id === '' ?
+                    <IconButton key={`savings-${requirement.id}`}
                                 disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                                 sx = {{maxWidth: "25px",
                                        maxHeight: "25px",
                                 }}
                     >
-                        <SavingsIcon key={`savings1-${priority.id}`}/>
+                        <SavingsIcon key={`savings1-${requirement.id}`}/>
                     </IconButton>
                 :
-                    <Tooltip title="Delete priority" enterDelay={400} enterNextDelay={200}>
-                        <IconButton onClick={(event) => deleteClick(event, priority.id)}
-                                    key={`delete-${priority.id}`}
+                    <Tooltip title="Delete requirement" enterDelay={400} enterNextDelay={200}>
+                        <IconButton onClick={(event) => deleteClick(event, requirement.id)}
+                                    key={`delete-${requirement.id}`}
                                     sx = {{maxWidth: "25px",
                                            maxHeight: "25px",
                                     }}
                         >
-                            <DeleteIcon key={`delete1-${priority.id}`} />
+                            <DeleteIcon key={`delete1-${requirement.id}`} />
                         </IconButton>
                     </Tooltip>
             }
@@ -261,4 +261,4 @@ const PriorityRow = ({ supportDrag, priority, priorityIndex, categoryId, categor
     )
 }
 
-export default PriorityRow
+export default RequirementRow
