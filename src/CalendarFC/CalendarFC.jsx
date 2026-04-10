@@ -15,8 +15,8 @@ import { toLocaleDateString } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
-import { useTasksDone, usePrioritiesDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
-import { taskKeys, priorityKeys } from '../hooks/useQueryKeys';
+import { useTasksDone, useRequirementsDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
+import { taskKeys, requirementKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import DayView from './DayView';
@@ -84,11 +84,11 @@ const CalendarFC = () => {
     const [calendarTitle, setCalendarTitle] = useState('');
 
     // ── Shared state ─────────────────────────────────────────────────────────
-    const [mode, setMode] = useState(savedMode || ['tasks', 'activities', 'priorities']);
+    const [mode, setMode] = useState(savedMode || ['tasks', 'activities', 'requirements']);
     const isTasksMode = mode.includes('tasks');
-    const isPrioritiesMode = mode.includes('priorities');
+    const isRequirementsMode = mode.includes('requirements');
     const isActivitiesMode = mode.includes('activities');
-    const hasDraggable = isTasksMode || isPrioritiesMode;
+    const hasDraggable = isTasksMode || isRequirementsMode;
 
     // ── Desktop date range (FullCalendar datesSet → query) ───────────────────
     const [dateRange, setDateRange] = useState({ start: null, end: null });
@@ -114,19 +114,19 @@ const CalendarFC = () => {
         effectiveStart,
         effectiveEnd,
         { enabled: isTasksMode, fields: 'id,priority,done,description,done_ts,area_fk' });
-    const { data: serverPriorities } = usePrioritiesDone(profile?.userName,
+    const { data: serverRequirements } = useRequirementsDone(profile?.userName,
         effectiveStart,
         effectiveEnd,
-        { enabled: isPrioritiesMode, fields: 'id,title,completed_at,category_fk' });
-    const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: isPrioritiesMode });
-    const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color,sort_order', enabled: isPrioritiesMode });
+        { enabled: isRequirementsMode, fields: 'id,title,completed_at,category_fk' });
+    const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: isRequirementsMode });
+    const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color,sort_order', enabled: isRequirementsMode });
     const { data: serverActivities } = useMapRunsDone(profile?.userName,
         effectiveStart,
         effectiveEnd,
         { enabled: isActivitiesMode });
     const { data: routeList } = useMapRoutes(profile?.userName, { enabled: isActivitiesMode });
 
-    // ── Restore scroll position when returning from priority detail ───────────
+    // ── Restore scroll position when returning from requirement detail ────────
     React.useEffect(() => {
         const savedY = sessionStorage.getItem('calview_scrollY');
         if (savedY !== null) {
@@ -142,11 +142,11 @@ const CalendarFC = () => {
         if (serverTasks) setLocalTasksArray(serverTasks);
     }, [serverTasks]);
 
-    // ── Priority local state (for drag-drop) ──────────────────────────────────
-    const [localPrioritiesArray, setLocalPrioritiesArray] = useState([]);
+    // ── Requirement local state (for drag-drop) ───────────────────────────────
+    const [localRequirementsArray, setLocalRequirementsArray] = useState([]);
     React.useEffect(() => {
-        if (serverPriorities) setLocalPrioritiesArray(serverPriorities);
-    }, [serverPriorities]);
+        if (serverRequirements) setLocalRequirementsArray(serverRequirements);
+    }, [serverRequirements]);
 
     // ── Activities local state (read-only) ──────────────────────────────────
     const [localActivitiesArray, setLocalActivitiesArray] = useState([]);
@@ -194,7 +194,7 @@ const CalendarFC = () => {
     // ── Events (shared FullCalendar format, reused for mobile grouping) ───────
     const PRIORITY_STYLE = isDark ? PRIORITY_STYLE_DARK : PRIORITY_STYLE_LIGHT;
     const taskEventColor     = isDark ? '#3a3632' : 'WhiteSmoke';
-    const priorityEventColor = isDark ? '#2a3545' : '#E3F2FD';
+    const requirementEventColor = isDark ? '#2a3545' : '#E3F2FD';
     const activityEventColor = isDark ? '#2a3535' : '#E0F2F1';
 
     const events = useMemo(() => {
@@ -233,25 +233,25 @@ const CalendarFC = () => {
                 });
             }
         }
-        if (isPrioritiesMode) {
-            for (const priority of localPrioritiesArray) {
+        if (isRequirementsMode) {
+            for (const requirement of localRequirementsArray) {
                 result.push({
-                    id: `p-${priority.id}`,
-                    title: priority.title,
-                    start: priority.completed_at ? toLocaleDateString(priority.completed_at, profile?.timezone) : null,
+                    id: `p-${requirement.id}`,
+                    title: requirement.title,
+                    start: requirement.completed_at ? toLocaleDateString(requirement.completed_at, profile?.timezone) : null,
                     allDay: true,
                     editable: true,
-                    backgroundColor: priorityEventColor,
-                    borderColor: priorityEventColor,
+                    backgroundColor: requirementEventColor,
+                    borderColor: requirementEventColor,
                     textColor: isDark ? '#d9d0c4' : '#333',
-                    classNames: ['fc-priority-event'],
-                    extendedProps: { sourceType: 'priorities', catColor: priority.category_fk ? categoryColorMap[priority.category_fk] : null, rawId: String(priority.id) },
+                    classNames: ['fc-requirement-event'],
+                    extendedProps: { sourceType: 'requirements', catColor: requirement.category_fk ? categoryColorMap[requirement.category_fk] : null, rawId: String(requirement.id) },
                 });
             }
         }
         return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isTasksMode, isActivitiesMode, isPrioritiesMode, localTasksArray, localPrioritiesArray, localActivitiesArray, profile?.timezone, isDark, categoryColorMap, routeNameMap]);
+    }, [isTasksMode, isActivitiesMode, isRequirementsMode, localTasksArray, localRequirementsArray, localActivitiesArray, profile?.timezone, isDark, categoryColorMap, routeNameMap]);
 
     // ── Mobile: group events by date for custom list ──────────────────────────
     const mobileEventsByDate = useMemo(() => {
@@ -363,7 +363,7 @@ const CalendarFC = () => {
 
     // ── Desktop FullCalendar handlers ─────────────────────────────────────────
     const titleSuffix = mode.length === 1
-        ? (mode[0] === 'tasks' ? 'Completed Tasks' : mode[0] === 'priorities' ? 'Completed Priorities' : 'Activities')
+        ? (mode[0] === 'tasks' ? 'Completed Tasks' : mode[0] === 'requirements' ? 'Completed Requirements' : 'Activities')
         : 'Calendar';
     const buildTitle = useCallback((d, suffix) => {
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -403,27 +403,27 @@ const CalendarFC = () => {
             }).catch(error => { info.revert(); showError(error, 'Unable to move task'); });
     }, [darwinUri, idToken, showError]);
 
-    const handlePriorityDrop = useCallback((info) => {
+    const handleRequirementDrop = useCallback((info) => {
         const rawId = info.event.extendedProps.rawId;
         const newDate = info.event.start;
         newDate.setHours(12, 0, 0, 0);
         const newCompletedAt = newDate.toISOString().slice(0, 19);
-        call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: rawId, completed_at: newCompletedAt }], idToken)
+        call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: rawId, completed_at: newCompletedAt }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200) {
-                    setLocalPrioritiesArray(prev => prev.map(p =>
+                    setLocalRequirementsArray(prev => prev.map(p =>
                         String(p.id) === rawId ? { ...p, completed_at: newCompletedAt } : p
                     ));
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
-                } else { info.revert(); showError(result, 'Unable to move priority'); }
-            }).catch(error => { info.revert(); showError(error, 'Unable to move priority'); });
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                } else { info.revert(); showError(result, 'Unable to move requirement'); }
+            }).catch(error => { info.revert(); showError(error, 'Unable to move requirement'); });
     }, [darwinUri, idToken, showError, queryClient, profile]);
 
     const handleUnifiedDrop = useCallback((info) => {
         const sourceType = info.event.extendedProps.sourceType;
         if (sourceType === 'tasks') handleEventDrop(info);
-        else if (sourceType === 'priorities') handlePriorityDrop(info);
-    }, [handleEventDrop, handlePriorityDrop]);
+        else if (sourceType === 'requirements') handleRequirementDrop(info);
+    }, [handleEventDrop, handleRequirementDrop]);
 
     const handleEventClick = useCallback((info) => {
         const rawId = info.event.extendedProps.rawId;
@@ -434,9 +434,9 @@ const CalendarFC = () => {
         }
     }, [localTasksArray]);
 
-    const handlePriorityClick = useCallback((info) => {
+    const handleRequirementClick = useCallback((info) => {
         sessionStorage.setItem('calview_scrollY', String(window.scrollY));
-        navigate(`/swarm/priority/${info.event.extendedProps.rawId}`, { state: { from: 'calendar' } });
+        navigate(`/swarm/requirement/${info.event.extendedProps.rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
     const handleActivityClick = useCallback((info) => {
@@ -447,8 +447,8 @@ const CalendarFC = () => {
         const sourceType = info.event.extendedProps.sourceType;
         if (sourceType === 'tasks') handleEventClick(info);
         else if (sourceType === 'activities') handleActivityClick(info);
-        else handlePriorityClick(info);
-    }, [handleEventClick, handleActivityClick, handlePriorityClick]);
+        else handleRequirementClick(info);
+    }, [handleEventClick, handleActivityClick, handleRequirementClick]);
 
     // Mobile-specific click handlers (no FC info wrapper) — receive rawId
     const handleMobileTaskClick = useCallback((rawId) => {
@@ -459,9 +459,9 @@ const CalendarFC = () => {
         }
     }, [localTasksArray]);
 
-    const handleMobilePriorityClick = useCallback((rawId) => {
+    const handleMobileRequirementClick = useCallback((rawId) => {
         sessionStorage.setItem('calview_scrollY', String(window.scrollY));
-        navigate(`/swarm/priority/${rawId}`, { state: { from: 'calendar' } });
+        navigate(`/swarm/requirement/${rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
     const handleMobileActivityClick = useCallback((rawId) => {
@@ -494,18 +494,18 @@ const CalendarFC = () => {
                     queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                 });
         } else {
-            setLocalPrioritiesArray(prev => prev.map(p =>
+            setLocalRequirementsArray(prev => prev.map(p =>
                 String(p.id) === rawId ? { ...p, completed_at: newTs } : p
             ));
-            call_rest_api(`${darwinUri}/priorities`, 'PUT', [{ id: rawId, completed_at: newTs }], idToken)
+            call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: rawId, completed_at: newTs }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200) {
-                        showError(result, 'Unable to move priority');
-                        queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                        showError(result, 'Unable to move requirement');
+                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     }
                 }).catch(error => {
-                    showError(error, 'Unable to move priority');
-                    queryClient.invalidateQueries({ queryKey: priorityKeys.all(profile.userName) });
+                    showError(error, 'Unable to move requirement');
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                 });
         }
     }, [darwinUri, idToken, showError, queryClient, profile]);
@@ -634,8 +634,8 @@ const CalendarFC = () => {
         );
     };
 
-    // Source-type ordering: activities=0, tasks=1, priorities=2
-    const SOURCE_ORDER = { activities: 0, tasks: 1, priorities: 2 };
+    // Source-type ordering: activities=0, tasks=1, requirements=2
+    const SOURCE_ORDER = { activities: 0, tasks: 1, requirements: 2 };
     const eventOrderFn = useCallback((a, b) => {
         const aOrder = SOURCE_ORDER[a.extendedProps.sourceType] ?? 9;
         const bOrder = SOURCE_ORDER[b.extendedProps.sourceType] ?? 9;
@@ -662,7 +662,7 @@ const CalendarFC = () => {
                                            size="small" data-testid="calendar-mode-toggle">
                             <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
                             <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
-                            <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
+                            <ToggleButton value="requirements" className="cal-toggle-btn">Requirements</ToggleButton>
                         </ToggleButtonGroup>
                     </Box>
                     {/* Scrollable list */}
@@ -681,7 +681,7 @@ const CalendarFC = () => {
                             const dayEvents = mobileEventsByDate[date];
                             const taskEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'tasks');
                             const activityEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'activities');
-                            const priorityEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'priorities');
+                            const requirementEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'requirements');
                             return (
                             <Box key={date} data-date={date}>
                                 {/* Day header */}
@@ -697,7 +697,7 @@ const CalendarFC = () => {
                                         {date === todayStr ? ' — Today' : ''}
                                     </Typography>
                                 </Box>
-                                {/* Events for the day — grouped: tasks, activities, priorities */}
+                                {/* Events for the day — grouped: tasks, activities, requirements */}
                                 {hasDraggable ? (
                                     <Droppable droppableId={date}>
                                         {(provided) => (
@@ -741,14 +741,14 @@ const CalendarFC = () => {
                                                         </Typography>
                                                     </Box>
                                                 ))}
-                                                {/* Priorities (draggable) */}
-                                                {priorityEvents.map((ev, i) => (
+                                                {/* Requirements (draggable) */}
+                                                {requirementEvents.map((ev, i) => (
                                                     <Draggable key={ev.id} draggableId={ev.id} index={taskEvents.length + i}>
                                                         {(provided, snapshot) => (
                                                             <Box ref={provided.innerRef}
                                                                  {...provided.draggableProps}
                                                                  {...provided.dragHandleProps}
-                                                                 onClick={() => handleMobilePriorityClick(ev.extendedProps?.rawId)}
+                                                                 onClick={() => handleMobileRequirementClick(ev.extendedProps?.rawId)}
                                                                  sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
                                                                        cursor: 'pointer',
                                                                        bgcolor: snapshot.isDragging ? 'action.selected' : 'inherit',
@@ -849,7 +849,7 @@ const CalendarFC = () => {
                                                size="small" data-testid="calendar-mode-toggle">
                                 <ToggleButton value="tasks" className="cal-toggle-btn">Tasks</ToggleButton>
                                 <ToggleButton value="activities" className="cal-toggle-btn">Activities</ToggleButton>
-                                <ToggleButton value="priorities" className="cal-toggle-btn">Priorities</ToggleButton>
+                                <ToggleButton value="requirements" className="cal-toggle-btn">Requirements</ToggleButton>
                             </ToggleButtonGroup>
                         </Box>
                         <FullCalendar
@@ -876,14 +876,14 @@ const CalendarFC = () => {
                             mode={mode}
                             localTasksArray={localTasksArray}
                             localActivitiesArray={localActivitiesArray}
-                            localPrioritiesArray={localPrioritiesArray}
+                            localRequirementsArray={localRequirementsArray}
                             timezone={profile?.timezone}
                             categoryList={allCategoryList}
                             categoryColorMap={categoryColorMap}
                             routeNameMap={routeNameMap}
                             navigate={navigate}
                             activityEventColor={activityEventColor}
-                            priorityEventColor={priorityEventColor}
+                            requirementEventColor={requirementEventColor}
                         />
                     )}
                     {/* Summary mode — single wrapper div for CSS Grid (max 2 items in right column) */}
@@ -895,14 +895,14 @@ const CalendarFC = () => {
                                 mode={mode}
                                 localTasksArray={localTasksArray}
                                 localActivitiesArray={localActivitiesArray}
-                                localPrioritiesArray={localPrioritiesArray}
+                                localRequirementsArray={localRequirementsArray}
                                 timezone={profile?.timezone}
                                 categoryList={allCategoryList}
                                 categoryColorMap={categoryColorMap}
                                 routeNameMap={routeNameMap}
                                 navigate={navigate}
                                 activityEventColor={activityEventColor}
-                                priorityEventColor={priorityEventColor}
+                                requirementEventColor={requirementEventColor}
                             />
                         </div>
                     )}

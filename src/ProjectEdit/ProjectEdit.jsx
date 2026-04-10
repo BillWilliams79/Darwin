@@ -2,7 +2,7 @@ import React, {useState, useContext, useEffect, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
-import { useProjects, useAllCategories, usePriorityCounts } from '../hooks/useDataQueries';
+import { useProjects, useAllCategories, useRequirementCounts } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -28,19 +28,19 @@ const ProjectEdit = () => {
     const [projectsArray, setProjectsArray] = useState();
 
     const [categoryCounts, setCategoryCounts] = useState({});
-    const [priorityCounts, setPriorityCounts] = useState({});
+    const [requirementCounts, setRequirementCounts] = useState({});
     const [selectedId, setSelectedId] = useState(null);
     const templateInputRef = useRef(null);
 
     const showError = useSnackBarStore(s => s.showError);
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
 
-    // TanStack Query — fetch all projects (open + closed), categories, and priority counts
+    // TanStack Query — fetch all projects (open + closed), categories, and requirement counts
     const { data: serverProjects } = useProjects(profile?.userName, {
         fields: 'id,project_name,closed,sort_order',
     });
     const { data: serverCategories } = useAllCategories(profile?.userName);
-    const { data: serverPriorityCounts } = usePriorityCounts(profile?.userName);
+    const { data: serverRequirementCounts } = useRequirementCounts(profile?.userName);
 
     // Seed local state from query data
     useEffect(() => {
@@ -52,7 +52,7 @@ const ProjectEdit = () => {
         }
     }, [serverProjects]);
 
-    // Compute category and priority counts from query data
+    // Compute category and requirement counts from query data
     useEffect(() => {
         if (serverCategories) {
             const newCategoryCounts = {};
@@ -63,18 +63,18 @@ const ProjectEdit = () => {
             });
             setCategoryCounts(newCategoryCounts);
 
-            if (serverPriorityCounts) {
-                const newPriorityCounts = {};
-                serverPriorityCounts.forEach((pc) => {
+            if (serverRequirementCounts) {
+                const newRequirementCounts = {};
+                serverRequirementCounts.forEach((pc) => {
                     const projectFk = categoryToProject[String(pc.category_fk)];
                     if (projectFk !== undefined) {
-                        newPriorityCounts[projectFk] = (newPriorityCounts[projectFk] || 0) + pc['count(*)'];
+                        newRequirementCounts[projectFk] = (newRequirementCounts[projectFk] || 0) + pc['count(*)'];
                     }
                 });
-                setPriorityCounts(newPriorityCounts);
+                setRequirementCounts(newRequirementCounts);
             }
         }
-    }, [serverCategories, serverPriorityCounts]);
+    }, [serverCategories, serverRequirementCounts]);
 
     const projectDelete = useConfirmDialog({
         onConfirm: ({ projectId }) => {
@@ -146,9 +146,9 @@ const ProjectEdit = () => {
                     newCategoryCounts[result.data[0].id] = 0;
                     setCategoryCounts(newCategoryCounts);
 
-                    let newPriorityCounts = {...priorityCounts};
-                    newPriorityCounts[result.data[0].id] = 0;
-                    setPriorityCounts(newPriorityCounts);
+                    let newRequirementCounts = {...requirementCounts};
+                    newRequirementCounts[result.data[0].id] = 0;
+                    setRequirementCounts(newRequirementCounts);
 
                     queryClient.invalidateQueries({ queryKey: projectKeys.all(profile.userName) });
                     setTimeout(() => templateInputRef.current?.focus(), 0);
@@ -195,7 +195,7 @@ const ProjectEdit = () => {
     };
 
     const clickProjectDelete = (event, projectId, projectName) => {
-        projectDelete.openDialog({ projectName, projectId, prioritiesCount: priorityCounts[projectId] });
+        projectDelete.openDialog({ projectName, projectId, requirementsCount: requirementCounts[projectId] });
     }
 
     const projectSortByClosedThenSortOrder = (a, b) => {
@@ -279,7 +279,7 @@ const ProjectEdit = () => {
                         <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
                         <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
                         <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Categories</Typography></Box>
-                        <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Priorities</Typography></Box>
+                        <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Requirements</Typography></Box>
                         <Box />
                     </Box>
                     <DragDropContext onDragEnd={dragEnd}>
@@ -299,7 +299,7 @@ const ProjectEdit = () => {
                                         clickProjectClosed={clickProjectClosed}
                                         clickProjectDelete={clickProjectDelete}
                                         categoryCounts={categoryCounts}
-                                        priorityCounts={priorityCounts}
+                                        requirementCounts={requirementCounts}
                                         onRowClick={handleRowClick}
                                         isSelected={String(project.id) === selectedId}
                                         isDraggable
@@ -323,7 +323,7 @@ const ProjectEdit = () => {
                             clickProjectClosed={clickProjectClosed}
                             clickProjectDelete={clickProjectDelete}
                             categoryCounts={categoryCounts}
-                            priorityCounts={priorityCounts}
+                            requirementCounts={requirementCounts}
                             onRowClick={handleRowClick}
                             isSelected={String(project.id) === selectedId}
                             isDraggable={false}

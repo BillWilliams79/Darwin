@@ -149,9 +149,9 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
         }
     }
 
-    const clickCardDelete = (event, categoryName, categoryId, priorityCount) => {
+    const clickCardDelete = (event, categoryName, categoryId, requirementCount) => {
         if (categoryId !== '') {
-            categoryDelete.openDialog({ categoryName, categoryId, priorityCount });
+            categoryDelete.openDialog({ categoryName, categoryId, requirementCount });
         }
     }
 
@@ -257,9 +257,9 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
     }, [darwinUri, idToken]);
 
     const [, panelDrop] = useDrop(() => ({
-        accept: ['categoryCard', 'priorityRow'],
+        accept: ['categoryCard', 'requirementRow'],
         canDrop: (item, monitor) => {
-            if (monitor.getItemType() === 'priorityRow') return true;
+            if (monitor.getItemType() === 'requirementRow') return true;
             if (item.sourceDomainId) return item.sourceDomainId !== project.id;
             return item.domainId !== project.id;
         },
@@ -349,8 +349,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
         drop: (item, monitor) => {
             if (monitor.didDrop()) return;
 
-            if (monitor.getItemType() === 'priorityRow') {
-                return { priority: null };
+            if (monitor.getItemType() === 'requirementRow') {
+                return { requirement: null };
             }
 
             if (!item.persistInTarget) {

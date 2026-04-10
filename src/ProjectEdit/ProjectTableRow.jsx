@@ -18,7 +18,7 @@ const ProjectTableRow = ({
     project, projectIndex,
     changeProjectName, keyDownProjectName, blurProjectName,
     clickProjectClosed, clickProjectDelete,
-    categoryCounts, priorityCounts,
+    categoryCounts, requirementCounts,
     onRowClick, isSelected,
     isDraggable, inputRef
 }) => {
@@ -73,10 +73,10 @@ const ProjectTableRow = ({
                  </Typography>
             </Box>
             <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1' data-testid={project.id ? `priority-count-${project.id}` : undefined}>
+                <Typography variant='body1' data-testid={project.id ? `requirement-count-${project.id}` : undefined}>
                 {  project.id === '' ? '' :
-                    priorityCounts[`${project.id}`] === undefined ? 0 :
-                      priorityCounts[`${project.id}`] === '' ? '' : priorityCounts[`${project.id}`] }
+                    requirementCounts[`${project.id}`] === undefined ? 0 :
+                      requirementCounts[`${project.id}`] === '' ? '' : requirementCounts[`${project.id}`] }
                  </Typography>
             </Box>
             <Box>

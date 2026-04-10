@@ -41,13 +41,13 @@ export const categoryKeys = {
     byProjectWithClosed: (creatorFk, projectId) => ['categories', creatorFk, { projectId, withClosed: true }],
 };
 
-export const priorityKeys = {
-    all: (creatorFk) => ['priorities', creatorFk],
-    byCategory: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId }],
-    byCategoryOpen: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, closed: 0 }],
-    byCategoryWithClosed: (creatorFk, categoryId) => ['priorities', creatorFk, { categoryId, withClosed: true }],
-    done: (creatorFk, dateRange) => ['priorities', creatorFk, { closed: 1, dateRange }],
-    counts: (creatorFk) => ['priorities', creatorFk, 'counts'],
+export const requirementKeys = {
+    all: (creatorFk) => ['requirements', creatorFk],
+    byCategory: (creatorFk, categoryId) => ['requirements', creatorFk, { categoryId }],
+    byCategoryOpen: (creatorFk, categoryId) => ['requirements', creatorFk, { categoryId, closed: 0 }],
+    byCategoryWithClosed: (creatorFk, categoryId) => ['requirements', creatorFk, { categoryId, withClosed: true }],
+    done: (creatorFk, dateRange) => ['requirements', creatorFk, { closed: 1, dateRange }],
+    counts: (creatorFk) => ['requirements', creatorFk, 'counts'],
 };
 
 export const sessionKeys = {

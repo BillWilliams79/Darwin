@@ -198,7 +198,7 @@ test.describe('Profile', () => {
     expect(data.mapPartners).toBeDefined();
 
     // Swarm data should NOT be present (E2E user has app_swarm=0)
-    expect(data.priorities).toBeUndefined();
+    expect(data.requirements).toBeUndefined();
     expect(data.swarmSessions).toBeUndefined();
   });
 

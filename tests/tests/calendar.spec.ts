@@ -350,14 +350,14 @@ test.describe('Calendar View P1', () => {
   });
 });
 
-test.describe('Calendar Priorities', () => {
+test.describe('Calendar Requirements', () => {
   let idToken: string;
   let testProjectId: string;
   let testCategoryId: string;
-  let testPriorityId: string;
-  const testProjectName = uniqueName('CalPriProj');
-  const testCategoryName = uniqueName('CalPriCat');
-  const testPriorityTitle = uniqueName('CalPri');
+  let testRequirementId: string;
+  const testProjectName = uniqueName('CalReqProj');
+  const testCategoryName = uniqueName('CalReqCat');
+  const testRequirementTitle = uniqueName('CalReq');
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -367,7 +367,7 @@ test.describe('Calendar Priorities', () => {
 
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
-    // Create project → category → closed priority with completed_at today
+    // Create project → category → closed requirement with completed_at today
     const projResult = await apiCall('projects', 'POST', {
       creator_fk: sub, project_name: testProjectName, closed: 0, sort_order: 0,
     }, idToken) as Array<{ id: string }>;
@@ -385,16 +385,16 @@ test.describe('Calendar Priorities', () => {
     today.setHours(12, 0, 0, 0);
     const completedAt = today.toISOString().slice(0, 19);
 
-    const priResult = await apiCall('priorities', 'POST', {
-      creator_fk: sub, title: testPriorityTitle, category_fk: testCategoryId,
-      priority_status: 'completed', sort_order: 0, completed_at: completedAt,
+    const priResult = await apiCall('requirements', 'POST', {
+      creator_fk: sub, title: testRequirementTitle, category_fk: testCategoryId,
+      requirement_status: 'completed', sort_order: 0, completed_at: completedAt,
     }, idToken) as Array<{ id: string }>;
-    if (!priResult?.length) throw new Error('Failed to create test priority');
-    testPriorityId = priResult[0].id;
+    if (!priResult?.length) throw new Error('Failed to create test requirement');
+    testRequirementId = priResult[0].id;
   });
 
   test.afterAll(async () => {
-    // Hard-delete the project (ON DELETE CASCADE handles categories/priorities)
+    // Hard-delete the project (ON DELETE CASCADE handles categories/requirements)
     try { await apiDelete('projects', testProjectId, idToken); } catch {}
   });
 
@@ -407,42 +407,42 @@ test.describe('Calendar Priorities', () => {
     // Default mode is Tasks only — title ends with "Completed Tasks"
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
 
-    // Click Priorities to add it — now Tasks+Priorities selected, title becomes "Calendar"
+    // Click Requirements to add it — now Tasks+Requirements selected, title becomes "Calendar"
     const toggle = page.getByTestId('calendar-mode-toggle');
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
     await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
-    // Deselect Tasks — only Priorities selected, title becomes "Completed Priorities"
+    // Deselect Tasks — only Requirements selected, title becomes "Completed Requirements"
     await toggle.getByRole('button', { name: 'Tasks' }).click();
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Completed Requirements$/)).toBeVisible({ timeout: 5000 });
 
     // Re-select Tasks — back to multi-select "Calendar"
     await toggle.getByRole('button', { name: 'Tasks' }).click();
     await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
-    // Deselect Priorities — back to Tasks only, "Completed Tasks"
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    // Deselect Requirements — back to Tasks only, "Completed Tasks"
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible({ timeout: 5000 });
   });
 
-  test('CAL-10: priorities mode renders completed priority on calendar', async ({ page }) => {
+  test('CAL-10: requirements mode renders completed requirement on calendar', async ({ page }) => {
     await page.goto('/calview');
     await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Switch to Priorities-only mode (deselect Tasks, select Priorities)
+    // Switch to Requirements-only mode (deselect Tasks, select Requirements)
     const toggle = page.getByTestId('calendar-mode-toggle');
     await toggle.getByRole('button', { name: 'Tasks' }).click();
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible({ timeout: 5000 });
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
+    await expect(page.getByText(/Completed Requirements$/)).toBeVisible({ timeout: 5000 });
 
     // Calendar container renders with correct title
     await expect(page.locator('.fc')).toBeVisible();
-    await expect(page.getByText(/Completed Priorities$/)).toBeVisible();
+    await expect(page.getByText(/Completed Requirements$/)).toBeVisible();
 
-    // The test priority should appear as an event
-    const event = page.locator('.fc-event').filter({ hasText: testPriorityTitle });
+    // The test requirement should appear as an event
+    const event = page.locator('.fc-event').filter({ hasText: testRequirementTitle });
     await expect(event).toBeVisible({ timeout: 10000 });
 
     // Navigation buttons still work
@@ -451,45 +451,45 @@ test.describe('Calendar Priorities', () => {
     await expect(page.getByRole('button', { name: 'Day', exact: true })).toBeVisible();
   });
 
-  test('CAL-11: clicking priority event navigates to priority detail', async ({ page }) => {
+  test('CAL-11: clicking requirement event navigates to requirement detail', async ({ page }) => {
     await page.goto('/calview');
     await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Add Priorities to selection (multi-select)
+    // Add Requirements to selection (multi-select)
     const toggle = page.getByTestId('calendar-mode-toggle');
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
     await page.waitForTimeout(2000);
 
-    // Click the test priority event
-    const event = page.locator('.fc-event').filter({ hasText: testPriorityTitle });
+    // Click the test requirement event
+    const event = page.locator('.fc-event').filter({ hasText: testRequirementTitle });
     await expect(event).toBeVisible({ timeout: 10000 });
     await event.click();
 
-    // Should navigate to the priority detail view
-    await page.waitForURL(`**/swarm/priority/${testPriorityId}`, { timeout: 5000 });
-    expect(page.url()).toContain(`/swarm/priority/${testPriorityId}`);
+    // Should navigate to the requirement detail view
+    await page.waitForURL(`**/swarm/requirement/${testRequirementId}`, { timeout: 5000 });
+    expect(page.url()).toContain(`/swarm/requirement/${testRequirementId}`);
   });
 
-  test('CAL-20: back button from priority detail returns to calendar', async ({ page }) => {
+  test('CAL-20: back button from requirement detail returns to calendar', async ({ page }) => {
     await page.goto('/calview');
     await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Enable Priorities in toggle
+    // Enable Requirements in toggle
     const toggle = page.getByTestId('calendar-mode-toggle');
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
     await page.waitForTimeout(2000);
 
-    // Click the priority event
-    const event = page.locator('.fc-event').filter({ hasText: testPriorityTitle });
+    // Click the requirement event
+    const event = page.locator('.fc-event').filter({ hasText: testRequirementTitle });
     await expect(event).toBeVisible({ timeout: 10000 });
     await event.click();
 
-    // Verify we're on the priority detail page
-    await page.waitForURL(`**/swarm/priority/${testPriorityId}`, { timeout: 5000 });
+    // Verify we're on the requirement detail page
+    await page.waitForURL(`**/swarm/requirement/${testRequirementId}`, { timeout: 5000 });
 
     // Click Back — should return to calendar
     await page.getByTestId('btn-back-to-swarm').click();
@@ -550,9 +550,9 @@ test.describe('Calendar View Persistence', () => {
   });
 
   test('CAL-14: mode persists across navigation', async ({ page }) => {
-    // Add Priorities to selection (multi-select: Tasks + Priorities)
+    // Add Requirements to selection (multi-select: Tasks + Requirements)
     const toggle = page.getByTestId('calendar-mode-toggle');
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
 
     // Verify multi-mode title "Calendar"
     await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
@@ -576,9 +576,9 @@ test.describe('Calendar View Persistence', () => {
     // Navigate to previous day
     await page.locator('.fc-prev-button').click();
 
-    // Add Priorities to selection (multi-select: Tasks + Priorities)
+    // Add Requirements to selection (multi-select: Tasks + Requirements)
     const toggle = page.getByTestId('calendar-mode-toggle');
-    await toggle.getByRole('button', { name: 'Priorities' }).click();
+    await toggle.getByRole('button', { name: 'Requirements' }).click();
     await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible({ timeout: 5000 });
 
     // Capture state before reload

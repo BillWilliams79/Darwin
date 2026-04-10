@@ -209,20 +209,20 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
         }));
     }
 
-    // Swarm: priorities, swarm_sessions, projects, categories
+    // Swarm: requirements, swarm_sessions, projects, categories
     if (selectedApps.swarm) {
-        const [priorities, swarmSessions, projects, categories] = await Promise.all([
-            safeGet(`${darwinUri}/priorities`),
+        const [requirements, swarmSessions, projects, categories] = await Promise.all([
+            safeGet(`${darwinUri}/requirements`),
             safeGet(`${darwinUri}/swarm_sessions`),
             safeGet(`${darwinUri}/projects`),
             safeGet(`${darwinUri}/categories`),
         ]);
 
-        result.priorities = priorities.map(p => ({
+        result.requirements = requirements.map(p => ({
             id: p.id,
             title: p.title,
             description: p.description,
-            priority_status: p.priority_status,
+            requirement_status: p.requirement_status,
             scheduled: p.scheduled,
             sort_order: p.sort_order,
             started_at: p.started_at,
