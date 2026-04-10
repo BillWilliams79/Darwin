@@ -564,6 +564,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                                 onClick={handleMenuOpen}
                                 data-testid={`card-menu-${area.id}`}
                                 size="small"
+                                sx={{ maxWidth: "25px", maxHeight: "25px" }}
                             >
                                 <MoreVertIcon />
                             </IconButton>
