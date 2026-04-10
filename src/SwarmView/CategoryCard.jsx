@@ -548,6 +548,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 onClick={handleMenuOpen}
                                 data-testid={`card-menu-${category.id}`}
                                 size="small"
+                                sx={{ maxWidth: "25px", maxHeight: "25px" }}
                             >
                                 <MoreVertIcon />
                             </IconButton>
