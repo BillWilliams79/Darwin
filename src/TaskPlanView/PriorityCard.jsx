@@ -314,6 +314,7 @@ const PriorityCard = ({ domainId, areaIds }) => {
                         onClick={handleMenuOpen}
                         data-testid={`priority-card-menu-${domainId}`}
                         size="small"
+                        sx={{ maxWidth: "25px", maxHeight: "25px" }}
                     >
                         <MoreVertIcon />
                     </IconButton>
