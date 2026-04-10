@@ -9,7 +9,9 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
+import Snackbar from '@mui/material/Snackbar';
 import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import Lightbox from 'yet-another-react-lightbox';
@@ -80,6 +82,9 @@ const PhotoBrowser = () => {
     }, [timeRange]);
 
     const [loadingIndex, setLoadingIndex] = useState(true);
+
+    // Spotlight error
+    const [spotlightError, setSpotlightError] = useState(null);
 
     // Lightbox state
     const [lightboxIndex, setLightboxIndex] = useState(-1);
@@ -162,15 +167,21 @@ const PhotoBrowser = () => {
     // Open Photos.app to earliest photo in time range via proxy spotlight
     const handlePhotosSpotlight = useCallback(async () => {
         if (!run) return;
+        setSpotlightError(null);
         const startUtc = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
         const endUtc = new Date(startUtc.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
         const filterStart = new Date(startUtc.getTime() - beforeMin * 60 * 1000);
         const filterEnd = new Date(endUtc.getTime() + afterMin * 60 * 1000);
         const fmt = (d) => d.toISOString().slice(0, 19);
         try {
-            await fetch(`${PHOTOS_PROXY_URL}/photos/spotlight?start=${fmt(filterStart)}&end=${fmt(filterEnd)}`);
+            const resp = await fetch(`${PHOTOS_PROXY_URL}/photos/spotlight?start=${fmt(filterStart)}&end=${fmt(filterEnd)}`);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                const detail = body.detail || body.error || `HTTP ${resp.status}`;
+                setSpotlightError(`Could not open Photos: ${detail}`);
+            }
         } catch {
-            // Proxy not running — silently fail
+            // Proxy not running — no-op (proxy status already shown in settings)
         }
     }, [run, beforeMin, afterMin]);
 
@@ -276,6 +287,13 @@ const PhotoBrowser = () => {
                 close={handleCloseLightbox}
                 plugins={[Video, Zoom]}
             />
+
+            {/* Spotlight error snackbar */}
+            <Snackbar open={!!spotlightError} autoHideDuration={8000} onClose={() => setSpotlightError(null)}>
+                <Alert severity="warning" onClose={() => setSpotlightError(null)} variant="filled">
+                    {spotlightError}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };
