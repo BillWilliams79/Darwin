@@ -16,6 +16,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import useScanStore from './useScanStore.js';
 import { loadMeta, clearCache } from './handleDB.js';
 import { startScan, checkPhotosProxy } from './scanUtils.js';
+import PhotoDiagnostics from './PhotoDiagnostics.jsx';
 
 const FEATURE_KEY = 'photo-browser-enabled';
 
@@ -230,6 +231,11 @@ const PhotoSettingsView = () => {
                         {scanError || 'Unknown error'}
                     </Alert>
                 )}
+
+                <Divider sx={{ my: 2 }} />
+
+                {/* Connection diagnostics */}
+                <PhotoDiagnostics />
 
                 {/* Diagnostic log — shows what the scanner encountered */}
                 {scanDiag && (
