@@ -378,6 +378,42 @@ test.describe('Swarm View', () => {
     }
   });
 
+  test('SWM-28: selecting completed chip does not show closed categories', async ({ page }) => {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    // Create a closed category in the test project
+    const closedCatResult = await apiCall('categories', 'POST', {
+      creator_fk: sub, category_name: uniqueName('ClosedCat'), project_fk: testProjectId,
+      closed: 1, sort_order: 99,
+    }, idToken) as Array<{ id: string }>;
+    const closedCategoryId = closedCatResult[0].id;
+
+    try {
+      await page.goto('/swarm');
+      await page.waitForSelector('[role="tab"]', { timeout: 10000 });
+      await page.getByRole('tab', { name: testProjectName }).click();
+
+      // Turn on completed chip
+      const completedChip = page.getByTestId('filter-chip-completed');
+      await completedChip.waitFor({ timeout: 10000 });
+      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      if (isOutlined) {
+        await completedChip.click();
+      }
+
+      // The closed category card must NOT be visible regardless of requirement status filter
+      await expect(page.getByTestId(`category-card-${closedCategoryId}`)).not.toBeVisible({ timeout: 5000 });
+
+      // Turn off completed chip (restore state)
+      const isStillSelected = !(await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
+      if (isStillSelected) {
+        await completedChip.click();
+      }
+    } finally {
+      try { await apiDelete('categories', closedCategoryId, idToken); } catch {}
+    }
+  });
+
   test('SWM-23: RequirementDetail delete button removes requirement and navigates to /swarm', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const deleteTitle = uniqueName('DeleteMe');
