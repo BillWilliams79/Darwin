@@ -67,13 +67,18 @@ export async function runPipelineForFormat(buffer, config, format) {
     const runs = await extractor(buffer, config);
 
     precisionOptimizer(runs, config.precision);
+
+    // Capture raw startTimes before formatRunData mutates them (converts to Date objects).
+    // Used by the import UI for dedup count without re-parsing the source file.
+    const rawStartTimes = runs.map(run => run.startTime);
+
     formatRunData(runs);
     distanceOptimizer(runs, config.minDelta);
 
     const kml = generateKml(runs, config);
     const stats = computeStats(runs);
 
-    return { runs, stats, kml };
+    return { runs, stats, kml, rawStartTimes };
 }
 
 /**

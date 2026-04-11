@@ -147,4 +147,21 @@ describe('filterNewRunsByCutoff', () => {
         expect(newRuns).toHaveLength(0);
         expect(skippedCount).toBe(0);
     });
+
+    it('excludes the cutoff run when startTime has fractional seconds (re-import dedup)', () => {
+        // SQLite stores fractional seconds; MySQL DATETIME doesn't. The cutoff returned from
+        // MySQL for the last-imported run at "2025-03-15 08:00:00.123" is truncated to
+        // "2025-03-15 08:00:00". Without stripping, that run appears "newer" than the cutoff
+        // and is incorrectly re-imported, causing a duplicate key error (500) on map_runs POST.
+        const runsWithMs = [
+            makeRun('2025-01-01 10:00:00.000'),
+            makeRun('2025-03-15 08:00:00.123'),  // last-imported run with sub-second precision
+            makeRun('2025-06-01 12:00:00.456'),  // genuinely new run
+        ];
+        // Cutoff returned from MySQL — whole seconds only, no fractional part
+        const { newRuns, skippedCount } = filterNewRunsByCutoff(runsWithMs, '2025-03-15 08:00:00');
+        expect(newRuns).toHaveLength(1);
+        expect(skippedCount).toBe(2);
+        expect(newRuns[0].startTime).toBe('2025-06-01 12:00:00.456');
+    });
 });
