@@ -40,6 +40,7 @@ let mobileScrollDate = null;
 const PRIORITY_STYLE_LIGHT = { bg: '#E8F5E9', border: '#66BB6A', textColor: '#2E7D32' };
 const PRIORITY_STYLE_DARK  = { bg: '#2e3b2e', border: '#4a7a4a', textColor: '#81c784' };
 
+
 // Format seconds as compact hours+minutes (no leading zeros, no seconds)
 const formatHM = (s) => {
     if (s == null) return '';
@@ -195,7 +196,7 @@ const CalendarFC = () => {
     const PRIORITY_STYLE = isDark ? PRIORITY_STYLE_DARK : PRIORITY_STYLE_LIGHT;
     const taskEventColor     = isDark ? '#3a3632' : 'WhiteSmoke';
     const requirementEventColor = isDark ? '#2a3545' : '#E3F2FD';
-    const activityEventColor = isDark ? '#2a3535' : '#E0F2F1';
+    const activityEventColor = isDark ? '#352d4a' : '#D1C4E9';
 
     const events = useMemo(() => {
         const result = [];
@@ -732,7 +733,8 @@ const CalendarFC = () => {
                                                     <Box key={ev.id}
                                                          onClick={() => handleMobileActivityClick(ev.extendedProps?.rawId)}
                                                          sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
-                                                               cursor: 'pointer', '&:active': { bgcolor: 'action.hover' } }}>
+                                                               cursor: 'pointer', bgcolor: activityEventColor,
+                                                               '&:active': { opacity: 0.85 } }}>
                                                         <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 700, color: 'text.primary' }}>
                                                             {ev.title}
                                                         </Typography>
