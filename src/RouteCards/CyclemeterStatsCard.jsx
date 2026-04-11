@@ -310,7 +310,7 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
             {/* ── Row 6: This Year | Clock ──────────────────────────────── */}
             <StatRow>
                 <StatCell label="THIS YEAR"  value={ty}           unit="miles" color="#3399FF" />
-                <StatCell label="CLOCK"      value={clockStr(now)} unit=""      color="#FFFFFF" fontSize="2.15rem" />
+                <StatCell label="CLOCK"      value={clockStr(now)} unit=""      color="#FFFFFF" fontSize="1.85rem" />
             </StatRow>
 
             {/* ── Footer ─────────────────────────────────────────────────── */}
