@@ -3,7 +3,7 @@ import varDump from '../../classifier/classifier';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 
-import { useDrag, useDrop } from "react-dnd";
+import { useDrag, useDrop, useDragLayer } from "react-dnd";
 import { getEmptyImage } from "react-dnd-html5-backend";
 import { useDragTabStore } from '../../stores/useDragTabStore';
 import { useTaskActions } from '../../hooks/useTaskActions';
@@ -21,19 +21,9 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 
-// Hover style: border invisible at rest, appears on hover, accent on focus.
+// Standard variant: permanent subtle underline (MUI standard default), no border box.
 // Size 2 density: padding 6.5px 11px (tighter than default 8.5px 14px).
-// Revert reference — Size 1 (original): remove HOVER_SX and DENSITY_STYLE to restore defaults.
-const HOVER_SX = {
-    '& .MuiOutlinedInput-root': {
-        '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: 'transparent',
-            transition: 'border-color 150ms',
-        },
-        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.disabled' },
-        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'primary.main' },
-    },
-};
+// Revert reference — Size 1 (original): remove DENSITY_STYLE and change variant back to "outlined".
 const DENSITY_STYLE = { padding: '6.5px 11px' };
 
 const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId, areaName }) => {
@@ -42,6 +32,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
         descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
         sortMode, setCrossCardInsertIndex, disableStrikethrough } = useTaskActions();
     const [insertIndicator, setInsertIndicator] = useState(null); // 'above' | 'below' | null
+    const isDraggingAny = useDragLayer(monitor => monitor.isDragging());
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
@@ -173,7 +164,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
                        mr: "2px",
                 }}
             />
-            <TextField variant="outlined"
+            <TextField variant="standard"
                         value={task.description || ''}
                         name='description'
                         onChange = {(event) => descriptionChange(event, taskIndex) }
@@ -186,7 +177,11 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
                         autoComplete ='off'
                         sx = {{
                             ...(task.done === 1 && !disableStrikethrough && {textDecoration: 'line-through'}),
-                            ...HOVER_SX,
+                            ...(isDraggingAny && {
+                                pointerEvents: 'none',
+                                '& .MuiInputBase-root::before': { borderBottomColor: 'transparent' },
+                                '& .MuiInputBase-root::after': { borderBottomColor: 'transparent' },
+                            }),
                         }}
                         size = 'small'
                         slotProps={{
