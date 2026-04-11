@@ -199,9 +199,6 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                             <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>
                         ))}
                     </Select>
-                    <IconButton size="small" color="error" onClick={() => setDeleteOpen(true)} sx={{ p: 0.25 }} data-testid="route-card-delete-btn">
-                        <DeleteOutlineIcon sx={{ fontSize: 22 }} />
-                    </IconButton>
                 </Box>
 
                 {/* Thumbnail — the only clickable element that navigates */}
@@ -348,36 +345,40 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                         data-testid="route-card-notes"
                     />
 
-                    {/* Partners — chips inline with input on one row.
-                        TextField variant="standard" is what MUI Autocomplete is designed for;
-                        the Popper listbox floats (portal) so it never pushes content down. */}
-                    <Autocomplete
-                        multiple freeSolo
-                        options={partners.map(p => p.name)}
-                        value={selectedPartners}
-                        onChange={(e, v) => handlePartnerChange(v)}
-                        disablePortal={false}
-                        renderTags={(value, getTagProps) =>
-                            value.map((option, index) => (
-                                <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={option} />
-                            ))
-                        }
-                        renderInput={(params) => (
-                            <TextField
-                                {...params}
-                                variant="standard"
-                                placeholder={selectedPartners.length === 0 ? 'No partners' : ''}
-                                sx={{
-                                    mt: 1,
-                                    '& .MuiInput-underline:before': { borderBottomColor: 'transparent' },
-                                    '& .MuiInput-underline:hover:not(.Mui-disabled, .Mui-error):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                                    '& .MuiInputBase-input::placeholder': { color: 'text.disabled', opacity: 1, fontSize: '0.875rem' },
-                                    '& .MuiInputBase-root': { flexWrap: 'wrap', gap: 0.5 },
-                                }}
-                            />
-                        )}
-                        data-testid="route-card-partners"
-                    />
+                    {/* Partners row — Autocomplete on left, delete button on right */}
+                    <Box sx={{ display: 'flex', alignItems: 'flex-end', mt: 1 }}>
+                        <Autocomplete
+                            multiple freeSolo
+                            options={partners.map(p => p.name)}
+                            value={selectedPartners}
+                            onChange={(e, v) => handlePartnerChange(v)}
+                            disablePortal={false}
+                            sx={{ flexGrow: 1 }}
+                            renderTags={(value, getTagProps) =>
+                                value.map((option, index) => (
+                                    <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={option} />
+                                ))
+                            }
+                            renderInput={(params) => (
+                                <TextField
+                                    {...params}
+                                    variant="standard"
+                                    placeholder={selectedPartners.length === 0 ? 'No partners' : ''}
+                                    sx={{
+                                        '& .MuiInput-underline:before': { borderBottomColor: 'transparent' },
+                                        '& .MuiInput-underline:hover:not(.Mui-disabled, .Mui-error):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
+                                        '& .MuiInputBase-input::placeholder': { color: 'text.disabled', opacity: 1, fontSize: '0.875rem' },
+                                        '& .MuiInputBase-root': { flexWrap: 'wrap', gap: 0.5 },
+                                    }}
+                                />
+                            )}
+                            data-testid="route-card-partners"
+                        />
+                        <IconButton size="small" color="error" onClick={() => setDeleteOpen(true)}
+                                    sx={{ p: 0.25, mb: 0.25 }} data-testid="route-card-delete-btn">
+                            <DeleteOutlineIcon sx={{ fontSize: 22 }} />
+                        </IconButton>
+                    </Box>
                 </CardContent>
             </Card>
 
