@@ -300,12 +300,15 @@ const RequirementDetail = () => {
 
     return (
         <Box sx={{ p: 3, maxWidth: 800 }} data-testid="requirement-detail">
-            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
                 <Button variant="outlined"
                         onClick={handleBack}
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
+                    Requirement ID - {requirement.id}
+                </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
@@ -454,13 +457,6 @@ const RequirementDetail = () => {
                     size="small"
                     data-testid="requirement-description"
                 />
-            </Box>
-
-            <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>ID</Typography>
-                <Typography variant="body2" data-testid="requirement-id">
-                    {requirement.id}
-                </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', gap: 4, mb: 3 }}>
