@@ -1,6 +1,7 @@
-import React, { useState, useContext, useMemo } from 'react';
+import React, { useState, useContext, useMemo, useRef } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Dialog from '@mui/material/Dialog';
@@ -13,7 +14,6 @@ import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import AddIcon from '@mui/icons-material/Add';
 import { DataGrid, useGridApiRef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,9 +37,9 @@ const MapPartnerSettingsView = () => {
     const { data: partners = [], isLoading: partnersLoading } = useMapPartners(creatorFk);
     const { data: runPartners = [], isLoading: runPartnersLoading } = useMapRunPartners(creatorFk);
 
-    const [addDialogOpen, setAddDialogOpen] = useState(false);
-    const [newPartnerName, setNewPartnerName] = useState('');
-    const [addSaving, setAddSaving] = useState(false);
+    const [inlineInput, setInlineInput] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const isSavingRef = useRef(false); // synchronous guard — prevents stale-closure double-submit
     const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null, name: '' });
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
@@ -58,20 +58,20 @@ const MapPartnerSettingsView = () => {
         [partners, rideCountMap]
     );
 
-    const handleAddPartner = async () => {
-        const name = newPartnerName.trim();
-        if (!name) return;
-        setAddSaving(true);
+    const handleSaveNewPartner = async () => {
+        const name = inlineInput.trim();
+        if (!name || isSavingRef.current) return; // synchronous guard catches rapid Enter+blur
+        isSavingRef.current = true;
+        setIsSaving(true);
         try {
             await call_rest_api(`${darwinUri}/map_partners`, 'POST', { name, creator_fk: creatorFk }, idToken);
             queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
-            setSnackbar({ open: true, message: 'Partner added', severity: 'success' });
-            setAddDialogOpen(false);
-            setNewPartnerName('');
+            setInlineInput('');
         } catch (err) {
             showError(err, 'Failed to add partner');
         } finally {
-            setAddSaving(false);
+            isSavingRef.current = false;
+            setIsSaving(false);
         }
     };
 
@@ -109,6 +109,9 @@ const MapPartnerSettingsView = () => {
             headerName: 'Partner Name',
             flex: 1,
             editable: true,
+            renderCell: (params) => (
+                <Chip label={params.value} variant="outlined" size="small" />
+            ),
         },
         {
             field: 'ride_count',
@@ -145,15 +148,6 @@ const MapPartnerSettingsView = () => {
                     Maps
                 </Button>
                 <Typography variant="h6" sx={{ flex: 1 }}>Partners</Typography>
-                <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    size="small"
-                    onClick={() => setAddDialogOpen(true)}
-                    data-testid="add-partner-button"
-                >
-                    Add Partner
-                </Button>
             </Box>
 
             <DataGrid
@@ -162,7 +156,6 @@ const MapPartnerSettingsView = () => {
                 columns={columns}
                 loading={partnersLoading || runPartnersLoading}
                 processRowUpdate={handleProcessRowUpdate}
-                onProcessRowUpdateError={(err) => showError(err, 'Failed to rename partner')}
                 onCellClick={(params) => {
                     if (params.field === 'name' && apiRef.current.getCellMode(params.id, params.field) === 'view') {
                         apiRef.current.startCellEditMode({ id: params.id, field: params.field });
@@ -171,40 +164,32 @@ const MapPartnerSettingsView = () => {
                 initialState={{
                     sorting: { sortModel: [{ field: 'name', sort: 'asc' }] },
                 }}
+                hideFooter
                 autoHeight
                 disableRowSelectionOnClick
                 density="compact"
                 data-testid="partners-datagrid"
             />
 
-            {/* Add Partner Dialog */}
-            <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>Add Partner</DialogTitle>
-                <DialogContent>
-                    <TextField
-                        autoFocus
-                        label="Partner Name"
-                        value={newPartnerName}
-                        onChange={(e) => setNewPartnerName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddPartner()}
-                        fullWidth
-                        size="small"
-                        sx={{ mt: 1 }}
-                        inputProps={{ 'data-testid': 'add-partner-name-input' }}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => { setAddDialogOpen(false); setNewPartnerName(''); }}>Cancel</Button>
-                    <Button
-                        onClick={handleAddPartner}
-                        disabled={!newPartnerName.trim() || addSaving}
-                        variant="contained"
-                        data-testid="add-partner-submit"
-                    >
-                        Add
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            {/* Blank template — sibling Box, not a DataGrid slot, so no remount on re-render */}
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderTop: 0, px: 1.5, py: 0.5 }}>
+                <TextField
+                    value={inlineInput}
+                    onChange={e => setInlineInput(e.target.value)}
+                    onBlur={handleSaveNewPartner}
+                    onKeyDown={e => {
+                        if (e.key === 'Enter') handleSaveNewPartner();
+                        if (e.key === 'Escape') setInlineInput('');
+                    }}
+                    placeholder="Add partner..."
+                    size="small"
+                    variant="standard"
+                    fullWidth
+                    disabled={isSaving}
+                    InputProps={{ disableUnderline: true }}
+                    inputProps={{ 'data-testid': 'new-partner-input' }}
+                />
+            </Box>
 
             {/* Delete Confirm Dialog */}
             <Dialog
