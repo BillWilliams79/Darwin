@@ -101,8 +101,19 @@ const ThemeWrapper = ({ children }) => {
                 divider: DARK_DIVIDER,
             }),
         },
-        ...(effectiveMode === 'dark' && {
-            components: {
+        components: {
+            MuiInput: {
+                styleOverrides: {
+                    root: {
+                        '&::before': {
+                            borderBottomColor: effectiveMode === 'dark'
+                                ? 'rgba(255,255,255,0.25)'
+                                : 'rgba(0,0,0,0.23)',
+                        },
+                    },
+                },
+            },
+            ...(effectiveMode === 'dark' && {
                 MuiCssBaseline: {
                     styleOverrides: {
                         'a:not(.MuiChip-root)': {
@@ -158,8 +169,8 @@ const ThemeWrapper = ({ children }) => {
                         },
                     },
                 },
-            },
-        }),
+            }),
+        },
     }), [effectiveMode]);
 
     const ctx = useMemo(() => ({ themeMode: mode, effectiveMode, setThemeMode }), [mode, effectiveMode, setThemeMode]);
