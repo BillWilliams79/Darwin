@@ -3,7 +3,7 @@ import varDump from '../../classifier/classifier';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 
-import { useDrag, useDrop } from "react-dnd";
+import { useDrag, useDrop, useDragLayer } from "react-dnd";
 import { getEmptyImage } from "react-dnd-html5-backend";
 import { useDragTabStore } from '../../stores/useDragTabStore';
 import { useTaskActions } from '../../hooks/useTaskActions';
@@ -32,6 +32,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
         descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
         sortMode, setCrossCardInsertIndex, disableStrikethrough } = useTaskActions();
     const [insertIndicator, setInsertIndicator] = useState(null); // 'above' | 'below' | null
+    const isDraggingAny = useDragLayer(monitor => monitor.isDragging());
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
@@ -176,6 +177,11 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
                         autoComplete ='off'
                         sx = {{
                             ...(task.done === 1 && !disableStrikethrough && {textDecoration: 'line-through'}),
+                            ...(isDraggingAny && {
+                                pointerEvents: 'none',
+                                '& .MuiInputBase-root::before': { borderBottomColor: 'transparent' },
+                                '& .MuiInputBase-root::after': { borderBottomColor: 'transparent' },
+                            }),
                         }}
                         size = 'small'
                         slotProps={{
