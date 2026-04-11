@@ -54,7 +54,7 @@ const SwarmView = () => {
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
-    const showClosed = requirementStatusFilter.includes('completed');
+    const showClosed = false;
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
