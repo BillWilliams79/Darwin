@@ -25,7 +25,7 @@ export function mapRunToSql(run, mapRouteFk = null, source = 'cyclemeter') {
         map_route_fk: mapRouteFk,
         activity_id: run.activityID,
         activity_name: run.activityName,
-        start_time: run.startTime,  // Raw UTC string from source
+        start_time: run.startTime ? run.startTime.replace(/\.\d+$/, '') : run.startTime,
         run_time_sec: Math.floor(run.runTime),
         stopped_time_sec: Math.min(Math.floor(run.stoppedTime), MAX_STOPPED_TIME),
         distance_mi: imperial ? imperial.distance : Math.round(run.distance * METERS_TO_MILES * 10) / 10,
@@ -92,6 +92,13 @@ export function normalizeRouteName(name) {
 export function filterNewRunsByCutoff(rawRuns, cutoffDate) {
     if (!cutoffDate) return { newRuns: rawRuns, skippedCount: 0 };
     const cutoff = new Date(cutoffDate);
-    const newRuns = rawRuns.filter(run => new Date(run.startTime) > cutoff);
+    const newRuns = rawRuns.filter(run => {
+        // Strip fractional seconds before comparing — MySQL DATETIME truncates sub-second
+        // precision, so the stored cutoff has no milliseconds. Without stripping, the last
+        // imported run's fractional part causes a false "newer than cutoff" result,
+        // re-importing it and triggering a duplicate key error (500) on map_runs POST.
+        const runStart = new Date(run.startTime.replace(/\.\d+$/, ''));
+        return runStart > cutoff;
+    });
     return { newRuns, skippedCount: rawRuns.length - newRuns.length };
 }

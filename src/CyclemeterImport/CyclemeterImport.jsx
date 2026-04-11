@@ -120,7 +120,29 @@ const CyclemeterImport = () => {
                         const config = buildConfig();
                         const result = await runPipelineForFormat(buffer, config, info.format);
                         console.log('[Import] Auto-process complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
-                        setStats(result.stats);
+
+                        // Dedup check for single-file formats
+                        let newCount = result.stats.totalRuns;
+                        let skippedCount = 0;
+                        try {
+                            const cutoffResult = await call_rest_api(
+                                `${darwinUri}/map_runs?fields=start_time&source=${info.source}&sort=start_time:desc`,
+                                'GET', null, idToken
+                            );
+                            const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+                            if (cutoffDate) {
+                                const minimalRuns = result.rawStartTimes.map(st => ({ startTime: st }));
+                                const dedup = filterNewRunsByCutoff(minimalRuns, cutoffDate);
+                                newCount = dedup.newRuns.length;
+                                skippedCount = dedup.skippedCount;
+                            }
+                        } catch (e) {
+                            if (e?.httpStatus?.httpStatus !== 404) {
+                                console.warn('[Import] Dedup check failed, showing total count:', e);
+                            }
+                        }
+
+                        setStats({ ...result.stats, newCount, skippedCount });
                     } catch (pipeErr) {
                         console.error('[Import] Auto-process error:', pipeErr);
                         setError(pipeErr.message || 'Pipeline failed');
@@ -173,7 +195,30 @@ const CyclemeterImport = () => {
             console.log('[Import] Starting pipeline for format:', formatInfo.format);
             const result = await runPipelineForFormat(buffer, config, formatInfo.format);
             console.log('[Import] Pipeline complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
-            setStats(result.stats);
+
+            // Dedup check: how many activities will actually be imported?
+            let newCount = result.stats.totalRuns;
+            let skippedCount = 0;
+            try {
+                const cutoffResult = await call_rest_api(
+                    `${darwinUri}/map_runs?fields=start_time&source=${formatInfo.source}&sort=start_time:desc`,
+                    'GET', null, idToken
+                );
+                const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+                if (cutoffDate) {
+                    const minimalRuns = result.rawStartTimes.map(st => ({ startTime: st }));
+                    const dedup = filterNewRunsByCutoff(minimalRuns, cutoffDate);
+                    newCount = dedup.newRuns.length;
+                    skippedCount = dedup.skippedCount;
+                }
+            } catch (e) {
+                if (e?.httpStatus?.httpStatus !== 404) {
+                    console.warn('[Import] Dedup check failed, showing total count:', e);
+                }
+                // 404 = no prior imports → all runs are new (default)
+            }
+
+            setStats({ ...result.stats, newCount, skippedCount });
         } catch (err) {
             console.error('[Import] Pipeline error:', err);
             setError(err.message || 'Pipeline failed');
@@ -390,9 +435,7 @@ const CyclemeterImport = () => {
 
             setSnackbar({
                 open: true,
-                message: skippedCount > 0
-                    ? `Saved ${completed} new activities (${skippedCount} already imported, skipped)`
-                    : `Saved ${completed} activities to Darwin`,
+                message: `Saved ${completed} new activities to Darwin`,
                 severity: 'success',
             });
 
@@ -664,7 +707,10 @@ const CyclemeterImport = () => {
                     <Typography variant="subtitle2" gutterBottom>Results</Typography>
                     <Box component="table" sx={{ '& td': { pr: 3, py: 0.3 } }}>
                         <tbody>
-                            <tr><td>Total Activities</td><td><strong>{stats.totalRuns}</strong></td></tr>
+                            <tr><td>Activities to Import</td><td><strong>{stats.newCount ?? stats.totalRuns}</strong></td></tr>
+                            {stats.skippedCount > 0 && (
+                                <tr><td>Already Imported</td><td>{stats.skippedCount}</td></tr>
+                            )}
                             <tr><td>Total Distance</td><td><strong>{stats.totalDistance} miles</strong></td></tr>
                             <tr><td>GPS Points Extracted</td><td><strong>{stats.totalExtracted.toLocaleString()}</strong></td></tr>
                             <tr><td>GPS Points Trimmed</td><td><strong>{(stats.totalTrimmed ?? 0).toLocaleString()}</strong></td></tr>
