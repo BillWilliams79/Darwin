@@ -165,7 +165,7 @@ const NavBarSidebar = () => {
                                     const groupLinks = visibleLinks.filter(l => l.group === group.id);
                                     return (
                                         <React.Fragment key={group.id}>
-                                            {showText && (
+                                            {showText && group.label && (
                                                 <ListSubheader sx={{
                                                     bgcolor: 'transparent',
                                                     color: 'rgba(255,255,255,0.5)',
