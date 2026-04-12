@@ -381,7 +381,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'scheduled': newRequirementsArray[requirementIndex].scheduled}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, "Unable to change requirement's scheduled flag")
                     }
                 }).catch(error => {
@@ -411,7 +411,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next, 'scheduled': scheduledVal}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, "Unable to change requirement status");
                     }
                 }).catch(error => showError(error, "Unable to change requirement status"));
@@ -434,7 +434,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, "Unable to change coordination type");
                     }
                 }).catch(error => showError(error, "Unable to change coordination type"));
@@ -491,7 +491,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         Object.assign(newRequirementsArray[requirementIndex], pending);
                         call_rest_api(uri, 'PUT', [{'id': result.data[0].id, ...pending}], idToken)
                             .then(putResult => {
-                                if (putResult.httpStatus.httpStatus !== 200) {
+                                if (putResult.httpStatus.httpStatus !== 200 && putResult.httpStatus.httpStatus !== 204) {
                                     showError(putResult, 'Unable to update requirement after save');
                                 }
                             }).catch(putError => {
