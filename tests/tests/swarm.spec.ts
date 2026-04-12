@@ -41,7 +41,7 @@ test.describe('Swarm View', () => {
     // Create requirement
     const priResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testRequirementTitle, category_fk: testCategoryId,
-      requirement_status: 'in_progress', sort_order: 0,
+      requirement_status: 'development', sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test requirement');
     testRequirementId = priResult[0].id;
@@ -49,7 +49,7 @@ test.describe('Swarm View', () => {
     // Create idle requirement (not in_progress) for scheduled toggle test
     const idlePriResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testIdleRequirementTitle, category_fk: testCategoryId,
-      requirement_status: 'idle', sort_order: 1,
+      requirement_status: 'authoring', sort_order: 1,
     }, idToken) as Array<{ id: string }>;
     if (!idlePriResult?.length) throw new Error('Failed to create idle test requirement');
     testIdleRequirementId = idlePriResult[0].id;
@@ -265,19 +265,19 @@ test.describe('Swarm View', () => {
     // Create a closed requirement after the two open ones
     const closedResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: uniqueName('ClosedNav'), category_fk: testCategoryId,
-      requirement_status: 'completed', sort_order: 99,
+      requirement_status: 'met', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
     const closedRequirementId = closedResult[0].id;
 
     try {
       // Ensure closed filter chip is OFF (default) by navigating to /swarm first
       await page.goto('/swarm');
-      const completedChip = page.getByTestId('filter-chip-completed');
-      await completedChip.waitFor({ timeout: 10000 });
+      const metChip = page.getByTestId('filter-chip-met');
+      await metChip.waitFor({ timeout: 10000 });
       // If chip is selected (not outlined), click to deselect
-      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      const isOutlined = await metChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
       if (!isOutlined) {
-        await completedChip.click();
+        await metChip.click();
       }
 
       // Navigate to the idle requirement (sort_order=1, second open item — last open item)
@@ -308,15 +308,15 @@ test.describe('Swarm View', () => {
 
     const oldResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: oldTitle, category_fk: testCategoryId,
-      requirement_status: 'completed', sort_order: 90, completed_at: oldClosed,
+      requirement_status: 'met', sort_order: 90, completed_at: oldClosed,
     }, idToken) as Array<{ id: string }>;
     const midResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: midTitle, category_fk: testCategoryId,
-      requirement_status: 'completed', sort_order: 91, completed_at: midClosed,
+      requirement_status: 'met', sort_order: 91, completed_at: midClosed,
     }, idToken) as Array<{ id: string }>;
     const newResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: newTitle, category_fk: testCategoryId,
-      requirement_status: 'completed', sort_order: 92, completed_at: newClosed,
+      requirement_status: 'met', sort_order: 92, completed_at: newClosed,
     }, idToken) as Array<{ id: string }>;
 
     const oldId = oldResult[0].id;
@@ -330,12 +330,12 @@ test.describe('Swarm View', () => {
       await expect(page.getByTestId(`category-card-${testCategoryId}`)).toBeVisible({ timeout: 10000 });
 
       // Turn on completed filter chip
-      const completedChip = page.getByTestId('filter-chip-completed');
-      await completedChip.waitFor({ timeout: 10000 });
+      const metChip = page.getByTestId('filter-chip-met');
+      await metChip.waitFor({ timeout: 10000 });
       // If chip is not selected (outlined), click to select
-      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      const isOutlined = await metChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
       if (isOutlined) {
-        await completedChip.click();
+        await metChip.click();
       }
 
       // Wait for closed requirements to appear
@@ -394,20 +394,20 @@ test.describe('Swarm View', () => {
       await page.getByRole('tab', { name: testProjectName }).click();
 
       // Turn on completed chip
-      const completedChip = page.getByTestId('filter-chip-completed');
-      await completedChip.waitFor({ timeout: 10000 });
-      const isOutlined = await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
+      const metChip = page.getByTestId('filter-chip-met');
+      await metChip.waitFor({ timeout: 10000 });
+      const isOutlined = await metChip.evaluate(el => el.classList.contains('MuiChip-outlined'));
       if (isOutlined) {
-        await completedChip.click();
+        await metChip.click();
       }
 
       // The closed category card must NOT be visible regardless of requirement status filter
       await expect(page.getByTestId(`category-card-${closedCategoryId}`)).not.toBeVisible({ timeout: 5000 });
 
       // Turn off completed chip (restore state)
-      const isStillSelected = !(await completedChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
+      const isStillSelected = !(await metChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
       if (isStillSelected) {
-        await completedChip.click();
+        await metChip.click();
       }
     } finally {
       try { await apiDelete('categories', closedCategoryId, idToken); } catch {}
@@ -419,7 +419,7 @@ test.describe('Swarm View', () => {
     const deleteTitle = uniqueName('DeleteMe');
     const result = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: deleteTitle, category_fk: testCategoryId,
-      requirement_status: 'idle', sort_order: 99,
+      requirement_status: 'authoring', sort_order: 99,
     }, idToken) as Array<{ id: string }>;
     const deleteId = result[0].id;
 
