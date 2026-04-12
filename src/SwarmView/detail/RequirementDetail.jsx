@@ -22,14 +22,15 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { CircularProgress, Typography } from '@mui/material';
+import { CircularProgress, Stack, Typography } from '@mui/material';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import HotelIcon from '@mui/icons-material/Hotel';
+import EditNoteIcon from '@mui/icons-material/EditNote';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -39,6 +40,7 @@ import SouthIcon from '@mui/icons-material/South';
 const swarmStatusChipProps = (status) => {
     switch (status) {
         case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
         case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
         case 'starting':   return { color: 'info' };
         case 'completing': return { color: 'info' };
@@ -76,13 +78,13 @@ const siblingHandSort = (a, b) => {
 
 const siblingCreatedSort = (a, b) => a.id - b.id;
 
-const STATUS_SORT_ORDER = { idle: 0, in_progress: 0, deferred: 1, completed: 2 };
+const STATUS_SORT_ORDER = { authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5 };
 
 const siblingActiveSort = (sortMode, a, b) => {
     const aState = STATUS_SORT_ORDER[a.requirement_status] ?? 0;
     const bState = STATUS_SORT_ORDER[b.requirement_status] ?? 0;
     if (aState !== bState) return aState - bState;
-    if (a.requirement_status === 'completed' && b.requirement_status === 'completed') {
+    if (a.requirement_status === 'met' && b.requirement_status === 'met') {
         const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
         const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
         if (aTime !== bTime) return bTime - aTime;
@@ -115,12 +117,9 @@ const RequirementDetail = () => {
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
-    // Map chip filter values to DB requirement_status values for sibling query
-    const siblingStatuses = [];
-    if (requirementStatusFilter.includes('open')) siblingStatuses.push('idle', 'in_progress');
-    if (requirementStatusFilter.includes('deferred')) siblingStatuses.push('deferred');
-    if (requirementStatusFilter.includes('completed')) siblingStatuses.push('completed');
-    const showClosed = requirementStatusFilter.includes('completed');
+    // Filter chips now match DB status values directly
+    const siblingStatuses = [...requirementStatusFilter];
+    const showClosed = requirementStatusFilter.includes('met');
 
     const queryClient = useQueryClient();
 
@@ -211,74 +210,65 @@ const RequirementDetail = () => {
         if (requirement) saveField('description', requirement.description || '');
     };
 
-    const handleScheduledToggle = (event, newVal) => {
-        if (newVal === null) return;
-        const scheduledMap = { idle: 0, scheduled: 1, auto: 2 };
-        const numVal = scheduledMap[newVal];
-        setRequirement(prev => ({ ...prev, scheduled: numVal }));
-        saveField('scheduled', numVal);
-    };
+    const currentStatus = requirement?.requirement_status || 'authoring';
 
-    const scheduledState = requirement?.scheduled === 2 ? 'auto' : requirement?.scheduled === 1 ? 'scheduled' : 'idle';
-
-    // Map DB requirement_status to toggle button value: idle/in_progress → 'open'
-    const currentState = requirement
-        ? (requirement.requirement_status === 'completed' ? 'closed'
-            : requirement.requirement_status === 'deferred' ? 'deferred'
-            : 'open')
-        : 'open';
-
-    // Confirmation dialog for transitions FROM completed state
+    // Confirmation dialog for transitions FROM met state
     const requirementReopen = useConfirmDialog({
-        onConfirm: ({ targetState }) => {
-            executeStateChange(targetState);
+        onConfirm: ({ targetStatus }) => {
+            executeStatusChange(targetStatus);
         }
     });
 
-    const executeStateChange = (newState) => {
-        // Map toggle values to requirement_status
-        const statusMap = { open: 'idle', deferred: 'deferred', closed: 'completed' };
-        const newStatus = statusMap[newState];
+    const executeStatusChange = (newStatus) => {
         const now = new Date().toISOString();
+        // Auto-manage scheduled: swarm_ready sets scheduled=1, other statuses clear it
+        const scheduledVal = newStatus === 'swarm_ready' ? 1 : 0;
 
         const updates = {
             requirement_status: newStatus,
-            started_at: 'NULL',
-            completed_at: newState === 'closed' ? now : 'NULL',
-            deferred_at: newState === 'deferred' ? now : 'NULL',
+            scheduled: scheduledVal,
+            started_at: newStatus === 'development' ? now : 'NULL',
+            completed_at: newStatus === 'met' ? now : 'NULL',
+            deferred_at: newStatus === 'deferred' ? now : 'NULL',
         };
 
         setRequirement(prev => ({
             ...prev,
             requirement_status: newStatus,
-            started_at: null,
-            completed_at: newState === 'closed' ? now : null,
-            deferred_at: newState === 'deferred' ? now : null,
+            scheduled: scheduledVal,
+            started_at: newStatus === 'development' ? now : null,
+            completed_at: newStatus === 'met' ? now : null,
+            deferred_at: newStatus === 'deferred' ? now : null,
         }));
 
         let uri = `${darwinUri}/requirements`;
         call_rest_api(uri, 'PUT', [{ id: parseInt(id), ...updates }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                    showError(result, 'Unable to update requirement state');
+                    showError(result, 'Unable to update requirement status');
                 } else {
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                 }
             }).catch(error => {
-                showError(error, 'Unable to update requirement state');
+                showError(error, 'Unable to update requirement status');
             });
     };
 
-    const handleStateChange = (event, newState) => {
-        if (newState === null || newState === currentState) return;
+    const handleStatusChange = (event, newStatus) => {
+        if (newStatus === null || newStatus === currentStatus) return;
 
-        // Require confirmation when leaving completed state
-        if (currentState === 'closed') {
-            requirementReopen.openDialog({ targetState: newState });
+        // Require confirmation when leaving met state
+        if (currentStatus === 'met') {
+            requirementReopen.openDialog({ targetStatus: newStatus });
             return;
         }
 
-        executeStateChange(newState);
+        executeStatusChange(newStatus);
+    };
+
+    const handleCoordinationChange = (event, newVal) => {
+        setRequirement(prev => ({ ...prev, coordination_type: newVal }));
+        saveField('coordination_type', newVal === null ? 'NULL' : newVal);
     };
 
     const sortedSiblings = useMemo(() => {
@@ -334,79 +324,66 @@ const RequirementDetail = () => {
                 />
             </Box>
 
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                 {(() => {
-                    const activeStatuses = ['starting', 'active', 'completing'];
-                    const hasActiveSession = sessions.some(s => activeStatuses.includes(s.swarm_status));
-                    const isDisabled = hasActiveSession || requirement.requirement_status === 'completed' || requirement.requirement_status === 'deferred';
-                    return (
-                        <ToggleButtonGroup
-                            value={scheduledState}
-                            exclusive
-                            onChange={handleScheduledToggle}
-                            size="small"
-                            disabled={isDisabled}
-                            data-testid="toggle-scheduled"
-                        >
-                            <Tooltip title="Not set for swarm-start" enterDelay={400} enterNextDelay={200}>
-                                <ToggleButton value="idle" data-testid="scheduled-idle"
-                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'idle' && { bgcolor: 'action.selected' }) }}
-                                >Idle</ToggleButton>
-                            </Tooltip>
-                            <Tooltip title="Set for swarm-start, manual start" enterDelay={400} enterNextDelay={200}>
-                                <ToggleButton value="scheduled" data-testid="scheduled-scheduled"
-                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'scheduled' && { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' }, '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } } }) }}
-                                >Scheduled</ToggleButton>
-                            </Tooltip>
-                            <Tooltip title="Set for swarm-start, begins automatically" enterDelay={400} enterNextDelay={200}>
-                                <ToggleButton value="auto" data-testid="scheduled-auto"
-                                    sx={{ textTransform: 'capitalize', ...(scheduledState === 'auto' && { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' }, '&.Mui-selected': { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' } } }) }}
-                                >Auto-Start</ToggleButton>
-                            </Tooltip>
-                        </ToggleButtonGroup>
-                    );
-                })()}
-                {(() => {
+                    const hasReviewSession = sessions.some(s => s.swarm_status === 'review');
                     const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
                     const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
                     const status = requirement.requirement_status;
-                    const label = status === 'completed' ? "Completed" :
+                    const label = status === 'met' ? "Met" :
                         status === 'deferred' ? "Deferred" :
+                        hasReviewSession ? "In Review" :
                         hasPausedSession ? "Paused" :
-                        hasActiveSession || status === 'in_progress' ? "In Progress" :
-                        "Not Started";
-                    const icon = status === 'completed' ?
+                        hasActiveSession || status === 'development' ? "Development" :
+                        status === 'swarm_ready' ? "Swarm-Start" :
+                        status === 'approved' ? "Approved" :
+                        "Authoring";
+                    const icon = status === 'met' ?
                         <CheckCircleIcon sx={{ fontSize: 24, color: 'success.main' }} /> :
                         status === 'deferred' ?
                             <DoNotDisturbOnIcon sx={{ fontSize: 24, color: '#ff9800' }} /> :
+                        hasReviewSession ?
+                            <RateReviewIcon sx={{ fontSize: 24, color: '#ce93d8' }} /> :
                         hasPausedSession ?
                             <PauseCircleIcon sx={{ fontSize: 24, color: '#f0d000' }} /> :
-                            hasActiveSession || status === 'in_progress' ?
-                                <RocketLaunchIcon sx={{ fontSize: 24, color: '#4caf50' }} /> :
-                                <HotelIcon sx={{ fontSize: 24, color: 'text.disabled' }} />;
+                        hasActiveSession || status === 'development' ?
+                            <RocketLaunchIcon sx={{ fontSize: 24, color: '#4caf50' }} /> :
+                        status === 'swarm_ready' ?
+                            <PlayCircleIcon sx={{ fontSize: 24, color: 'primary.main' }} /> :
+                        status === 'approved' ?
+                            <TaskAltIcon sx={{ fontSize: 24, color: '#90caf9' }} /> :
+                            <EditNoteIcon sx={{ fontSize: 24, color: '#fbc02d' }} />;
                     return (
                         <Tooltip enterDelay={400} enterNextDelay={200} title={label}>
                             {icon}
                         </Tooltip>
                     );
                 })()}
-                <ToggleButtonGroup
-                    value={currentState}
-                    exclusive
-                    onChange={handleStateChange}
-                    size="small"
-                    data-testid="requirement-state-selector"
-                >
-                    <ToggleButton value="open" data-testid="state-open"
-                        sx={{ textTransform: 'capitalize', ...(currentState === 'open' && { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' }, '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } } }) }}
-                    >Open</ToggleButton>
-                    <ToggleButton value="deferred" data-testid="state-deferred"
-                        sx={{ textTransform: 'capitalize', ...(currentState === 'deferred' && { bgcolor: '#ff9800', color: '#fff', '&:hover': { bgcolor: '#e68900' }, '&.Mui-selected': { bgcolor: '#ff9800', color: '#fff', '&:hover': { bgcolor: '#e68900' } } }) }}
-                    >Deferred</ToggleButton>
-                    <ToggleButton value="closed" data-testid="state-closed"
-                        sx={{ textTransform: 'capitalize', ...(currentState === 'closed' && { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' }, '&.Mui-selected': { bgcolor: 'success.main', color: '#fff', '&:hover': { bgcolor: 'success.dark' } } }) }}
-                    >Closed</ToggleButton>
-                </ToggleButtonGroup>
+                <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
+                    {[
+                        { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
+                        { value: 'approved',    label: 'Approved',  chipSx: { bgcolor: '#90caf9', color: '#000' } },
+                        { value: 'swarm_ready', label: 'Swarm-Start', color: 'primary' },
+                        { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#4caf50', color: '#fff' } },
+                        { value: 'met',         label: 'Met',       color: 'success' },
+                        { value: 'deferred',    label: 'Deferred',  chipSx: { bgcolor: '#ff9800', color: '#fff' } },
+                    ].map(({ value, label, color, chipSx }) => {
+                        const selected = currentStatus === value;
+                        return (
+                            <Chip
+                                key={value}
+                                label={label}
+                                size="small"
+                                onClick={() => handleStatusChange(null, value)}
+                                data-testid={`state-${value}`}
+                                {...(selected
+                                    ? (chipSx ? { sx: { ...chipSx, cursor: 'pointer' } } : { color, sx: { cursor: 'pointer' } })
+                                    : { variant: 'outlined', sx: { cursor: 'pointer', opacity: 0.6 } }
+                                )}
+                            />
+                        );
+                    })}
+                </Stack>
                 <Tooltip title="Previous requirement" enterDelay={400}>
                     <span>
                         <IconButton
@@ -441,6 +418,43 @@ const RequirementDetail = () => {
                     </IconButton>
                 </Tooltip>
             </Box>
+
+            {/* Swarm-Start Coordination — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise */}
+            {(() => {
+                const isReady = currentStatus === 'swarm_ready';
+                const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
+                const isFaded = !isReady;
+
+                return (
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center', opacity: isFaded ? 0.4 : 1 }}>
+                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
+                            Swarm-Start Coordination
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
+                            {[
+                                { value: 'planned',     label: 'Planned',     chipSx: { bgcolor: '#90caf9', color: '#000' } },
+                                { value: 'implemented', label: 'Implemented', chipSx: { bgcolor: '#4caf50', color: '#fff' } },
+                                { value: 'deployed',    label: 'Deployed',    chipSx: { bgcolor: '#b39ddb', color: '#000' } },
+                            ].map(({ value, label, color, chipSx }) => {
+                                const selected = requirement.coordination_type === value;
+                                return (
+                                    <Chip
+                                        key={value}
+                                        label={label}
+                                        size="small"
+                                        disabled={!isEditable}
+                                        onClick={() => handleCoordinationChange(null, selected ? null : value)}
+                                        {...(selected
+                                            ? (chipSx ? { sx: { ...chipSx, cursor: isEditable ? 'pointer' : 'default' } } : { color, sx: { cursor: isEditable ? 'pointer' : 'default' } })
+                                            : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
+                                        )}
+                                    />
+                                );
+                            })}
+                        </Stack>
+                    </Box>
+                );
+            })()}
 
             <Box sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
@@ -490,7 +504,7 @@ const RequirementDetail = () => {
                         </Typography>
                     </Box>
                     <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Swarm Completed</Typography>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Requirement Met</Typography>
                         <Typography variant="body2" data-testid="requirement-completed-at">
                             {requirement.completed_at ? formatDateTime(requirement.completed_at, timezone) : '—'}
                         </Typography>
@@ -522,6 +536,7 @@ const RequirementDetail = () => {
                 setDeleteDialogOpen={requirementDelete.setDialogOpen}
                 setDeleteId={requirementDelete.setInfoObject}
                 setDeleteConfirmed={requirementDelete.setConfirmed}
+                requirement={requirement}
             />
 
             <Dialog
@@ -530,18 +545,18 @@ const RequirementDetail = () => {
                 data-testid="requirement-reopen-dialog"
             >
                 <DialogTitle>
-                    {requirementReopen.infoObject.targetState === 'deferred' ? 'Defer Requirement' : 'Re-open Requirement'}
+                    {requirementReopen.infoObject.targetStatus === 'deferred' ? 'Defer Requirement' : 'Re-open Requirement'}
                 </DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        {requirementReopen.infoObject.targetState === 'deferred'
+                        {requirementReopen.infoObject.targetStatus === 'deferred'
                             ? 'This will clear the completion date and mark the requirement as deferred. Continue?'
                             : 'Re-opening will clear the completion date. Continue?'}
                     </DialogContentText>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => { requirementReopen.setConfirmed(true); requirementReopen.setDialogOpen(false); }} variant="outlined">
-                        {requirementReopen.infoObject.targetState === 'deferred' ? 'Defer' : 'Re-open'}
+                        {requirementReopen.infoObject.targetStatus === 'deferred' ? 'Defer' : 'Re-open'}
                     </Button>
                     <Button onClick={() => { requirementReopen.setDialogOpen(false); requirementReopen.setInfoObject({}); }} variant="outlined" autoFocus>
                         Cancel

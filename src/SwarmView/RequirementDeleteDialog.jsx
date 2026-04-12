@@ -10,7 +10,8 @@ import Typography from '@mui/material/Typography';
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import HotelIcon from '@mui/icons-material/Hotel';
+import EditNoteIcon from '@mui/icons-material/EditNote';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
@@ -56,13 +57,17 @@ const RequirementDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDel
                             <SettingsIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                         <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                            {requirement.requirement_status === 'completed'
+                            {requirement.requirement_status === 'met'
                                 ? <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
                                 : requirement.requirement_status === 'deferred'
                                     ? <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />
-                                    : requirement.requirement_status === 'in_progress'
-                                        ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                                        : <HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
+                                : requirement.requirement_status === 'development'
+                                    ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                                : requirement.requirement_status === 'swarm_ready'
+                                    ? <PlayCircleIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                                : requirement.requirement_status === 'approved'
+                                    ? <TaskAltIcon sx={{ fontSize: 18, color: '#90caf9' }} />
+                                    : <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />}
                         </IconButton>
                         <Box sx={{
                             flex: 1,

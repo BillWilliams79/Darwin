@@ -243,13 +243,13 @@ test.describe.serial('Project Management P1', () => {
     for (let i = 0; i < 3; i++) {
       const result = await apiCall('requirements', 'POST', {
         creator_fk: sub, title: uniqueName(`Req1-${i}`), category_fk: cat1Result[0].id,
-        requirement_status: 'open', sort_order: i,
+        requirement_status: 'authoring', sort_order: i,
       }, idToken) as Array<{ id: string }>;
       if (result?.length) createdRequirementIds.push(result[0].id);
     }
     const priResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: uniqueName('Req2-0'), category_fk: cat2Result[0].id,
-      requirement_status: 'open', sort_order: 0,
+      requirement_status: 'authoring', sort_order: 0,
     }, idToken) as Array<{ id: string }>;
     if (priResult?.length) createdRequirementIds.push(priResult[0].id);
 

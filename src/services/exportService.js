@@ -223,6 +223,7 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
             title: p.title,
             description: p.description,
             requirement_status: p.requirement_status,
+            coordination_type: p.coordination_type,
             scheduled: p.scheduled,
             sort_order: p.sort_order,
             started_at: p.started_at,

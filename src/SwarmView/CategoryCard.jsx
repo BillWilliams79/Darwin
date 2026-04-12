@@ -131,19 +131,17 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 call_rest_api(uri, 'PUT', bulkUpdate, idToken).catch(() => {});
             }
 
-            // Client-side filtering based on requirement status chips
-            sortedRequirementsArray = sortedRequirementsArray.filter(p => {
-                if (p.requirement_status === 'completed') return requirementStatusFilter.includes('completed');
-                if (p.requirement_status === 'deferred') return requirementStatusFilter.includes('deferred');
-                return requirementStatusFilter.includes('open');
-            });
+            // Client-side filtering based on requirement status chips (direct match)
+            sortedRequirementsArray = sortedRequirementsArray.filter(p =>
+                requirementStatusFilter.includes(p.requirement_status)
+            );
 
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setRequirementsArray(sortedRequirementsArray);
         } else if (serverRequirements && serverRequirements.length === 0) {
             let sortedRequirementsArray = [];
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
             setRequirementsArray(sortedRequirementsArray);
         }
     }, [serverRequirements, requirementStatusFilter]);
@@ -157,11 +155,16 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 if (m) {
                     const pid = parseInt(m[2]);
                     if (!map[pid] || s.id > map[pid].id) {
-                        map[pid] = s.swarm_status;
+                        map[pid] = { id: s.id, swarm_status: s.swarm_status };
                     }
                 }
             });
-            setSessionStatusMap(map);
+            // Flatten to string values for consumers (RequirementRow)
+            const flatMap = {};
+            for (const [k, v] of Object.entries(map)) {
+                flatMap[k] = v.swarm_status;
+            }
+            setSessionStatusMap(flatMap);
         }
     }, [serverSessions]);
 
@@ -392,6 +395,55 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         setRequirementsArray(newRequirementsArray);
     }
 
+    const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
+    const statusClick = (requirementIndex, requirementId) => {
+        let newRequirementsArray = [...requirementsArray];
+        const current = newRequirementsArray[requirementIndex].requirement_status;
+        const idx = STATUS_CYCLE.indexOf(current);
+        if (idx === -1) return; // not a cycleable status (development/met/deferred)
+        const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        // Auto-manage scheduled: swarm_ready sets scheduled=1, others clear to 0
+        const scheduledVal = next === 'swarm_ready' ? 1 : 0;
+        newRequirementsArray[requirementIndex].requirement_status = next;
+        newRequirementsArray[requirementIndex].scheduled = scheduledVal;
+
+        if (requirementId !== '') {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next, 'scheduled': scheduledVal}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, "Unable to change requirement status");
+                    }
+                }).catch(error => showError(error, "Unable to change requirement status"));
+        } else if (savingRef.current) {
+            pendingMutationsRef.current.requirement_status = next;
+            pendingMutationsRef.current.scheduled = scheduledVal;
+        }
+        setRequirementsArray(newRequirementsArray);
+    }
+
+    const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
+    const coordinationClick = (requirementIndex, requirementId) => {
+        let newRequirementsArray = [...requirementsArray];
+        const current = newRequirementsArray[requirementIndex].coordination_type || null;
+        const idx = COORD_CYCLE.indexOf(current);
+        const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
+        newRequirementsArray[requirementIndex].coordination_type = next;
+
+        if (requirementId !== '') {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200) {
+                        showError(result, "Unable to change coordination type");
+                    }
+                }).catch(error => showError(error, "Unable to change coordination type"));
+        } else if (savingRef.current) {
+            pendingMutationsRef.current.coordination_type = next === null ? 'NULL' : next;
+        }
+        setRequirementsArray(newRequirementsArray);
+    }
+
     const updateRequirement = (event, requirementIndex, requirementId) => {
 
         const noop = ()=>{};
@@ -448,7 +500,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newRequirementsArray.sort((a, b) => activeSort(a, b));
-                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'idle', 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
+                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
                     setRequirementsArray(newRequirementsArray);
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     navigate(`/swarm/requirement/${result.data[0].id}`);
@@ -471,7 +523,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             requirementId,
             title: requirement?.title || '',
             scheduled: requirement?.scheduled || 0,
-            requirement_status: requirement?.requirement_status || 'idle',
+            requirement_status: requirement?.requirement_status || 'authoring',
         });
     }
 
@@ -489,16 +541,16 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return aOrder - bOrder;
     }
 
-    const STATUS_SORT = { idle: 0, in_progress: 0, deferred: 1, completed: 2 };
+    const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2 };
 
     const activeSort = (a, b) => {
         if (a.id === '') return 1;
         if (b.id === '') return -1;
-        // Three-state sort: open (0) < deferred (1) < completed (2)
+        // Three-group sort: active (0) < deferred (1) < met (2)
         const aState = STATUS_SORT[a.requirement_status] ?? 0;
         const bState = STATUS_SORT[b.requirement_status] ?? 0;
         if (aState !== bState) return aState - bState;
-        if (a.requirement_status === 'completed' && b.requirement_status === 'completed') {
+        if (a.requirement_status === 'met' && b.requirement_status === 'met') {
             const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
             const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
@@ -602,7 +654,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     )}
                 </Box>
                 { (requirementsArray) ?
-                    <RequirementActionsContext.Provider value={{ scheduledClick,
+                    <RequirementActionsContext.Provider value={{ scheduledClick, statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
                         sortMode, setCrossCardInsertIndex, sessionStatusMap }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
