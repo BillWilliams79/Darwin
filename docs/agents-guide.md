@@ -1,5 +1,20 @@
 # Darwin AI Agents — A Guide to Specialist Sub-Agents
 
+## Agent Roster at a Glance
+
+| Agent | Responsibility | Docs |
+|-------|---------------|:----:|
+| **darwin-architect** | Overall design authority, cross-domain synthesis, can groom any file | 4 |
+| **code-reviewer** | Mental simulation code review, correctness verification, pre-merge quality gate | 0 |
+| **frontend-architect** | React frontend, MUI, DnD, auth UI, dev server, NavBar, Calendar, routes | 4 |
+| **applications-architect** | Maps ETL pipeline, Strava/Enphase integrations, recurring tasks feature | 4 |
+| **data-architect** | MySQL schema, migrations, REST API conventions, all three Lambda functions | 5 |
+| **aws-architect** | AWS infrastructure, API Gateway, RDS, Lambda deployment, cost decisions | 2 |
+| **systems-architect** | Auth/security, Cognito, JWT validation, MCP server integration layer | 3 |
+| **ai-memory-architect** | Knowledge system, MEMORY.md index, completed work history, agent ownership map | 3 |
+| **test-architect** | E2E Playwright tests, vitest unit tests, pytest Lambda/schema tests | 1 |
+| **swarm-architect** | Parallel Claude sessions, swarm lifecycle, skills system, token cost discipline | 7 |
+
 ## What Are Claude Code Agents?
 
 Claude Code supports a sub-agent system where a parent Claude session can delegate tasks to specialized child agents. Each agent is defined by a markdown file with a YAML frontmatter header and a system prompt — a brief instruction document that gives the agent its identity, domain knowledge, and tool access.
@@ -111,6 +126,51 @@ Think of agent files as living documentation. They should be updated whenever yo
 **Agents compose naturally.** A `darwin-architect` agent can spawn `data-architect` and `frontend-architect` agents to get domain-specific analysis, then synthesize the results. This composition pattern (one synthesizer + multiple specialists) handles requirements that genuinely span multiple domains without any single agent needing to be expert in everything.
 
 **The description is a contract.** When you write `description: Use for X, Y, Z`, the orchestrator will route X, Y, and Z tasks to this agent. Make sure the agent's system prompt actually prepares it for X, Y, and Z. A mismatch between the description and the system prompt content is the most common failure mode in agent design.
+
+## Agent Output: The Contractual Split
+
+An agent's return value is shaped by two complementary responsibilities — neither alone is sufficient.
+
+**The agent definition** sets the output *structure and quality standard*: the format of findings, the severity taxonomy, the required fields, the completeness bar. This makes agent output predictable regardless of who invokes it.
+
+**The invocation prompt** sets the *scope and focus*: which files, which change, which aspect of the domain to examine. This makes the agent flexible without being inconsistent.
+
+A mismatch in either direction causes failure. A definition with no output contract produces inconsistent results that vary with each caller's phrasing. An invocation that dictates both scope and format makes the definition irrelevant — callers must know too much, and the agent's expertise is bypassed. The right design: the definition owns structure and quality, the invocation owns scope. Together they produce consistent, useful, focused output. Neither substitutes for the other.
+
+## How Agents Learn: Knowledge Storage and Ownership
+
+### The Three Tiers of Knowledge
+
+Not all knowledge is equal in terms of availability. Understanding the tiers is essential to designing agents that grow smarter over time rather than staying frozen at the moment they were written.
+
+**Tier 1 — Always in context (guaranteed):**
+`CLAUDE.md` and `memory/MEMORY.md` are loaded at every session start, automatically. Every Claude session and every agent invocation has access to these without any action required. MEMORY.md is an index only — one-line pointers, ≤200 lines — not the knowledge itself.
+
+**Tier 2 — Available on demand (progressive disclosure):**
+Topic files in `memory/` (`architecture.md`, `auth-architecture.md`, `database.md`, `tests.md`, etc.) exist and are referenced in MEMORY.md, but are never automatically loaded. An agent reads them explicitly when the task demands it. This is progressive disclosure: context is only consumed when the knowledge is actually needed. The files are inert unless accessed.
+
+**Tier 3 — Loaded only on invocation (agent definitions):**
+Agent `.md` files are loaded in full when an agent is spawned, then gone when it returns. The agent definition is effectively a pre-read, curated summary of what would otherwise require multiple topic file reads — guaranteed-loaded, not maybe-loaded.
+
+### Topic File Ownership and the Learning Loop
+
+Each agent owns a set of topic files in `memory/`. Ownership means:
+- The agent reads these files when it needs depth beyond what its definition carries
+- The agent is responsible for updating them when new knowledge is discovered
+- No other agent should be the primary curator for those files
+
+This creates the learning feedback loop the system needs. When an agent works through a problem and discovers something non-obvious — a new gotcha, a revised architecture decision, a pattern that caused a bug — it writes that discovery back to its owned topic file. The next invocation of that agent reads the updated file and has the benefit of the prior session's findings. Over time, the topic files accumulate institutional knowledge that no single agent definition could hold without becoming unwieldy.
+
+The agent definition file stays lean (fast-loading, scannable identity and critical patterns). The topic files carry depth (full architecture history, detailed runbooks, edge cases). Together they give an agent both reliable quick-access context and the ability to go deep when needed — without polluting every session with everything.
+
+### The Grooming Responsibility
+
+Topic file grooming is a first-class responsibility, not an afterthought. When a session ends and new knowledge was generated:
+1. The owning agent (or the primary Claude session on the agent's behalf) updates the relevant topic file
+2. MEMORY.md one-liner is revised if the file's scope changed
+3. The agent definition is updated if a critical gotcha was discovered that should always be in context
+
+This is how an agent team gets smarter over time. Without active grooming, topic files drift stale, agents work from outdated knowledge, and the memory system becomes a liability instead of an asset.
 
 ## The Relationship Between Agents and Skills
 
