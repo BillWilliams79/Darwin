@@ -8,6 +8,7 @@ import RepeatIcon from '@mui/icons-material/Repeat';
 import RouteIcon from '@mui/icons-material/Route';
 
 export const NAV_GROUPS = [
+    { id: 'calendar', label: '' },
     { id: 'tasks', label: 'TASKS' },
     { id: 'maps', label: 'MAPS' },
     { id: 'swarm', label: 'SWARM' },
@@ -23,7 +24,7 @@ export const GROUP_PROFILE_KEY = {
 export const NAV_LINKS = [
     { path: '/taskcards', label: 'Plan', icon: ViewKanbanIcon, group: 'tasks' },
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
-    { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'tasks' },
+    { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'calendar' },
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     { path: '/swarm', label: 'Roadmap', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
