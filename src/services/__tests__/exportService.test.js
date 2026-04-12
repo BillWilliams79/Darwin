@@ -215,18 +215,44 @@ describe('fetchExportData', () => {
     describe('Swarm app', () => {
         const SELECTED = { tasks: false, maps: false, swarm: true };
 
-        it('exports requirements with all fields including deferred_at and FKs', async () => {
+        it('exports requirements with all fields including deferred_at, FKs, and coordination_type', async () => {
             mockApi({
-                '/requirements': [{ id: 1, title: 'P1', description: 'desc', requirement_status: 'idle', scheduled: 0, sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
+                '/requirements': [{ id: 1, title: 'P1', description: 'desc', requirement_status: 'authoring', coordination_type: 'implemented', scheduled: 0, sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
             });
 
             const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            expect(result.requirements[0].requirement_status).toBe('authoring');
+            expect(result.requirements[0].coordination_type).toBe('implemented');
             expect(result.requirements[0].deferred_at).toBe('2026-03-01');
             expect(result.requirements[0].project_fk).toBe(5);
             expect(result.requirements[0].category_fk).toBe(10);
+        });
+
+        it('exports swarm session with review status transparently', async () => {
+            mockApi({
+                '/requirements': [],
+                '/swarm_sessions': [{ id: 1, branch: 'feature/x', task_name: 'x', source_type: 'roadmap', source_ref: 'p:1', title: 'X', pr_url: null, swarm_status: 'review', worktree_path: '/tmp/x', started_at: 't', completed_at: null, start_summary: null, complete_summary: null, telemetry: null, plan: '## Plan', create_ts: 't', update_ts: null }],
+                '/projects': [],
+                '/categories': [],
+            });
+
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            expect(result.swarmSessions[0].swarm_status).toBe('review');
+        });
+
+        it('preserves null coordination_type on requirements', async () => {
+            mockApi({
+                '/requirements': [{ id: 2, title: 'P2', description: 'd', requirement_status: 'approved', coordination_type: null, scheduled: 0, sort_order: 2, started_at: null, completed_at: null, deferred_at: null, project_fk: null, category_fk: null, create_ts: 't', update_ts: null }],
+                '/swarm_sessions': [],
+                '/projects': [],
+                '/categories': [],
+            });
+
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            expect(result.requirements[0].coordination_type).toBeNull();
         });
 
         it('exports swarm sessions with summary, telemetry, and plan fields', async () => {

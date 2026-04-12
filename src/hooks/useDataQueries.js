@@ -238,7 +238,7 @@ export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/requirements?requirement_status=completed&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
+    const uri = `${darwinUri}/requirements?requirement_status=met&filter_ts=(completed_at,${startStr},${endStr})&fields=${fields}`;
     const queryKey = requirementKeys.done(creatorFk, `${startStr}_${endStr}`);
 
     return useQuery({

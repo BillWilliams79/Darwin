@@ -15,18 +15,23 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import HotelIcon from '@mui/icons-material/Hotel';
+import EditNoteIcon from '@mui/icons-material/EditNote';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
-import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
+import DescriptionIcon from '@mui/icons-material/Description';
+import BuildIcon from '@mui/icons-material/Build';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 
 const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
-    const { scheduledClick, titleChange, titleKeyDown,
+    const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
         sortMode, setCrossCardInsertIndex, sessionStatusMap } = useRequirementActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
@@ -113,24 +118,39 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
     const status = requirement.requirement_status;
+    const canCycleStatus = ['authoring', 'approved', 'swarm_ready'].includes(status);
+
     const getStatusIcon = () => {
         if (requirement.id === '') return null;
-        if (status === 'completed') {
-            return <Tooltip title="Completed" enterDelay={400} enterNextDelay={200}><CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} /></Tooltip>;
-        }
-        if (status === 'deferred') {
-            return <Tooltip title="Deferred" enterDelay={400} enterNextDelay={200}><DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} /></Tooltip>;
-        }
-        if (sessionStatus === 'paused') {
-            return <Tooltip title="Paused" enterDelay={400} enterNextDelay={200}><PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} /></Tooltip>;
-        }
-        if (sessionStatus) {
-            return <Tooltip title={sessionStatus} enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
-        }
-        if (status === 'in_progress') {
-            return <Tooltip title="In Progress" enterDelay={400} enterNextDelay={200}><RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} /></Tooltip>;
-        }
-        return <Tooltip title="Not Started" enterDelay={400} enterNextDelay={200}><HotelIcon sx={{ fontSize: 18, color: 'text.disabled' }} /></Tooltip>;
+        if (status === 'met')          return <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />;
+        if (status === 'deferred')     return <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />;
+        if (sessionStatus === 'review') return <RateReviewIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
+        if (sessionStatus === 'paused') return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
+        if (sessionStatus)             return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+        if (status === 'development')  return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+        if (status === 'swarm_ready')  return <PlayCircleIcon sx={{ fontSize: 18, color: 'primary.main' }} />; // Swarm-Start
+        if (status === 'approved')     return <TaskAltIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue
+        return <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />; // authoring yellow
+    };
+
+    const statusTooltip = {
+        met: 'Met', deferred: 'Deferred', development: 'Development',
+        swarm_ready: 'Swarm-Start — click to cycle', approved: 'Approved — click to cycle',
+        authoring: 'Authoring — click to cycle',
+    };
+
+    const coordType = requirement.coordination_type || null;
+    const getCoordinationIcon = () => {
+        if (requirement.id === '') return null;
+        if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue
+        if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+        if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />; // light purple
+        return <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />;
+    };
+
+    const coordTooltip = {
+        planned: 'Planned — click to cycle', implemented: 'Implemented — click to cycle',
+        deployed: 'Deployed — click to cycle',
     };
 
     return (
@@ -161,40 +181,51 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 {requirement.id !== '' ? requirementIndex + 1 : ''}
             </Typography>
 
-            {/* Col 2: Scheduled toggle — hidden when closed or in-progress, disabled when session is active */}
-            <Box className="requirement-scheduled-col" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {requirement.id !== '' && status === 'idle' ? (() => {
-                    const isActiveSession = ['starting', 'active', 'completing'].includes(sessionStatus);
-                    const scheduledVal = requirement.scheduled || 0;
-                    const iconColor = isActiveSession ? 'text.disabled'
-                        : scheduledVal === 2 ? 'success.main'
-                        : scheduledVal === 1 ? 'primary.main'
-                        : 'text.disabled';
-                    const tooltipText = scheduledVal === 2 ? "Auto-Start — click to clear"
-                        : scheduledVal === 1 ? "Scheduled — click for Auto-Start"
-                        : "Schedule for Swarm-Start";
-                    const btn = (
-                        <IconButton
-                            onClick={() => scheduledClick(requirementIndex, requirement.id)}
-                            disabled={isActiveSession}
-                            data-testid={`scheduled-toggle-${requirement.id}`}
-                            sx={{ maxWidth: 28, maxHeight: 28 }}
-                        >
-                            {scheduledVal > 0 ?
-                                <PlayCircleIcon sx={{ fontSize: 20, color: iconColor }} /> :
-                                <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
-                            }
-                        </IconButton>
-                    );
-                    return isActiveSession ? btn : (
-                        <Tooltip title={tooltipText} enterDelay={400} enterNextDelay={200}>
-                            {btn}
+            {/* Col 2: Status icon — clickable cycle for authoring/approved/swarm_ready */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                {requirement.id !== '' ? (
+                    canCycleStatus ? (
+                        <Tooltip title={statusTooltip[status] || status} enterDelay={400} enterNextDelay={200}>
+                            <IconButton
+                                onClick={() => statusClick(requirementIndex, requirement.id)}
+                                data-testid={`status-toggle-${requirement.id}`}
+                                sx={{ maxWidth: 28, maxHeight: 28 }}
+                            >
+                                {getStatusIcon()}
+                            </IconButton>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip title={statusTooltip[status] || sessionStatus || status} enterDelay={400} enterNextDelay={200}>
+                            {getStatusIcon()}
+                        </Tooltip>
+                    )
+                ) : null}
+            </Box>
+
+            {/* Col 3: Coordination type icon — editable during authoring/approved/swarm_ready, faded otherwise */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                {requirement.id !== '' ? (() => {
+                    const isCoordEditable = ['authoring', 'approved', 'swarm_ready'].includes(status);
+                    const isReady = status === 'swarm_ready';
+                    const coordOpacity = isReady ? 1 : 0.4;
+                    return (
+                        <Tooltip title={coordTooltip[coordType] || (isCoordEditable ? 'No coordination — click to set' : 'Locked — not editable')} enterDelay={400} enterNextDelay={200}>
+                            <span>
+                                <IconButton
+                                    onClick={() => coordinationClick(requirementIndex, requirement.id)}
+                                    disabled={!isCoordEditable}
+                                    data-testid={`coordination-toggle-${requirement.id}`}
+                                    sx={{ maxWidth: 28, maxHeight: 28, opacity: coordOpacity }}
+                                >
+                                    {getCoordinationIcon()}
+                                </IconButton>
+                            </span>
                         </Tooltip>
                     );
                 })() : null}
             </Box>
 
-            {/* Col 3: Details link */}
+            {/* Col 4: Details link */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {requirement.id !== '' ? (
                     <Tooltip title="Details" enterDelay={400} enterNextDelay={200}>
@@ -210,11 +241,6 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 )}
             </Box>
 
-            {/* Col 4: Status indicator */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                {getStatusIcon()}
-            </Box>
-
             {/* Col 5: Title */}
             <TextField variant="outlined"
                         value={requirement.title || ''}
@@ -227,7 +253,7 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(status === 'completed' && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
+                        sx = {{...(status === 'met' && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${requirement.id}`}

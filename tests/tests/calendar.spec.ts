@@ -387,7 +387,7 @@ test.describe('Calendar Requirements', () => {
 
     const priResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testRequirementTitle, category_fk: testCategoryId,
-      requirement_status: 'completed', sort_order: 0, completed_at: completedAt,
+      requirement_status: 'met', sort_order: 0, completed_at: completedAt,
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test requirement');
     testRequirementId = priResult[0].id;

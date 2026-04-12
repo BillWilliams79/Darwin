@@ -14,6 +14,7 @@ const labelSx = { fontWeight: 'bold', fontSize: '1.25rem' };
 const swarmStatusChipProps = (status) => {
     switch (status) {
         case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
         case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
         case 'starting':   return { color: 'info' };
         case 'completing': return { color: 'info' };

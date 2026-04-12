@@ -250,7 +250,7 @@ test.describe.serial('Category Management P1', () => {
     for (let i = 0; i < 3; i++) {
       const result = await apiCall('requirements', 'POST', {
         creator_fk: sub, title: uniqueName(`CatReq-${i}`), category_fk: categoryId,
-        requirement_status: 'idle', sort_order: i,
+        requirement_status: 'authoring', sort_order: i,
       }, idToken) as Array<{ id: string }>;
       if (result?.length) createdRequirementIds.push(result[0].id);
     }
