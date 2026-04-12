@@ -31,10 +31,21 @@ import CategoryIcon from '@mui/icons-material/Category';
 
 const requirementStatusChipProps = (status) => {
     switch (status) {
-        case 'open':      return { color: 'primary' };
-        case 'deferred':  return { sx: { bgcolor: '#ff9800', color: '#fff' } };
-        case 'completed': return { color: 'success' };
-        default:          return { color: 'default' };
+        case 'authoring':    return { sx: { bgcolor: '#fbc02d', color: '#000' } };
+        case 'approved':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
+        case 'swarm_ready':  return { color: 'primary' };
+        case 'development':  return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'deferred':     return { sx: { bgcolor: '#ff9800', color: '#fff' } };
+        case 'met':          return { color: 'success' };
+        default:             return { color: 'default' };
+    }
+};
+
+const requirementStatusLabel = (status) => {
+    switch (status) {
+        case 'swarm_ready':  return 'Swarm-Start';
+        case 'development':  return 'Dev';
+        default:             return status;
     }
 };
 
@@ -201,7 +212,7 @@ const SwarmView = () => {
                                 return (
                                     <Chip
                                         key={status}
-                                        label={status}
+                                        label={requirementStatusLabel(status)}
                                         size="small"
                                         onClick={() => toggleRequirementStatus(status)}
                                         {...(selected ? chipProps : { variant: 'outlined' })}

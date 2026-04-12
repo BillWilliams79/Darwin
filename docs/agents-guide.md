@@ -14,13 +14,13 @@ The Darwin workspace has eight specialist agents, each covering a well-defined a
 
 | Agent | Domain | When to Use |
 |-------|--------|-------------|
-| `darwin-ui-architect` | React 18 + Vite frontend, MUI v7, DnD, TanStack Query, auth | UI changes, new components, DnD mechanics, auth questions |
+| `frontend-architect` | React 18 + Vite frontend, MUI v7, DnD, TanStack Query, auth | UI changes, new components, DnD mechanics, auth questions |
 | `aws-architect` | AWS infrastructure, cost analysis, deployment | AWS changes, cost reviews, infrastructure decisions |
 | `data-architect` | MySQL schema, Lambda-Rest API, migrations, REST conventions | Data model changes, new endpoints, migrations |
-| `memory-architect` | CLAUDE.md, memory files, knowledge management | Memory updates, CLAUDE.md edits, knowledge organization |
+| `ai-memory-architect` | CLAUDE.md, memory files, knowledge management | Memory updates, CLAUDE.md edits, knowledge organization |
 | `skills-architect` | Claude Code skills (.claude/commands/), design patterns | Creating/modifying skills, debugging execution, token costs |
 | `mcp-architect` | Darwin MCP server, FastMCP, resources vs tools | MCP changes, debugging connectivity, new resources/tools |
-| `design-architect` | Full-stack synthesis, cross-domain architecture | Complex multi-domain requirements, architectural decisions |
+| `darwin-architect` | Full-stack synthesis, cross-domain architecture | Complex multi-domain requirements, architectural decisions |
 | `code-reviewer` | Mental simulation code review, correctness verification | PR reviews, bug hunting, pre-merge verification |
 
 ## How Agents Get Invoked
@@ -33,8 +33,8 @@ The agent then has access to the tools listed in its frontmatter and executes wi
 
 For example, a primary Claude session handling a complex requirement might spawn:
 1. A `data-architect` agent to design the schema change
-2. A `darwin-ui-architect` agent to identify the affected React components
-3. A `design-architect` agent to synthesize both inputs into a unified plan
+2. A `frontend-architect` agent to identify the affected React components
+3. A `darwin-architect` agent to synthesize both inputs into a unified plan
 
 This decomposition keeps each agent's context focused and avoids the degradation that happens when a single Claude session tries to hold deep expertise across a dozen files simultaneously.
 
@@ -44,13 +44,13 @@ Agents live in `.claude/agents/` in the workspace:
 
 ```
 DarwinAI/.claude/agents/
-├── darwin-ui-architect.md
+├── frontend-architect.md
 ├── aws-architect.md
 ├── data-architect.md
-├── memory-architect.md
+├── ai-memory-architect.md
 ├── skills-architect.md
 ├── mcp-architect.md
-├── design-architect.md
+├── darwin-architect.md
 └── code-reviewer.md
 ```
 
@@ -102,13 +102,13 @@ Think of agent files as living documentation. They should be updated whenever yo
 
 ## Best Practices
 
-**Describe the agent's perspective, not just its knowledge.** A good system prompt doesn't just list facts — it tells the agent how to think about its domain. The `design-architect` agent isn't just told "know the full stack" — it's told to think in trade-offs, to find the simplest correct solution, and to delegate depth to specialists while synthesizing at the architectural level.
+**Describe the agent's perspective, not just its knowledge.** A good system prompt doesn't just list facts — it tells the agent how to think about its domain. The `darwin-architect` agent isn't just told "know the full stack" — it's told to think in trade-offs, to find the simplest correct solution, and to delegate depth to specialists while synthesizing at the architectural level.
 
-**Critical gotchas deserve emphasis.** If something has caused bugs, broken deployments, or wasted hours — it belongs in the agent file with emphasis. Don't bury it. The `darwin-ui-architect` has `## Critical Gotchas` as its own section because the React 18 state updater issue and the `invalidateQueries` ordering issue have bitten real code.
+**Critical gotchas deserve emphasis.** If something has caused bugs, broken deployments, or wasted hours — it belongs in the agent file with emphasis. Don't bury it. The `frontend-architect` has `## Critical Gotchas` as its own section because the React 18 state updater issue and the `invalidateQueries` ordering issue have bitten real code.
 
 **Keep the system prompt scannable.** Agents read their own system prompt as part of their context. Dense walls of text are less useful than clear sections with headers. The agent should be able to orient itself quickly within its domain prompt.
 
-**Agents compose naturally.** A `design-architect` agent can spawn `data-architect` and `darwin-ui-architect` agents to get domain-specific analysis, then synthesize the results. This composition pattern (one synthesizer + multiple specialists) handles requirements that genuinely span multiple domains without any single agent needing to be expert in everything.
+**Agents compose naturally.** A `darwin-architect` agent can spawn `data-architect` and `frontend-architect` agents to get domain-specific analysis, then synthesize the results. This composition pattern (one synthesizer + multiple specialists) handles requirements that genuinely span multiple domains without any single agent needing to be expert in everything.
 
 **The description is a contract.** When you write `description: Use for X, Y, Z`, the orchestrator will route X, Y, and Z tasks to this agent. Make sure the agent's system prompt actually prepares it for X, Y, and Z. A mismatch between the description and the system prompt content is the most common failure mode in agent design.
 
