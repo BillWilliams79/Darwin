@@ -2,7 +2,8 @@ import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { useShowClosedStore } from '../../stores/useShowClosedStore';
+import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
+import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
@@ -70,33 +71,6 @@ const getSessionColumns = (navigate, timezone) => [
       valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
 ];
 
-const siblingHandSort = (a, b) => {
-    const aOrder = a.sort_order ?? Infinity;
-    const bOrder = b.sort_order ?? Infinity;
-    return aOrder - bOrder;
-};
-
-const siblingCreatedSort = (a, b) => a.id - b.id;
-
-const STATUS_SORT_ORDER = { authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5 };
-
-const siblingActiveSort = (sortMode, a, b) => {
-    const aState = STATUS_SORT_ORDER[a.requirement_status] ?? 0;
-    const bState = STATUS_SORT_ORDER[b.requirement_status] ?? 0;
-    if (aState !== bState) return aState - bState;
-    if (a.requirement_status === 'met' && b.requirement_status === 'met') {
-        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-        if (aTime !== bTime) return bTime - aTime;
-    }
-    if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
-        const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
-        const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
-        if (aTime !== bTime) return bTime - aTime;
-    }
-    return sortMode === 'hand' ? siblingHandSort(a, b) : siblingCreatedSort(a, b);
-};
-
 const RequirementDetail = () => {
 
     const { id } = useParams();
@@ -155,7 +129,9 @@ const RequirementDetail = () => {
                 setRequirement(p);
 
                 // Fetch sessions, siblings, and category sort_mode in parallel
-                const siblingFilter = siblingStatuses.length === 4 ? '' : `&requirement_status=(${siblingStatuses.join(',')})`;
+                const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
+                    ? ''
+                    : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
