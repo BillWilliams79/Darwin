@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
+import { useAllCategories } from '../../hooks/useDataQueries';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
@@ -24,6 +25,9 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
 import { CircularProgress, Stack, Typography } from '@mui/material';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -92,6 +96,11 @@ const RequirementDetail = () => {
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+
+    const { data: allCategories } = useAllCategories(profile?.userName, {
+        fields: 'id,category_name',
+        closed: 0,
+    });
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
@@ -248,6 +257,35 @@ const RequirementDetail = () => {
         saveField('coordination_type', newVal === null ? 'NULL' : newVal);
     };
 
+    const handleCategoryChange = async (event) => {
+        const newCategoryFk = parseInt(event.target.value, 10);
+        setRequirement(prev => ({ ...prev, category_fk: newCategoryFk }));
+
+        // Await the PUT so siblings refetch sees the committed category_fk
+        const putResult = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: parseInt(id), category_fk: newCategoryFk }], idToken)
+            .catch(() => null);
+        if (!putResult || (putResult.httpStatus.httpStatus !== 200 && putResult.httpStatus.httpStatus !== 204)) {
+            showError(putResult, 'Unable to update category');
+            return;
+        }
+        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+
+        // Refresh siblings and sort mode for the new category so prev/next navigation stays accurate
+        const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
+            ? ''
+            : `&requirement_status=(${siblingStatuses.join(',')})`;
+        try {
+            const [siblingsResult, categoryResult] = await Promise.all([
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
+            ]);
+            if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);
+            if (categoryResult?.httpStatus?.httpStatus === 200) setSibSortMode(categoryResult.data[0]?.sort_mode || 'hand');
+        } catch (e) {
+            // siblings refresh is best-effort
+        }
+    };
+
     const sortedSiblings = useMemo(() => {
         if (!siblings.length) return [];
         return [...siblings].sort((a, b) => siblingActiveSort(sibSortMode, a, b));
@@ -273,6 +311,22 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
+                {allCategories && (
+                    <FormControl size="small" sx={{ minWidth: 160, ml: 'auto' }}>
+                        <Select
+                            value={requirement.category_fk || ''}
+                            onChange={handleCategoryChange}
+                            data-testid="requirement-category-select"
+                            sx={{ fontSize: '0.875rem' }}
+                        >
+                            {allCategories.map(cat => (
+                                <MenuItem key={cat.id} value={cat.id}>
+                                    {cat.category_name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                )}
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
