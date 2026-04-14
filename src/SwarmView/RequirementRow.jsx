@@ -33,7 +33,7 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
     const navigate = useNavigate();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-        sortMode, setCrossCardInsertIndex, sessionStatusMap } = useRequirementActions();
+        sortMode, setCrossCardInsertIndex, sessionStatusMap, categoryColorMap } = useRequirementActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
@@ -173,13 +173,35 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                  ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
-            {/* Col 1: Row number */}
-            <Typography
-                variant="body2"
-                sx={{ color: 'text.secondary', textAlign: 'center', minWidth: 24, userSelect: 'none' }}
-            >
-                {requirement.id !== '' ? requirementIndex + 1 : ''}
-            </Typography>
+            {/* Col 1: Category color bar (when categoryColorMap is provided, e.g. SwarmStartCard) or row number */}
+            {categoryColorMap ? (
+                <Box
+                    data-testid={requirement.id !== '' ? `category-color-bar-${requirement.id}` : undefined}
+                    sx={{
+                        minWidth: 24,
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        justifyContent: 'center',
+                    }}
+                >
+                    {requirement.id !== '' && (
+                        <Box sx={{
+                            width: 6,
+                            alignSelf: 'stretch',
+                            minHeight: 24,
+                            bgcolor: categoryColorMap[requirement.category_fk] || 'transparent',
+                            borderRadius: '3px',
+                        }} />
+                    )}
+                </Box>
+            ) : (
+                <Typography
+                    variant="body2"
+                    sx={{ color: 'text.secondary', textAlign: 'center', minWidth: 24, userSelect: 'none' }}
+                >
+                    {requirement.id !== '' ? requirementIndex + 1 : ''}
+                </Typography>
+            )}
 
             {/* Col 2: Status icon — clickable cycle for authoring/approved/swarm_ready */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
