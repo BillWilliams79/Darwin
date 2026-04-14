@@ -12,7 +12,7 @@ import { areaKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useDragTabStore } from '../stores/useDragTabStore';
-import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+import { useOptionalCardStore } from '../stores/useOptionalCardStore';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 import AreaDeleteDialog from '../Components/AreaDeleteDialog/AreaDeleteDialog';
@@ -27,8 +27,8 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
-    // Priority card store — show state only (toggle lives in TaskPlanView tab bar)
-    const showPriorityCard = usePriorityCardStore(s => s.priorityCards[String(domain.id)]?.show ?? false);
+    // Optional card show states — toggle lives in TaskPlanView tab bar
+    const showPriorityCard = useOptionalCardStore(s => s.cards[String(domain.id)]?.priority?.show ?? false);
 
     // Tab Panel contains all the taskcards for a given domain
     // Parent is TaskCardContent. Children are TaskCards

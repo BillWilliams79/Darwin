@@ -6,6 +6,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
+import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 
@@ -25,6 +26,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import { CircularProgress, Tabs } from '@mui/material';
+import Tooltip from '@mui/material/Tooltip';
+import IconButton from '@mui/material/IconButton';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
@@ -65,6 +69,8 @@ const SwarmView = () => {
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
+    const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
+    const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
     const showClosed = false;
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
@@ -227,6 +233,17 @@ const SwarmView = () => {
                                 );
                             })}
                         </Stack>
+                        <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
+                            <IconButton
+                                size="small"
+                                onClick={toggleSwarmStartCard}
+                                color={showSwarmStartCard ? 'primary' : 'default'}
+                                data-testid="swarm-start-card-toggle"
+                                sx={{ flexShrink: 0, mx: 0.5 }}
+                            >
+                                <RocketLaunchIcon />
+                            </IconButton>
+                        </Tooltip>
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
                             links={[
@@ -240,7 +257,8 @@ const SwarmView = () => {
                                               project = {project}
                                               projectIndex = {projectIndex}
                                               activeTab = {activeTab}
-                                              showClosed = {showClosed}>
+                                              showClosed = {showClosed}
+                                              showSwarmStartCard = {showSwarmStartCard}>
                                 </CategoryTabPanel>
                             )
                         }
