@@ -1,0 +1,1221 @@
+{
+  "id": "3df0a0eb-f2be-4a69-a4f3-18efb619bf6f",
+  "name": "Darwin",
+  "description": "",
+  "domain": "personal-activity-tracking",
+  "version": 1,
+  "currentPhase": "design",
+  "createdAt": 1776135854194,
+  "artifacts": [
+    {
+      "type": "work-role",
+      "name": "Outdoor Athlete",
+      "description": "Person who regularly performs outdoor activities (cycling, running) and wants to track performance over time",
+      "responsibilities": [
+        "Record activities with GPS data",
+        "Review distance, time, and elevation metrics",
+        "Compare performance across routes and time periods"
+      ],
+      "id": "7cc83d2c-ef6f-4e51-a1c2-046f4d70790b",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136095651,
+      "updatedAt": 1776136095651
+    },
+    {
+      "type": "work-role",
+      "name": "Life Planner",
+      "description": "Person who organizes personal tasks, goals, and projects across multiple life domains",
+      "responsibilities": [
+        "Create and organize tasks within domains and areas",
+        "Track recurring responsibilities",
+        "Prioritize and schedule work across projects"
+      ],
+      "id": "13af3995-11ca-44ff-8994-72d1856c2b83",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136095795,
+      "updatedAt": 1776136095795
+    },
+    {
+      "type": "work-role",
+      "name": "Data Curator",
+      "description": "Person who imports, cleans, and manages activity data from multiple sources",
+      "responsibilities": [
+        "Import activities from Cyclemeter, Strava, and Wahoo",
+        "Manage routes and activity partners",
+        "Export data for sharing or backup"
+      ],
+      "id": "d1752860-5071-4974-9487-07bd8fb84de5",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136095932,
+      "updatedAt": 1776136095932
+    },
+    {
+      "type": "user-class",
+      "name": "Solo Athlete",
+      "description": "Primary user who tracks personal outdoor activities — cycling and running — and reviews performance trends. Uses Darwin as a single-player tool.",
+      "workRoleIds": [
+        "7cc83d2c-ef6f-4e51-a1c2-046f4d70790b",
+        "d1752860-5071-4974-9487-07bd8fb84de5"
+      ],
+      "goals": [
+        "See all activities on a map with route details",
+        "Track distance, time, and elevation trends over weeks/months/years",
+        "Import activities from device apps without manual data entry"
+      ],
+      "frustrations": [
+        "Strava and Cyclemeter each show partial views of activity history",
+        "Switching between apps to get a complete picture",
+        "Losing GPS data when switching platforms"
+      ],
+      "isPrimary": true,
+      "id": "0b272331-133f-4683-8935-37441efc8315",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136109385,
+      "updatedAt": 1776136109385
+    },
+    {
+      "type": "user-class",
+      "name": "Task Organizer",
+      "description": "User who manages personal tasks and recurring responsibilities across life domains (fitness, home, work). Uses Darwin alongside the activity tracker.",
+      "workRoleIds": [
+        "13af3995-11ca-44ff-8994-72d1856c2b83"
+      ],
+      "goals": [
+        "Organize tasks hierarchically by domain and area",
+        "Track task completion on a calendar",
+        "Manage recurring tasks without re-creating them manually"
+      ],
+      "frustrations": [
+        "Generic to-do apps lack domain/area hierarchy",
+        "Calendar apps show time but not task structure",
+        "No single tool connects activity tracking with task planning"
+      ],
+      "isPrimary": true,
+      "id": "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136109538,
+      "updatedAt": 1776136109538
+    },
+    {
+      "type": "user-class",
+      "name": "Goal Tracker",
+      "description": "User who sets long-term goals and tracks progress via a priority roadmap organized into projects and categories.",
+      "workRoleIds": [
+        "13af3995-11ca-44ff-8994-72d1856c2b83"
+      ],
+      "goals": [
+        "Visualize project priorities in a Kanban-style board",
+        "Track priority status transitions (open, deferred, completed)",
+        "Schedule and review priorities on the calendar"
+      ],
+      "frustrations": [
+        "Project management tools are too heavyweight for personal use",
+        "Hard to connect daily tasks with long-term priorities",
+        "Status changes get lost without a visual board"
+      ],
+      "isPrimary": false,
+      "id": "22b3b16b-c1a0-460c-aa1c-25c7978b555a",
+      "relatedIds": [],
+      "metadata": {},
+      "createdAt": 1776136109678,
+      "updatedAt": 1776136109678
+    },
+    {
+      "type": "requirement",
+      "label": "Multi-source activity import",
+      "statement": "Users must be able to import activities from Cyclemeter (.db, KML, GPX), Strava (OAuth API), Wahoo (FIT), and MTBProject (GPX) without manual data entry",
+      "source": "Core feature — multiple import pipelines exist",
+      "category": "data-import",
+      "priority": "must",
+      "rationale": "Users switch between tracking apps and need a unified history",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "551bc277-bfec-4e00-8a6b-a9b9951ca489",
+      "relatedIds": [
+        "fbb6972f-b6b0-40b3-8470-3fe085c5ce74",
+        "d93d0f73-f5b5-4139-bb4e-c684cb9e88c7",
+        "49d989b5-140a-4ce3-95e5-7b2a8591a116",
+        "9c9f074e-2f08-419d-9736-4dba62345052"
+      ],
+      "metadata": {},
+      "createdAt": 1776136136602,
+      "updatedAt": 1776136418054
+    },
+    {
+      "type": "requirement",
+      "label": "Multi-view activity browsing",
+      "statement": "Users must be able to view activities as cards, a sortable data table, or trend charts — all sharing the same filter state",
+      "source": "MapsPage three-view architecture",
+      "category": "visualization",
+      "priority": "must",
+      "rationale": "Different views serve different goals: quick scan (cards), detailed comparison (table), pattern discovery (trends)",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "4864a158-25b3-4708-858d-87b384a9cda3",
+      "relatedIds": [
+        "bc912605-3a8e-4b09-a73f-8fec14381705",
+        "d9ef63b8-e860-4bc7-b754-3e7bc089b34c"
+      ],
+      "metadata": {},
+      "createdAt": 1776136136745,
+      "updatedAt": 1776136417498
+    },
+    {
+      "type": "requirement",
+      "label": "Trend drill-down",
+      "statement": "Users should be able to click a yearly bar to drill into monthly, then weekly, filtering the visible activities accordingly",
+      "source": "TrendsStore drill-down mapping",
+      "category": "visualization",
+      "priority": "must",
+      "rationale": "Top-down exploration lets users discover patterns without manually setting date ranges",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "c5927f78-8fd9-405b-b11c-29869221adfa",
+      "relatedIds": [
+        "6e8863ad-9732-4415-a3ea-95eac969df33",
+        "04a6dd5a-9c2d-41bd-b3f3-ba268de4e15e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136136899,
+      "updatedAt": 1776136419134
+    },
+    {
+      "type": "requirement",
+      "label": "Composable activity filters",
+      "statement": "Users must be able to filter activities by saved view criteria, time range, route, and partner — filters compose additively",
+      "source": "Maps filter architecture",
+      "category": "filtering",
+      "priority": "must",
+      "rationale": "Power users need precise slicing across multiple dimensions simultaneously",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "cdc86ae1-6b19-44e1-a74c-76fff6befbd8",
+      "relatedIds": [
+        "6e8863ad-9732-4415-a3ea-95eac969df33",
+        "bef03c40-6f7e-452a-bdf2-576e3c381ab0",
+        "d9ef63b8-e860-4bc7-b754-3e7bc089b34c",
+        "f63ef7d9-390b-42e5-aa30-63c5686bfdd0"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137036,
+      "updatedAt": 1776136418339
+    },
+    {
+      "type": "requirement",
+      "label": "Bulk activity operations",
+      "statement": "Users should be able to select multiple activities and bulk-edit route assignments, add/remove partners, or delete",
+      "source": "MapRunsView bulk operations",
+      "category": "data-management",
+      "priority": "should",
+      "rationale": "After large imports, batch cleanup is essential — editing one-by-one is prohibitive",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "dd313af9-800c-4e49-84c9-9d1b0c6eae14",
+      "relatedIds": [
+        "2d268b0c-2400-4bcf-be3a-102f5483d08e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137192,
+      "updatedAt": 1776136498984
+    },
+    {
+      "type": "requirement",
+      "label": "Hierarchical task organization",
+      "statement": "Users must be able to organize tasks in a Domain > Area > Task hierarchy with drag-and-drop reordering",
+      "source": "TaskPlanView architecture",
+      "category": "task-management",
+      "priority": "must",
+      "rationale": "Flat to-do lists fail for multi-domain life management — hierarchy provides structure without rigidity",
+      "status": "implemented",
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7"
+      ],
+      "id": "f3289904-8925-4ac3-a616-b022c402f49d",
+      "relatedIds": [
+        "9eb5a2e3-130c-43f1-8d64-a637431a8fb2",
+        "bc912605-3a8e-4b09-a73f-8fec14381705",
+        "b69df655-fe8d-4082-bf14-33ebf63e356d",
+        "dfaf9576-3fa7-4b2e-902d-6db477d6553e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137331,
+      "updatedAt": 1776136418744
+    },
+    {
+      "type": "requirement",
+      "label": "Recurring task definitions",
+      "statement": "Users should be able to define recurring task templates that spawn instances into designated areas",
+      "source": "RecurringTaskEdit page",
+      "category": "task-management",
+      "priority": "should",
+      "rationale": "Weekly/monthly responsibilities should not require manual re-creation",
+      "status": "implemented",
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7"
+      ],
+      "id": "7a70be3c-8a15-4d85-9a57-425e7fc8340b",
+      "relatedIds": [
+        "9eb5a2e3-130c-43f1-8d64-a637431a8fb2"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137463,
+      "updatedAt": 1776136499120
+    },
+    {
+      "type": "requirement",
+      "label": "Calendar task integration",
+      "statement": "Users must be able to view tasks, activities, and priorities on a unified calendar with drag-to-reschedule",
+      "source": "CalendarFC component",
+      "category": "calendar",
+      "priority": "must",
+      "rationale": "Time-based views connect daily execution with weekly/monthly planning",
+      "status": "implemented",
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7",
+        "22b3b16b-c1a0-460c-aa1c-25c7978b555a"
+      ],
+      "id": "6a321f3f-5548-48c9-b2c3-068fe313c112",
+      "relatedIds": [
+        "9eb5a2e3-130c-43f1-8d64-a637431a8fb2",
+        "f173fb4a-880a-47ec-9230-bc2e5b59c25a"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137603,
+      "updatedAt": 1776136515112
+    },
+    {
+      "type": "requirement",
+      "label": "Priority roadmap board",
+      "statement": "Users should be able to manage priorities in a Project > Category > Priority hierarchy with Kanban-style drag-and-drop",
+      "source": "SwarmView architecture",
+      "category": "roadmap",
+      "priority": "should",
+      "rationale": "Personal projects need lightweight goal tracking without heavyweight PM tooling",
+      "status": "implemented",
+      "userClassIds": [
+        "22b3b16b-c1a0-460c-aa1c-25c7978b555a"
+      ],
+      "id": "1a71ea6c-5967-4b9c-949c-cbec416c6376",
+      "relatedIds": [
+        "b4710a6a-1646-4feb-a050-4bb5292c5b48",
+        "bc912605-3a8e-4b09-a73f-8fec14381705",
+        "dfaf9576-3fa7-4b2e-902d-6db477d6553e",
+        "79a858d7-bec4-4571-9b94-2d506b98b13d"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137757,
+      "updatedAt": 1776136515254
+    },
+    {
+      "type": "requirement",
+      "label": "Timezone-aware date handling",
+      "statement": "All dates must be stored as UTC and displayed in the user profile timezone",
+      "source": "Temporal polyfill + profile timezone",
+      "category": "platform",
+      "priority": "must",
+      "rationale": "Activity timestamps from devices are UTC — displaying in local time prevents confusion",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315",
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7"
+      ],
+      "id": "77f534c4-1576-4f4a-adbc-6b3611280e34",
+      "relatedIds": [
+        "38bd5541-d39f-4f8d-9e96-f9e1caf2bf37"
+      ],
+      "metadata": {},
+      "createdAt": 1776136137900,
+      "updatedAt": 1776136324602
+    },
+    {
+      "type": "requirement",
+      "label": "Offline data access",
+      "statement": "Users could access activity data offline via client-side SQLite (sql.js)",
+      "source": "sql.js dependency in package.json",
+      "category": "platform",
+      "priority": "could",
+      "rationale": "Reviewing past activities during outdoor trips without connectivity would be valuable",
+      "status": "proposed",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "9de01dea-c220-4a70-98f6-688a2014c7ac",
+      "relatedIds": [
+        "f3542a5e-7de5-4bb5-b465-46316256b491"
+      ],
+      "metadata": {},
+      "createdAt": 1776136138036,
+      "updatedAt": 1776136417780
+    },
+    {
+      "type": "requirement",
+      "label": "KML export",
+      "statement": "Users should be able to export activities as KML files for use in Google Earth and sharing",
+      "source": "MapExport component",
+      "category": "data-export",
+      "priority": "should",
+      "rationale": "Users want to share routes visually and archive GPS data in a standard format",
+      "status": "implemented",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "id": "aebd195e-d818-43b0-85e6-3a7a5c6ca31d",
+      "relatedIds": [
+        "2d268b0c-2400-4bcf-be3a-102f5483d08e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136138183,
+      "updatedAt": 1776136499254
+    },
+    {
+      "type": "scenario",
+      "name": "Import a morning bike ride",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "setting": "Home, post-ride, desktop browser",
+      "narrative": "After a morning cycling session, the user opens Darwin, navigates to Maps > Import, drops their Cyclemeter .db file onto the import area. Darwin auto-detects the format, shows a preview of 1 new activity with route name and GPS coordinates. The user confirms and saves. The activity appears in the Cards view with distance, time, and elevation. The user clicks it to see the GPS route on the map.",
+      "status": "current",
+      "preconditions": [
+        "User is logged in",
+        "Cyclemeter .db file is available on local disk"
+      ],
+      "postconditions": [
+        "Activity stored with GPS coordinates",
+        "Activity visible in Cards, Table, and Trends views",
+        "Route created or matched to existing route"
+      ],
+      "frames": [
+        {
+          "order": 1,
+          "caption": "User opens Darwin after a morning ride",
+          "userAction": "Navigate to Maps > Import",
+          "systemResponse": "Import wizard appears with file drop zone",
+          "emotionalState": "Motivated — wants to see the ride data",
+          "imageRef": null
+        },
+        {
+          "order": 2,
+          "caption": "User drops Cyclemeter file",
+          "userAction": "Drag .db file onto drop zone",
+          "systemResponse": "Auto-detects Cyclemeter DB format, shows format badge",
+          "emotionalState": "Expectant — hoping it works",
+          "imageRef": null
+        },
+        {
+          "order": 3,
+          "caption": "Preview shows the ride",
+          "userAction": "Reviews preview: 1 activity, route name, 2400 coordinates",
+          "systemResponse": "Preview panel populates with activity summary",
+          "emotionalState": "Satisfied — data looks right",
+          "imageRef": null
+        },
+        {
+          "order": 4,
+          "caption": "User saves the import",
+          "userAction": "Clicks Save button",
+          "systemResponse": "Progress bar fills, success toast appears",
+          "emotionalState": "Pleased — import was fast",
+          "imageRef": null
+        },
+        {
+          "order": 5,
+          "caption": "User views the ride on the map",
+          "userAction": "Clicks the new activity card",
+          "systemResponse": "Route detail view shows GPS track on Leaflet map with elevation profile",
+          "emotionalState": "Gratified — complete picture of the ride",
+          "imageRef": null
+        }
+      ],
+      "id": "fbb6972f-b6b0-40b3-8470-3fe085c5ce74",
+      "relatedIds": [
+        "551bc277-bfec-4e00-8a6b-a9b9951ca489"
+      ],
+      "metadata": {},
+      "createdAt": 1776136165479,
+      "updatedAt": 1776136447181
+    },
+    {
+      "type": "scenario",
+      "name": "Analyze yearly cycling trends",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "setting": "Desktop browser, reflective session",
+      "narrative": "The user opens Maps and switches to the Trends view. They see yearly distance bars for the past several years. They click the 2025 bar to drill into monthly view, noticing a dip in March. They click March to see weekly detail, then switch to the Table view to see which routes they rode that month. They filter by a specific route to compare times across visits.",
+      "status": "current",
+      "preconditions": [
+        "Multiple years of imported activities exist",
+        "User is on Maps page"
+      ],
+      "postconditions": [
+        "User has identified a performance pattern",
+        "Filters are set to a specific route and time range"
+      ],
+      "frames": [
+        {
+          "order": 1,
+          "caption": "User opens Trends view",
+          "userAction": "Navigate to Maps, click Trends toggle",
+          "systemResponse": "Yearly distance bar chart renders with all-time data",
+          "emotionalState": "Curious — wants to see patterns",
+          "imageRef": null
+        },
+        {
+          "order": 2,
+          "caption": "User spots an interesting year",
+          "userAction": "Clicks the 2025 bar",
+          "systemResponse": "Chart drills into monthly view for 2025, filters update",
+          "emotionalState": "Engaged — exploring the data",
+          "imageRef": null
+        },
+        {
+          "order": 3,
+          "caption": "User notices a low month",
+          "userAction": "Clicks the March bar (notably shorter)",
+          "systemResponse": "Chart drills into weekly view for March 2025",
+          "emotionalState": "Curious — what happened in March?",
+          "imageRef": null
+        },
+        {
+          "order": 4,
+          "caption": "User switches to Table view",
+          "userAction": "Clicks Table toggle",
+          "systemResponse": "DataGrid shows only March 2025 activities (filters preserved)",
+          "emotionalState": "Analytical — comparing individual rides",
+          "imageRef": null
+        },
+        {
+          "order": 5,
+          "caption": "User filters by a specific route",
+          "userAction": "Opens route picker, selects a favorite route",
+          "systemResponse": "Table narrows to that route in March 2025",
+          "emotionalState": "Informed — understands the pattern",
+          "imageRef": null
+        }
+      ],
+      "id": "6e8863ad-9732-4415-a3ea-95eac969df33",
+      "relatedIds": [
+        "c5927f78-8fd9-405b-b11c-29869221adfa",
+        "cdc86ae1-6b19-44e1-a74c-76fff6befbd8"
+      ],
+      "metadata": {},
+      "createdAt": 1776136165630,
+      "updatedAt": 1776136447324
+    },
+    {
+      "type": "scenario",
+      "name": "Plan the week with tasks and calendar",
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7"
+      ],
+      "setting": "Home, desktop or tablet, weekly planning session",
+      "narrative": "On Sunday evening, the user opens Tasks and reviews their domains (Fitness, Home, Work). They create a few new tasks in the Fitness area, mark one as priority, and drag-reorder them. They switch to the Calendar view and toggle Tasks mode to see the week ahead. They drag a completed task to today to record when it was done. They also toggle Activities to see rides scheduled from Strava.",
+      "status": "current",
+      "preconditions": [
+        "User has domains and areas configured",
+        "Some tasks already exist"
+      ],
+      "postconditions": [
+        "New tasks created and prioritized",
+        "Calendar reflects current week plan",
+        "Completed tasks have done_ts set"
+      ],
+      "frames": [
+        {
+          "order": 1,
+          "caption": "User opens Tasks on Sunday evening",
+          "userAction": "Navigate to Tasks tab",
+          "systemResponse": "Domain tabs load, Fitness domain active, area cards with tasks visible",
+          "emotionalState": "Focused — planning mode",
+          "imageRef": null
+        },
+        {
+          "order": 2,
+          "caption": "User adds new tasks",
+          "userAction": "Types task description in Fitness > Cycling area, presses enter",
+          "systemResponse": "Task appears at bottom of area card",
+          "emotionalState": "Productive — building the week plan",
+          "imageRef": null
+        },
+        {
+          "order": 3,
+          "caption": "User prioritizes and reorders",
+          "userAction": "Toggles priority flag, drags task to top of list",
+          "systemResponse": "Task highlighted as priority, list reorders with animation",
+          "emotionalState": "In control — plan taking shape",
+          "imageRef": null
+        },
+        {
+          "order": 4,
+          "caption": "User switches to Calendar",
+          "userAction": "Navigate to Calendar tab",
+          "systemResponse": "Month view shows tasks, activities, and priorities on the timeline",
+          "emotionalState": "Satisfied — seeing the full picture",
+          "imageRef": null
+        },
+        {
+          "order": 5,
+          "caption": "User records a completed task",
+          "userAction": "Drags a completed task to today on the calendar",
+          "systemResponse": "Task marked done, done_ts set to today, green highlight",
+          "emotionalState": "Accomplished — progress visible",
+          "imageRef": null
+        }
+      ],
+      "id": "9eb5a2e3-130c-43f1-8d64-a637431a8fb2",
+      "relatedIds": [
+        "f3289904-8925-4ac3-a616-b022c402f49d",
+        "6a321f3f-5548-48c9-b2c3-068fe313c112",
+        "7a70be3c-8a15-4d85-9a57-425e7fc8340b"
+      ],
+      "metadata": {},
+      "createdAt": 1776136165776,
+      "updatedAt": 1776136499120
+    },
+    {
+      "type": "scenario",
+      "name": "Browse ride photos",
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "setting": "Home, desktop Mac with local photos",
+      "narrative": "After importing a ride with geotagged photos on their Mac, the user navigates to the activity detail and taps the photo icon. The photo browser opens showing thumbnails filtered to the ride time window. They expand the time buffer to +1 hour to catch post-ride photos. They click a thumbnail to open the lightbox and swipe through full-size images.",
+      "status": "current",
+      "preconditions": [
+        "Photo scanning is enabled in settings",
+        "Photos exist on local filesystem within the ride time window",
+        "Photo proxy is running"
+      ],
+      "postconditions": [
+        "User has viewed photos associated with the ride",
+        "Time buffer filter applied"
+      ],
+      "frames": [
+        {
+          "order": 1,
+          "caption": "User opens a recent ride detail",
+          "userAction": "Navigate to Maps, click a ride card",
+          "systemResponse": "Route detail view shows GPS track, stats, and photo icon",
+          "emotionalState": "Nostalgic — wants to revisit the ride",
+          "imageRef": null
+        },
+        {
+          "order": 2,
+          "caption": "User opens the photo browser",
+          "userAction": "Clicks photo icon",
+          "systemResponse": "Thumbnail grid loads with photos from the ride time window",
+          "emotionalState": "Delighted — photos are automatically associated",
+          "imageRef": null
+        },
+        {
+          "order": 3,
+          "caption": "User expands the time buffer",
+          "userAction": "Adjusts time filter to +1 hour after ride",
+          "systemResponse": "Additional post-ride photos appear in the grid",
+          "emotionalState": "Pleased — catches the coffee stop photos",
+          "imageRef": null
+        },
+        {
+          "order": 4,
+          "caption": "User views full-size photos",
+          "userAction": "Clicks a thumbnail",
+          "systemResponse": "Lightbox opens with zoom and swipe navigation",
+          "emotionalState": "Immersed — reliving the ride",
+          "imageRef": null
+        }
+      ],
+      "id": "d93d0f73-f5b5-4139-bb4e-c684cb9e88c7",
+      "relatedIds": [
+        "551bc277-bfec-4e00-8a6b-a9b9951ca489",
+        "94b375f1-c1a4-4fbc-934c-0d48312abad1"
+      ],
+      "metadata": {},
+      "createdAt": 1776136165916,
+      "updatedAt": 1776136447612
+    },
+    {
+      "type": "scenario",
+      "name": "Manage project priorities on the roadmap",
+      "userClassIds": [
+        "22b3b16b-c1a0-460c-aa1c-25c7978b555a"
+      ],
+      "setting": "Desktop browser, monthly review session",
+      "narrative": "The user opens Swarm and selects their personal project. They see categories as columns with priority cards. They create a new priority in the Must-Have column, give it a title and description. Later, after deciding to delay it, they change its status to Deferred. At month-end review, they mark completed priorities and check the calendar to see scheduled ones.",
+      "status": "current",
+      "preconditions": [
+        "At least one project with categories exists",
+        "Some priorities are already tracked"
+      ],
+      "postconditions": [
+        "New priority created",
+        "Priority status updated",
+        "Calendar shows scheduled priorities"
+      ],
+      "frames": [
+        {
+          "order": 1,
+          "caption": "User opens Swarm roadmap",
+          "userAction": "Navigate to Swarm tab",
+          "systemResponse": "Project tabs load, Kanban columns show categories with priority cards",
+          "emotionalState": "Strategic — reviewing goals",
+          "imageRef": null
+        },
+        {
+          "order": 2,
+          "caption": "User creates a new priority",
+          "userAction": "Clicks + in Must-Have column, enters title and description",
+          "systemResponse": "New priority card appears in the column",
+          "emotionalState": "Purposeful — capturing a goal",
+          "imageRef": null
+        },
+        {
+          "order": 3,
+          "caption": "User defers a priority",
+          "userAction": "Opens a priority card, changes status to Deferred",
+          "systemResponse": "Card moves to deferred visual state (yellow chip)",
+          "emotionalState": "Pragmatic — adjusting plans",
+          "imageRef": null
+        },
+        {
+          "order": 4,
+          "caption": "User reviews completed priorities",
+          "userAction": "Toggles Completed filter on",
+          "systemResponse": "Completed cards appear (green chips) alongside open ones",
+          "emotionalState": "Satisfied — seeing progress",
+          "imageRef": null
+        },
+        {
+          "order": 5,
+          "caption": "User checks calendar for scheduled priorities",
+          "userAction": "Navigates to Calendar, toggles Priorities mode",
+          "systemResponse": "Scheduled priorities appear on their target dates",
+          "emotionalState": "Aligned — goals connected to timeline",
+          "imageRef": null
+        }
+      ],
+      "id": "b4710a6a-1646-4feb-a050-4bb5292c5b48",
+      "relatedIds": [
+        "1a71ea6c-5967-4b9c-949c-cbec416c6376"
+      ],
+      "metadata": {},
+      "createdAt": 1776136166064,
+      "updatedAt": 1776136447775
+    },
+    {
+      "type": "note",
+      "title": "Three-pillar architecture",
+      "body": "Darwin is organized into three toggleable app pillars (controlled by profile flags app_tasks, app_maps, app_swarm): (1) Maps — activity tracking, import, visualization, photos; (2) Tasks — hierarchical domain/area/task planning with recurring tasks; (3) Swarm — project/category/priority roadmap. Each pillar has independent nav items and can be enabled/disabled per user.",
+      "tags": [
+        "architecture",
+        "navigation"
+      ],
+      "id": "bc912605-3a8e-4b09-a73f-8fec14381705",
+      "relatedIds": [
+        "4864a158-25b3-4708-858d-87b384a9cda3",
+        "f3289904-8925-4ac3-a616-b022c402f49d",
+        "1a71ea6c-5967-4b9c-949c-cbec416c6376"
+      ],
+      "metadata": {},
+      "createdAt": 1776136181092,
+      "updatedAt": 1776136324116
+    },
+    {
+      "type": "note",
+      "title": "Client-side filtering strategy",
+      "body": "All activity filtering (view criteria, time range, route, partner) happens client-side in JavaScript after fetching the full dataset. This works for a personal app with thousands of activities but would not scale to multi-user. Saved views store criteria as JSON and are evaluated with a custom filter engine (mapViewFilter.js).",
+      "tags": [
+        "architecture",
+        "performance",
+        "filtering"
+      ],
+      "id": "bef03c40-6f7e-452a-bdf2-576e3c381ab0",
+      "relatedIds": [
+        "cdc86ae1-6b19-44e1-a74c-76fff6befbd8",
+        "68968211-21d4-4bc2-a3e6-42c625146bec"
+      ],
+      "metadata": {},
+      "createdAt": 1776136181238,
+      "updatedAt": 1776136417225
+    },
+    {
+      "type": "note",
+      "title": "Photo system is macOS-only",
+      "body": "The photo browser depends on a local filesystem proxy to scan and serve geotagged photos from the Mac Photos library or file system. Photo metadata is indexed in IndexedDB. This feature is not available on other platforms and requires the proxy to be running.",
+      "tags": [
+        "constraint",
+        "photos",
+        "platform"
+      ],
+      "id": "94b375f1-c1a4-4fbc-934c-0d48312abad1",
+      "relatedIds": [
+        "d93d0f73-f5b5-4139-bb4e-c684cb9e88c7",
+        "fdf5dfff-6432-4367-a19d-b2194e487b66"
+      ],
+      "metadata": {},
+      "createdAt": 1776136181374,
+      "updatedAt": 1776136418608
+    },
+    {
+      "type": "note",
+      "title": "Auth token lifecycle",
+      "body": "Auth uses Amazon Cognito with SRP. Refresh tokens are stored in HttpOnly cookies (90-day TTL). ID and access tokens are kept in memory only — lost on page refresh, then silently re-acquired via refresh token. Auto-refresh is scheduled 5 minutes before token expiry.",
+      "tags": [
+        "auth",
+        "security"
+      ],
+      "id": "38bd5541-d39f-4f8d-9e96-f9e1caf2bf37",
+      "relatedIds": [
+        "77f534c4-1576-4f4a-adbc-6b3611280e34"
+      ],
+      "metadata": {},
+      "createdAt": 1776136181511,
+      "updatedAt": 1776136324602
+    },
+    {
+      "type": "design-principle",
+      "name": "Single-player simplicity",
+      "statement": "Darwin is a personal tool — every feature should optimize for a single user, not multi-tenancy",
+      "description": "Avoid complexity that only serves collaborative or enterprise use cases. Client-side filtering, local storage, and in-memory state are acceptable trade-offs.",
+      "source": "Architecture review — personal app with single Cognito user",
+      "examples": [
+        "Client-side filtering instead of server-side pagination",
+        "In-memory auth tokens instead of server session management",
+        "localStorage for UI preferences"
+      ],
+      "counterExamples": [
+        "Adding role-based access control",
+        "Building a sharing/permissions system",
+        "Server-side query optimization for concurrent users"
+      ],
+      "priority": "must",
+      "id": "68968211-21d4-4bc2-a3e6-42c625146bec",
+      "relatedIds": [
+        "bef03c40-6f7e-452a-bdf2-576e3c381ab0"
+      ],
+      "metadata": {},
+      "createdAt": 1776136354123,
+      "updatedAt": 1776136417225
+    },
+    {
+      "type": "design-principle",
+      "name": "Progressive disclosure for complexity",
+      "statement": "Surface simple defaults first; reveal advanced options only when the user seeks them",
+      "description": "Darwin has deep functionality (import filters, trend drill-downs, bulk operations) but the entry point for each feature should be immediately usable without configuration.",
+      "source": "Import wizard has an Advanced toggle; Trends default to yearly distance",
+      "examples": [
+        "Import wizard auto-detects format and shows a preview before asking for filter config",
+        "Trends view defaults to yearly distance bars — no setup needed",
+        "Calendar defaults to current month with tasks visible"
+      ],
+      "counterExamples": [
+        "Requiring users to configure filters before seeing any data",
+        "Showing all import options (minDelta, precision) by default",
+        "Displaying every filter dimension simultaneously on Maps"
+      ],
+      "priority": "must",
+      "id": "49d989b5-140a-4ce3-95e5-7b2a8591a116",
+      "relatedIds": [
+        "551bc277-bfec-4e00-8a6b-a9b9951ca489"
+      ],
+      "metadata": {},
+      "createdAt": 1776136354260,
+      "updatedAt": 1776136417362
+    },
+    {
+      "type": "design-principle",
+      "name": "Multi-view, shared state",
+      "statement": "The same data should be explorable through multiple views (cards, table, charts, calendar, map) that share filter and selection state",
+      "description": "Users think about their data differently at different times. Switching between views should feel like rotating the same object, not navigating to a different page.",
+      "source": "Maps page three-view architecture (Cards, Table, Trends)",
+      "examples": [
+        "Clicking a Trends bar filters the Table/Cards views to that time range",
+        "Route and partner filters persist across Cards, Table, and Trends",
+        "Calendar shows tasks, activities, and priorities from different data sources on one timeline"
+      ],
+      "counterExamples": [
+        "Each view having its own independent filter state",
+        "Losing context when switching between Cards and Table",
+        "Requiring users to re-enter filters after changing views"
+      ],
+      "priority": "must",
+      "id": "d9ef63b8-e860-4bc7-b754-3e7bc089b34c",
+      "relatedIds": [
+        "4864a158-25b3-4708-858d-87b384a9cda3",
+        "cdc86ae1-6b19-44e1-a74c-76fff6befbd8"
+      ],
+      "metadata": {},
+      "createdAt": 1776136354401,
+      "updatedAt": 1776136417638
+    },
+    {
+      "type": "design-principle",
+      "name": "Offline-ready architecture",
+      "statement": "Core features should work without a persistent server connection, using client-side data stores",
+      "description": "As a personal activity tracker for outdoor enthusiasts, Darwin should support reviewing past data when connectivity is unavailable. sql.js and IndexedDB provide the foundation.",
+      "source": "sql.js dependency + IndexedDB photo index",
+      "examples": [
+        "Browsing previously loaded activities from client-side SQLite",
+        "Viewing cached photo thumbnails from IndexedDB",
+        "Accessing task lists from local storage"
+      ],
+      "counterExamples": [
+        "Requiring server roundtrip to view any activity data",
+        "Blocking the UI while waiting for API responses to render previously-seen data",
+        "Forcing re-authentication to access cached data"
+      ],
+      "priority": "should",
+      "id": "f3542a5e-7de5-4bb5-b465-46316256b491",
+      "relatedIds": [
+        "9de01dea-c220-4a70-98f6-688a2014c7ac"
+      ],
+      "metadata": {},
+      "createdAt": 1776136354538,
+      "updatedAt": 1776136417780
+    },
+    {
+      "type": "design-principle",
+      "name": "Drag-and-drop as primary interaction",
+      "statement": "Spatial manipulation (drag-to-reorder, drag-to-reschedule, drag-between-containers) should be the primary way to organize and prioritize",
+      "description": "Task ordering, domain tabs, calendar rescheduling, and priority management all use DnD. This provides a tactile, low-friction interaction that scales to touch devices.",
+      "source": "React-DND and Hello-Pangea/DND usage across Tasks, Swarm, Calendar",
+      "examples": [
+        "Dragging tasks between areas to reorganize",
+        "Dragging domain tabs to reorder",
+        "Dragging calendar events to reschedule",
+        "Dragging priority cards between Kanban columns"
+      ],
+      "counterExamples": [
+        "Using only form fields or dropdowns to change task ordering",
+        "Requiring a separate edit dialog to move a task to a different area",
+        "Number-based sort order inputs"
+      ],
+      "priority": "should",
+      "id": "b69df655-fe8d-4082-bf14-33ebf63e356d",
+      "relatedIds": [
+        "f3289904-8925-4ac3-a616-b022c402f49d",
+        "9a813072-c7ba-40e1-82ae-25915ca6749b",
+        "a76d13ec-bf6a-4330-84ef-ad6533632708"
+      ],
+      "metadata": {},
+      "createdAt": 1776136354681,
+      "updatedAt": 1776136514827
+    },
+    {
+      "type": "finding",
+      "title": "Import format detection is opaque",
+      "description": "The import wizard auto-detects file format but provides no visual feedback about which format was detected or why. Users who have files from multiple sources may not understand what processing will occur.",
+      "findingType": "problem",
+      "severity": "minor",
+      "evidence": "CyclemeterImport component detects format silently — only the preview reveals what was parsed",
+      "recommendation": "Show a detected-format badge (e.g., Cyclemeter DB, Wahoo FIT, Strava GPX) immediately after file drop, with a brief description of what will be extracted",
+      "status": "open",
+      "id": "9c9f074e-2f08-419d-9736-4dba62345052",
+      "relatedIds": [
+        "551bc277-bfec-4e00-8a6b-a9b9951ca489",
+        "473e1384-a132-4c93-a475-ac6b50e14631"
+      ],
+      "metadata": {},
+      "createdAt": 1776136373762,
+      "updatedAt": 1776136418197
+    },
+    {
+      "type": "finding",
+      "title": "Filter state is not visually persistent",
+      "description": "When multiple filters are active on the Maps page (view + time + route + partner), there is no consolidated indicator showing all active filters. Users may forget they have filters applied and see unexpectedly narrow results.",
+      "findingType": "problem",
+      "severity": "minor",
+      "evidence": "Each filter is set via separate dialogs/interactions — no unified filter pill bar",
+      "recommendation": "Add a persistent filter chip bar below the view toggle showing all active filters with dismiss buttons",
+      "status": "open",
+      "id": "f63ef7d9-390b-42e5-aa30-63c5686bfdd0",
+      "relatedIds": [
+        "cdc86ae1-6b19-44e1-a74c-76fff6befbd8",
+        "2d268b0c-2400-4bcf-be3a-102f5483d08e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136373905,
+      "updatedAt": 1776136418469
+    },
+    {
+      "type": "finding",
+      "title": "Photo browser is platform-locked to macOS",
+      "description": "The photo browsing feature depends on a local filesystem proxy that only works on macOS. There is no fallback, degraded mode, or clear messaging for non-Mac users.",
+      "findingType": "problem",
+      "severity": "major",
+      "evidence": "Photo settings page checks proxy availability; no cross-platform alternative exists",
+      "recommendation": "Either implement a web-based photo upload flow as a cross-platform fallback, or clearly communicate the macOS requirement in the UI and hide photo features on other platforms",
+      "status": "open",
+      "id": "fdf5dfff-6432-4367-a19d-b2194e487b66",
+      "relatedIds": [
+        "94b375f1-c1a4-4fbc-934c-0d48312abad1"
+      ],
+      "metadata": {},
+      "createdAt": 1776136374038,
+      "updatedAt": 1776136418608
+    },
+    {
+      "type": "finding",
+      "title": "Hierarchy management is scattered across pages",
+      "description": "Editing domains, areas, projects, and categories requires navigating to 4 separate management pages (/areaedit, /domainedit, /projectedit, /categoryedit). The mental model connecting these entities is not reinforced by the navigation.",
+      "findingType": "suggestion",
+      "severity": "minor",
+      "evidence": "Each edit page is a standalone route with its own layout pattern",
+      "recommendation": "Consider a unified tree/outline editor that shows the full hierarchy (Domain > Area for tasks; Project > Category for roadmap) in a single view with inline editing",
+      "status": "open",
+      "id": "dfaf9576-3fa7-4b2e-902d-6db477d6553e",
+      "relatedIds": [
+        "f3289904-8925-4ac3-a616-b022c402f49d",
+        "1a71ea6c-5967-4b9c-949c-cbec416c6376",
+        "a76d13ec-bf6a-4330-84ef-ad6533632708"
+      ],
+      "metadata": {},
+      "createdAt": 1776136374175,
+      "updatedAt": 1776136514972
+    },
+    {
+      "type": "finding",
+      "title": "Drag-and-drop works well across all task interactions",
+      "description": "The drag-and-drop implementation for tasks, domains, calendar events, and priority cards is consistently implemented and touch-friendly. It provides a cohesive interaction pattern across the app.",
+      "findingType": "positive",
+      "severity": null,
+      "evidence": "React-DND and Hello-Pangea/DND are used consistently with touch backend support",
+      "recommendation": "Continue this pattern for any new organizational features",
+      "status": "accepted",
+      "id": "9a813072-c7ba-40e1-82ae-25915ca6749b",
+      "relatedIds": [
+        "b69df655-fe8d-4082-bf14-33ebf63e356d"
+      ],
+      "metadata": {},
+      "createdAt": 1776136374325,
+      "updatedAt": 1776136419003
+    },
+    {
+      "type": "finding",
+      "title": "Trend drill-down is intuitive",
+      "description": "The yearly > monthly > weekly drill-down in the Trends view works naturally — clicking a bar narrows the time range and increases granularity. The Clear Filter button provides an obvious escape hatch.",
+      "findingType": "positive",
+      "severity": null,
+      "evidence": "TrendsStore drill-down mapping with DRILL_DOWN constant; Clear Filter resets all state",
+      "recommendation": "Consider extending drill-down to other dimensions (e.g., click a route name to filter by route)",
+      "status": "accepted",
+      "id": "04a6dd5a-9c2d-41bd-b3f3-ba268de4e15e",
+      "relatedIds": [
+        "c5927f78-8fd9-405b-b11c-29869221adfa"
+      ],
+      "metadata": {},
+      "createdAt": 1776136374469,
+      "updatedAt": 1776136419134
+    },
+    {
+      "type": "wireframe",
+      "name": "Maps Hub",
+      "screenName": "MapsPage",
+      "description": "Central activity browsing screen with three view modes and composable filters",
+      "fidelity": "high",
+      "status": "current",
+      "elements": [
+        "View toggle bar (Cards | Table | Trends)",
+        "Filter toolbar (View selector, Route picker, Partner picker, Clear)",
+        "Activity count + route count summary",
+        "Cards: paginated grid of activity summary cards",
+        "Table: sortable DataGrid with bulk selection",
+        "Trends: Recharts bar/line with metric and timeframe toggles",
+        "Floating action button (Import, Export, Settings)"
+      ],
+      "annotations": [
+        "View toggle persists across navigation",
+        "Filters compose — each narrows the shared dataset",
+        "Clicking a Trends bar sets a time filter visible in Cards/Table",
+        "Bulk operations (edit route, add partner, delete) available in Table view"
+      ],
+      "externalRef": null,
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "scenarioIds": [
+        "6e8863ad-9732-4415-a3ea-95eac969df33"
+      ],
+      "id": "2d268b0c-2400-4bcf-be3a-102f5483d08e",
+      "relatedIds": [
+        "f63ef7d9-390b-42e5-aa30-63c5686bfdd0",
+        "dd313af9-800c-4e49-84c9-9d1b0c6eae14",
+        "aebd195e-d818-43b0-85e6-3a7a5c6ca31d"
+      ],
+      "metadata": {},
+      "createdAt": 1776136404443,
+      "updatedAt": 1776136499254
+    },
+    {
+      "type": "wireframe",
+      "name": "Task Planner",
+      "screenName": "TaskPlanView",
+      "description": "Hierarchical task organization with draggable domain tabs and area cards",
+      "fidelity": "high",
+      "status": "current",
+      "elements": [
+        "Domain tab bar (draggable tabs, + button for new domain)",
+        "Area cards grid within active domain",
+        "Task list within each area card (checkbox, description, priority flag)",
+        "Drag handles on tasks for reordering",
+        "Priority card overlay toggle per domain",
+        "New task input at bottom of each area card",
+        "Menu button per area (rename, close, delete)"
+      ],
+      "annotations": [
+        "Tabs are drag-reorderable",
+        "Tasks can be dragged between areas",
+        "Priority flag toggles task.priority boolean",
+        "Done checkbox sets done_ts for calendar integration",
+        "Active domain persisted in localStorage"
+      ],
+      "externalRef": null,
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7"
+      ],
+      "scenarioIds": [
+        "9eb5a2e3-130c-43f1-8d64-a637431a8fb2"
+      ],
+      "id": "a76d13ec-bf6a-4330-84ef-ad6533632708",
+      "relatedIds": [
+        "b69df655-fe8d-4082-bf14-33ebf63e356d",
+        "dfaf9576-3fa7-4b2e-902d-6db477d6553e"
+      ],
+      "metadata": {},
+      "createdAt": 1776136404581,
+      "updatedAt": 1776136514972
+    },
+    {
+      "type": "wireframe",
+      "name": "Import Wizard",
+      "screenName": "CyclemeterImport",
+      "description": "Multi-format activity import with auto-detection, filtering, and preview",
+      "fidelity": "high",
+      "status": "current",
+      "elements": [
+        "File drop zone with format detection badge",
+        "Format indicator (Cyclemeter DB, Wahoo FIT, Strava GPX, etc.)",
+        "Filter mode selector (All Routes, Route IDs, Notes Like, Date Range)",
+        "Advanced config toggle (minDelta, precision)",
+        "Preview panel (activity count, route count, coordinate count)",
+        "Save button with progress indicator",
+        "Strava OAuth connect button (alternative flow)"
+      ],
+      "annotations": [
+        "Format auto-detected on file drop",
+        "Filters narrow which activities from the file are imported",
+        "Preview shows what will be saved before committing",
+        "Duplicate detection via cutoff date",
+        "Batch coordinate insertion (2000 per batch)"
+      ],
+      "externalRef": null,
+      "userClassIds": [
+        "0b272331-133f-4683-8935-37441efc8315"
+      ],
+      "scenarioIds": [
+        "fbb6972f-b6b0-40b3-8470-3fe085c5ce74"
+      ],
+      "id": "473e1384-a132-4c93-a475-ac6b50e14631",
+      "relatedIds": [
+        "9c9f074e-2f08-419d-9736-4dba62345052"
+      ],
+      "metadata": {},
+      "createdAt": 1776136404726,
+      "updatedAt": 1776136418197
+    },
+    {
+      "type": "wireframe",
+      "name": "Calendar View",
+      "screenName": "CalendarFC",
+      "description": "Unified calendar showing tasks, activities, and priorities with drag-to-reschedule",
+      "fidelity": "high",
+      "status": "current",
+      "elements": [
+        "View type toggle (Day, Week, Month)",
+        "Date navigation (prev, next, today)",
+        "Event mode toggles (Tasks, Activities, Priorities)",
+        "Day cells with color-coded event chips",
+        "Period summary panel (task completion %, activity totals, priority stats)",
+        "Mobile: vertical scroll with IntersectionObserver lazy loading"
+      ],
+      "annotations": [
+        "Events draggable to change date",
+        "Task done_ts updated on drag",
+        "Activity events link to route detail",
+        "Priority events color-coded by status",
+        "Timezone-aware rendering from profile setting"
+      ],
+      "externalRef": null,
+      "userClassIds": [
+        "17e18f9c-5fcd-410b-85cd-02ada2d0fdd7",
+        "22b3b16b-c1a0-460c-aa1c-25c7978b555a"
+      ],
+      "scenarioIds": [
+        "9eb5a2e3-130c-43f1-8d64-a637431a8fb2"
+      ],
+      "id": "f173fb4a-880a-47ec-9230-bc2e5b59c25a",
+      "relatedIds": [
+        "6a321f3f-5548-48c9-b2c3-068fe313c112"
+      ],
+      "metadata": {},
+      "createdAt": 1776136404874,
+      "updatedAt": 1776136515112
+    },
+    {
+      "type": "wireframe",
+      "name": "Swarm Roadmap",
+      "screenName": "SwarmView",
+      "description": "Kanban-style priority roadmap organized by project and category",
+      "fidelity": "high",
+      "status": "current",
+      "elements": [
+        "Project tab bar (draggable, + button)",
+        "Category columns within active project",
+        "Priority cards within each column (title, status chip, scheduled date)",
+        "Status filter bar (open, deferred, completed)",
+        "Drag handles for reordering cards between categories",
+        "New priority button in column header",
+        "Project/category management menu"
+      ],
+      "annotations": [
+        "Cards draggable between categories",
+        "Status chips: open (blue), deferred (yellow), completed (green)",
+        "Click card to navigate to PriorityDetail view",
+        "Category columns have configurable colors",
+        "Show/hide closed projects toggle"
+      ],
+      "externalRef": null,
+      "userClassIds": [
+        "22b3b16b-c1a0-460c-aa1c-25c7978b555a"
+      ],
+      "scenarioIds": [
+        "b4710a6a-1646-4feb-a050-4bb5292c5b48"
+      ],
+      "id": "79a858d7-bec4-4571-9b94-2d506b98b13d",
+      "relatedIds": [
+        "1a71ea6c-5967-4b9c-949c-cbec416c6376"
+      ],
+      "metadata": {},
+      "createdAt": 1776136405025,
+      "updatedAt": 1776136515254
+    }
+  ],
+  "extensions": {
+    "description": "Personal activity tracker and life-management web app — interactive maps, activity import (Cyclemeter/Strava/Wahoo), photo browsing, calendar views, trend charts, hierarchical task planning, and priority roadmaps"
+  }
+}
