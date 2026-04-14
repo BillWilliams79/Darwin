@@ -91,6 +91,7 @@ const RequirementDetail = () => {
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
+    const [categorySortOrder, setCategorySortOrder] = useState(null);
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
@@ -102,7 +103,6 @@ const RequirementDetail = () => {
     });
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
-    const showClosed = requirementStatusFilter.includes('met');
 
     const queryClient = useQueryClient();
 
@@ -137,14 +137,14 @@ const RequirementDetail = () => {
                 const p = result.data[0];
                 setRequirement(p);
 
-                // Fetch sessions, siblings, and category sort_mode in parallel
+                // Fetch sessions, siblings, and category sort_mode + sort_order in parallel
                 const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode,sort_order`, 'GET', '', idToken).catch(() => null),
                 ]);
 
                 if (sessionsResult?.httpStatus?.httpStatus === 200 && sessionsResult.data.length > 0) {
@@ -155,6 +155,7 @@ const RequirementDetail = () => {
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
                     setSibSortMode(categoryResult.data[0].sort_mode || 'hand');
+                    setCategorySortOrder(categoryResult.data[0].sort_order ?? null);
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -310,9 +311,6 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
-                    Requirement ID - {requirement.id}
-                </Typography>
                 {allCategories && (
                     <FormControl size="small" sx={{ minWidth: 160, ml: 'auto' }}>
                         <Select
@@ -393,9 +391,9 @@ const RequirementDetail = () => {
                     {[
                         { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
                         { value: 'approved',    label: 'Approved',  chipSx: { bgcolor: '#90caf9', color: '#000' } },
-                        { value: 'swarm_ready', label: 'Swarm-Start', color: 'primary' },
-                        { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#4caf50', color: '#fff' } },
-                        { value: 'met',         label: 'Met',       color: 'success' },
+                        { value: 'swarm_ready', label: 'Swarm-Start', chipSx: { bgcolor: '#1976d2', color: '#fff' } },
+                        { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#81c784', color: '#000' } },
+                        { value: 'met',         label: 'Met',       chipSx: { bgcolor: '#2e7d32', color: '#fff' } },
                         { value: 'deferred',    label: 'Deferred',  chipSx: { bgcolor: '#ff9800', color: '#fff' } },
                     ].map(({ value, label, color, chipSx }) => {
                         const selected = currentStatus === value;
@@ -485,6 +483,17 @@ const RequirementDetail = () => {
                     </Box>
                 );
             })()}
+
+            <Box sx={{ mb: 2 }}>
+                <Typography
+                    variant="subtitle2"
+                    color="text.secondary"
+                    sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}
+                    data-testid="requirement-id"
+                >
+                    ID - {requirement.id}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - {categorySortOrder ?? '—'}
+                </Typography>
+            </Box>
 
             <Box sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
