@@ -310,8 +310,11 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
+                    Requirement ID - {requirement.id}
+                </Typography>
                 {allCategories && (
-                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <FormControl size="small" sx={{ minWidth: 160, ml: 'auto' }}>
                         <Select
                             value={requirement.category_fk || ''}
                             onChange={handleCategoryChange}
@@ -326,9 +329,6 @@ const RequirementDetail = () => {
                         </Select>
                     </FormControl>
                 )}
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
-                    Requirement ID - {requirement.id}
-                </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
