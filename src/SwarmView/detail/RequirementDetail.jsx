@@ -256,10 +256,33 @@ const RequirementDetail = () => {
         saveField('coordination_type', newVal === null ? 'NULL' : newVal);
     };
 
-    const handleCategoryChange = (event) => {
-        const newCategoryFk = event.target.value;
+    const handleCategoryChange = async (event) => {
+        const newCategoryFk = parseInt(event.target.value, 10);
         setRequirement(prev => ({ ...prev, category_fk: newCategoryFk }));
-        saveField('category_fk', newCategoryFk);
+
+        // Await the PUT so siblings refetch sees the committed category_fk
+        const putResult = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: parseInt(id), category_fk: newCategoryFk }], idToken)
+            .catch(() => null);
+        if (!putResult || (putResult.httpStatus.httpStatus !== 200 && putResult.httpStatus.httpStatus !== 204)) {
+            showError(putResult, 'Unable to update category');
+            return;
+        }
+        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+
+        // Refresh siblings and sort mode for the new category so prev/next navigation stays accurate
+        const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
+            ? ''
+            : `&requirement_status=(${siblingStatuses.join(',')})`;
+        try {
+            const [siblingsResult, categoryResult] = await Promise.all([
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
+            ]);
+            if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);
+            if (categoryResult?.httpStatus?.httpStatus === 200) setSibSortMode(categoryResult.data[0]?.sort_mode || 'hand');
+        } catch (e) {
+            // siblings refresh is best-effort
+        }
     };
 
     const sortedSiblings = useMemo(() => {
@@ -287,21 +310,22 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                    <Select
-                        value={requirement.category_fk || ''}
-                        onChange={handleCategoryChange}
-                        displayEmpty
-                        data-testid="requirement-category-select"
-                        sx={{ fontSize: '0.875rem' }}
-                    >
-                        {(allCategories || []).map(cat => (
-                            <MenuItem key={cat.id} value={cat.id}>
-                                {cat.category_name}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
+                {allCategories && (
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                        <Select
+                            value={requirement.category_fk || ''}
+                            onChange={handleCategoryChange}
+                            data-testid="requirement-category-select"
+                            sx={{ fontSize: '0.875rem' }}
+                        >
+                            {allCategories.map(cat => (
+                                <MenuItem key={cat.id} value={cat.id}>
+                                    {cat.category_name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                )}
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
                     Requirement ID - {requirement.id}
                 </Typography>
