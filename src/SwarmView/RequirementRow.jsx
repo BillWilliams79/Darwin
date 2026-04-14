@@ -224,20 +224,23 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 ) : null}
             </Box>
 
-            {/* Col 3: Coordination type icon — editable during authoring/approved/swarm_ready, faded otherwise */}
+            {/* Col 3: Coordination type icon — visible only for swarm_ready and development; editable only for swarm_ready */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {requirement.id !== '' ? (() => {
-                    const isCoordEditable = ['authoring', 'approved', 'swarm_ready'].includes(status);
-                    const isReady = status === 'swarm_ready';
-                    const coordOpacity = isReady ? 1 : 0.4;
+                    const showCoord = ['swarm_ready', 'development'].includes(status);
+                    if (!showCoord) return null;
+                    const isCoordEditable = status === 'swarm_ready';
+                    const tooltip = isCoordEditable
+                        ? (coordTooltip[coordType] || 'No coordination — click to set')
+                        : 'Locked — not editable';
                     return (
-                        <Tooltip title={coordTooltip[coordType] || (isCoordEditable ? 'No coordination — click to set' : 'Locked — not editable')} enterDelay={400} enterNextDelay={200}>
+                        <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
                             <span>
                                 <IconButton
                                     onClick={() => coordinationClick(requirementIndex, requirement.id)}
                                     disabled={!isCoordEditable}
                                     data-testid={`coordination-toggle-${requirement.id}`}
-                                    sx={{ maxWidth: 28, maxHeight: 28, opacity: coordOpacity }}
+                                    sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
                                 >
                                     {getCoordinationIcon()}
                                 </IconButton>
