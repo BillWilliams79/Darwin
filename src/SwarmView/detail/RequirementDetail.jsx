@@ -339,9 +339,9 @@ const RequirementDetail = () => {
                     {[
                         { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
                         { value: 'approved',    label: 'Approved',  chipSx: { bgcolor: '#90caf9', color: '#000' } },
-                        { value: 'swarm_ready', label: 'Swarm-Start', color: 'primary' },
-                        { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#4caf50', color: '#fff' } },
-                        { value: 'met',         label: 'Met',       color: 'success' },
+                        { value: 'swarm_ready', label: 'Swarm-Start', chipSx: { bgcolor: '#1976d2', color: '#fff' } },
+                        { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#81c784', color: '#000' } },
+                        { value: 'met',         label: 'Met',       chipSx: { bgcolor: '#2e7d32', color: '#fff' } },
                         { value: 'deferred',    label: 'Deferred',  chipSx: { bgcolor: '#ff9800', color: '#fff' } },
                     ].map(({ value, label, color, chipSx }) => {
                         const selected = currentStatus === value;
