@@ -28,19 +28,19 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import FlagIcon from '@mui/icons-material/Flag';
 import DroppableTab from './DroppableTab';
-import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+import { useOptionalCardStore } from '../stores/useOptionalCardStore';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import CategoryIcon from '@mui/icons-material/Category';
 
 // Small component to subscribe to per-domain priority card show state
-const PriorityFlagButton = ({ domainId, togglePriorityCard }) => {
-    const show = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.show ?? false);
+const PriorityFlagButton = ({ domainId, toggleCard }) => {
+    const show = useOptionalCardStore(s => s.cards[String(domainId)]?.priority?.show ?? false);
     return (
         <Tooltip title={show ? 'Hide Priority Card' : 'Show Priority Card'}>
             <IconButton
                 size="small"
-                onClick={() => togglePriorityCard(domainId)}
+                onClick={() => toggleCard(domainId, 'priority')}
                 color={show ? 'primary' : 'default'}
                 data-testid={`priority-card-toggle-${domainId}`}
                 sx={{ flexShrink: 0, mx: 1 }}
@@ -68,8 +68,8 @@ const TaskPlanView = () => {
     const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
     const setWorkingDomain = useWorkingDomainStore(s => s.setWorkingDomain);
 
-    // Priority card toggle (used by PriorityFlagButton via prop)
-    const togglePriorityCard = usePriorityCardStore(s => s.togglePriorityCard);
+    // Card toggle (used by PriorityFlagButton and SwarmStartFlagButton via prop)
+    const toggleCard = useOptionalCardStore(s => s.toggleCard);
 
     // TanStack Query — fetch open domains
     const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
@@ -280,7 +280,7 @@ const TaskPlanView = () => {
                         {domainsArray[parseInt(activeTab)] && (() => {
                             const activeDomainId = domainsArray[parseInt(activeTab)].id;
                             return (
-                                <PriorityFlagButton domainId={activeDomainId} togglePriorityCard={togglePriorityCard} />
+                                <PriorityFlagButton domainId={activeDomainId} toggleCard={toggleCard} />
                             );
                         })()}
                         <SettingsMenu
