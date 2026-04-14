@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
+import { useAllCategories } from '../../hooks/useDataQueries';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
@@ -24,6 +25,9 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
 import { CircularProgress, Stack, Typography } from '@mui/material';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -91,6 +95,11 @@ const RequirementDetail = () => {
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+
+    const { data: allCategories } = useAllCategories(profile?.userName, {
+        fields: 'id,category_name',
+        closed: 0,
+    });
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
     const showClosed = requirementStatusFilter.includes('met');
@@ -247,6 +256,12 @@ const RequirementDetail = () => {
         saveField('coordination_type', newVal === null ? 'NULL' : newVal);
     };
 
+    const handleCategoryChange = (event) => {
+        const newCategoryFk = event.target.value;
+        setRequirement(prev => ({ ...prev, category_fk: newCategoryFk }));
+        saveField('category_fk', newCategoryFk);
+    };
+
     const sortedSiblings = useMemo(() => {
         if (!siblings.length) return [];
         return [...siblings].sort((a, b) => siblingActiveSort(sibSortMode, a, b));
@@ -272,6 +287,21 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
+                <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <Select
+                        value={requirement.category_fk || ''}
+                        onChange={handleCategoryChange}
+                        displayEmpty
+                        data-testid="requirement-category-select"
+                        sx={{ fontSize: '0.875rem' }}
+                    >
+                        {(allCategories || []).map(cat => (
+                            <MenuItem key={cat.id} value={cat.id}>
+                                {cat.category_name}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
                     Requirement ID - {requirement.id}
                 </Typography>
