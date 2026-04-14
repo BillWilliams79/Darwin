@@ -87,13 +87,13 @@ const RequirementDetail = () => {
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
+    const [categorySortOrder, setCategorySortOrder] = useState(null);
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
-    const showClosed = requirementStatusFilter.includes('met');
 
     const queryClient = useQueryClient();
 
@@ -128,14 +128,14 @@ const RequirementDetail = () => {
                 const p = result.data[0];
                 setRequirement(p);
 
-                // Fetch sessions, siblings, and category sort_mode in parallel
+                // Fetch sessions, siblings, and category sort_mode + sort_order in parallel
                 const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode,sort_order`, 'GET', '', idToken).catch(() => null),
                 ]);
 
                 if (sessionsResult?.httpStatus?.httpStatus === 200 && sessionsResult.data.length > 0) {
@@ -146,6 +146,7 @@ const RequirementDetail = () => {
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
                     setSibSortMode(categoryResult.data[0].sort_mode || 'hand');
+                    setCategorySortOrder(categoryResult.data[0].sort_order ?? null);
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -272,9 +273,6 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }} data-testid="requirement-id">
-                    Requirement ID - {requirement.id}
-                </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
@@ -431,6 +429,17 @@ const RequirementDetail = () => {
                     </Box>
                 );
             })()}
+
+            <Box sx={{ mb: 2 }}>
+                <Typography
+                    variant="subtitle2"
+                    color="text.secondary"
+                    sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}
+                    data-testid="requirement-id"
+                >
+                    ID - {requirement.id}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - {categorySortOrder ?? '—'}
+                </Typography>
+            </Box>
 
             <Box sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
