@@ -33,10 +33,10 @@ const requirementStatusChipProps = (status) => {
     switch (status) {
         case 'authoring':    return { sx: { bgcolor: '#fbc02d', color: '#000' } };
         case 'approved':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'swarm_ready':  return { color: 'primary' };
-        case 'development':  return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'swarm_ready':  return { sx: { bgcolor: '#1976d2', color: '#fff' } };
+        case 'development':  return { sx: { bgcolor: '#81c784', color: '#000' } };
         case 'deferred':     return { sx: { bgcolor: '#ff9800', color: '#fff' } };
-        case 'met':          return { color: 'success' };
+        case 'met':          return { sx: { bgcolor: '#2e7d32', color: '#fff' } };
         default:             return { color: 'default' };
     }
 };
