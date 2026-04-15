@@ -540,6 +540,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return aOrder - bOrder;
     }
 
+    // NOTE: this algorithm is duplicated in scripts/swarm/sort-process.sh (Python),
+    // consumed by the /swarm-start skill so the skill's position N matches the UI's
+    // position N. If you change the rank map or any per-status secondary here, update
+    // sort-process.sh to match or /swarm-start will silently pick the wrong requirement
+    // (see req #2165).
     const STATUS_SORT_PROCESS = { authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5 };
 
     const processSort = (a, b) => {
