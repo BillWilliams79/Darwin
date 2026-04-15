@@ -91,7 +91,6 @@ const RequirementDetail = () => {
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
-    const [categorySortOrder, setCategorySortOrder] = useState(null);
     const [loading, setLoading] = useState(true);
 
     const showError = useSnackBarStore(s => s.showError);
@@ -137,14 +136,14 @@ const RequirementDetail = () => {
                 const p = result.data[0];
                 setRequirement(p);
 
-                // Fetch sessions, siblings, and category sort_mode + sort_order in parallel
+                // Fetch sessions, siblings, and category sort_mode in parallel
                 const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode,sort_order`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
                 if (sessionsResult?.httpStatus?.httpStatus === 200 && sessionsResult.data.length > 0) {
@@ -156,7 +155,6 @@ const RequirementDetail = () => {
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
                     // Mirror CategoryCard coercion: anything other than 'hand' is treated as 'process'.
                     setSibSortMode(categoryResult.data[0].sort_mode === 'hand' ? 'hand' : 'process');
-                    setCategorySortOrder(categoryResult.data[0].sort_order ?? null);
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -330,13 +328,7 @@ const RequirementDetail = () => {
                 )}
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
-                <Typography
-                    data-testid="requirement-index"
-                    sx={{ fontSize: 24, fontWeight: 500, color: 'text.secondary', lineHeight: 1.4, pb: '3px', whiteSpace: 'nowrap' }}
-                >
-                    {displayIndex !== null ? `${displayIndex}.` : ''}
-                </Typography>
+            <Box sx={{ mb: 2 }}>
                 <TextField
                     variant="standard"
                     value={requirement.title || ''}
@@ -492,7 +484,7 @@ const RequirementDetail = () => {
                     sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}
                     data-testid="requirement-id"
                 >
-                    ID - {requirement.id}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - {categorySortOrder ?? '—'}
+                    ID - {requirement.id}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span>
                 </Typography>
             </Box>
 
