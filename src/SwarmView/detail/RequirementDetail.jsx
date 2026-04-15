@@ -27,17 +27,8 @@ import TextField from '@mui/material/TextField';
 import { CircularProgress, Stack, Typography } from '@mui/material';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import EditNoteIcon from '@mui/icons-material/EditNote';
-import TaskAltIcon from '@mui/icons-material/TaskAlt';
-import PlayCircleIcon from '@mui/icons-material/PlayCircle';
-import RateReviewIcon from '@mui/icons-material/RateReview';
-import PauseCircleIcon from '@mui/icons-material/PauseCircle';
-import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DeleteIcon from '@mui/icons-material/Delete';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
@@ -306,22 +297,6 @@ const RequirementDetail = () => {
                         data-testid="btn-back-to-swarm">
                     {backLabel}
                 </Button>
-                {allCategories && (
-                    <FormControl size="small" sx={{ minWidth: 160, ml: 'auto' }}>
-                        <Select
-                            value={requirement.category_fk || ''}
-                            onChange={handleCategoryChange}
-                            data-testid="requirement-category-select"
-                            sx={{ fontSize: '0.875rem' }}
-                        >
-                            {allCategories.map(cat => (
-                                <MenuItem key={cat.id} value={cat.id}>
-                                    {cat.category_name}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                )}
             </Box>
 
             <Box sx={{ mb: 2 }}>
@@ -342,40 +317,6 @@ const RequirementDetail = () => {
             </Box>
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                {(() => {
-                    const hasReviewSession = sessions.some(s => s.swarm_status === 'review');
-                    const hasPausedSession = sessions.some(s => s.swarm_status === 'paused');
-                    const hasActiveSession = sessions.some(s => ['starting', 'active', 'completing'].includes(s.swarm_status));
-                    const status = requirement.requirement_status;
-                    const label = status === 'met' ? "Met" :
-                        status === 'deferred' ? "Deferred" :
-                        hasReviewSession ? "In Review" :
-                        hasPausedSession ? "Paused" :
-                        hasActiveSession || status === 'development' ? "Development" :
-                        status === 'swarm_ready' ? "Swarm-Start" :
-                        status === 'approved' ? "Approved" :
-                        "Authoring";
-                    const icon = status === 'met' ?
-                        <CheckCircleIcon sx={{ fontSize: 24, color: 'success.main' }} /> :
-                        status === 'deferred' ?
-                            <DoNotDisturbOnIcon sx={{ fontSize: 24, color: '#ff9800' }} /> :
-                        hasReviewSession ?
-                            <RateReviewIcon sx={{ fontSize: 24, color: '#ce93d8' }} /> :
-                        hasPausedSession ?
-                            <PauseCircleIcon sx={{ fontSize: 24, color: '#f0d000' }} /> :
-                        hasActiveSession || status === 'development' ?
-                            <RocketLaunchIcon sx={{ fontSize: 24, color: '#4caf50' }} /> :
-                        status === 'swarm_ready' ?
-                            <PlayCircleIcon sx={{ fontSize: 24, color: 'primary.main' }} /> :
-                        status === 'approved' ?
-                            <TaskAltIcon sx={{ fontSize: 24, color: '#90caf9' }} /> :
-                            <EditNoteIcon sx={{ fontSize: 24, color: '#fbc02d' }} />;
-                    return (
-                        <Tooltip enterDelay={400} enterNextDelay={200} title={label}>
-                            {icon}
-                        </Tooltip>
-                    );
-                })()}
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
                     {[
                         { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
@@ -473,15 +414,35 @@ const RequirementDetail = () => {
                 );
             })()}
 
-            <Box sx={{ mb: 2 }}>
-                <Typography
-                    variant="subtitle2"
-                    color="text.secondary"
-                    sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}
-                    data-testid="requirement-id"
-                >
-                    ID - {requirement.id}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span>
-                </Typography>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', color: 'text.secondary', fontWeight: 'bold', fontSize: '1.25rem' }}>
+                <Box component="span">Category -&nbsp;</Box>
+                {allCategories ? (
+                    <Select
+                        value={requirement.category_fk || ''}
+                        onChange={handleCategoryChange}
+                        variant="standard"
+                        IconComponent={() => null}
+                        data-testid="requirement-category-select"
+                        sx={{
+                            fontSize: '1.25rem',
+                            fontWeight: 'bold',
+                            color: 'text.secondary',
+                            '& .MuiSelect-select': { py: 0, pr: '0 !important' },
+                            '&:before': { borderBottomColor: 'transparent' },
+                            '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
+                        }}
+                    >
+                        {allCategories.map(cat => (
+                            <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: '1.25rem' }}>
+                                {cat.category_name}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                ) : (
+                    <Box component="span">—</Box>
+                )}
+                <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
+                <Box component="span">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span></Box>
             </Box>
 
             <Box sx={{ mb: 2 }}>
