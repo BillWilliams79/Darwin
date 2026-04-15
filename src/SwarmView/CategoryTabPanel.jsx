@@ -2,6 +2,7 @@ import React, {useState, useContext, useEffect, useRef, useCallback} from 'react
 import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import CategoryCard from './CategoryCard';
+import SwarmStartCard from '../TaskPlanView/SwarmStartCard';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCategories } from '../hooks/useDataQueries';
 import { categoryKeys } from '../hooks/useQueryKeys';
@@ -18,7 +19,7 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) => {
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
@@ -395,6 +396,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
             >
                 { categoriesArray &&
                     <Box className="card swarm-card" ref={panelDrop}>
+                        {showSwarmStartCard && <SwarmStartCard />}
                         { categoriesArray.map((category, categoryIndex) => (
                             <CategoryCard {...{key: category.id,
                                            category,
