@@ -234,6 +234,20 @@ export function useSession(sessionId, { enabled = true } = {}) {
     });
 }
 
+export function useSwarmReadyRequirements(creatorFk, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/requirements?requirement_status=swarm_ready&fields=${fields}`;
+    const queryKey = requirementKeys.swarmReady(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
 export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,title,completed_at', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);

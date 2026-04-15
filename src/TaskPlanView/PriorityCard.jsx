@@ -5,7 +5,7 @@ import React, { useState, useEffect, useContext, useRef, useCallback } from 'rea
 import { useQueryClient } from '@tanstack/react-query';
 import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
-import { usePriorityCardStore } from '../stores/usePriorityCardStore';
+import { useOptionalCardStore } from '../stores/useOptionalCardStore';
 import { usePriorityTasks, usePriorityCardOrder } from '../hooks/useDataQueries';
 import { taskKeys, priorityCardOrderKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
@@ -54,8 +54,8 @@ const PriorityCard = ({ domainId, areaIds }) => {
     const showError = useSnackBarStore(s => s.showError);
 
     // Sort mode from persisted store (per domain)
-    const sortMode = usePriorityCardStore(s => s.priorityCards[String(domainId)]?.sortMode ?? 'hand');
-    const setSortModeInStore = usePriorityCardStore(s => s.setSortMode);
+    const sortMode = useOptionalCardStore(s => s.cards[String(domainId)]?.priority?.sortMode ?? 'hand');
+    const setSortModeInStore = useOptionalCardStore(s => s.setSortMode);
 
     // Local state
     const [tasksArray, setTasksArray] = useState(null);
