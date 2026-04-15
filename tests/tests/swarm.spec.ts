@@ -233,12 +233,15 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm$/);
   });
 
-  test('SWM-24: requirement detail shows numerical index', async ({ page }) => {
+  test('SWM-24: requirement detail shows category-order index', async ({ page }) => {
     await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
+    // Index now lives on the "Category Order - N" line, not in front of the title
+    const idEl = page.getByTestId('requirement-id');
+    await expect(idEl).toBeVisible({ timeout: 10000 });
+    await expect(idEl).toContainText('Category Order - 1');
     const indexEl = page.getByTestId('requirement-index');
-    await expect(indexEl).toBeVisible({ timeout: 10000 });
-    await expect(indexEl).toContainText('1.');
+    await expect(indexEl).toHaveText('1');
   });
 
   test('SWM-25: up/down navigation between requirements', async ({ page }) => {
