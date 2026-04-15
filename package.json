@@ -16,6 +16,7 @@
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
     "@mui/x-data-grid": "^8.27.3",
+    "@popperjs/core": "^2.11.8",
     "@schedule-x/calendar": "^4.1.0",
     "@schedule-x/events-service": "^4.1.0",
     "@schedule-x/react": "^4.1.0",
