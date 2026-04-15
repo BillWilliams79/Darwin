@@ -134,7 +134,7 @@ const RequirementDetail = () => {
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -145,7 +145,8 @@ const RequirementDetail = () => {
                     setSiblings(siblingsResult.data);
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
-                    setSibSortMode(categoryResult.data[0].sort_mode || 'hand');
+                    // Mirror CategoryCard coercion: anything other than 'hand' is treated as 'process'.
+                    setSibSortMode(categoryResult.data[0].sort_mode === 'hand' ? 'hand' : 'process');
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');

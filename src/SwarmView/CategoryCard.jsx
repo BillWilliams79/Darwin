@@ -6,7 +6,7 @@ import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirements, useSessions } from '../hooks/useDataQueries';
-import { requirementKeys } from '../hooks/useQueryKeys';
+import { requirementKeys, categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
@@ -27,7 +27,7 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
@@ -53,22 +53,49 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
-    const [sortMode, setSortMode] = useState(category.sort_mode || 'hand');
+    // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
+    const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
 
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return;
         setSortMode(newMode);
 
         if (requirementsArray) {
-            const sortFn = newMode === 'hand' ? requirementHandSort : createdSort;
+            const sortFn = newMode === 'hand' ? requirementHandSort : processSort;
             const sorted = [...requirementsArray];
             sorted.sort((a, b) => sortFn(a, b));
             setRequirementsArray(sorted);
         }
 
         if (category.id !== '') {
+            // Optimistically update both possible categories cache entries so the new sort_mode
+            // survives unmount/remount (e.g. navigating into RequirementDetail and back).
+            const openKey = categoryKeys.byProjectOpen(profile.userName, projectId);
+            const allKey  = categoryKeys.byProjectWithClosed(profile.userName, projectId);
+            const previousOpen = queryClient.getQueryData(openKey);
+            const previousAll  = queryClient.getQueryData(allKey);
+            const updateCache = (old) => {
+                if (!Array.isArray(old)) return old;
+                return old.map(c => c.id === category.id ? { ...c, sort_mode: newMode } : c);
+            };
+            queryClient.setQueryData(openKey, updateCache);
+            queryClient.setQueryData(allKey, updateCache);
+
             call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
-                .catch(error => showError(error, 'Unable to save sort preference'));
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        queryClient.setQueryData(openKey, previousOpen);
+                        queryClient.setQueryData(allKey, previousAll);
+                        setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
+                        showError(result, 'Unable to save sort preference');
+                    }
+                })
+                .catch(error => {
+                    queryClient.setQueryData(openKey, previousOpen);
+                    queryClient.setQueryData(allKey, previousAll);
+                    setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
+                    showError(error, 'Unable to save sort preference');
+                });
         }
     };
 
@@ -541,11 +568,43 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return aOrder - bOrder;
     }
 
+    const STATUS_SORT_PROCESS = { authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5 };
+
+    const processSort = (a, b) => {
+        if (a.id === '') return 1;
+        if (b.id === '') return -1;
+        const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
+        const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
+        if (aRank !== bRank) return aRank - bRank;
+        switch (a.requirement_status) {
+            case 'development': {
+                const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
+                const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
+                return aTime - bTime;  // oldest started first
+            }
+            case 'swarm_ready':
+                return requirementHandSort(a, b);  // hand sort within swarm_ready group
+            case 'deferred': {
+                const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
+                const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
+                return bTime - aTime;  // most recently deferred first
+            }
+            case 'met': {
+                const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+                const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+                return bTime - aTime;  // most recently completed first
+            }
+            default:  // authoring, approved — oldest (smallest id) first
+                return a.id - b.id;
+        }
+    }
+
     const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2 };
 
     const activeSort = (a, b) => {
         if (a.id === '') return 1;
         if (b.id === '') return -1;
+        if (sortMode === 'process') return processSort(a, b);
         // Three-group sort: active (0) < deferred (1) < met (2)
         const aState = STATUS_SORT[a.requirement_status] ?? 0;
         const bState = STATUS_SORT[b.requirement_status] ?? 0;
@@ -560,7 +619,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
-        return sortMode === 'hand' ? requirementHandSort(a, b) : createdSort(a, b);
+        return requirementHandSort(a, b);  // sortMode === 'hand'
     }
 
     return (
@@ -613,20 +672,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                             >
                                 <MenuItem
+                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'process'); }}
+                                    data-testid={`sort-process-${category.id}`}
+                                >
+                                    <ListItemIcon><AccountTreeIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>Status Sort</ListItemText>
+                                    {sortMode === 'process' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                </MenuItem>
+                                <MenuItem
                                     onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
                                     data-testid={`sort-hand-${category.id}`}
                                 >
                                     <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>Hand Sort</ListItemText>
                                     {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
-                                </MenuItem>
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'created'); }}
-                                    data-testid={`sort-created-${category.id}`}
-                                >
-                                    <ListItemIcon><AccessTimeIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Created Sort</ListItemText>
-                                    {sortMode === 'created' && <Check fontSize="small" sx={{ ml: 1 }} />}
                                 </MenuItem>
                                 <Divider />
                                 <MenuItem
