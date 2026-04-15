@@ -206,12 +206,9 @@ const RequirementDetail = () => {
 
     const executeStatusChange = (newStatus) => {
         const now = new Date().toISOString();
-        // Auto-manage scheduled: swarm_ready sets scheduled=1, other statuses clear it
-        const scheduledVal = newStatus === 'swarm_ready' ? 1 : 0;
 
         const updates = {
             requirement_status: newStatus,
-            scheduled: scheduledVal,
             started_at: newStatus === 'development' ? now : 'NULL',
             completed_at: newStatus === 'met' ? now : 'NULL',
             deferred_at: newStatus === 'deferred' ? now : 'NULL',
@@ -220,7 +217,6 @@ const RequirementDetail = () => {
         setRequirement(prev => ({
             ...prev,
             requirement_status: newStatus,
-            scheduled: scheduledVal,
             started_at: newStatus === 'development' ? now : null,
             completed_at: newStatus === 'met' ? now : null,
             deferred_at: newStatus === 'deferred' ? now : null,

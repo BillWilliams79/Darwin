@@ -217,7 +217,7 @@ describe('fetchExportData', () => {
 
         it('exports requirements with all fields including deferred_at, FKs, and coordination_type', async () => {
             mockApi({
-                '/requirements': [{ id: 1, title: 'P1', description: 'desc', requirement_status: 'authoring', coordination_type: 'implemented', scheduled: 0, sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
+                '/requirements': [{ id: 1, title: 'P1', description: 'desc', requirement_status: 'authoring', coordination_type: 'implemented', sort_order: 1, started_at: null, completed_at: null, deferred_at: '2026-03-01', project_fk: 5, category_fk: 10, create_ts: 't', update_ts: null }],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
@@ -245,7 +245,7 @@ describe('fetchExportData', () => {
 
         it('preserves null coordination_type on requirements', async () => {
             mockApi({
-                '/requirements': [{ id: 2, title: 'P2', description: 'd', requirement_status: 'approved', coordination_type: null, scheduled: 0, sort_order: 2, started_at: null, completed_at: null, deferred_at: null, project_fk: null, category_fk: null, create_ts: 't', update_ts: null }],
+                '/requirements': [{ id: 2, title: 'P2', description: 'd', requirement_status: 'approved', coordination_type: null, sort_order: 2, started_at: null, completed_at: null, deferred_at: null, project_fk: null, category_fk: null, create_ts: 't', update_ts: null }],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
