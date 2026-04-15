@@ -131,12 +131,10 @@ const SwarmStartCard = () => {
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return;
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-        const scheduledVal = next === 'swarm_ready' ? 1 : 0;
         newRequirementsArray[requirementIndex].requirement_status = next;
-        newRequirementsArray[requirementIndex].scheduled = scheduledVal;
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, requirement_status: next, scheduled: scheduledVal }], idToken)
+            [{ id: requirementId, requirement_status: next }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     showError(result, 'Unable to change requirement status');
@@ -195,7 +193,7 @@ const SwarmStartCard = () => {
         requirementDelete.openDialog({
             requirementId,
             title: requirement?.title || '',
-            scheduled: requirement?.scheduled || 0,
+            coordination_type: requirement?.coordination_type || null,
             requirement_status: requirement?.requirement_status || 'swarm_ready',
         });
     };

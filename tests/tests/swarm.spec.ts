@@ -46,7 +46,9 @@ test.describe('Swarm View', () => {
     if (!priResult?.length) throw new Error('Failed to create test requirement');
     testRequirementId = priResult[0].id;
 
-    // Create idle requirement (not in_progress) for scheduled toggle test
+    // Create an extra authoring requirement (historically used by the removed
+    // scheduled-toggle tests; kept as a second row so the card shows more than
+    // one item for row-number assertions).
     const idlePriResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testIdleRequirementTitle, category_fk: testCategoryId,
       requirement_status: 'authoring', sort_order: 1,
@@ -128,37 +130,6 @@ test.describe('Swarm View', () => {
     // Row number "1" should be visible in the requirement row
     const row = page.getByTestId(`requirement-${testRequirementId}`);
     await expect(row.locator('p').first()).toContainText('1');
-  });
-
-  test('SWM-12b: Scheduled toggle works on idle requirement row', async ({ page }) => {
-    await page.goto('/swarm');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
-    await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`requirement-${testIdleRequirementId}`)).toBeVisible({ timeout: 10000 });
-
-    const toggleBtn = page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`);
-    await expect(toggleBtn).toBeVisible({ timeout: 5000 });
-
-    // Click to schedule
-    await toggleBtn.click();
-    // Verify the toggle persists by reloading
-    await page.reload();
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
-    await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`)).toBeVisible({ timeout: 10000 });
-
-    // Click twice more to cycle back to idle (scheduled→auto-start→idle)
-    await page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`).click();
-    await page.getByTestId(`scheduled-toggle-${testIdleRequirementId}`).click();
-  });
-
-  test('SWM-12c: Scheduled toggle hidden on in-progress requirement', async ({ page }) => {
-    await page.goto('/swarm');
-    await page.waitForSelector('[role="tab"]', { timeout: 10000 });
-    await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
-    // The in-progress requirement should NOT have a scheduled toggle
-    await expect(page.getByTestId(`scheduled-toggle-${testRequirementId}`)).not.toBeVisible();
   });
 
   test('SWM-13: /swarm/requirement/:id renders RequirementDetail with correct title', async ({ page }) => {

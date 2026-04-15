@@ -164,11 +164,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             );
 
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': parseInt(category.id), 'sort_order': null });
             setRequirementsArray(sortedRequirementsArray);
         } else if (serverRequirements && serverRequirements.length === 0) {
             let sortedRequirementsArray = [];
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': parseInt(category.id), 'sort_order': null });
+            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': parseInt(category.id), 'sort_order': null });
             setRequirementsArray(sortedRequirementsArray);
         }
     }, [serverRequirements, requirementStatusFilter]);
@@ -398,30 +398,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return {requirement: requirement.id};
     };
 
-    const scheduledClick = (requirementIndex, requirementId) => {
-
-        let newRequirementsArray = [...requirementsArray]
-        const current = newRequirementsArray[requirementIndex].scheduled || 0;
-        newRequirementsArray[requirementIndex].scheduled = (current + 1) % 3;
-
-        if (requirementId !== '') {
-            let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'PUT', [{'id': requirementId, 'scheduled': newRequirementsArray[requirementIndex].scheduled}], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        showError(result, "Unable to change requirement's scheduled flag")
-                    }
-                }).catch(error => {
-                    showError(error, "Unable to change requirement's scheduled flag")
-                }
-            );
-        } else if (savingRef.current) {
-            pendingMutationsRef.current.scheduled = newRequirementsArray[requirementIndex].scheduled;
-        }
-
-        setRequirementsArray(newRequirementsArray);
-    }
-
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
         let newRequirementsArray = [...requirementsArray];
@@ -429,14 +405,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return; // not a cycleable status (development/met/deferred)
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-        // Auto-manage scheduled: swarm_ready sets scheduled=1, others clear to 0
-        const scheduledVal = next === 'swarm_ready' ? 1 : 0;
         newRequirementsArray[requirementIndex].requirement_status = next;
-        newRequirementsArray[requirementIndex].scheduled = scheduledVal;
 
         if (requirementId !== '') {
             let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next, 'scheduled': scheduledVal}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, "Unable to change requirement status");
@@ -444,7 +417,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 }).catch(error => showError(error, "Unable to change requirement status"));
         } else if (savingRef.current) {
             pendingMutationsRef.current.requirement_status = next;
-            pendingMutationsRef.current.scheduled = scheduledVal;
         }
         setRequirementsArray(newRequirementsArray);
     }
@@ -527,7 +499,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newRequirementsArray.sort((a, b) => activeSort(a, b));
-                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'scheduled': 0, 'category_fk': category.id, 'sort_order': null });
+                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': category.id, 'sort_order': null });
                     setRequirementsArray(newRequirementsArray);
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     navigate(`/swarm/requirement/${result.data[0].id}`);
@@ -549,7 +521,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         requirementDelete.openDialog({
             requirementId,
             title: requirement?.title || '',
-            scheduled: requirement?.scheduled || 0,
+            coordination_type: requirement?.coordination_type || null,
             requirement_status: requirement?.requirement_status || 'authoring',
         });
     }
@@ -713,7 +685,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     )}
                 </Box>
                 { (requirementsArray) ?
-                    <RequirementActionsContext.Provider value={{ scheduledClick, statusClick, coordinationClick,
+                    <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
                         sortMode, setCrossCardInsertIndex, sessionStatusMap }}>
                         {requirementsArray.map((requirement, requirementIndex) => (

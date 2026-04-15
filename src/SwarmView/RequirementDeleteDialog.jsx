@@ -5,7 +5,6 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -13,9 +12,32 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
-import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
-import SettingsIcon from '@mui/icons-material/Settings';
+import DescriptionIcon from '@mui/icons-material/Description';
+import BuildIcon from '@mui/icons-material/Build';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
+
+
+// Mirror RequirementRow getStatusIcon (minus session-scoped states that don't
+// apply in the delete-confirm preview: paused/review/live-session rocket).
+const getStatusIcon = (status) => {
+    if (status === 'met')          return <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />;
+    if (status === 'deferred')     return <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />;
+    if (status === 'development')  return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+    if (status === 'swarm_ready')  return <PlayCircleIcon sx={{ fontSize: 18, color: 'primary.main' }} />;
+    if (status === 'approved')     return <TaskAltIcon sx={{ fontSize: 18, color: '#90caf9' }} />;
+    return <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />;
+};
+
+// Mirror RequirementRow getCoordinationIcon — visible only for swarm_ready/development.
+const getCoordinationIcon = (status, coordType) => {
+    if (!['swarm_ready', 'development'].includes(status)) return null;
+    if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />;
+    if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+    if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />;
+    return <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />;
+};
 
 
 const RequirementDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed, requirement }) => {
@@ -30,6 +52,9 @@ const RequirementDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDel
         setDeleteConfirmed(true);
         setDeleteDialogOpen(false);
     };
+
+    const status = requirement?.requirement_status;
+    const coordType = requirement?.coordination_type || null;
 
     return (
 
@@ -46,29 +71,12 @@ const RequirementDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDel
                 </DialogContentText>
                 {requirement?.title && (
                     <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, mx: 2, gap: 0.5 }}>
-                        <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                            {requirement.scheduled === 2
-                                ? <PlayCircleIcon sx={{ fontSize: 20, color: 'success.main' }} />
-                                : requirement.scheduled === 1
-                                ? <PlayCircleIcon sx={{ fontSize: 20, color: 'primary.main' }} />
-                                : <PlayCircleOutlineIcon sx={{ fontSize: 20, color: 'text.disabled' }} />}
-                        </IconButton>
-                        <IconButton size="small" disabled sx={{ maxWidth: 25, maxHeight: 25, p: 0 }}>
-                            <SettingsIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                        <IconButton size="small" disabled sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
-                            {requirement.requirement_status === 'met'
-                                ? <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
-                                : requirement.requirement_status === 'deferred'
-                                    ? <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />
-                                : requirement.requirement_status === 'development'
-                                    ? <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                                : requirement.requirement_status === 'swarm_ready'
-                                    ? <PlayCircleIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-                                : requirement.requirement_status === 'approved'
-                                    ? <TaskAltIcon sx={{ fontSize: 18, color: '#90caf9' }} />
-                                    : <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />}
-                        </IconButton>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                            {getStatusIcon(status)}
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
+                            {getCoordinationIcon(status, coordType)}
+                        </Box>
                         <Box sx={{
                             flex: 1,
                             p: 1,
