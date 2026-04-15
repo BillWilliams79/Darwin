@@ -41,10 +41,10 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
             const sorted = [...serverCategories];
             sorted.sort((a, b) => categorySortBySortOrder(a, b));
             let maxSortOrder = sorted.at(-1).sort_order + 1;
-            sorted.push({'id':'', 'category_name':'', 'project_fk': project.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'hand', });
+            sorted.push({'id':'', 'category_name':'', 'project_fk': project.id, 'closed': 0, 'sort_order': maxSortOrder, 'sort_mode': 'process', });
             setCategoriesArray(sorted);
         } else if (serverCategories && serverCategories.length === 0) {
-            setCategoriesArray([{'id':'', 'category_name':'', 'project_fk': project.id, 'sort_order': 1, 'sort_mode': 'hand', }]);
+            setCategoriesArray([{'id':'', 'category_name':'', 'project_fk': project.id, 'sort_order': 1, 'sort_mode': 'process', }]);
         }
     }, [serverCategories]);
 
@@ -130,7 +130,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed } ) =>
                 if (result.httpStatus.httpStatus === 200) {
                     newCategoriesArray[categoryIndex] = {...result.data[0]};
                     let newSortOrder = result.data[0].sort_order + 1;
-                    newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'sort_order': newSortOrder, 'sort_mode': 'hand' });
+                    newCategoriesArray.push({'id':'', 'category_name':'', 'closed': 0, 'project_fk': project.id, 'sort_order': newSortOrder, 'sort_mode': 'process' });
                     setCategoriesArray(newCategoriesArray);
                     queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                 } else if (result.httpStatus.httpStatus === 201) {
