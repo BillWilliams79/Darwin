@@ -72,6 +72,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             // survives unmount/remount (e.g. navigating into RequirementDetail and back).
             const openKey = categoryKeys.byProjectOpen(profile.userName, projectId);
             const allKey  = categoryKeys.byProjectWithClosed(profile.userName, projectId);
+            queryClient.cancelQueries({ queryKey: openKey });
+            queryClient.cancelQueries({ queryKey: allKey });
             const previousOpen = queryClient.getQueryData(openKey);
             const previousAll  = queryClient.getQueryData(allKey);
             const updateCache = (old) => {
