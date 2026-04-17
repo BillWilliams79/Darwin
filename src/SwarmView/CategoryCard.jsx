@@ -52,6 +52,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
     const sortModePendingRef = useRef(false);
+    const sortModeMutationRef = useRef(0);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
@@ -117,22 +118,29 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             queryClient.setQueryData(openKey, updateCache);
             queryClient.setQueryData(allKey, updateCache);
 
+            // Defense-in-depth rollback guard: even with sortModePendingRef blocking
+            // concurrent entry, a monotonic mutation id on rollback protects the cache
+            // if the pending guard is ever bypassed or removed. Skip rollback + toast
+            // when a newer invocation has superseded this one (req #2202).
+            const mutationId = ++sortModeMutationRef.current;
+            const rollback = (errorArg, message) => {
+                if (sortModeMutationRef.current !== mutationId) return;
+                queryClient.setQueryData(openKey, previousOpen);
+                queryClient.setQueryData(allKey, previousAll);
+                setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
+                showError(errorArg, message);
+            };
+
             sortModePendingRef.current = true;
             call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        queryClient.setQueryData(openKey, previousOpen);
-                        queryClient.setQueryData(allKey, previousAll);
-                        setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
-                        showError(result, 'Unable to save sort preference');
+                        rollback(result, 'Unable to save sort preference');
                     }
                     sortModePendingRef.current = false;
                 })
                 .catch(error => {
-                    queryClient.setQueryData(openKey, previousOpen);
-                    queryClient.setQueryData(allKey, previousAll);
-                    setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
-                    showError(error, 'Unable to save sort preference');
+                    rollback(error, 'Unable to save sort preference');
                     sortModePendingRef.current = false;
                 });
         }
