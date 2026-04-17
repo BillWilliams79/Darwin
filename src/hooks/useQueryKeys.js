@@ -48,6 +48,7 @@ export const requirementKeys = {
     byCategoryWithClosed: (creatorFk, categoryId) => ['requirements', creatorFk, { categoryId, withClosed: true }],
     done: (creatorFk, dateRange) => ['requirements', creatorFk, { closed: 1, dateRange }],
     counts: (creatorFk) => ['requirements', creatorFk, 'counts'],
+    byStatus: (creatorFk, status) => ['requirements', creatorFk, { requirement_status: status }],
     swarmReady: (creatorFk) => ['requirements', creatorFk, { requirement_status: 'swarm_ready' }],
 };
 
