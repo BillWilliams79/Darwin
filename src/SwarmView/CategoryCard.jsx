@@ -51,14 +51,40 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+    const sortModePendingRef = useRef(false);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+
+    const showError = useSnackBarStore(s => s.showError);
+
+    const requirementDelete = useConfirmDialog({
+        onConfirm: ({ requirementId }) => {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'DELETE', {'id': requirementId}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newRequirementsArray = [...requirementsArray]
+                        newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
+                        setRequirementsArray(newRequirementsArray);
+                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                    } else {
+                        showError(result, 'Unable to delete requirement')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to delete requirement')
+                });
+        }
+    });
 
     // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
     const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
 
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return;
+        // Block while a previous sort-mode PUT is still in flight — cancelQueries only cancels
+        // background refetches, not the mutation itself. Without this guard, two concurrent PUTs
+        // race and the server may commit the older value.
+        if (sortModePendingRef.current) return;
         setSortMode(newMode);
 
         if (requirementsArray) {
@@ -91,6 +117,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             queryClient.setQueryData(openKey, updateCache);
             queryClient.setQueryData(allKey, updateCache);
 
+            sortModePendingRef.current = true;
             call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
@@ -99,12 +126,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
                         showError(result, 'Unable to save sort preference');
                     }
+                    sortModePendingRef.current = false;
                 })
                 .catch(error => {
                     queryClient.setQueryData(openKey, previousOpen);
                     queryClient.setQueryData(allKey, previousAll);
                     setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
                     showError(error, 'Unable to save sort preference');
+                    sortModePendingRef.current = false;
                 });
         }
     };
@@ -118,27 +147,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const setCrossCardInsertIndex = useCallback((index) => {
         crossCardInsertIndexRef.current = index;
     }, []);
-
-    const showError = useSnackBarStore(s => s.showError);
-
-    const requirementDelete = useConfirmDialog({
-        onConfirm: ({ requirementId }) => {
-            let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'DELETE', {'id': requirementId}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-                        let newRequirementsArray = [...requirementsArray]
-                        newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
-                        setRequirementsArray(newRequirementsArray);
-                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-                    } else {
-                        showError(result, 'Unable to delete requirement')
-                    }
-                }).catch(error => {
-                    showError(error, 'Unable to delete requirement')
-                });
-        }
-    });
 
     // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
     const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
