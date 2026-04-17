@@ -1,7 +1,9 @@
-// SwarmStartCard — mirrors CategoryCard in the Roadmap view but:
-//   • Fetches all swarm_ready requirements (global, cross-category)
-//   • No template row — "add new" is not supported
-//   • All other UI interactions are identical to CategoryCard
+// SwarmStartCard — cross-category requirement aggregator in the Roadmap view.
+//   • Header is a row of status chips (same styling as the Roadmap filter chips).
+//   • Single-select: exactly one status is active at a time.
+//   • Card shows all requirements with the selected status across all categories.
+//   • No template row — "add new" is not supported on this card.
+//   • Other interactions (status cycle, coord cycle, title edit, delete) mirror CategoryCard.
 
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,11 +11,17 @@ import RequirementRow from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useSwarmReadyRequirements, useSessions, useCategoryColors } from '../hooks/useDataQueries';
+import { useRequirementsByStatus, useSessions, useCategoryColors } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
+import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
+import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+
+// Chip statuses shown on this card — same order as the Roadmap filter chips,
+// minus 'met' (completed work lives elsewhere — this card aggregates active work).
+const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred'];
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 
@@ -21,6 +29,8 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
 import Check from '@mui/icons-material/Check';
 import Menu from '@mui/material/Menu';
@@ -37,6 +47,9 @@ const SwarmStartCard = () => {
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
 
+    const selectedStatus = useSwarmStartCardStore(s => s.selectedStatus);
+    const setSelectedStatus = useSwarmStartCardStore(s => s.setSelectedStatus);
+
     const [requirementsArray, setRequirementsArray] = useState();
     const [sessionStatusMap, setSessionStatusMap] = useState({});
     const [sortMode, setSortMode] = useState('hand');
@@ -45,8 +58,8 @@ const SwarmStartCard = () => {
 
     const showError = useSnackBarStore(s => s.showError);
 
-    // Fetch all swarm_ready requirements (global)
-    const { data: serverRequirements } = useSwarmReadyRequirements(profile?.userName);
+    // Fetch requirements for the currently selected status (global, cross-category).
+    const { data: serverRequirements } = useRequirementsByStatus(profile?.userName, selectedStatus);
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -67,9 +80,12 @@ const SwarmStartCard = () => {
         return aOrder - bOrder;
     };
 
-    // Seed local state from server data
+    // Seed local state from server data (re-runs on every fetch — including chip switch)
     useEffect(() => {
-        if (!serverRequirements) return;
+        if (!serverRequirements) {
+            setRequirementsArray(undefined);
+            return;
+        }
         const sorted = [...serverRequirements];
         sorted.sort((a, b) => sortMode === 'hand' ? requirementHandSort(a, b) : createdSort(a, b));
         setRequirementsArray(sorted);
@@ -108,6 +124,11 @@ const SwarmStartCard = () => {
         }
     };
 
+    const handleChipClick = (status) => {
+        if (status === selectedStatus) return;
+        setSelectedStatus(status);
+    };
+
     // Delete dialog (same as CategoryCard)
     const requirementDelete = useConfirmDialog({
         onConfirm: ({ requirementId }) => {
@@ -123,7 +144,7 @@ const SwarmStartCard = () => {
         }
     });
 
-    // Status click — mirrors CategoryCard; items that cycle off swarm_ready leave the card
+    // Status click — items cycle off the selected status leave the card.
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
         const newRequirementsArray = [...requirementsArray];
@@ -139,8 +160,8 @@ const SwarmStartCard = () => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     showError(result, 'Unable to change requirement status');
                 } else {
-                    // Item is no longer swarm_ready — remove from this card
-                    if (next !== 'swarm_ready') {
+                    // Item no longer matches the card's aggregate status — remove it.
+                    if (next !== selectedStatus) {
                         setRequirementsArray(prev => prev ? prev.filter(p => p.id !== requirementId) : prev);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     }
@@ -194,7 +215,7 @@ const SwarmStartCard = () => {
             requirementId,
             title: requirement?.title || '',
             coordination_type: requirement?.coordination_type || null,
-            requirement_status: requirement?.requirement_status || 'swarm_ready',
+            requirement_status: requirement?.requirement_status || selectedStatus,
         });
     };
 
@@ -206,10 +227,31 @@ const SwarmStartCard = () => {
               data-testid="swarm-start-card"
               sx={{ border: '2px solid transparent' }}>
             <CardContent>
-                <Box className="card-header" sx={{ marginBottom: 2 }}>
-                    <Typography sx={{ fontSize: 24, fontWeight: 'normal' }}>
-                        Swarm Ready
-                    </Typography>
+                <Box className="card-header"
+                     sx={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                     data-testid="swarm-start-card-status-filter">
+                    <Stack direction="row" spacing={0.5} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
+                        {SWARM_START_STATUSES.map(status => {
+                            const selected = status === selectedStatus;
+                            const chipProps = requirementStatusChipProps(status);
+                            return (
+                                <Chip
+                                    key={status}
+                                    label={requirementStatusLabel(status)}
+                                    size="small"
+                                    onClick={() => handleChipClick(status)}
+                                    {...(selected ? chipProps : { variant: 'outlined' })}
+                                    sx={{
+                                        ...(selected ? chipProps.sx : {}),
+                                        ...(!selected && { opacity: 0.5 }),
+                                        cursor: 'pointer',
+                                        textTransform: 'capitalize',
+                                    }}
+                                    data-testid={`swarm-start-chip-${status}`}
+                                />
+                            );
+                        })}
+                    </Stack>
                     <IconButton
                         onClick={handleMenuOpen}
                         data-testid="swarm-start-card-menu"
@@ -242,7 +284,7 @@ const SwarmStartCard = () => {
                     <CircularProgress size={24} />
                 ) : requirementsArray.length === 0 ? (
                     <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
-                        No swarm-ready requirements
+                        No {requirementStatusLabel(selectedStatus).toLowerCase()} requirements
                     </Typography>
                 ) : (
                     <RequirementActionsContext.Provider value={{
