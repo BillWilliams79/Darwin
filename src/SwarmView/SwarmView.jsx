@@ -14,6 +14,7 @@ import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
 import CategoryTabPanel from './CategoryTabPanel';
 import RequirementDragLayer from './RequirementDragLayer';
+import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableView';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,13 +27,19 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
 import { CircularProgress, Tabs } from '@mui/material';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
+
+const SWARM_VIEW_STORAGE_KEY = 'darwin-swarm-view';
 
 const SwarmView = () => {
 
@@ -41,6 +48,7 @@ const SwarmView = () => {
     const queryClient = useQueryClient();
 
     const [projectsArray, setProjectsArray] = useState()
+    const [view, setView] = useState(() => localStorage.getItem(SWARM_VIEW_STORAGE_KEY) || 'cards');
 
     const activeTab = useSwarmTabStore(s => s.activeTab);
     const setActiveTab = useSwarmTabStore(s => s.setActiveTab);
@@ -156,6 +164,18 @@ const SwarmView = () => {
         projectAdd.openDialog();
      }
 
+    const handleViewChange = (event, newView) => {
+        if (newView !== null) {
+            setView(newView);
+            localStorage.setItem(SWARM_VIEW_STORAGE_KEY, newView);
+        }
+    };
+
+    const settingsLinks = [
+        { path: '/projectedit', label: 'Projects', icon: FolderIcon },
+        { path: '/categoryedit', label: 'Categories', icon: CategoryIcon },
+    ];
+
     return (
         <>
         {projectsArray ?
@@ -171,28 +191,40 @@ const SwarmView = () => {
             :
             <>
             <Box className="app-content-planpage">
-                    <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
-                         className="app-content-tabs"
+                    {/* Row A — view toggle + chips + [rocket if cards] + settings (always visible).
+                        Padding `px: 3` matches `p: 3` on `.app-content-tabpanel` below, so
+                        Row A's right edge aligns with the tabpanel's right content edge
+                        (= right edge of rightmost card in Cards view).
+                        In Table view, maxWidth is capped at SWARM_TABLE_WIDTH so settings
+                        aligns with the table's right edge instead.
+                        Rocket icon is CARDS-ONLY — it controls the SwarmStartCard aggregator
+                        which doesn't exist in Table view.
+                        Spacing (mt/mb/gap) matches MapsPage.jsx header row. */}
+                    <Box className="app-content-view-toggle"
+                         sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 3, mb: 1, px: 3,
+                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }) }}
+                         data-testid="swarm-view-toggle-row"
                     >
-                        <Tabs value={activeTab.toString()}
-                              onChange={changeActiveTab}
-                              variant="scrollable"
-                              scrollButtons="auto"
-                              sx={{ flex: 1 }} >
-                            {projectsArray.map( (project, projectIndex) =>
-                                <Tab key={project.id}
-                                     icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
-                                     label={project.project_name}
-                                     value={projectIndex.toString()}
-                                     iconPosition="end" />
-                            )}
-                            <Tab key={'add-project'}
-                                 icon={<AddIcon onClick={addProject}/>}
-                                 iconPosition="start"
-                                 value={9999}
-                            />
-                        </Tabs>
-                        <Stack direction="row" spacing={0.5} sx={{ ml: 1, mr: 1 }} data-testid="requirement-status-filter">
+                        <ToggleButtonGroup
+                            value={view}
+                            exclusive
+                            onChange={handleViewChange}
+                            size="small"
+                            sx={{ flexShrink: 0 }}
+                            data-testid="swarm-view-toggle"
+                        >
+                            <Tooltip title="Cards View">
+                                <ToggleButton value="cards" data-testid="view-toggle-cards" sx={{ px: 2 }}>
+                                    <ViewModuleIcon fontSize="small" />
+                                </ToggleButton>
+                            </Tooltip>
+                            <Tooltip title="Table View">
+                                <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
+                                    <TableChartIcon fontSize="small" />
+                                </ToggleButton>
+                            </Tooltip>
+                        </ToggleButtonGroup>
+                        <Stack direction="row" spacing={0.5} sx={{ ml: 3 }} data-testid="requirement-status-filter">
                             {ALL_REQUIREMENT_STATUSES.map(status => {
                                 const selected = requirementStatusFilter.includes(status);
                                 const chipProps = requirementStatusChipProps(status);
@@ -214,35 +246,74 @@ const SwarmView = () => {
                                 );
                             })}
                         </Stack>
-                        <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
-                            <IconButton
-                                size="small"
-                                onClick={toggleSwarmStartCard}
-                                color={showSwarmStartCard ? 'primary' : 'default'}
-                                data-testid="swarm-start-card-toggle"
-                                sx={{ flexShrink: 0, mx: 0.5 }}
-                            >
-                                <RocketLaunchIcon />
-                            </IconButton>
-                        </Tooltip>
+                        {/* Rocket — Cards view only. Controls the cross-category SwarmStartCard
+                            aggregator, which is irrelevant in Table view. */}
+                        {view === 'cards' && (
+                            <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
+                                <IconButton
+                                    size="small"
+                                    onClick={toggleSwarmStartCard}
+                                    color={showSwarmStartCard ? 'primary' : 'default'}
+                                    data-testid="swarm-start-card-toggle"
+                                    sx={{ flexShrink: 0 }}
+                                >
+                                    <RocketLaunchIcon />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        {/* Spacer pushes settings to far right — in Cards view that's the
+                            tabpanel's right content edge (= rightmost card's right edge);
+                            in Table view that's the table's right edge (via maxWidth cap). */}
+                        <Box sx={{ flexGrow: 1 }} />
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
-                            links={[
-                                { path: '/projectedit', label: 'Projects', icon: FolderIcon },
-                                { path: '/categoryedit', label: 'Categories', icon: CategoryIcon },
-                            ]}
+                            links={settingsLinks}
                         />
                     </Box>
-                        {   projectsArray.map( (project, projectIndex) =>
-                                <CategoryTabPanel key={project.id}
-                                              project = {project}
-                                              projectIndex = {projectIndex}
-                                              activeTab = {activeTab}
-                                              showClosed = {showClosed}
-                                              showSwarmStartCard = {showSwarmStartCard}>
-                                </CategoryTabPanel>
-                            )
-                        }
+
+                    {/* Row B — project tabs only (cards mode only) */}
+                    {view === 'cards' && (
+                        <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
+                             className="app-content-tabs"
+                        >
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto"
+                                  sx={{ flex: 1 }} >
+                                {projectsArray.map( (project, projectIndex) =>
+                                    <Tab key={project.id}
+                                         icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
+                                         label={project.project_name}
+                                         value={projectIndex.toString()}
+                                         iconPosition="end" />
+                                )}
+                                <Tab key={'add-project'}
+                                     icon={<AddIcon onClick={addProject}/>}
+                                     iconPosition="start"
+                                     value={9999}
+                                />
+                            </Tabs>
+                        </Box>
+                    )}
+
+                    {/* Content — table view */}
+                    {view === 'table' && (
+                        <Box className="app-content-tabpanel">
+                            <RequirementsTableView />
+                        </Box>
+                    )}
+
+                    {/* Content — cards view */}
+                    {view === 'cards' && projectsArray.map( (project, projectIndex) =>
+                        <CategoryTabPanel key={project.id}
+                                          project = {project}
+                                          projectIndex = {projectIndex}
+                                          activeTab = {activeTab}
+                                          showClosed = {showClosed}
+                                          showSwarmStartCard = {showSwarmStartCard}>
+                        </CategoryTabPanel>
+                    )}
             </Box>
             <ProjectCloseDialog dialogOpen={projectClose.dialogOpen}
                                setDialogOpen={projectClose.setDialogOpen}

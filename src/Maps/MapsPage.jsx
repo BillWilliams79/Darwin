@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
@@ -345,18 +346,21 @@ const MapsPage = () => {
                     size="small"
                     sx={{ flexShrink: 0 }}
                 >
-                    <ToggleButton value="cards" data-testid="view-toggle-cards">
-                        <ViewModuleIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Cards
-                    </ToggleButton>
-                    <ToggleButton value="trends" data-testid="view-toggle-trends">
-                        <TrendingUpIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Trends
-                    </ToggleButton>
-                    <ToggleButton value="table" data-testid="view-toggle-table">
-                        <TableChartIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Table
-                    </ToggleButton>
+                    <Tooltip title="Cards View">
+                        <ToggleButton value="cards" data-testid="view-toggle-cards" sx={{ px: 2 }}>
+                            <ViewModuleIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                    <Tooltip title="Trends View">
+                        <ToggleButton value="trends" data-testid="view-toggle-trends" sx={{ px: 2 }}>
+                            <TrendingUpIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                    <Tooltip title="Table View">
+                        <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
+                            <TableChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
                 </ToggleButtonGroup>
 
                 <ViewBar
