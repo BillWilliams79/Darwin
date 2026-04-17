@@ -87,9 +87,17 @@
     grid-template-columns: 24px auto auto auto 1fr auto;
 }
 
+.task.requirement-row.aggregator-row {
+    grid-template-columns: 24px 24px auto auto auto 1fr auto;
+}
+
 @media screen and (max-width: 899px) {
     .task.requirement-row {
         grid-template-columns: 24px auto auto auto 1fr auto;
+    }
+
+    .task.requirement-row.aggregator-row {
+        grid-template-columns: 24px 24px auto auto auto 1fr auto;
     }
 }
 
