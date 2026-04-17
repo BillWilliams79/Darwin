@@ -55,6 +55,27 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
+    const showError = useSnackBarStore(s => s.showError);
+
+    const requirementDelete = useConfirmDialog({
+        onConfirm: ({ requirementId }) => {
+            let uri = `${darwinUri}/requirements`;
+            call_rest_api(uri, 'DELETE', {'id': requirementId}, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        let newRequirementsArray = [...requirementsArray]
+                        newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
+                        setRequirementsArray(newRequirementsArray);
+                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                    } else {
+                        showError(result, 'Unable to delete requirement')
+                    }
+                }).catch(error => {
+                    showError(error, 'Unable to delete requirement')
+                });
+        }
+    });
+
     // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
     const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
 
@@ -119,27 +140,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const setCrossCardInsertIndex = useCallback((index) => {
         crossCardInsertIndexRef.current = index;
     }, []);
-
-    const showError = useSnackBarStore(s => s.showError);
-
-    const requirementDelete = useConfirmDialog({
-        onConfirm: ({ requirementId }) => {
-            let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'DELETE', {'id': requirementId}, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus === 200) {
-                        let newRequirementsArray = [...requirementsArray]
-                        newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
-                        setRequirementsArray(newRequirementsArray);
-                        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-                    } else {
-                        showError(result, 'Unable to delete requirement')
-                    }
-                }).catch(error => {
-                    showError(error, 'Unable to delete requirement')
-                });
-        }
-    });
 
     // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
     const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
