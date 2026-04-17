@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { requirementHandSort, STATUS_SORT_PROCESS, processSort } from './processSort';
 import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
@@ -534,49 +535,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return a.id - b.id;
     }
 
-    const requirementHandSort = (a, b) => {
-        if (a.id === '') return 1;
-        if (b.id === '') return -1;
-        const aOrder = a.sort_order ?? Infinity;
-        const bOrder = b.sort_order ?? Infinity;
-        return aOrder - bOrder;
-    }
-
-    // NOTE: this algorithm is duplicated in scripts/swarm/sort-process.sh (Python),
-    // consumed by the /swarm-start skill so the skill's position N matches the UI's
-    // position N. If you change the rank map or any per-status secondary here, update
-    // sort-process.sh to match or /swarm-start will silently pick the wrong requirement
-    // (see req #2165).
-    const STATUS_SORT_PROCESS = { authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5 };
-
-    const processSort = (a, b) => {
-        if (a.id === '') return 1;
-        if (b.id === '') return -1;
-        const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
-        const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
-        if (aRank !== bRank) return aRank - bRank;
-        switch (a.requirement_status) {
-            case 'development': {
-                const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
-                const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
-                return aTime - bTime;  // oldest started first
-            }
-            case 'swarm_ready':
-                return requirementHandSort(a, b);  // hand sort within swarm_ready group
-            case 'deferred': {
-                const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
-                const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
-                return bTime - aTime;  // most recently deferred first
-            }
-            case 'met': {
-                const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-                const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-                return bTime - aTime;  // most recently completed first
-            }
-            default:  // authoring, approved — oldest (smallest id) first
-                return a.id - b.id;
-        }
-    }
+    // requirementHandSort, STATUS_SORT_PROCESS, processSort imported from ./processSort
 
     const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2 };
 
