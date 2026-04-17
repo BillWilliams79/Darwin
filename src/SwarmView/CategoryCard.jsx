@@ -51,66 +51,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+    const sortModePendingRef = useRef(false);
+    const sortModeMutationRef = useRef(0);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
-
-    // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
-    const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
-
-    const changeSortMode = (event, newMode) => {
-        if (newMode === null) return;
-        setSortMode(newMode);
-
-        if (requirementsArray) {
-            const sortFn = newMode === 'hand' ? requirementHandSort : processSort;
-            const sorted = [...requirementsArray];
-            sorted.sort((a, b) => sortFn(a, b));
-            setRequirementsArray(sorted);
-        }
-
-        if (category.id !== '') {
-            // Optimistically update both possible categories cache entries so the new sort_mode
-            // survives unmount/remount (e.g. navigating into RequirementDetail and back).
-            const openKey = categoryKeys.byProjectOpen(profile.userName, projectId);
-            const allKey  = categoryKeys.byProjectWithClosed(profile.userName, projectId);
-            queryClient.cancelQueries({ queryKey: openKey });
-            queryClient.cancelQueries({ queryKey: allKey });
-            const previousOpen = queryClient.getQueryData(openKey);
-            const previousAll  = queryClient.getQueryData(allKey);
-            const updateCache = (old) => {
-                if (!Array.isArray(old)) return old;
-                return old.map(c => c.id === category.id ? { ...c, sort_mode: newMode } : c);
-            };
-            queryClient.setQueryData(openKey, updateCache);
-            queryClient.setQueryData(allKey, updateCache);
-
-            call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        queryClient.setQueryData(openKey, previousOpen);
-                        queryClient.setQueryData(allKey, previousAll);
-                        setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
-                        showError(result, 'Unable to save sort preference');
-                    }
-                })
-                .catch(error => {
-                    queryClient.setQueryData(openKey, previousOpen);
-                    queryClient.setQueryData(allKey, previousAll);
-                    setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
-                    showError(error, 'Unable to save sort preference');
-                });
-        }
-    };
-
-    const [menuAnchorEl, setMenuAnchorEl] = useState(null);
-    const menuOpen = Boolean(menuAnchorEl);
-    const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
-    const handleMenuClose = () => setMenuAnchorEl(null);
-
-    const crossCardInsertIndexRef = useRef(null);
-    const setCrossCardInsertIndex = useCallback((index) => {
-        crossCardInsertIndexRef.current = index;
-    }, []);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -132,6 +76,85 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 });
         }
     });
+
+    // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
+    const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
+
+    const changeSortMode = (event, newMode) => {
+        if (newMode === null) return;
+        // Block while a previous sort-mode PUT is still in flight — cancelQueries only cancels
+        // background refetches, not the mutation itself. Without this guard, two concurrent PUTs
+        // race and the server may commit the older value.
+        if (sortModePendingRef.current) return;
+        setSortMode(newMode);
+
+        if (requirementsArray) {
+            const sortFn = newMode === 'hand' ? requirementHandSort : processSort;
+            const sorted = [...requirementsArray];
+            sorted.sort((a, b) => sortFn(a, b));
+            setRequirementsArray(sorted);
+        }
+
+        if (category.id !== '') {
+            // Optimistically update both possible categories cache entries so the new sort_mode
+            // survives unmount/remount (e.g. navigating into RequirementDetail and back).
+            //
+            // Maintenance note: `useQueryKeys.js` also defines `categoryKeys.byProject` (no `closed`
+            // filter — effectively `closed=1` only). That key has zero live subscribers today;
+            // no caller of `useCategories` passes `closed=1`. If a future "closed categories" view
+            // is added, update BOTH (a) the `cancelQueries` calls below and (b) the `setQueryData`
+            // optimistic writes below to include `categoryKeys.byProject(...)` alongside
+            // `byProjectOpen` / `byProjectWithClosed`.
+            const openKey = categoryKeys.byProjectOpen(profile.userName, projectId);
+            const allKey  = categoryKeys.byProjectWithClosed(profile.userName, projectId);
+            queryClient.cancelQueries({ queryKey: openKey });
+            queryClient.cancelQueries({ queryKey: allKey });
+            const previousOpen = queryClient.getQueryData(openKey);
+            const previousAll  = queryClient.getQueryData(allKey);
+            const updateCache = (old) => {
+                if (!Array.isArray(old)) return old;
+                return old.map(c => c.id === category.id ? { ...c, sort_mode: newMode } : c);
+            };
+            queryClient.setQueryData(openKey, updateCache);
+            queryClient.setQueryData(allKey, updateCache);
+
+            // Defense-in-depth rollback guard: even with sortModePendingRef blocking
+            // concurrent entry, a monotonic mutation id on rollback protects the cache
+            // if the pending guard is ever bypassed or removed. Skip rollback + toast
+            // when a newer invocation has superseded this one (req #2202).
+            const mutationId = ++sortModeMutationRef.current;
+            const rollback = (errorArg, message) => {
+                if (sortModeMutationRef.current !== mutationId) return;
+                queryClient.setQueryData(openKey, previousOpen);
+                queryClient.setQueryData(allKey, previousAll);
+                setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
+                showError(errorArg, message);
+            };
+
+            sortModePendingRef.current = true;
+            call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        rollback(result, 'Unable to save sort preference');
+                    }
+                    sortModePendingRef.current = false;
+                })
+                .catch(error => {
+                    rollback(error, 'Unable to save sort preference');
+                    sortModePendingRef.current = false;
+                });
+        }
+    };
+
+    const [menuAnchorEl, setMenuAnchorEl] = useState(null);
+    const menuOpen = Boolean(menuAnchorEl);
+    const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
+    const handleMenuClose = () => setMenuAnchorEl(null);
+
+    const crossCardInsertIndexRef = useRef(null);
+    const setCrossCardInsertIndex = useCallback((index) => {
+        crossCardInsertIndexRef.current = index;
+    }, []);
 
     // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
     const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
