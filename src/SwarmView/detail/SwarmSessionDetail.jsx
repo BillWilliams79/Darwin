@@ -1,12 +1,23 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSession, useDevServersBySession } from '../../hooks/useDataQueries';
+import { sessionKeys } from '../../hooks/useQueryKeys';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import AuthContext from '../../Context/AuthContext';
+import AppContext from '../../Context/AppContext';
+import call_rest_api from '../../RestApi/RestApi';
+import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
+import Tooltip from '@mui/material/Tooltip';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { CircularProgress, Typography } from '@mui/material';
 
 const labelSx = { fontWeight: 'bold', fontSize: '1.25rem' };
@@ -29,11 +40,35 @@ const SwarmSessionDetail = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
+    const { idToken, profile } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
+
     const { data: session, isLoading } = useSession(id);
     const { data: devServers = [] } = useDevServersBySession(id);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
+
+    const sessionDelete = useConfirmDialog({
+        onConfirm: ({ sessionId }) => {
+            const uri = `${darwinUri}/swarm_sessions`;
+            call_rest_api(uri, 'DELETE', { id: sessionId }, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200) {
+                        if (profile?.userName) {
+                            queryClient.invalidateQueries({ queryKey: sessionKeys.all(profile.userName) });
+                        }
+                        queryClient.invalidateQueries({ queryKey: sessionKeys.byId(id) });
+                        navigate('/swarm/sessions');
+                    } else {
+                        showError(result, 'Unable to delete session');
+                    }
+                })
+                .catch(error => showError(error, 'Unable to delete session'));
+        }
+    });
 
     if (isLoading) return <CircularProgress />;
     if (!session) return <Typography>Session not found.</Typography>;
@@ -51,10 +86,19 @@ const SwarmSessionDetail = () => {
                 Swarm Session #{session.id}
             </Typography>
 
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Chip label={session.swarm_status}
                       {...swarmStatusChipProps(session.swarm_status)}
                       data-testid="chip-swarm-status" />
+                <Tooltip title="Delete session" enterDelay={400} enterNextDelay={200}>
+                    <IconButton
+                        onClick={() => sessionDelete.openDialog({ sessionId: parseInt(id) })}
+                        data-testid="btn-delete-session"
+                        sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                    >
+                        <DeleteIcon />
+                    </IconButton>
+                </Tooltip>
             </Box>
 
             {/* --- Two-column layout for metadata --- */}
@@ -227,6 +271,14 @@ const SwarmSessionDetail = () => {
                     </Paper>
                 </Box>
             }
+
+            <SwarmSessionDeleteDialog
+                deleteDialogOpen={sessionDelete.dialogOpen}
+                setDeleteDialogOpen={sessionDelete.setDialogOpen}
+                setDeleteId={sessionDelete.setInfoObject}
+                setDeleteConfirmed={sessionDelete.setConfirmed}
+                session={session}
+            />
         </Box>
     );
 };
