@@ -234,18 +234,23 @@ export function useSession(sessionId, { enabled = true } = {}) {
     });
 }
 
-export function useSwarmReadyRequirements(creatorFk, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
+export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/requirements?requirement_status=swarm_ready&fields=${fields}`;
-    const queryKey = requirementKeys.swarmReady(creatorFk);
+    const uri = `${darwinUri}/requirements?requirement_status=${status}&fields=${fields}`;
+    const queryKey = requirementKeys.byStatus(creatorFk, status);
 
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
+        enabled: enabled && !!creatorFk && !!status && !!idToken,
     });
+}
+
+// Backwards-compat wrapper: previous single-status consumer.
+export function useSwarmReadyRequirements(creatorFk, options = {}) {
+    return useRequirementsByStatus(creatorFk, 'swarm_ready', options);
 }
 
 export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,title,completed_at', enabled = true } = {}) {
