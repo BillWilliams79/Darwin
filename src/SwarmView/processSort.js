@@ -50,3 +50,34 @@ export const processSort = (a, b) => {
             return a.id - b.id;
     }
 };
+
+// Statuses that /swarm-start considers when picking a requirement by position.
+// Matches the MCP darwin://requirements/open resource (excludes deferred + met).
+export const OPEN_STATUSES_FOR_RANK = new Set([
+    'authoring', 'approved', 'swarm_ready', 'development',
+]);
+
+// Build a { [requirementId]: 1-based-rank } map where rank is the position of the
+// requirement in its origin category's processSort order, restricted to statuses
+// /swarm-start would consider. Used by the SwarmStartCard aggregator to show the
+// origin-category swarm-start position alongside each cross-category row.
+export const computeCategoryRankMap = (requirements) => {
+    const map = {};
+    if (!Array.isArray(requirements)) return map;
+
+    const byCategory = new Map();
+    for (const r of requirements) {
+        if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
+        if (!OPEN_STATUSES_FOR_RANK.has(r.requirement_status)) continue;
+        const cat = r.category_fk;
+        if (cat === undefined || cat === null) continue;
+        if (!byCategory.has(cat)) byCategory.set(cat, []);
+        byCategory.get(cat).push(r);
+    }
+
+    for (const items of byCategory.values()) {
+        items.sort((a, b) => processSort(a, b));
+        items.forEach((r, idx) => { map[r.id] = idx + 1; });
+    }
+    return map;
+};

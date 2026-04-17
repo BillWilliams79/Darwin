@@ -11,13 +11,14 @@ import RequirementRow from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useRequirementsByStatus, useSessions, useCategoryColors } from '../hooks/useDataQueries';
+import { useRequirementsByStatus, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+import { computeCategoryRankMap } from '../SwarmView/processSort';
 
 // Chip statuses shown on this card — same order as the Roadmap filter chips,
 // minus 'met' (completed work lives elsewhere — this card aggregates active work).
@@ -72,6 +73,17 @@ const SwarmStartCard = () => {
         serverCategoryColors.forEach(c => { if (c.color) map[c.id] = c.color; });
         return map;
     }, [serverCategoryColors]);
+
+    // Fetch all requirements (open-status only is handled inside computeCategoryRankMap)
+    // so each aggregator row can show its 1-based swarm-start position within its origin
+    // category — the same N that `/swarm-start <category> <N>` would target.
+    const { data: allRequirementsForRanking } = useAllRequirements(profile?.userName, {
+        fields: 'id,category_fk,requirement_status,sort_order,started_at',
+    });
+    const requirementRankMap = React.useMemo(
+        () => computeCategoryRankMap(allRequirementsForRanking),
+        [allRequirementsForRanking]
+    );
 
     const createdSort = (a, b) => a.id - b.id;
     const requirementHandSort = (a, b) => {
@@ -297,6 +309,7 @@ const SwarmStartCard = () => {
                         setCrossCardInsertIndex,
                         sessionStatusMap,
                         categoryColorMap,
+                        requirementRankMap,
                     }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow
