@@ -71,6 +71,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (category.id !== '') {
             // Optimistically update both possible categories cache entries so the new sort_mode
             // survives unmount/remount (e.g. navigating into RequirementDetail and back).
+            //
+            // Maintenance note: `useQueryKeys.js` also defines `categoryKeys.byProject` (no `closed`
+            // filter — effectively `closed=1` only). That key has zero live subscribers today;
+            // no caller of `useCategories` passes `closed=1`. If a future "closed categories" view
+            // is added, update BOTH (a) the `cancelQueries` calls below and (b) the `setQueryData`
+            // optimistic writes below to include `categoryKeys.byProject(...)` alongside
+            // `byProjectOpen` / `byProjectWithClosed`.
             const openKey = categoryKeys.byProjectOpen(profile.userName, projectId);
             const allKey  = categoryKeys.byProjectWithClosed(profile.userName, projectId);
             queryClient.cancelQueries({ queryKey: openKey });
