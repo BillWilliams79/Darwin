@@ -51,6 +51,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const savingRef = useRef(false);
     const pendingMutationsRef = useRef({});
+    const sortModePendingRef = useRef(false);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
@@ -59,6 +60,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const changeSortMode = (event, newMode) => {
         if (newMode === null) return;
+        // Block while a previous sort-mode PUT is still in flight — cancelQueries only cancels
+        // background refetches, not the mutation itself. Without this guard, two concurrent PUTs
+        // race and the server may commit the older value.
+        if (sortModePendingRef.current) return;
         setSortMode(newMode);
 
         if (requirementsArray) {
@@ -84,6 +89,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             queryClient.setQueryData(openKey, updateCache);
             queryClient.setQueryData(allKey, updateCache);
 
+            sortModePendingRef.current = true;
             call_rest_api(`${darwinUri}/categories`, 'PUT', [{ id: category.id, sort_mode: newMode }], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
@@ -92,12 +98,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
                         showError(result, 'Unable to save sort preference');
                     }
+                    sortModePendingRef.current = false;
                 })
                 .catch(error => {
                     queryClient.setQueryData(openKey, previousOpen);
                     queryClient.setQueryData(allKey, previousAll);
                     setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
                     showError(error, 'Unable to save sort preference');
+                    sortModePendingRef.current = false;
                 });
         }
     };
