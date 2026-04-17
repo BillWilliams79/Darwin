@@ -426,47 +426,99 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
-        let newRequirementsArray = [...requirementsArray];
-        const current = newRequirementsArray[requirementIndex].requirement_status;
+        const current = requirementsArray[requirementIndex].requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return; // not a cycleable status (development/met/deferred)
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-        newRequirementsArray[requirementIndex].requirement_status = next;
 
         if (requirementId !== '') {
+            // Optimistic cache update — prevent TanStack refetches (e.g. from a concurrent
+            // invalidateQueries on requirementKeys.all) from clobbering the local mutation.
+            // Snapshot BEFORE any local-state mutation: requirementsArray and the cache
+            // share object references (useEffect seeds from serverRequirements via shallow
+            // copy), so in-place mutation would poison the snapshot.
+            const withClosedKey = requirementKeys.byCategoryWithClosed(profile.userName, category.id);
+            const openKey = requirementKeys.byCategoryOpen(profile.userName, category.id);
+            queryClient.cancelQueries({ queryKey: withClosedKey });
+            queryClient.cancelQueries({ queryKey: openKey });
+            const previousWithClosed = queryClient.getQueryData(withClosedKey);
+            const previousOpen = queryClient.getQueryData(openKey);
+            const updateCache = (old) => {
+                if (!Array.isArray(old)) return old;
+                return old.map(r => r.id === requirementId ? { ...r, requirement_status: next } : r);
+            };
+            queryClient.setQueryData(withClosedKey, updateCache);
+            queryClient.setQueryData(openKey, updateCache);
+
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        queryClient.setQueryData(withClosedKey, previousWithClosed);
+                        queryClient.setQueryData(openKey, previousOpen);
+                        setRequirementsArray(prev => prev.map(r =>
+                            r.id === requirementId ? { ...r, requirement_status: current } : r));
                         showError(result, "Unable to change requirement status");
                     }
-                }).catch(error => showError(error, "Unable to change requirement status"));
+                }).catch(error => {
+                    queryClient.setQueryData(withClosedKey, previousWithClosed);
+                    queryClient.setQueryData(openKey, previousOpen);
+                    setRequirementsArray(prev => prev.map(r =>
+                        r.id === requirementId ? { ...r, requirement_status: current } : r));
+                    showError(error, "Unable to change requirement status");
+                });
         } else if (savingRef.current) {
             pendingMutationsRef.current.requirement_status = next;
         }
-        setRequirementsArray(newRequirementsArray);
+        // Immutable update — new object at the target index rather than in-place mutation
+        // on a cache-shared object reference (see snapshot comment above).
+        setRequirementsArray(prev => prev.map((r, i) =>
+            i === requirementIndex ? { ...r, requirement_status: next } : r));
     }
 
     const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
-        let newRequirementsArray = [...requirementsArray];
-        const current = newRequirementsArray[requirementIndex].coordination_type || null;
+        const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
         const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
-        newRequirementsArray[requirementIndex].coordination_type = next;
 
         if (requirementId !== '') {
+            // Optimistic cache update — see statusClick above for snapshot-ordering rationale.
+            const withClosedKey = requirementKeys.byCategoryWithClosed(profile.userName, category.id);
+            const openKey = requirementKeys.byCategoryOpen(profile.userName, category.id);
+            queryClient.cancelQueries({ queryKey: withClosedKey });
+            queryClient.cancelQueries({ queryKey: openKey });
+            const previousWithClosed = queryClient.getQueryData(withClosedKey);
+            const previousOpen = queryClient.getQueryData(openKey);
+            const updateCache = (old) => {
+                if (!Array.isArray(old)) return old;
+                return old.map(r => r.id === requirementId ? { ...r, coordination_type: next } : r);
+            };
+            queryClient.setQueryData(withClosedKey, updateCache);
+            queryClient.setQueryData(openKey, updateCache);
+
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                        queryClient.setQueryData(withClosedKey, previousWithClosed);
+                        queryClient.setQueryData(openKey, previousOpen);
+                        setRequirementsArray(prev => prev.map(r =>
+                            r.id === requirementId ? { ...r, coordination_type: current } : r));
                         showError(result, "Unable to change coordination type");
                     }
-                }).catch(error => showError(error, "Unable to change coordination type"));
+                }).catch(error => {
+                    queryClient.setQueryData(withClosedKey, previousWithClosed);
+                    queryClient.setQueryData(openKey, previousOpen);
+                    setRequirementsArray(prev => prev.map(r =>
+                        r.id === requirementId ? { ...r, coordination_type: current } : r));
+                    showError(error, "Unable to change coordination type");
+                });
         } else if (savingRef.current) {
             pendingMutationsRef.current.coordination_type = next === null ? 'NULL' : next;
         }
-        setRequirementsArray(newRequirementsArray);
+        setRequirementsArray(prev => prev.map((r, i) =>
+            i === requirementIndex ? { ...r, coordination_type: next } : r));
     }
 
     const updateRequirement = (event, requirementIndex, requirementId) => {
