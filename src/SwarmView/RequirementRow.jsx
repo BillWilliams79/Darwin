@@ -33,7 +33,8 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
     const navigate = useNavigate();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-        sortMode, setCrossCardInsertIndex, sessionStatusMap, categoryColorMap } = useRequirementActions();
+        sortMode, setCrossCardInsertIndex, sessionStatusMap, categoryColorMap,
+        requirementRankMap } = useRequirementActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
@@ -153,8 +154,14 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
         deployed: 'Deployed — click to cycle',
     };
 
+    const isAggregatorRow = Boolean(categoryColorMap);
+    const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}`;
+    const swarmStartRank = isAggregatorRow && requirementRankMap
+        ? requirementRankMap[requirement.id]
+        : undefined;
+
     return (
-        <Box className="task requirement-row"
+        <Box className={rowClassName}
              data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
              key={`box-${requirement.id}`}
              ref={requirement.id === '' ? null :
@@ -174,7 +181,7 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
              }}
         >
             {/* Col 1: Category color bar (when categoryColorMap is provided, e.g. SwarmStartCard) or row number */}
-            {categoryColorMap ? (
+            {isAggregatorRow ? (
                 <Box
                     data-testid={requirement.id !== '' ? `category-color-bar-${requirement.id}` : undefined}
                     sx={{
@@ -201,6 +208,31 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 >
                     {requirement.id !== '' ? requirementIndex + 1 : ''}
                 </Typography>
+            )}
+
+            {/* Col 1b (aggregator only): 1-based swarm-start position within origin category */}
+            {isAggregatorRow && (
+                <Tooltip
+                    title={swarmStartRank
+                        ? `Swarm-start position #${swarmStartRank} in origin category`
+                        : 'Not in the swarm-start queue'}
+                    enterDelay={400}
+                    enterNextDelay={200}
+                >
+                    <Typography
+                        variant="body2"
+                        data-testid={requirement.id !== '' ? `swarm-start-rank-${requirement.id}` : undefined}
+                        sx={{
+                            color: 'text.secondary',
+                            textAlign: 'center',
+                            minWidth: 24,
+                            userSelect: 'none',
+                            fontVariantNumeric: 'tabular-nums',
+                        }}
+                    >
+                        {swarmStartRank ?? ''}
+                    </Typography>
+                </Tooltip>
             )}
 
             {/* Col 2: Status icon — clickable cycle for authoring/approved/swarm_ready */}
