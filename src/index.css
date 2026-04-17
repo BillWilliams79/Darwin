@@ -30,11 +30,16 @@
 .app-content-planpage {
     grid-area: content;
     display: grid;
-    grid-template-rows: auto;
+    grid-template-rows: auto auto auto;
     grid-template-columns: 1fr 1fr 1fr 1fr;
     grid-template-areas:
+        "view-toggle view-toggle view-toggle view-toggle"
         "tabs tabs tabs tabs"
         "tab-panels tab-panels tab-panels tab-panels";
+}
+
+.app-content-view-toggle {
+    grid-area: view-toggle;
 }
 
 .app-content-tabs {
