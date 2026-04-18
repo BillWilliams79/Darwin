@@ -21,7 +21,8 @@ import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import DayView from './DayView';
 import PeriodSummaryView from './PeriodSummaryView';
-import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel } from '../utils/dateFormat';
+import TimeSeriesView from './TimeSeriesView';
+import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, formatDate } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -81,6 +82,20 @@ const CalendarFC = () => {
     const summaryDate = useCalendarViewStore(s => s.summaryDate);
     const setSummaryMode = useCalendarViewStore(s => s.setSummaryMode);
     const setSummaryDate = useCalendarViewStore(s => s.setSummaryDate);
+    const timeSeriesMode = useCalendarViewStore(s => s.timeSeriesMode);
+    const timeSeriesGranularity = useCalendarViewStore(s => s.timeSeriesGranularity);
+    const timeSeriesChipMode = useCalendarViewStore(s => s.timeSeriesChipMode);
+    const timeSeriesLaneMode = useCalendarViewStore(s => s.timeSeriesLaneMode);
+    const timeSeriesView = useCalendarViewStore(s => s.timeSeriesView);
+    const timeSeriesShowAll = useCalendarViewStore(s => s.timeSeriesShowAll);
+    const timeSeriesBeadWindow = useCalendarViewStore(s => s.timeSeriesBeadWindow);
+    const setTimeSeriesMode = useCalendarViewStore(s => s.setTimeSeriesMode);
+    const setTimeSeriesGranularity = useCalendarViewStore(s => s.setTimeSeriesGranularity);
+    const setTimeSeriesChipMode = useCalendarViewStore(s => s.setTimeSeriesChipMode);
+    const setTimeSeriesLaneMode = useCalendarViewStore(s => s.setTimeSeriesLaneMode);
+    const setTimeSeriesView = useCalendarViewStore(s => s.setTimeSeriesView);
+    const setTimeSeriesShowAll = useCalendarViewStore(s => s.setTimeSeriesShowAll);
+    const setTimeSeriesBeadWindow = useCalendarViewStore(s => s.setTimeSeriesBeadWindow);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
@@ -102,13 +117,26 @@ const CalendarFC = () => {
     const mobileStartStr = mobileFetchStart.toISOString().slice(0, 19);
     const mobileEndStr   = mobileFetchEnd.toISOString().slice(0, 19);
 
-    // ── Effective query range: summary mode overrides FC/mobile range ──────────
+    // ── Effective query range: time-series (single day) > summary > FC / mobile ──
     const summaryRange = useMemo(
         () => summaryMode && summaryDate ? periodDateRange(summaryDate, summaryMode) : null,
         [summaryMode, summaryDate]
     );
-    const effectiveStart = summaryRange ? summaryRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
-    const effectiveEnd   = summaryRange ? summaryRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
+    // Bead Necklace (36h window) needs ±1 day to cover 18:00 prev → 06:00 next. Other
+    // views (and bead 24h window) just need the single selected day.
+    const timeSeriesRange = useMemo(() => {
+        if (!timeSeriesMode || !savedDate) return null;
+        if (timeSeriesView === 'bead' && timeSeriesBeadWindow === '36h') {
+            const d = new Date(savedDate + 'T12:00:00');
+            const prev = new Date(d); prev.setDate(prev.getDate() - 1);
+            const next = new Date(d); next.setDate(next.getDate() + 1);
+            return { start: prev.toISOString().slice(0, 10), end: next.toISOString().slice(0, 10) };
+        }
+        return { start: savedDate, end: savedDate };
+    }, [timeSeriesMode, savedDate, timeSeriesView, timeSeriesBeadWindow]);
+    const effectiveRange = timeSeriesRange || summaryRange;
+    const effectiveStart = effectiveRange ? effectiveRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
+    const effectiveEnd   = effectiveRange ? effectiveRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
 
     // ── Queries: summary mode / mobile / desktop FC range ────────────────────
     const { data: serverTasks }      = useTasksDone(profile?.userName,
@@ -558,26 +586,42 @@ const CalendarFC = () => {
     // ── Unified navigation (works for both calendar and summary mode) ────────
     const isDayView = savedViewType === 'dayGridDay';
 
+    // Shift a YYYY-MM-DD string by N days.
+    const shiftDay = useCallback((dateStr, delta) => {
+        if (!dateStr) return dateStr;
+        const d = new Date(dateStr + 'T12:00:00');
+        d.setDate(d.getDate() + delta);
+        return d.toISOString().slice(0, 10);
+    }, []);
+
     const handlePrev = useCallback(() => {
-        if (summaryMode) {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, -1) });
+        } else if (summaryMode) {
             setSummaryDate(shiftPeriod(summaryDate, summaryMode, -1));
         } else {
             calendarRef.current?.getApi().prev();
         }
-    }, [summaryMode, summaryDate, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, summaryDate, savedDate, savedViewType, setSummaryDate, setCalendarView, shiftDay]);
 
     const handleNext = useCallback(() => {
-        if (summaryMode) {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, 1) });
+        } else if (summaryMode) {
             setSummaryDate(shiftPeriod(summaryDate, summaryMode, 1));
         } else {
             calendarRef.current?.getApi().next();
         }
-    }, [summaryMode, summaryDate, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, summaryDate, savedDate, savedViewType, setSummaryDate, setCalendarView, shiftDay]);
 
     const handleTodayClick = useCallback(() => {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: todayStr });
+            return;
+        }
         if (summaryMode) setSummaryDate(currentPeriodStart(summaryMode));
         calendarRef.current?.getApi().today();
-    }, [summaryMode, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, savedViewType, todayStr, setSummaryDate, setCalendarView]);
 
     const handleCustomViewChange = useCallback((event, newView) => {
         if (!newView) return;
@@ -601,9 +645,15 @@ const CalendarFC = () => {
         }
     }, [isDayView, summaryMode, savedViewType, setSummaryMode]);
 
-    const displayTitle = summaryMode
-        ? formatPeriodLabel(summaryDate, summaryMode)
-        : calendarTitle;
+    const handleTimeSeriesToggle = useCallback(() => {
+        setTimeSeriesMode(timeSeriesMode ? null : 'day');
+    }, [timeSeriesMode, setTimeSeriesMode]);
+
+    const displayTitle = timeSeriesMode
+        ? formatDate(savedDate, profile?.timezone)
+        : summaryMode
+            ? formatPeriodLabel(summaryDate, summaryMode)
+            : calendarTitle;
 
     // Desktop FullCalendar event renderer
     const renderEventContent = (eventInfo) => {
@@ -799,10 +849,10 @@ const CalendarFC = () => {
                     {/* FullCalendar wrapper — original single-box layout for CSS Grid compat */}
                     <Box sx={{
                         px: 2,
-                        pb: (summaryMode || savedViewType === 'dayGridDay') ? 0 : 2,
+                        pb: (summaryMode || timeSeriesMode || savedViewType === 'dayGridDay') ? 0 : 2,
                         pt: '18pt',
                         position: 'relative',
-                        '& .fc-view-harness': { display: (savedViewType === 'dayGridDay' || summaryMode) ? 'none' : 'block' },
+                        '& .fc-view-harness': { display: (savedViewType === 'dayGridDay' || summaryMode || timeSeriesMode) ? 'none' : 'block' },
                         '& .fc-header-toolbar': { display: 'none' },
                     }}>
                         {/* ── Unified toolbar ── */}
@@ -829,6 +879,13 @@ const CalendarFC = () => {
                                               data-testid="summary-toggle"
                                               sx={{ ml: 0.5 }}>
                                     Summary
+                                </ToggleButton>
+                                <ToggleButton value="timeseries" size="small" className="cal-toggle-btn"
+                                              selected={!!timeSeriesMode}
+                                              onChange={handleTimeSeriesToggle}
+                                              data-testid="timeseries-toggle"
+                                              sx={{ ml: 0.5 }}>
+                                    Time Series
                                 </ToggleButton>
                             </Box>
                             {/* Center: ← Title → */}
@@ -889,7 +946,7 @@ const CalendarFC = () => {
                         />
                     )}
                     {/* Summary mode — single wrapper div for CSS Grid (max 2 items in right column) */}
-                    {summaryMode && mode.length > 0 && (
+                    {summaryMode && !timeSeriesMode && mode.length > 0 && (
                         <div>
                             <PeriodSummaryView
                                 summaryMode={summaryMode}
@@ -907,6 +964,42 @@ const CalendarFC = () => {
                                 requirementEventColor={requirementEventColor}
                             />
                         </div>
+                    )}
+                    {/* Time Series mode — alternate day summary, requirements only */}
+                    {timeSeriesMode && isRequirementsMode && (
+                        <div>
+                            <TimeSeriesView
+                                requirements={localRequirementsArray}
+                                selectedDate={savedDate}
+                                timezone={profile?.timezone}
+                                view={timeSeriesView}
+                                granularity={timeSeriesGranularity}
+                                chipMode={timeSeriesChipMode}
+                                laneMode={timeSeriesLaneMode}
+                                showAll={timeSeriesShowAll}
+                                beadWindow={timeSeriesBeadWindow}
+                                categoryList={allCategoryList || []}
+                                onViewChange={setTimeSeriesView}
+                                onGranularityChange={setTimeSeriesGranularity}
+                                onChipModeChange={setTimeSeriesChipMode}
+                                onLaneModeChange={setTimeSeriesLaneMode}
+                                onShowAllChange={setTimeSeriesShowAll}
+                                onBeadWindowChange={setTimeSeriesBeadWindow}
+                                onPrevDay={() => setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, -1) })}
+                                onNextDay={() => setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, 1) })}
+                                onChipClick={(reqId) => {
+                                    sessionStorage.setItem('calview_scrollY', String(window.scrollY));
+                                    navigate(`/swarm/requirement/${reqId}`, { state: { from: 'calendar' } });
+                                }}
+                            />
+                        </div>
+                    )}
+                    {timeSeriesMode && !isRequirementsMode && (
+                        <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                            <Typography color="text.secondary" data-testid="ts-requires-requirements">
+                                Enable the <strong>Requirements</strong> mode toggle to see the time series.
+                            </Typography>
+                        </Box>
                     )}
                 </>
             )}
