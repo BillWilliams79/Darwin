@@ -1,0 +1,679 @@
+.ts-view {
+    padding: 8px 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ── Controls row ── */
+.ts-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--ts-controls-bg, rgba(0, 0, 0, 0.03));
+}
+/* Dark-mode overrides are grouped at the bottom of this file. */
+.ts-control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.ts-control-label {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.68rem;
+    opacity: 0.7;
+    min-width: 68px;
+}
+
+/* ── Empty state ── */
+.ts-empty {
+    padding: 48px 16px;
+    text-align: center;
+    border: 1px dashed rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+}
+
+/* ── Summary strip (at bottom) ── */
+.ts-summary-strip {
+    padding: 4px 12px;
+    opacity: 0.8;
+}
+
+/* ── Single rail (laneMode=none) ── */
+.ts-rail {
+    position: relative;
+    height: 140px;
+    padding: 0 8px;
+    min-width: 600px;
+    border-radius: 8px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 60%);
+    overflow: hidden;
+}
+
+/* ── Lanes (laneMode=category) ── */
+.ts-lanes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 640px;
+}
+.ts-lane {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    align-items: stretch;
+    gap: 8px;
+}
+.ts-lane-label {
+    align-self: center;
+    font-weight: 600;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 4px;
+}
+.ts-lane-rail {
+    position: relative;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.025);
+    overflow: hidden;
+}
+
+/* ── Block column backgrounds (granularity > 24h) ── */
+.ts-block-columns {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+}
+.ts-block {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-right: 1px dashed rgba(0, 0, 0, 0.08);
+}
+.ts-block-even {
+    background: rgba(33, 150, 243, 0.04);
+}
+.ts-block-odd {
+    background: transparent;
+}
+.ts-block:last-child {
+    border-right: none;
+}
+
+/* ── Density curve (view=density) ── */
+.ts-density {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    height: 60px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── Tick marks ── */
+.ts-ticks {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 24px;
+    pointer-events: none;
+    z-index: 1;
+}
+.ts-tick {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.ts-tick-line {
+    width: 1px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.3);
+}
+.ts-tick-label {
+    font-size: 0.7rem;
+    margin-top: 2px;
+    color: rgba(0, 0, 0, 0.6);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Chips ── */
+.ts-chip {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 12px;
+    cursor: pointer;
+    line-height: 1.3;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    z-index: 2;
+}
+.ts-chip:hover {
+    transform: translateX(-50%) scale(1.05);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    z-index: 3;
+}
+.ts-chip-time {
+    display: inline-block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0 5px 0 0;
+    margin-right: 5px;
+    border-right: 1px solid rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.02em;
+    opacity: 0.95;
+}
+.ts-chip-body {
+    display: inline-block;
+}
+.ts-chip-overflow {
+    transform: none;
+    background-color: rgba(0, 0, 0, 0.55) !important;
+    cursor: default;
+    z-index: 3;
+}
+.ts-chip-overflow .ts-chip-time,
+.ts-chip-overflow .ts-chip-body {
+    display: inline;
+    border: none;
+}
+.ts-chip-overflow:hover {
+    transform: none;
+}
+
+/* ── Now marker ── */
+.ts-now-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e53935;
+    box-shadow: 0 0 4px rgba(229, 57, 53, 0.5);
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* ── Vertical Timeline River (view=river) ── */
+.ts-river {
+    position: relative;
+    min-width: 640px;
+    padding-left: 64px;
+    padding-right: 16px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.02);
+    overflow: hidden;
+}
+.ts-river-spine {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.08);
+    transform: translateX(-50%);
+}
+.ts-river-now {
+    position: absolute;
+    left: 56px;
+    right: 8px;
+    height: 2px;
+    background: #e53935;
+    box-shadow: 0 0 4px rgba(229, 57, 53, 0.5);
+    pointer-events: none;
+    z-index: 2;
+}
+.ts-river-row {
+    position: absolute;
+    width: 100%;
+    left: 0;
+    display: flex;
+    padding-right: 16px;
+    transform: translateY(-50%);
+}
+.ts-river-row-left {
+    justify-content: flex-start;
+    padding-left: 64px;
+    padding-right: calc(50% + 16px);
+}
+.ts-river-row-right {
+    justify-content: flex-end;
+    padding-right: 16px;
+    padding-left: calc(50% + 16px);
+}
+.ts-chip-river {
+    position: relative !important;
+    transform: none !important;
+    left: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    max-width: 42%;
+}
+.ts-chip-river:hover {
+    transform: scale(1.03) !important;
+}
+.ts-vticks {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 56px;
+    pointer-events: none;
+}
+.ts-vtick {
+    position: absolute;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    transform: translateY(-50%);
+}
+.ts-vtick-label {
+    font-size: 0.7rem;
+    color: rgba(0, 0, 0, 0.6);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding-right: 8px;
+    min-width: 28px;
+    text-align: right;
+}
+.ts-vtick-line {
+    flex: 1;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.15);
+    margin-right: 4px;
+}
+
+/* ── X-axis per-chip HH:MM labels (used by Bead Necklace + Density Rail) ── */
+.ts-chip-axis {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 24px;      /* sit just above the regular granularity tick strip */
+    height: 38px;
+    pointer-events: none;
+    z-index: 2;
+}
+.ts-axis-mark {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+}
+.ts-axis-row-0 {
+    top: 0;
+}
+.ts-axis-row-1 {
+    top: 18px;
+}
+.ts-axis-riser {
+    width: 1px;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.35);
+}
+.ts-axis-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.78);
+    background: rgba(255, 255, 255, 0.92);
+    padding: 0 3px;
+    border-radius: 2px;
+    line-height: 1.3;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    white-space: nowrap;
+}
+
+/* ── Bead Necklace (view=bead) ── */
+.ts-bead {
+    position: relative;
+    min-width: 720px;
+    padding: 0 40px;   /* room for edge nav arrows */
+    border-radius: 8px;
+    overflow: hidden;
+}
+.ts-bead-36h {
+    background: linear-gradient(to right,
+        rgba(55, 71, 79, 0.06) 0%,
+        rgba(55, 71, 79, 0.06) 16.67%,
+        rgba(0, 0, 0, 0.02) 16.67%,
+        rgba(0, 0, 0, 0.02) 83.33%,
+        rgba(55, 71, 79, 0.06) 83.33%,
+        rgba(55, 71, 79, 0.06) 100%);
+}
+.ts-bead-24h {
+    background: rgba(0, 0, 0, 0.02);
+}
+.ts-bead-wire {
+    position: absolute;
+    left: 40px;
+    right: 40px;
+    bottom: 78px;      /* above the X-axis time labels */
+    height: 1px;
+    background: rgba(0, 0, 0, 0.2);
+    z-index: 1;
+}
+
+/* Midnight/noon vertical dividers inside the rail */
+.ts-bead-divider {
+    position: absolute;
+    top: 8px;
+    bottom: 48px;
+    width: 1px;
+    background: rgba(0, 0, 0, 0.22);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* X-axis timeline ticks — 18/24/06/12/18/24/06 across the 36h window */
+.ts-bead-timeline {
+    position: absolute;
+    left: 40px;
+    right: 40px;
+    bottom: 24px;
+    height: 44px;
+    pointer-events: none;
+    z-index: 1;
+}
+.ts-bead-tick {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.ts-bead-tick-line {
+    width: 1px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.35);
+}
+.ts-bead-tick-major .ts-bead-tick-line {
+    height: 14px;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.55);
+}
+.ts-bead-tick-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-top: 2px;
+    color: rgba(0, 0, 0, 0.7);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ts-bead-tick-major .ts-bead-tick-label {
+    color: rgba(0, 0, 0, 0.85);
+}
+
+/* Day labels (prev / selected / next) centered within their bands */
+.ts-bead-days {
+    position: absolute;
+    left: 40px;
+    right: 40px;
+    top: 8px;
+    height: 20px;
+    pointer-events: none;
+    z-index: 1;
+}
+.ts-bead-day-label {
+    position: absolute;
+    transform: translateX(-50%);
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.55);
+    font-family: 'Roboto', sans-serif;
+    white-space: nowrap;
+}
+.ts-bead-day-label-sel {
+    color: rgba(0, 0, 0, 0.85);
+    font-weight: 700;
+}
+
+/* Left/right edge navigation arrows */
+.ts-bead-nav {
+    position: absolute !important;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 4;
+    background: rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.ts-bead-nav:hover {
+    background: rgba(255, 255, 255, 1) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.ts-bead-nav-prev {
+    left: 4px;
+}
+.ts-bead-nav-next {
+    right: 4px;
+}
+
+/* 36h window: count sits below the X axis within the prev-day band (0..16.67%)
+   so it lives between "6pm prev" and "midnight". */
+.ts-bead-count-36h {
+    position: absolute;
+    bottom: 4px;
+    left: 40px;               /* past the nav arrow gutter */
+    max-width: calc(16.67% - 4px);
+    z-index: 2;
+    opacity: 0.85;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* 24h window: there's no prev-day band; sit under left edge of the axis. */
+.ts-bead-count-24h {
+    position: absolute;
+    bottom: 4px;
+    left: 40px;
+    z-index: 2;
+    opacity: 0.85;
+    font-style: italic;
+}
+.ts-bead-group {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    z-index: 2;
+    gap: 2px;
+}
+.ts-bead-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.75);
+    padding: 0 3px;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    white-space: nowrap;
+}
+.ts-bead-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.ts-bead-group:hover .ts-bead-dot {
+    transform: scale(1.4);
+    box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Mobile: horizontal scroll on narrow viewports ── */
+@media (max-width: 900px) {
+    .ts-view {
+        overflow-x: auto;
+    }
+    .ts-controls {
+        min-width: fit-content;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dark mode — activated by <body class="darwin-dark"> (set in ThemeWrapper)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+body.darwin-dark .ts-controls {
+    background: rgba(255, 255, 255, 0.05);
+}
+body.darwin-dark .ts-empty {
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Rail / lane backgrounds */
+body.darwin-dark .ts-rail {
+    background: linear-gradient(to bottom, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 60%);
+}
+body.darwin-dark .ts-lane-rail {
+    background: rgba(255, 255, 255, 0.04);
+}
+body.darwin-dark .ts-river {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Block column backgrounds */
+body.darwin-dark .ts-block {
+    border-right-color: rgba(255, 255, 255, 0.12);
+}
+body.darwin-dark .ts-block-even {
+    background: rgba(100, 181, 246, 0.08);
+}
+
+/* Hour ticks */
+body.darwin-dark .ts-tick-line {
+    background: rgba(255, 255, 255, 0.4);
+}
+body.darwin-dark .ts-tick-label {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+/* River spine + vertical ticks */
+body.darwin-dark .ts-river-spine {
+    background: rgba(255, 255, 255, 0.18);
+}
+body.darwin-dark .ts-vtick-label {
+    color: rgba(255, 255, 255, 0.75);
+}
+body.darwin-dark .ts-vtick-line {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* X-axis per-chip HH:MM labels (Density Rail) */
+body.darwin-dark .ts-axis-riser {
+    background: rgba(255, 255, 255, 0.5);
+}
+body.darwin-dark .ts-axis-time {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(60, 60, 60, 0.92);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Chip inner time divider (the vertical "|" between time and body) */
+body.darwin-dark .ts-chip-time {
+    border-right-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Density curve: brighter on dark */
+body.darwin-dark .ts-density path {
+    fill: rgba(100, 181, 246, 0.22) !important;
+    stroke: rgba(100, 181, 246, 0.7) !important;
+}
+
+/* Bead Necklace */
+body.darwin-dark .ts-bead-36h {
+    background: linear-gradient(to right,
+        rgba(255, 255, 255, 0.06) 0%,
+        rgba(255, 255, 255, 0.06) 16.67%,
+        rgba(255, 255, 255, 0.02) 16.67%,
+        rgba(255, 255, 255, 0.02) 83.33%,
+        rgba(255, 255, 255, 0.06) 83.33%,
+        rgba(255, 255, 255, 0.06) 100%);
+}
+body.darwin-dark .ts-bead-24h {
+    background: rgba(255, 255, 255, 0.03);
+}
+body.darwin-dark .ts-bead-wire {
+    background: rgba(255, 255, 255, 0.3);
+}
+body.darwin-dark .ts-bead-divider {
+    background: rgba(255, 255, 255, 0.3);
+}
+body.darwin-dark .ts-bead-tick-line {
+    background: rgba(255, 255, 255, 0.45);
+}
+body.darwin-dark .ts-bead-tick-major .ts-bead-tick-line {
+    background: rgba(255, 255, 255, 0.75);
+}
+body.darwin-dark .ts-bead-tick-label {
+    color: rgba(255, 255, 255, 0.82);
+}
+body.darwin-dark .ts-bead-tick-major .ts-bead-tick-label {
+    color: #fff;
+}
+body.darwin-dark .ts-bead-day-label {
+    color: rgba(255, 255, 255, 0.6);
+}
+body.darwin-dark .ts-bead-day-label-sel {
+    color: #fff;
+}
+body.darwin-dark .ts-bead-time {
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(40, 40, 40, 0.9);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* Dot: white ring is too bright on dark — soften to off-white */
+body.darwin-dark .ts-bead-dot {
+    box-shadow: 0 0 0 2px rgba(220, 220, 220, 0.85), 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+body.darwin-dark .ts-bead-group:hover .ts-bead-dot {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Bead nav arrows */
+body.darwin-dark .ts-bead-nav {
+    background: rgba(40, 40, 40, 0.9) !important;
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+body.darwin-dark .ts-bead-nav:hover {
+    background: rgba(60, 60, 60, 1) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+body.darwin-dark .ts-bead-nav .MuiSvgIcon-root {
+    color: rgba(255, 255, 255, 0.92);
+}
+
+/* Lane label */
+body.darwin-dark .ts-lane-label {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* Chip overflow badge */
+body.darwin-dark .ts-chip-overflow {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.95);
+}
