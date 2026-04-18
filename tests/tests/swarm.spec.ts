@@ -199,20 +199,22 @@ test.describe('Swarm View', () => {
 
   test('SWM-21: Back to Swarm navigation works', async ({ page }) => {
     await page.goto(`/swarm/session/${testSessionId}`);
-    await expect(page.getByTestId('btn-back-to-swarm')).toBeVisible({ timeout: 10000 });
-    await page.getByTestId('btn-back-to-swarm').click();
-    await expect(page).toHaveURL(/\/swarm$/);
+    await expect(page.getByTestId('btn-back')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('btn-back').click();
+    // With no browser history, SwarmSessionDetail falls back to /swarm/sessions
+    await expect(page).toHaveURL(/\/swarm\/sessions$/);
   });
 
   test('SWM-24: requirement detail shows category-order index', async ({ page }) => {
     await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
-    // Index now lives on the "Category Order - N" line, not in front of the title
+    // Detail row renders both "ID - N" and "Category Order - N"; check each in its own span
     const idEl = page.getByTestId('requirement-id');
     await expect(idEl).toBeVisible({ timeout: 10000 });
-    await expect(idEl).toContainText('Category Order - 1');
+    await expect(idEl).toContainText(`ID - ${testRequirementId}`);
     const indexEl = page.getByTestId('requirement-index');
     await expect(indexEl).toHaveText('1');
+    await expect(page.getByText('Category Order - 1')).toBeVisible();
   });
 
   test('SWM-25: up/down navigation between requirements', async ({ page }) => {
@@ -340,10 +342,10 @@ test.describe('Swarm View', () => {
       expect(newIdx).toBeLessThan(midIdx);
       expect(midIdx).toBeLessThan(oldIdx);
 
-      // Turn off closed filter chip (cleanup UI state)
-      const isStillSelected = !(await closedChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
+      // Turn off completed filter chip (cleanup UI state)
+      const isStillSelected = !(await metChip.evaluate(el => el.classList.contains('MuiChip-outlined')));
       if (isStillSelected) {
-        await closedChip.click();
+        await metChip.click();
       }
     } finally {
       try { await apiDelete('requirements', oldId, idToken); } catch {}
