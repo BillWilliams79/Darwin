@@ -83,18 +83,8 @@ const CalendarFC = () => {
     const setSummaryMode = useCalendarViewStore(s => s.setSummaryMode);
     const setSummaryDate = useCalendarViewStore(s => s.setSummaryDate);
     const timeSeriesMode = useCalendarViewStore(s => s.timeSeriesMode);
-    const timeSeriesGranularity = useCalendarViewStore(s => s.timeSeriesGranularity);
-    const timeSeriesChipMode = useCalendarViewStore(s => s.timeSeriesChipMode);
-    const timeSeriesLaneMode = useCalendarViewStore(s => s.timeSeriesLaneMode);
-    const timeSeriesView = useCalendarViewStore(s => s.timeSeriesView);
-    const timeSeriesShowAll = useCalendarViewStore(s => s.timeSeriesShowAll);
     const timeSeriesBeadWindow = useCalendarViewStore(s => s.timeSeriesBeadWindow);
     const setTimeSeriesMode = useCalendarViewStore(s => s.setTimeSeriesMode);
-    const setTimeSeriesGranularity = useCalendarViewStore(s => s.setTimeSeriesGranularity);
-    const setTimeSeriesChipMode = useCalendarViewStore(s => s.setTimeSeriesChipMode);
-    const setTimeSeriesLaneMode = useCalendarViewStore(s => s.setTimeSeriesLaneMode);
-    const setTimeSeriesView = useCalendarViewStore(s => s.setTimeSeriesView);
-    const setTimeSeriesShowAll = useCalendarViewStore(s => s.setTimeSeriesShowAll);
     const setTimeSeriesBeadWindow = useCalendarViewStore(s => s.setTimeSeriesBeadWindow);
 
     const [calendarTitle, setCalendarTitle] = useState('');
@@ -122,18 +112,17 @@ const CalendarFC = () => {
         () => summaryMode && summaryDate ? periodDateRange(summaryDate, summaryMode) : null,
         [summaryMode, summaryDate]
     );
-    // Bead Necklace (36h window) needs ±1 day to cover 18:00 prev → 06:00 next. Other
-    // views (and bead 24h window) just need the single selected day.
+    // Bead Necklace: 36h window needs ±1 day; 24h window just needs selectedDate.
     const timeSeriesRange = useMemo(() => {
         if (!timeSeriesMode || !savedDate) return null;
-        if (timeSeriesView === 'bead' && timeSeriesBeadWindow === '36h') {
+        if (timeSeriesBeadWindow === '36h') {
             const d = new Date(savedDate + 'T12:00:00');
             const prev = new Date(d); prev.setDate(prev.getDate() - 1);
             const next = new Date(d); next.setDate(next.getDate() + 1);
             return { start: prev.toISOString().slice(0, 10), end: next.toISOString().slice(0, 10) };
         }
         return { start: savedDate, end: savedDate };
-    }, [timeSeriesMode, savedDate, timeSeriesView, timeSeriesBeadWindow]);
+    }, [timeSeriesMode, savedDate, timeSeriesBeadWindow]);
     const effectiveRange = timeSeriesRange || summaryRange;
     const effectiveStart = effectiveRange ? effectiveRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
     const effectiveEnd   = effectiveRange ? effectiveRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
@@ -880,13 +869,31 @@ const CalendarFC = () => {
                                               sx={{ ml: 0.5 }}>
                                     Summary
                                 </ToggleButton>
-                                <ToggleButton value="timeseries" size="small" className="cal-toggle-btn"
-                                              selected={!!timeSeriesMode}
-                                              onChange={handleTimeSeriesToggle}
-                                              data-testid="timeseries-toggle"
-                                              sx={{ ml: 0.5 }}>
-                                    Time Series
-                                </ToggleButton>
+                                {/* Time Series + window (24h/36h) as one connected group — MUI gives
+                                    adjoining border-radius so the three buttons read as one pill. */}
+                                <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
+                                                   data-testid="timeseries-group">
+                                    <ToggleButton value="ts" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode}
+                                                  onChange={handleTimeSeriesToggle}
+                                                  data-testid="timeseries-toggle">
+                                        Time Series
+                                    </ToggleButton>
+                                    <ToggleButton value="24h" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '24h'}
+                                                  disabled={!timeSeriesMode}
+                                                  onChange={() => setTimeSeriesBeadWindow('24h')}
+                                                  data-testid="timeseries-window-24h">
+                                        24h
+                                    </ToggleButton>
+                                    <ToggleButton value="36h" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '36h'}
+                                                  disabled={!timeSeriesMode}
+                                                  onChange={() => setTimeSeriesBeadWindow('36h')}
+                                                  data-testid="timeseries-window-36h">
+                                        36h
+                                    </ToggleButton>
+                                </ToggleButtonGroup>
                             </Box>
                             {/* Center: ← Title → */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -972,19 +979,8 @@ const CalendarFC = () => {
                                 requirements={localRequirementsArray}
                                 selectedDate={savedDate}
                                 timezone={profile?.timezone}
-                                view={timeSeriesView}
-                                granularity={timeSeriesGranularity}
-                                chipMode={timeSeriesChipMode}
-                                laneMode={timeSeriesLaneMode}
-                                showAll={timeSeriesShowAll}
                                 beadWindow={timeSeriesBeadWindow}
                                 categoryList={allCategoryList || []}
-                                onViewChange={setTimeSeriesView}
-                                onGranularityChange={setTimeSeriesGranularity}
-                                onChipModeChange={setTimeSeriesChipMode}
-                                onLaneModeChange={setTimeSeriesLaneMode}
-                                onShowAllChange={setTimeSeriesShowAll}
-                                onBeadWindowChange={setTimeSeriesBeadWindow}
                                 onPrevDay={() => setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, -1) })}
                                 onNextDay={() => setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, 1) })}
                                 onChipClick={(reqId) => {
