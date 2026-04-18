@@ -18,6 +18,7 @@ import 'leaflet-easybutton';
 import MapStatsCard from './MapStatsCard';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import PhotoMarkerLayer from './PhotoMarkerLayer';
+import './RouteMapFull.css';
 
 // --- Base layers (no key required) ---
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -44,29 +45,6 @@ const WAYMARKED_CYCLING_URL = 'https://tile.waymarkedtrails.org/cycling/{z}/{x}/
 const WAYMARKED_ATTR = '&copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>';
 
 const CARTO_LABELS_URL = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
-
-/** Track active base layer name — drives conditional overlay visibility */
-const useBaseLayerName = () => {
-    const map = useMap();
-    const [name, setName] = React.useState('Topographic');
-    React.useEffect(() => {
-        const handler = (e) => setName(e.name);
-        map.on('baselayerchange', handler);
-        return () => map.off('baselayerchange', handler);
-    }, [map]);
-    return name;
-};
-
-/** Conditional Labels overlay — only shown when Satellite base layer is active */
-const SatelliteLabelsOverlay = () => {
-    const baseLayer = useBaseLayerName();
-    if (baseLayer !== 'Satellite') return null;
-    return (
-        <LayersControl.Overlay name="Labels">
-            <TileLayer url={CARTO_LABELS_URL} attribution={CARTO_ATTR} />
-        </LayersControl.Overlay>
-    );
-};
 
 /** Auto-fit map bounds to the polyline */
 const FitBounds = ({ positions }) => {
@@ -111,18 +89,79 @@ const LocateCtrl = () => {
     return null;
 };
 
-/** Reset View button — fits back to the route bounds */
+/**
+ * Reset View ("show track") button — fits the map back to the route bounds.
+ * Uses a folded-map SVG (MUI "Map" icon path) so the control reads as a map,
+ * not the earlier ↺ squiggle. See req #2236.
+ */
+const SHOW_TRACK_ICON_HTML = (
+    '<svg class="show-track-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 ' +
+    '.28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-' +
+    '.28-.22-.5-.5-.5zM10 5.47l4 1.4v11.66l-4-1.4V5.47zm-5 .99l3-1.01v11.7l-' +
+    '3 1.16V6.46zm14 11.08l-3 1.01V6.86l3-1.16v11.84z"/></svg>'
+);
+
 const ResetViewControl = ({ positions }) => {
     const map = useMap();
     React.useEffect(() => {
-        const btn = L.easyButton('&#8634;', () => {
+        const btn = L.easyButton(SHOW_TRACK_ICON_HTML, () => {
             if (positions.length > 1) {
                 map.fitBounds(positions, { padding: [30, 30] });
             }
-        }, 'Reset view to route');
+        }, 'Show track — reset view to route');
         btn.addTo(map);
         return () => btn.remove();
     }, [map, positions]);
+    return null;
+};
+
+/**
+ * PersistentLayers — the layers panel opens only on click (no hover-open),
+ * stays open while the user clicks base-layer radios and overlay checkboxes,
+ * and collapses only when the user clicks outside the panel.
+ *
+ * Default Leaflet 1.9 behavior (collapsed=true) registers three auto-collapse
+ * triggers in Control.Layers._initLayout:
+ *   - map.on('click', collapse)
+ *   - mouseenter on container → _expandSafely (hover-open)
+ *   - mouseleave on container → collapse (hover-close)
+ * We remove all three via the control's own stored references (matching the
+ * stamps that L.DomEvent.on recorded), leaving only the link-click handler on
+ * the toggle anchor (which still expands on click). We add a document click
+ * listener for outside-click collapse and filter inside clicks with
+ * container.contains(e.target). (Leaflet's disableClickPropagation stops
+ * mousedown/touchstart/dblclick/contextmenu propagation but NOT click, so
+ * inside clicks do reach document — the contains() check is what keeps them
+ * from triggering collapse.)
+ *
+ * Removing map.on('click', collapse) leaves the document-level outside-click
+ * listener as the single source of truth for "click outside → close". Map
+ * clicks still collapse the panel because they bubble to document.
+ */
+const PersistentLayers = ({ controlRef }) => {
+    const map = useMap();
+    React.useEffect(() => {
+        const control = controlRef.current;
+        if (!control) return undefined;
+        const container = control._container;
+        if (!container) return undefined;
+
+        map.off('click', control.collapse, control);
+        L.DomEvent.off(container, 'mouseenter', control._expandSafely, control);
+        L.DomEvent.off(container, 'mouseleave', control.collapse, control);
+
+        const handleOutsideClick = (e) => {
+            if (!container.contains(e.target)) {
+                control.collapse();
+            }
+        };
+        document.addEventListener('click', handleOutsideClick);
+
+        return () => {
+            document.removeEventListener('click', handleOutsideClick);
+        };
+    }, [map, controlRef]);
     return null;
 };
 
@@ -157,6 +196,7 @@ const CoordinateDisplay = () => {
 
 const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPartners }) => {
     const photoMarkersEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
+    const layersControlRef = React.useRef(null);
     if (isLoading) {
         return (
             <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -177,6 +217,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
 
     return (
         <MapContainer
+            className="route-map-full"
             center={positions[0]}
             zoom={13}
             style={{ height: 'calc(100vh - 120px)', minHeight: 400, width: '100%', borderRadius: 4 }}
@@ -188,7 +229,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
             boxZoom={true}
             keyboard={true}
         >
-            <LayersControl position="topright">
+            <LayersControl ref={layersControlRef} position="topleft">
                 {/* --- Base layers --- */}
                 <LayersControl.BaseLayer checked name="Topographic">
                     <TileLayer url={ESRI_TOPO_URL} attribution={ESRI_TOPO_ATTR} />
@@ -213,7 +254,9 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
                 <LayersControl.Overlay name="Cycling Routes">
                     <TileLayer url={WAYMARKED_CYCLING_URL} attribution={WAYMARKED_ATTR} />
                 </LayersControl.Overlay>
-                <SatelliteLabelsOverlay />
+                <LayersControl.Overlay name="Labels">
+                    <TileLayer url={CARTO_LABELS_URL} attribution={CARTO_ATTR} />
+                </LayersControl.Overlay>
             </LayersControl>
 
             <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
@@ -225,6 +268,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
             <FullscreenControl />
             <LocateCtrl />
             <ResetViewControl positions={positions} />
+            <PersistentLayers controlRef={layersControlRef} />
             <CoordinateDisplay />
             {photoMarkersEnabled && run && <PhotoMarkerLayer run={run} coordinates={coordinates} />}
             {run && <MapStatsCard run={run} routeName={routeName} partners={partners} runPartners={runPartners} />}

@@ -7,7 +7,7 @@ import Typography from '@mui/material/Typography';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import IconButton from '@mui/material/IconButton';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -132,7 +132,7 @@ const RouteDetailView = () => {
                         title="Photos from this activity"
                         data-testid="detail-photos-btn"
                     >
-                        <PhotoLibraryIcon fontSize="small" />
+                        <CameraAltIcon fontSize="small" />
                     </IconButton>
                 )}
                 <Button
