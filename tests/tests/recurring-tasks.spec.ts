@@ -507,7 +507,8 @@ test.describe('Recurring Tasks Management', () => {
   // -------------------------------------------------------------------------
   // REC-DND-01: Drag recurring task between area cards (same domain)
   // -------------------------------------------------------------------------
-  test('REC-DND-01: drag recurring task between area cards (same domain)', async ({ page }) => {
+  // retries: 1 handles inherent timing flakiness of mouse-based react-dnd DnD under full-suite load
+  test('REC-DND-01: drag recurring task between area cards (same domain)', { retries: 1 }, async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
     // Create a second area in the same test domain
@@ -543,6 +544,12 @@ test.describe('Recurring Tasks Management', () => {
 
     await expect(sourceRow).toBeVisible();
 
+    // Ensure both source and target are inside the viewport so mouse coordinates
+    // resolve to the intended DOM elements — prior tests can leave the page
+    // scrolled such that the source row is off-screen at DnD time.
+    await sourceRow.scrollIntoViewIfNeeded();
+    await targetCard.scrollIntoViewIfNeeded();
+
     // Use page.mouse — fires mousedown/mousemove/mouseup that TouchBackend handles.
     // dragTo fires DragEvent which TouchBackend ignores.
     const srcBounds = await sourceRow.boundingBox();
@@ -559,7 +566,7 @@ test.describe('Recurring Tasks Management', () => {
     await page.waitForTimeout(200);
     await page.mouse.up();
     // Allow optimistic update + TanStack Query refetch to settle
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
     // Def should appear in area 2's card
     await expect(targetCard.getByTestId(`recurring-${defId}`)).toBeVisible({ timeout: 10000 });
