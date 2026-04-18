@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
-// Seed the calendar Zustand store with a known currentDate so chip positions are predictable.
+// Seed the calendar Zustand store to a known currentDate + requirements mode.
 async function seedCalendarState(page: Page, currentDate: string, mode: string[] = ['requirements']): Promise<void> {
   await page.evaluate(({ d, m }) => {
     localStorage.setItem('darwin_calendar_view', JSON.stringify({
@@ -12,24 +12,20 @@ async function seedCalendarState(page: Page, currentDate: string, mode: string[]
         summaryMode: null,
         summaryDate: null,
         timeSeriesMode: null,
-        timeSeriesGranularity: '24h',
-        timeSeriesChipMode: 'title',
-        timeSeriesLaneMode: 'none',
-        timeSeriesView: 'rail',
-        timeSeriesShowAll: false,
+        timeSeriesBeadWindow: '24h',
       },
-      version: 4,
+      version: 5,
     }));
   }, { d: currentDate, m: mode });
 }
 
-test.describe('Calendar Time Series View', () => {
+test.describe('Calendar Time Series — Bead Necklace', () => {
   let idToken: string;
   let testProjectId: string;
   let testCategoryId: string;
   const testProjectName = uniqueName('TSProj');
   const testCategoryName = uniqueName('TSCat');
-  const testDate = new Date().toISOString().slice(0, 10); // today in local-ish tz
+  const testDate = new Date().toISOString().slice(0, 10);
   const createdRequirementIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
@@ -53,17 +49,12 @@ test.describe('Calendar Time Series View', () => {
     if (!catResult?.length) throw new Error('Failed to create category');
     testCategoryId = catResult[0].id;
 
-    // Seed three requirements closed at distinct hours of today (UTC).
-    // UTC is fine — the view computes the time fraction in user's browser tz and chip
-    // positions are tz-dependent, but the *chip existence* is what the spec verifies.
-    const dayStr = testDate;
     const stamps = ['03:15:00', '11:30:00', '19:45:00'];
     for (let i = 0; i < stamps.length; i++) {
-      const completedAt = `${dayStr} ${stamps[i]}`;
-      const title = uniqueName(`TSReq${i}`);
+      const completedAt = `${testDate} ${stamps[i]}`;
       const res = await apiCall('requirements', 'POST', {
         creator_fk: sub,
-        title,
+        title: uniqueName(`TSReq${i}`),
         category_fk: testCategoryId,
         requirement_status: 'met',
         sort_order: i,
@@ -78,97 +69,55 @@ test.describe('Calendar Time Series View', () => {
     try { await apiDelete('projects', testProjectId, idToken); } catch {}
   });
 
-  test('TS-01: Time Series toggle reveals the rail', async ({ page }) => {
+  test('TS-01: Time Series toggle reveals the bead necklace', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Toggle on
     await page.getByTestId('timeseries-toggle').click();
     await expect(page.getByTestId('time-series-view')).toBeVisible({ timeout: 5000 });
-    // FullCalendar should be hidden
     await expect(page.locator('.fc-view-harness')).not.toBeVisible();
-    // Rail is present
-    await expect(page.getByTestId('ts-rail')).toBeVisible();
+    await expect(page.getByTestId('ts-bead')).toBeVisible();
   });
 
-  test('TS-02: chip count matches seeded requirements', async ({ page }) => {
+  test('TS-02: seeded chips render as beads', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
-    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
-
     await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
 
     for (const id of createdRequirementIds) {
       await expect(page.getByTestId(`ts-chip-${id}`)).toBeVisible({ timeout: 10000 });
     }
   });
 
-  test('TS-03: granularity toggle changes tick count', async ({ page }) => {
+  test('TS-03: 24h / 36h window toggle switches tick sets', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
     await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
 
-    // 24h default → 9 tick marks (0,3,6,9,12,15,18,21,24)
-    await expect(page.getByTestId('ts-ticks').locator('.ts-tick')).toHaveCount(9);
+    // 24h default → 9 ticks (12a/3a/6a/9a/12p/3p/6p/9p/12a)
+    await expect(page.getByTestId('ts-bead-timeline').locator('.ts-bead-tick')).toHaveCount(9);
 
-    // 6×4h → 7 ticks (0,4,8,12,16,20,24)
-    await page.getByTestId('ts-granularity-4h').click();
-    await expect(page.getByTestId('ts-ticks').locator('.ts-tick')).toHaveCount(7);
+    // Switch to 36h → 7 ticks (6p/12a/6a/12p/6p/12a/6a)
+    await page.getByTestId('timeseries-window-36h').click();
+    await expect(page.getByTestId('ts-bead-timeline').locator('.ts-bead-tick')).toHaveCount(7);
 
-    // 3×8h → 4 ticks (0,8,16,24)
-    await page.getByTestId('ts-granularity-8h').click();
-    await expect(page.getByTestId('ts-ticks').locator('.ts-tick')).toHaveCount(4);
-
-    // AM/PM → 3 ticks (AM, |, PM)
-    await page.getByTestId('ts-granularity-ampm').click();
-    await expect(page.getByTestId('ts-ticks').locator('.ts-tick')).toHaveCount(3);
+    // Flip back
+    await page.getByTestId('timeseries-window-24h').click();
+    await expect(page.getByTestId('ts-bead-timeline').locator('.ts-bead-tick')).toHaveCount(9);
   });
 
-  test('TS-04: chip-mode toggle flips between #id and trimmed title', async ({ page }) => {
+  test('TS-04: bead click navigates to requirement detail', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
     await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
-
-    const id = createdRequirementIds[0];
-    const chip = page.getByTestId(`ts-chip-${id}`);
-
-    // Switch to #id mode
-    await page.getByTestId('ts-chipmode-id').click();
-    await expect(chip).toHaveText(`#${id}`);
-
-    // Switch to title mode → should contain test prefix
-    await page.getByTestId('ts-chipmode-title').click();
-    await expect(chip).toContainText('TSReq0');
-  });
-
-  test('TS-05: lane mode creates category lanes', async ({ page }) => {
-    await page.goto('/calview');
-    await seedCalendarState(page, testDate);
-    await page.reload();
-    await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId('ts-lanemode-category').click();
-    // Lane container appears
-    await expect(page.getByTestId('ts-lanes')).toBeVisible();
-    // A lane keyed by our test category name exists
-    await expect(page.getByTestId(`ts-lane-${testCategoryName}`)).toBeVisible();
-  });
-
-  test('TS-06: chip click navigates to requirement detail', async ({ page }) => {
-    await page.goto('/calview');
-    await seedCalendarState(page, testDate);
-    await page.reload();
-    await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
 
     const id = createdRequirementIds[0];
     await page.getByTestId(`ts-chip-${id}`).click();
@@ -176,36 +125,56 @@ test.describe('Calendar Time Series View', () => {
     expect(page.url()).toContain(`/swarm/requirement/${id}`);
   });
 
-  test('TS-07: Summary ↔ Time Series mutual exclusion', async ({ page }) => {
+  test('TS-05: day-nav arrows shift the anchor date by ±1 day', async ({ page }) => {
+    await page.goto('/calview');
+    await seedCalendarState(page, testDate);
+    await page.reload();
+    await page.getByTestId('timeseries-toggle').click();
+    await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
+
+    // Chip for today should be visible
+    await expect(page.getByTestId(`ts-chip-${createdRequirementIds[0]}`)).toBeVisible();
+
+    // Previous day — today's chip should disappear (different day, 24h window)
+    await page.getByTestId('ts-bead-prev-day').click();
+    await expect(page.getByTestId(`ts-chip-${createdRequirementIds[0]}`)).not.toBeVisible();
+
+    // Back to today
+    await page.getByTestId('ts-bead-next-day').click();
+    await expect(page.getByTestId(`ts-chip-${createdRequirementIds[0]}`)).toBeVisible();
+  });
+
+  test('TS-06: Summary ↔ Time Series mutual exclusion', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Turn on Summary
     await page.getByTestId('summary-toggle').click();
     await expect(page.getByTestId('summary-toggle')).toHaveAttribute('aria-pressed', 'true');
 
-    // Turn on Time Series — Summary should flip off
     await page.getByTestId('timeseries-toggle').click();
     await expect(page.getByTestId('timeseries-toggle')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('summary-toggle')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('time-series-view')).toBeVisible();
 
-    // Flip Summary back on — Time Series should flip off
     await page.getByTestId('summary-toggle').click();
     await expect(page.getByTestId('summary-toggle')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('timeseries-toggle')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('time-series-view')).not.toBeVisible();
   });
 
-  test('TS-08: now marker visible when viewing today', async ({ page }) => {
+  test('TS-07: window buttons are disabled when Time Series is off', async ({ page }) => {
     await page.goto('/calview');
     await seedCalendarState(page, testDate);
     await page.reload();
+
+    await expect(page.getByTestId('timeseries-window-24h')).toBeDisabled();
+    await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+
     await page.getByTestId('timeseries-toggle').click();
-    await expect(page.getByTestId('ts-rail')).toBeVisible({ timeout: 10000 });
-    // Now-marker only exists when selectedDate === today
-    await expect(page.getByTestId('ts-now-marker')).toBeVisible();
+
+    await expect(page.getByTestId('timeseries-window-24h')).toBeEnabled();
+    await expect(page.getByTestId('timeseries-window-36h')).toBeEnabled();
   });
 });
