@@ -11,7 +11,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -250,7 +250,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                         {featureEnabled && (
                             <IconButton size="small" onClick={handlePhotosClick} title="Browse photos from this activity"
                                 data-testid="route-card-photos-btn" sx={{ ml: 0.5, p: 0.25 }}>
-                                <PhotoLibraryIcon sx={{ fontSize: 18 }} />
+                                <CameraAltIcon sx={{ fontSize: 18 }} />
                             </IconButton>
                         )}
                     </Box>
