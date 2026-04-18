@@ -1,0 +1,112 @@
+/*
+ * RouteMapFull — Leaflet control overrides
+ * Scoped to this map view by wrapping selectors under .route-map-full.
+ * See req #2236 for the beautification spec.
+ */
+
+/* Bar wrapper: a subtle frame that keeps grouped buttons readable on any tile */
+.route-map-full .leaflet-bar {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* Button surfaces: clear (transparent) background per spec */
+.route-map-full .leaflet-bar a,
+.route-map-full .leaflet-bar button,
+.route-map-full .leaflet-control-layers {
+    background-color: transparent;
+    color: #222;
+    text-shadow: 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.route-map-full .leaflet-bar a:hover,
+.route-map-full .leaflet-bar a:focus,
+.route-map-full .leaflet-bar button:hover,
+.route-map-full .leaflet-bar button:focus {
+    background-color: rgba(255, 255, 255, 0.35);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+/* Drop-shadow keeps the bundled background-image icons (layers, locate arrow) legible on dark tiles */
+.route-map-full .leaflet-control-layers-toggle,
+.route-map-full .leaflet-control-locate a .leaflet-control-locate-location-arrow,
+.route-map-full .leaflet-control-locate a .leaflet-control-locate-spinner,
+.route-map-full .leaflet-control-locate a .leaflet-locate-icon {
+    filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.9));
+}
+
+/*
+ * Layers toggle sized to match the zoom/locate/reset/fullscreen icons.
+ * Default leaflet: 36x36 (non-touch) / 44x44 (touch).
+ * Other .leaflet-bar a: 26x26 (non-touch) / 30x30 (touch).
+ *
+ * Anchor for the pop-right expanded list.
+ */
+.route-map-full .leaflet-control-layers {
+    border-radius: 4px;
+    position: relative;
+}
+
+.route-map-full .leaflet-control-layers-toggle {
+    width: 26px;
+    height: 26px;
+    background-size: 18px 18px;
+}
+
+.route-map-full.leaflet-touch .leaflet-control-layers-toggle {
+    width: 30px;
+    height: 30px;
+    background-size: 20px 20px;
+}
+
+/*
+ * Expanded state: keep the toggle visible (Leaflet default hides it) and float
+ * the list out to the right so it doesn't push the stacked buttons down.
+ */
+.route-map-full .leaflet-control-layers-expanded {
+    padding: 0;
+    background-color: transparent;
+    color: inherit;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.route-map-full .leaflet-control-layers-expanded .leaflet-control-layers-toggle {
+    display: block;
+}
+
+.route-map-full .leaflet-control-layers-expanded .leaflet-control-layers-list {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 6px);
+    display: block;
+    margin: 0;
+    min-width: 180px;
+    padding: 8px 12px;
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    color: #222;
+    white-space: nowrap;
+}
+
+/*
+ * Reset-view ("show track") icon — rendered as inline SVG by
+ * ResetViewControl in RouteMapFull.jsx. Size the svg to fit the 26x26 button.
+ */
+.route-map-full .easy-button-button svg.show-track-icon {
+    width: 18px;
+    height: 18px;
+    vertical-align: middle;
+    fill: #222;
+    filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.9));
+}
+
+.route-map-full.leaflet-touch .easy-button-button svg.show-track-icon {
+    width: 20px;
+    height: 20px;
+}
