@@ -242,8 +242,8 @@ test.describe.serial('Category Management P1', () => {
     const catRow = panel.getByTestId(`category-row-${categoryId}`);
     await expect(catRow).toBeVisible({ timeout: 5000 });
 
-    // The third column (index 2) contains the requirement count — should show 0
-    const countCell = catRow.locator('> div').nth(2);
+    // Grid columns: color | name | closed | count | delete — count is nth(3)
+    const countCell = catRow.locator('> div').nth(3);
     await expect(countCell).toHaveText('0');
 
     // Create 3 requirements under this category
@@ -263,7 +263,7 @@ test.describe.serial('Category Management P1', () => {
 
     const reloadPanel = page.locator('[role="tabpanel"]:not([hidden])').first();
     const reloadRow = reloadPanel.getByTestId(`category-row-${categoryId}`);
-    const reloadCountCell = reloadRow.locator('> div').nth(2);
+    const reloadCountCell = reloadRow.locator('> div').nth(3);
     await expect(reloadCountCell).toHaveText('3');
   });
 });
