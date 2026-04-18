@@ -48,6 +48,21 @@ const ProfileContent = ({ onClose }) => {
     const savedAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
     const savedAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
 
+    // Live refs mirror current state so the app-toggle handler always reads
+    // fresh values — React closures can lag one render cycle when two clicks
+    // fire in rapid succession, which bypasses the last-enabled-app guard.
+    const currentAppTasksRef = useRef(Number(profile?.app_tasks ?? 1));
+    const currentAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
+    const currentAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
+    useEffect(() => { currentAppTasksRef.current = appTasks; }, [appTasks]);
+    useEffect(() => { currentAppMapsRef.current = appMaps; }, [appMaps]);
+    useEffect(() => { currentAppSwarmRef.current = appSwarm; }, [appSwarm]);
+
+    // Tracks whether the user has mutated any field locally. If so, the on-mount
+    // profile GET must not overwrite the local state — otherwise a quick click
+    // immediately after mount loses its update when the GET response arrives.
+    const userModifiedRef = useRef(false);
+
     // Fetch fresh profile from DB on mount — stale localStorage must not be authoritative
     useEffect(() => {
         if (!idToken || !profile?.id) return;
@@ -55,6 +70,18 @@ const ProfileContent = ({ onClose }) => {
             .then(result => {
                 if (result.httpStatus.httpStatus === 200 && result.data?.[0]) {
                     const db = result.data[0];
+                    if (userModifiedRef.current) {
+                        // User already changed local state — refresh every savedRef so the
+                        // next PUT's dedup check and body reflect the server truth for the
+                        // fields the user did NOT touch, then leave current state untouched.
+                        savedNameRef.current = db.name || '';
+                        savedTimezoneRef.current = db.timezone || '';
+                        savedThemeModeRef.current = db.theme_mode || 'light';
+                        savedAppTasksRef.current = Number(db.app_tasks ?? 1);
+                        savedAppMapsRef.current = Number(db.app_maps ?? 1);
+                        savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                        return;
+                    }
                     setName(db.name || '');
                     setTimezone(db.timezone || '');
                     setAppTasks(Number(db.app_tasks ?? 1));
@@ -66,6 +93,9 @@ const ProfileContent = ({ onClose }) => {
                     savedAppTasksRef.current = Number(db.app_tasks ?? 1);
                     savedAppMapsRef.current = Number(db.app_maps ?? 1);
                     savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                    currentAppTasksRef.current = Number(db.app_tasks ?? 1);
+                    currentAppMapsRef.current = Number(db.app_maps ?? 1);
+                    currentAppSwarmRef.current = Number(db.app_swarm ?? 0);
                     const updated = { ...profile, ...db };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
@@ -155,7 +185,7 @@ const ProfileContent = ({ onClose }) => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField  label="Name"
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => { userModifiedRef.current = true; setName(e.target.value); }}
                         onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm)}
                         id="Name"
                         key="Name"
@@ -174,6 +204,7 @@ const ProfileContent = ({ onClose }) => {
                         value={selectedTimezone}
                         onChange={(e, newValue) => {
                             const newTz = newValue?.value || '';
+                            userModifiedRef.current = true;
                             setTimezone(newTz);
                             saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm);
                         }}
@@ -197,12 +228,26 @@ const ProfileContent = ({ onClose }) => {
                         const enabledCount = [appTasks, appMaps, appSwarm].filter(v => v === 1).length;
 
                         const handleToggle = () => {
-                            if (enabled && enabledCount <= 1) return;
-                            const newVal = enabled ? 0 : 1;
+                            // Read current values from refs to avoid stale closure between rapid clicks
+                            const liveTasks = currentAppTasksRef.current;
+                            const liveMaps = currentAppMapsRef.current;
+                            const liveSwarm = currentAppSwarmRef.current;
+                            const liveVal = app.key === 'tasks' ? liveTasks
+                                : app.key === 'maps' ? liveMaps : liveSwarm;
+                            const liveEnabled = liveVal === 1;
+                            const liveCount = [liveTasks, liveMaps, liveSwarm].filter(v => v === 1).length;
+                            if (liveEnabled && liveCount <= 1) return;
+                            const newVal = liveEnabled ? 0 : 1;
+                            // Update ref synchronously so a follow-up click that fires before
+                            // React commits the next render still reads the fresh value.
+                            if (app.key === 'tasks') currentAppTasksRef.current = newVal;
+                            else if (app.key === 'maps') currentAppMapsRef.current = newVal;
+                            else currentAppSwarmRef.current = newVal;
+                            userModifiedRef.current = true;
                             app.setValue(newVal);
-                            const newTasks = app.key === 'tasks' ? newVal : appTasks;
-                            const newMaps = app.key === 'maps' ? newVal : appMaps;
-                            const newSwarm = app.key === 'swarm' ? newVal : appSwarm;
+                            const newTasks = app.key === 'tasks' ? newVal : liveTasks;
+                            const newMaps = app.key === 'maps' ? newVal : liveMaps;
+                            const newSwarm = app.key === 'swarm' ? newVal : liveSwarm;
                             saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm);
                         };
 
@@ -328,7 +373,7 @@ const ProfileContent = ({ onClose }) => {
 
                         return (
                             <Box key={m}
-                                onClick={() => { setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm); }}
+                                onClick={() => { userModifiedRef.current = true; setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm); }}
                                 sx={{
                                     cursor: 'pointer', textAlign: 'center',
                                     '&:hover .theme-thumb': { borderColor: 'primary.main' },

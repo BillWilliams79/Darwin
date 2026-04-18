@@ -1,6 +1,23 @@
 import { test, expect } from '@playwright/test';
+import { apiCall, getIdToken } from '../helpers/api';
 
 test.describe('Profile', () => {
+  // Reset the E2E user's app flags to the documented defaults
+  // (app_tasks=1, app_maps=1, app_swarm=0) before running profile tests —
+  // PROF-08e and PROF-09a/b/c assume this state, and prior test runs that
+  // were interrupted mid-toggle can leave the fields in a non-default state.
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    const idToken = await getIdToken(page);
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    try {
+      await apiCall('profiles', 'PUT', [{ id: sub, app_tasks: 1, app_maps: 1, app_swarm: 0 }], idToken);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('PROF-01: open profile dialog via bike icon', async ({ page }) => {
     await page.goto('/taskcards');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
@@ -516,44 +533,46 @@ test.describe('Profile', () => {
   });
 
   test('PROF-08e: cannot disable all apps — last one stays enabled', async ({ page }) => {
+    // Wait for the profile GET to complete before any click — otherwise the
+    // on-mount fetch can overwrite state/refs after the first click and lose
+    // the Maps-disabled value.
+    const profileGet = page.waitForResponse(
+      res => res.request().method() === 'GET' && res.url().includes('/profiles'),
+      { timeout: 10000 }
+    );
     await page.goto('/profile');
     await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+    await profileGet;
 
     const toggle = page.getByTestId('profile-app-toggle');
 
-    // Disable Maps (Tasks and Maps are enabled by default, Swarm disabled)
-    const put1 = page.waitForRequest(
-      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+    // Disable Maps (Tasks and Maps are enabled by default, Swarm disabled).
+    // Wait on the PUT response (not just the request) so ProfileContent's saved
+    // refs are updated before the next click — otherwise the handler's closure
+    // reads stale state and the guard is bypassed.
+    const put1 = page.waitForResponse(
+      res => res.request().method() === 'PUT' && res.url().includes('/profiles'),
       { timeout: 5000 }
     );
     await toggle.locator('> div').nth(1).click(); // disable Maps
     await put1;
 
-    // Now only Tasks is enabled. Click Tasks — should be no-op (no PUT fires)
-    // Use a race: if PUT fires within 1s, the guard failed
-    const noSave = await Promise.race([
-      page.waitForRequest(
-        req => req.method() === 'PUT' && req.url().includes('/profiles'),
-        { timeout: 1500 }
-      ).then(() => 'PUT_FIRED'),
-      new Promise(resolve => setTimeout(() => resolve('NO_PUT'), 1500)),
-    ]);
-
-    // Clicking Tasks when it's the last enabled app should NOT fire a PUT
+    // Now only Tasks is enabled. Click Tasks — guard should prevent disabling the last app.
+    // Install a request listener BEFORE the click so we do not miss a PUT that fires
+    // synchronously during click dispatch.
+    const profilePuts: string[] = [];
+    const listener = (req: import('@playwright/test').Request) => {
+      if (req.method() === 'PUT' && req.url().includes('/profiles')) profilePuts.push(req.url());
+    };
+    page.on('request', listener);
     await toggle.locator('> div').nth(0).click(); // try to disable Tasks (last one)
+    await page.waitForTimeout(1500);
+    page.off('request', listener);
+    expect(profilePuts).toHaveLength(0);
 
-    const result = await Promise.race([
-      page.waitForRequest(
-        req => req.method() === 'PUT' && req.url().includes('/profiles'),
-        { timeout: 1500 }
-      ).then(() => 'PUT_FIRED'),
-      new Promise(resolve => setTimeout(() => resolve('NO_PUT'), 1500)),
-    ]);
-    expect(result).toBe('NO_PUT');
-
-    // Restore — re-enable Maps
-    const restorePromise = page.waitForRequest(
-      req => req.method() === 'PUT' && req.url().includes('/profiles'),
+    // Restore — re-enable Maps.
+    const restorePromise = page.waitForResponse(
+      res => res.request().method() === 'PUT' && res.url().includes('/profiles'),
       { timeout: 5000 }
     );
     await toggle.locator('> div').nth(1).click();

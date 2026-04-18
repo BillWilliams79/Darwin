@@ -206,7 +206,12 @@ test.describe('Task Management', () => {
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
     await expect(targetCard).toBeVisible({ timeout: 5000 });
 
-    // Perform the drag-and-drop
+    // Perform the drag-and-drop and wait for the server PUT (task area_fk change)
+    // to complete before the reload — otherwise the reload can fetch pre-DnD state.
+    const dndPut = page.waitForResponse(
+      res => res.request().method() === 'PUT' && res.url().includes('/tasks'),
+      { timeout: 10000 }
+    );
     await dragAndDrop(page, sourceTask, targetCard);
 
     // Verify task moved to area 2 (should appear in the target card)
@@ -217,6 +222,9 @@ test.describe('Task Management', () => {
     const sourceCard = page.getByTestId(`area-card-${testAreaId}`);
     const taskInSource = sourceCard.getByTestId(`task-${taskId}`);
     await expect(taskInSource).not.toBeVisible();
+
+    // Ensure the area_fk PUT has landed on the server before reloading
+    await dndPut;
 
     // Verify persists after reload
     await page.reload();

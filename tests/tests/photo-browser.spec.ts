@@ -76,10 +76,12 @@ test.describe('Photo Browser', () => {
         await page.goto('/maps/settings/photos');
         // Feature toggle section
         await expect(page.getByText(/Show photo button on activity cards/i)).toBeVisible({ timeout: 10000 });
-        // Feature and folder sections
-        await expect(page.getByText(/FEATURE/i)).toBeVisible();
-        await expect(page.getByText(/FOLDER/i)).toBeVisible();
-        await expect(page.getByText(/CACHE/i)).toBeVisible();
+        // Page is organized into three sections: FEATURE, DARWIN PHOTOS APP, CACHE.
+        // Match each section heading exactly (case sensitive) so we don't collide
+        // with in-page text like "No index cached." or the "Clear Cache" button.
+        await expect(page.getByRole('heading', { name: 'FEATURE' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'DARWIN PHOTOS APP' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'CACHE' })).toBeVisible();
     });
 
 });
