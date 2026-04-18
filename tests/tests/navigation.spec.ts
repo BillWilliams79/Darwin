@@ -2,7 +2,31 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Navigation', () => {
   test('NAV-01: navigate between all views via NavBar', async ({ page }) => {
-    // Start at Plan view
+    // Enable the Swarm app group client-side so Roadmap/Sessions/Dev Servers nav
+    // links render. AuthContext reads profile from localStorage (primary) or the
+    // 'profile' cookie (E2E fallback) on mount; auth.setup.ts seeds both with the
+    // real DB profile, which has app_swarm=0 for the E2E user (per profile.spec.ts).
+    // Mutating both locally + reload is enough — no DB write required.
+    await page.goto('/');
+    await page.evaluate(() => {
+      const cached = localStorage.getItem('darwin-profile');
+      if (cached) {
+        const p = JSON.parse(cached);
+        p.app_swarm = 1;
+        localStorage.setItem('darwin-profile', JSON.stringify(p));
+      }
+      const match = document.cookie.match(/(?:^|; )profile=([^;]+)/);
+      if (match) {
+        const decoded = decodeURIComponent(match[1]);
+        if (decoded.startsWith('j:')) {
+          const obj = JSON.parse(decoded.slice(2));
+          obj.app_swarm = 1;
+          document.cookie = `profile=${encodeURIComponent('j:' + JSON.stringify(obj))}; path=/; max-age=86100`;
+        }
+      }
+    });
+
+    // Start at Plan view — reload so AuthContext picks up the mutated profile
     await page.goto('/taskcards');
     await expect(page).toHaveURL(/\/taskcards/);
 
