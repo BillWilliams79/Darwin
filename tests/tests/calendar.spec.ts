@@ -1,5 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+
+// Seed the calendar Zustand store to defaults with mode=['tasks'] so the title
+// renders as "Completed Tasks <Month>'YY". The production default mode is
+// ['tasks','activities','requirements'] which produces the "Calendar" suffix —
+// these tests exercise single-mode UI, so they set a known mode=['tasks'] first.
+async function seedCalendarState(page: Page, mode: string[] = ['tasks']): Promise<void> {
+  await page.evaluate((m) => {
+    localStorage.setItem('darwin_calendar_view', JSON.stringify({
+      state: {
+        viewType: 'dayGridMonth',
+        currentDate: new Date().toISOString().slice(0, 10),
+        mode: m,
+        summaryMode: null,
+        summaryDate: null,
+      },
+      version: 3,
+    }));
+  }, mode);
+}
 
 test.describe('Calendar View P1', () => {
   let idToken: string;
@@ -202,18 +221,22 @@ test.describe('Calendar View P1', () => {
 
     // Switch to week view — still fc-event
     await page.getByRole('button', { name: 'Week', exact: true }).click();
-    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Week', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
 
-    // Switch to day view — custom DayView renders (no .fc-event); task text in day-view
+    // Switch to day view — custom DayView renders (no .fc-event); task text in day-view.
+    // FullCalendar's changeView anchors on the *current range's start* (e.g. Sunday of the
+    // current week), not on "today" — click Today to re-anchor on today's date so the
+    // DayView filter (savedDate == today) matches the task we created.
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
+    await page.getByRole('button', { name: 'Today', exact: true }).click();
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('day-view').getByText(taskDesc)).toBeVisible({ timeout: 10000 });
 
     // Switch back to month view — fc-event visible again
     await page.getByRole('button', { name: 'Month', exact: true }).click();
-    await expect(page.locator('.fc-dayGridMonth-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Month', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
     await expect(page.locator('.fc-event').filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
   });
 
@@ -256,6 +279,8 @@ test.describe('Calendar View P1', () => {
 
   test('CAL-07: empty calendar renders without errors', async ({ page }) => {
     await page.goto('/calview');
+    await seedCalendarState(page, ['tasks']);
+    await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Calendar container and title should render
@@ -263,9 +288,9 @@ test.describe('Calendar View P1', () => {
     await expect(page.getByText(/Completed Tasks$/)).toBeVisible();
 
     // Navigate 3 months into the future — guaranteed no done tasks
-    await page.locator('.fc-next-button').click();
-    await page.locator('.fc-next-button').click();
-    await page.locator('.fc-next-button').click();
+    await page.getByTestId('cal-next').click();
+    await page.getByTestId('cal-next').click();
+    await page.getByTestId('cal-next').click();
 
     // Calendar still renders correctly with no events
     await expect(page.locator('.fc')).toBeVisible();
@@ -343,7 +368,7 @@ test.describe('Calendar View P1', () => {
     await expect(event).not.toBeVisible({ timeout: 3000 });
 
     // Click prev to navigate to previous month
-    await page.locator('.fc-prev-button').click();
+    await page.getByTestId('cal-prev').click();
 
     // Task should now be visible
     await expect(event).toBeVisible({ timeout: 10000 });
@@ -400,7 +425,7 @@ test.describe('Calendar Requirements', () => {
 
   test('CAL-09: multi-select toggles update title', async ({ page }) => {
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
@@ -427,7 +452,7 @@ test.describe('Calendar Requirements', () => {
 
   test('CAL-10: requirements mode renders completed requirement on calendar', async ({ page }) => {
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
@@ -453,7 +478,7 @@ test.describe('Calendar Requirements', () => {
 
   test('CAL-11: clicking requirement event navigates to requirement detail', async ({ page }) => {
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
@@ -474,7 +499,7 @@ test.describe('Calendar Requirements', () => {
 
   test('CAL-20: back button from requirement detail returns to calendar', async ({ page }) => {
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
@@ -501,7 +526,7 @@ test.describe('Calendar View Persistence', () => {
   test.beforeEach(async ({ page }) => {
     // Clear persisted calendar state before each test
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
   });
@@ -510,8 +535,8 @@ test.describe('Calendar View Persistence', () => {
     // Default is Month view — switch to Week
     await page.getByRole('button', { name: 'Week', exact: true }).click();
 
-    // Verify Week button is active (fc adds fc-button-active class)
-    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    // Verify Week ToggleButton is selected (MUI sets aria-pressed=true)
+    await expect(page.getByRole('button', { name: 'Week', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
 
     // Navigate away to a different route
     await page.goto('/');
@@ -521,7 +546,7 @@ test.describe('Calendar View Persistence', () => {
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
     // Week view should be restored
-    await expect(page.locator('.fc-dayGridWeek-button.fc-button-active')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Week', exact: true })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('CAL-13: date persists across navigation', async ({ page }) => {
@@ -529,7 +554,7 @@ test.describe('Calendar View Persistence', () => {
     const initialTitle = await page.getByText(/Completed Tasks$/).textContent();
 
     // Navigate to previous month
-    await page.locator('.fc-prev-button').click();
+    await page.getByTestId('cal-prev').click();
 
     // Wait for title to change (previous month)
     await expect.poll(async () => {
@@ -571,10 +596,10 @@ test.describe('Calendar View Persistence', () => {
   test('CAL-15: full page reload preserves all settings', async ({ page }) => {
     // Switch to Day view
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
 
     // Navigate to previous day
-    await page.locator('.fc-prev-button').click();
+    await page.getByTestId('cal-prev').click();
 
     // Add Requirements to selection (multi-select: Tasks + Requirements)
     const toggle = page.getByTestId('calendar-mode-toggle');
@@ -586,11 +611,14 @@ test.describe('Calendar View Persistence', () => {
 
     // Full page reload
     await page.reload();
-    await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
+    // In Day view, `.fc-view-harness` is display:none so `.fc` collapses to zero height
+    // (Playwright reports it as hidden). Wait for the DayView container instead — that's
+    // the actual visible day-view surface on this route.
+    await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
 
     // All settings should be preserved
     // Day view
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
     // Multi-mode preserved
     await expect(page.getByText(/'\d{2} Calendar$/)).toBeVisible();
     // Same date
@@ -603,9 +631,9 @@ test.describe('Calendar View Persistence', () => {
     const currentMonthTitle = await page.getByText(/Completed Tasks$/).textContent();
 
     // Navigate 3 months back
-    await page.locator('.fc-prev-button').click();
-    await page.locator('.fc-prev-button').click();
-    await page.locator('.fc-prev-button').click();
+    await page.getByTestId('cal-prev').click();
+    await page.getByTestId('cal-prev').click();
+    await page.getByTestId('cal-prev').click();
 
     // Wait for title to change (3 months back)
     await expect.poll(async () => {
@@ -621,7 +649,7 @@ test.describe('Calendar View Persistence', () => {
     expect(restoredTitle).toBe(oldMonthTitle);
 
     // Click Today button — should return to current month
-    await page.locator('.fc-today-button').click();
+    await page.getByRole('button', { name: 'Today', exact: true }).click();
     await expect.poll(async () => {
       return await page.getByText(/Completed Tasks$/).textContent();
     }, { timeout: 5000 }).toBe(currentMonthTitle);
@@ -669,7 +697,7 @@ test.describe('DayView', () => {
   test.beforeEach(async ({ page }) => {
     // Always start from month view with fresh state
     await page.goto('/calview');
-    await page.evaluate(() => localStorage.removeItem('darwin_calendar_view'));
+    await seedCalendarState(page, ['tasks']);
     await page.reload();
     await expect(page.locator('.fc-view-harness')).toBeVisible({ timeout: 10000 });
   });
@@ -687,7 +715,7 @@ test.describe('DayView', () => {
     await dateCell.click();
 
     // Wait for FullCalendar to switch to day view, then DayView component renders
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.fc-view-harness')).not.toBeVisible();
   });
@@ -710,10 +738,10 @@ test.describe('DayView', () => {
     // Navigate to calendar; Prev → Today ensures FullCalendar anchors on today, then Day
     await page.goto('/calview');
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
-    await page.locator('.fc-prev-button').click();
-    await page.locator('.fc-today-button').click();
+    await page.getByTestId('cal-prev').click();
+    await page.getByRole('button', { name: 'Today', exact: true }).click();
     await page.getByRole('button', { name: 'Day', exact: true }).click();
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
 
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
 
@@ -732,7 +760,7 @@ test.describe('DayView', () => {
     await dateCell.click();
 
     // Wait for day view to fully activate
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
 
     // Navigate away and back
@@ -741,6 +769,6 @@ test.describe('DayView', () => {
 
     // Should still be in day view (savedViewType persisted)
     await expect(page.getByTestId('day-view')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.fc-dayGridDay-button.fc-button-active')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
   });
 });
