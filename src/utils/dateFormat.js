@@ -74,6 +74,16 @@ export function toLocaleDateString(dateStr, timezone) {
     return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+// Return a YYYY-MM-DD string using the *browser's local* wall-clock date, NOT UTC.
+// `new Date().toISOString().slice(0,10)` rolls forward to tomorrow for anyone west of
+// UTC (e.g. late-night in PDT UTC-7), which is why "today" showed April 18 on April 17.
+export function localDateStr(d = new Date()) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 // Return the time-of-day as "h:mma" / "h:mmp" (12-hour, lowercase suffix) — e.g. 7:45p, 12:00a.
 // Used by TimeSeriesView chips so every chip carries its own timestamp inline.
 export function formatHM12(dateStr, timezone) {
