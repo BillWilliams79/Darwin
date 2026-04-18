@@ -1,15 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { currentPeriodStart } from '../utils/dateFormat';
+import { currentPeriodStart, localDateStr } from '../utils/dateFormat';
 
 export const useCalendarViewStore = create(
     persist(
-        (set) => ({
+        (set, get) => ({
             viewType: 'dayGridMonth',
-            currentDate: new Date().toISOString().slice(0, 10),
+            currentDate: localDateStr(),
             mode: ['tasks', 'activities', 'requirements'],
             summaryMode: null,   // null | 'week' | 'month'
             summaryDate: null,   // YYYY-MM-DD start of viewed period
+
+            timeSeriesMode: null,          // null | 'day'
+            timeSeriesBeadWindow: '24h',   // '24h' | '36h'
+            timeSeriesVizKey: 'bead',      // 'bead' | 'swarm' — controlled by toolbar buttons
+            timeSeriesSidewalkOn: false,   // toolbar toggle
 
             setCalendarView: ({ viewType, currentDate }) =>
                 set({ viewType, currentDate }),
@@ -21,39 +26,51 @@ export const useCalendarViewStore = create(
                 set({
                     summaryMode: mode,
                     summaryDate: mode ? currentPeriodStart(mode) : null,
+                    timeSeriesMode: mode ? null : get().timeSeriesMode,
                 }),
 
             setSummaryDate: (date) =>
                 set({ summaryDate: date }),
+
+            setTimeSeriesMode: (mode) =>
+                set({
+                    timeSeriesMode: mode,
+                    summaryMode: mode ? null : get().summaryMode,
+                    summaryDate: mode ? null : get().summaryDate,
+                }),
+
+            setTimeSeriesBeadWindow: (win) =>
+                set({ timeSeriesBeadWindow: win }),
+
+            setTimeSeriesVizKey: (viz) =>
+                set({ timeSeriesVizKey: viz }),
+
+            setTimeSeriesSidewalkOn: (on) =>
+                set({ timeSeriesSidewalkOn: !!on }),
         }),
         {
             name: 'darwin_calendar_view',
-            version: 3,
+            version: 6,
             migrate: (persisted, version) => {
-                if (version === 0) {
-                    return {
-                        ...persisted,
-                        mode: typeof persisted.mode === 'string'
-                            ? [persisted.mode]
-                            : persisted.mode || ['tasks', 'activities', 'requirements'],
-                        summaryMode: null,
-                        summaryDate: null,
-                    };
-                }
-                if (version === 1) {
-                    return {
-                        ...persisted,
-                        summaryMode: null,
-                        summaryDate: null,
-                    };
-                }
-                if (version === 2) {
-                    return {
-                        ...persisted,
-                        mode: (persisted.mode || []).map(m => m === 'priorities' ? 'requirements' : m),
-                    };
-                }
-                return persisted;
+                const base = {
+                    ...persisted,
+                    mode: typeof persisted.mode === 'string'
+                        ? [persisted.mode]
+                        : persisted.mode || ['tasks', 'activities', 'requirements'],
+                    summaryMode: persisted.summaryMode ?? null,
+                    summaryDate: persisted.summaryDate ?? null,
+                    timeSeriesMode: null,
+                    timeSeriesBeadWindow: '24h',
+                    timeSeriesVizKey: 'bead',
+                    timeSeriesSidewalkOn: false,
+                };
+                base.mode = base.mode.map(m => m === 'priorities' ? 'requirements' : m);
+                delete base.timeSeriesView;
+                delete base.timeSeriesGranularity;
+                delete base.timeSeriesChipMode;
+                delete base.timeSeriesLaneMode;
+                delete base.timeSeriesShowAll;
+                return base;
             },
         }
     )

@@ -74,6 +74,62 @@ export function toLocaleDateString(dateStr, timezone) {
     return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+// Return a YYYY-MM-DD string using the *browser's local* wall-clock date, NOT UTC.
+// `new Date().toISOString().slice(0,10)` rolls forward to tomorrow for anyone west of
+// UTC (e.g. late-night in PDT UTC-7), which is why "today" showed April 18 on April 17.
+export function localDateStr(d = new Date()) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+// Return the time-of-day as "h:mma" / "h:mmp" (12-hour, lowercase suffix) — e.g. 7:45p, 12:00a.
+// Used by TimeSeriesView chips so every chip carries its own timestamp inline.
+export function formatHM12(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric', minute: '2-digit', hour12: true,
+        ...(timezone && { timeZone: timezone }),
+    }).formatToParts(d);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    const period = get('dayPeriod').toLowerCase().replace(/\s/g, '').charAt(0); // 'a' or 'p'
+    return `${get('hour')}:${get('minute')}${period}`;
+}
+
+// Return the time-of-day as "HH:MM" (24-hour) in the given timezone.
+export function formatHHMM(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+        ...(timezone && { timeZone: timezone }),
+    }).formatToParts(d);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    let hour = get('hour');
+    if (hour === '24') hour = '00';
+    return `${hour}:${get('minute')}`;
+}
+
+// Return a fraction [0, 1) representing the time-of-day of `dateStr` in the
+// given timezone: (hour*3600 + minute*60 + second) / 86400.
+// Used by TimeSeriesView to position chips along the 24-hour axis.
+export function getTimeOfDayFraction(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return null;
+    const parts = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        ...(timezone && { timeZone: timezone }),
+    }).formatToParts(d);
+    const get = (type) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
+    let hour = get('hour');
+    if (hour === 24) hour = 0; // some locales emit "24" for midnight
+    const minute = get('minute');
+    const second = get('second');
+    return (hour * 3600 + minute * 60 + second) / 86400;
+}
+
 // ── datetime-local input conversion ─────────────────────────────────────────
 
 // Convert MySQL UTC datetime string → 'YYYY-MM-DDTHH:MM' in the given timezone

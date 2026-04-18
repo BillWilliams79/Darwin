@@ -11,17 +11,18 @@ import ThemeContext from '../Theme/ThemeContext';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCalendarViewStore } from '../stores/useCalendarViewStore';
-import { toLocaleDateString } from '../utils/dateFormat';
+import { toLocaleDateString, localDateStr } from '../utils/dateFormat';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TaskActionsContext } from '../hooks/useTaskActions';
-import { useTasksDone, useRequirementsDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
+import { useTasksDone, useRequirementsDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes, useSessions } from '../hooks/useDataQueries';
 import { taskKeys, requirementKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import DayView from './DayView';
 import PeriodSummaryView from './PeriodSummaryView';
-import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel } from '../utils/dateFormat';
+import TimeSeriesView from './TimeSeriesView';
+import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, formatDate } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -69,7 +70,7 @@ const CalendarFC = () => {
     const navigate = useNavigate();
     const calendarRef = useRef(null);
     const isMobile = useMediaQuery('(max-width:899px)');
-    const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+    const todayStr = useMemo(() => localDateStr(), []);
 
     // ── Desktop persisted state ──────────────────────────────────────────────
     const savedViewType = useCalendarViewStore(s => s.viewType);
@@ -81,6 +82,14 @@ const CalendarFC = () => {
     const summaryDate = useCalendarViewStore(s => s.summaryDate);
     const setSummaryMode = useCalendarViewStore(s => s.setSummaryMode);
     const setSummaryDate = useCalendarViewStore(s => s.setSummaryDate);
+    const timeSeriesMode = useCalendarViewStore(s => s.timeSeriesMode);
+    const timeSeriesBeadWindow = useCalendarViewStore(s => s.timeSeriesBeadWindow);
+    const timeSeriesVizKey = useCalendarViewStore(s => s.timeSeriesVizKey);
+    const timeSeriesSidewalkOn = useCalendarViewStore(s => s.timeSeriesSidewalkOn);
+    const setTimeSeriesMode = useCalendarViewStore(s => s.setTimeSeriesMode);
+    const setTimeSeriesBeadWindow = useCalendarViewStore(s => s.setTimeSeriesBeadWindow);
+    const setTimeSeriesVizKey = useCalendarViewStore(s => s.setTimeSeriesVizKey);
+    const setTimeSeriesSidewalkOn = useCalendarViewStore(s => s.setTimeSeriesSidewalkOn);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
@@ -102,13 +111,47 @@ const CalendarFC = () => {
     const mobileStartStr = mobileFetchStart.toISOString().slice(0, 19);
     const mobileEndStr   = mobileFetchEnd.toISOString().slice(0, 19);
 
-    // ── Effective query range: summary mode overrides FC/mobile range ──────────
+    // ── Effective query range: time-series (single day) > summary > FC / mobile ──
     const summaryRange = useMemo(
         () => summaryMode && summaryDate ? periodDateRange(summaryDate, summaryMode) : null,
         [summaryMode, summaryDate]
     );
-    const effectiveStart = summaryRange ? summaryRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
-    const effectiveEnd   = summaryRange ? summaryRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
+    const sidewalkOn = timeSeriesSidewalkOn;
+
+    // Time Series fetch range:
+    //   • Sidewalk    → ±15 days around savedDate (covers the 21-day panel strip + growth)
+    //   • Week view   → 7 days (Mon..Sun of the week containing savedDate) ±1 edge
+    //   • Day/Month   → ±1 day around savedDate (covers tz boundary cases — a chip
+    //                   whose UTC completed_at falls on savedDate-1 or savedDate+1
+    //                   may still live on savedDate in the user's tz)
+    const timeSeriesRange = useMemo(() => {
+        if (!timeSeriesMode || !savedDate) return null;
+        // Local inline shifter — using `shiftDay` (useCallback defined later) here
+        // causes a TDZ reference error on first render.
+        const shift = (dateStr, delta) => {
+            const dd = new Date(dateStr + 'T12:00:00');
+            dd.setDate(dd.getDate() + delta);
+            return localDateStr(dd);
+        };
+        if (sidewalkOn && savedViewType !== 'dayGridWeek') {
+            return { start: shift(savedDate, -15), end: shift(savedDate, 15) };
+        }
+        if (savedViewType === 'dayGridWeek') {
+            const d = new Date(savedDate + 'T12:00:00');
+            const mondayOffset = (d.getDay() + 6) % 7;
+            const monday = new Date(d);
+            monday.setDate(d.getDate() - mondayOffset);
+            const start = new Date(monday); start.setDate(monday.getDate() - 1);
+            const end   = new Date(monday); end.setDate(monday.getDate() + 7);
+            return { start: localDateStr(start), end: localDateStr(end) };
+        }
+        // Day view — always fetch ±1 day (not just selectedDate) so the 24h window
+        // never misses a chip whose UTC completed_at spills onto an adjacent day.
+        return { start: shift(savedDate, -1), end: shift(savedDate, 1) };
+    }, [timeSeriesMode, savedDate, savedViewType, sidewalkOn]);
+    const effectiveRange = timeSeriesRange || summaryRange;
+    const effectiveStart = effectiveRange ? effectiveRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
+    const effectiveEnd   = effectiveRange ? effectiveRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
 
     // ── Queries: summary mode / mobile / desktop FC range ────────────────────
     const { data: serverTasks }      = useTasksDone(profile?.userName,
@@ -118,7 +161,7 @@ const CalendarFC = () => {
     const { data: serverRequirements } = useRequirementsDone(profile?.userName,
         effectiveStart,
         effectiveEnd,
-        { enabled: isRequirementsMode, fields: 'id,title,completed_at,category_fk' });
+        { enabled: isRequirementsMode, fields: 'id,title,completed_at,category_fk,requirement_status,coordination_type' });
     const { data: categoryList } = useCategoryColors(profile?.userName, { enabled: isRequirementsMode });
     const { data: allCategoryList } = useAllCategories(profile?.userName, { fields: 'id,category_name,color,sort_order', enabled: isRequirementsMode });
     const { data: serverActivities } = useMapRunsDone(profile?.userName,
@@ -126,6 +169,8 @@ const CalendarFC = () => {
         effectiveEnd,
         { enabled: isActivitiesMode });
     const { data: routeList } = useMapRoutes(profile?.userName, { enabled: isActivitiesMode });
+    // Swarm sessions — only needed when Time Series view is active (Swarm Visualizer mode)
+    const { data: sessionList } = useSessions(profile?.userName, { enabled: !!timeSeriesMode && isRequirementsMode });
 
     // ── Restore scroll position when returning from requirement detail ────────
     React.useEffect(() => {
@@ -376,7 +421,7 @@ const CalendarFC = () => {
         setCalendarTitle(buildTitle(dateInfo.view.currentStart, titleSuffix));
         setCalendarView({
             viewType: dateInfo.view.type,
-            currentDate: dateInfo.view.currentStart.toISOString().slice(0, 10),
+            currentDate: localDateStr(dateInfo.view.currentStart),
         });
     }, [buildTitle, titleSuffix, setCalendarView]);
 
@@ -558,26 +603,47 @@ const CalendarFC = () => {
     // ── Unified navigation (works for both calendar and summary mode) ────────
     const isDayView = savedViewType === 'dayGridDay';
 
+    // Shift a YYYY-MM-DD string by N days — uses local calendar, not UTC,
+    // so east-of-UTC edge timezones don't roll backward.
+    const shiftDay = useCallback((dateStr, delta) => {
+        if (!dateStr) return dateStr;
+        const d = new Date(dateStr + 'T12:00:00');
+        d.setDate(d.getDate() + delta);
+        return localDateStr(d);
+    }, []);
+
+    // In Time Series mode: prev/next shift by 7 days when week view is active,
+    // otherwise by a single day.
+    const tsStep = savedViewType === 'dayGridWeek' ? 7 : 1;
+
     const handlePrev = useCallback(() => {
-        if (summaryMode) {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, -tsStep) });
+        } else if (summaryMode) {
             setSummaryDate(shiftPeriod(summaryDate, summaryMode, -1));
         } else {
             calendarRef.current?.getApi().prev();
         }
-    }, [summaryMode, summaryDate, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, summaryDate, savedDate, savedViewType, tsStep, setSummaryDate, setCalendarView, shiftDay]);
 
     const handleNext = useCallback(() => {
-        if (summaryMode) {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: shiftDay(savedDate, tsStep) });
+        } else if (summaryMode) {
             setSummaryDate(shiftPeriod(summaryDate, summaryMode, 1));
         } else {
             calendarRef.current?.getApi().next();
         }
-    }, [summaryMode, summaryDate, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, summaryDate, savedDate, savedViewType, tsStep, setSummaryDate, setCalendarView, shiftDay]);
 
     const handleTodayClick = useCallback(() => {
+        if (timeSeriesMode) {
+            setCalendarView({ viewType: savedViewType, currentDate: todayStr });
+            return;
+        }
         if (summaryMode) setSummaryDate(currentPeriodStart(summaryMode));
         calendarRef.current?.getApi().today();
-    }, [summaryMode, setSummaryDate]);
+    }, [timeSeriesMode, summaryMode, savedViewType, todayStr, setSummaryDate, setCalendarView]);
 
     const handleCustomViewChange = useCallback((event, newView) => {
         if (!newView) return;
@@ -601,9 +667,68 @@ const CalendarFC = () => {
         }
     }, [isDayView, summaryMode, savedViewType, setSummaryMode]);
 
-    const displayTitle = summaryMode
-        ? formatPeriodLabel(summaryDate, summaryMode)
-        : calendarTitle;
+    const handleTimeSeriesToggle = useCallback(() => {
+        setTimeSeriesMode(timeSeriesMode ? null : 'day');
+    }, [timeSeriesMode, setTimeSeriesMode]);
+
+    // Month view has no useful Time Series presentation — auto-disable it if
+    // someone switches to Month while Time Series is on.
+    React.useEffect(() => {
+        if (savedViewType === 'dayGridMonth' && timeSeriesMode) {
+            setTimeSeriesMode(null);
+        }
+    }, [savedViewType, timeSeriesMode, setTimeSeriesMode]);
+
+    const inMonthView = savedViewType === 'dayGridMonth';
+
+    // Bead / Swarm toolbar buttons act as "Time Series on (with this viz)".
+    // Clicking the currently-active viz toggles Time Series off.
+    const handleVizClick = useCallback((viz) => {
+        if (timeSeriesMode && timeSeriesVizKey === viz) {
+            setTimeSeriesMode(null);
+            return;
+        }
+        if (!timeSeriesMode) setTimeSeriesMode('day');
+        setTimeSeriesVizKey(viz);
+    }, [timeSeriesMode, timeSeriesVizKey, setTimeSeriesMode, setTimeSeriesVizKey]);
+
+    // Sidewalk toolbar button — disabled unless Time Series is on. Turning it
+    // on also forces 24h bead window (sidewalk panels are one day each).
+    const handleSidewalkClick = useCallback(() => {
+        if (!timeSeriesMode) return;
+        const next = !timeSeriesSidewalkOn;
+        setTimeSeriesSidewalkOn(next);
+        if (next) setTimeSeriesBeadWindow('24h');
+    }, [timeSeriesMode, timeSeriesSidewalkOn, setTimeSeriesSidewalkOn, setTimeSeriesBeadWindow]);
+
+    // `savedDate` is already a user-tz YYYY-MM-DD; anchor at noon-local so the date
+    // object's day field is stable in any formatter tz. Do NOT pass `timeZone:` to
+    // toLocaleDateString — that can shift the displayed day when the browser tz
+    // differs from the profile tz, which is exactly the "April 18 vs 17" bug.
+    const formatDayTitle = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr + 'T12:00:00');
+        return d.toLocaleDateString(undefined, {
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+        });
+    };
+    const formatWeekTitle = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr + 'T12:00:00');
+        const mondayOffset = (d.getDay() + 6) % 7;
+        const monday = new Date(d); monday.setDate(d.getDate() - mondayOffset);
+        const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+        const opts   = { month: 'short', day: 'numeric' };
+        const optsYr = { month: 'short', day: 'numeric', year: 'numeric' };
+        return `Week of ${monday.toLocaleDateString(undefined, opts)} – ${sunday.toLocaleDateString(undefined, optsYr)}`;
+    };
+    const displayTitle = timeSeriesMode
+        ? (savedViewType === 'dayGridWeek'
+            ? formatWeekTitle(savedDate)
+            : formatDayTitle(savedDate))
+        : summaryMode
+            ? formatPeriodLabel(summaryDate, summaryMode)
+            : calendarTitle;
 
     // Desktop FullCalendar event renderer
     const renderEventContent = (eventInfo) => {
@@ -799,10 +924,10 @@ const CalendarFC = () => {
                     {/* FullCalendar wrapper — original single-box layout for CSS Grid compat */}
                     <Box sx={{
                         px: 2,
-                        pb: (summaryMode || savedViewType === 'dayGridDay') ? 0 : 2,
+                        pb: (summaryMode || timeSeriesMode || savedViewType === 'dayGridDay') ? 0 : 2,
                         pt: '18pt',
                         position: 'relative',
-                        '& .fc-view-harness': { display: (savedViewType === 'dayGridDay' || summaryMode) ? 'none' : 'block' },
+                        '& .fc-view-harness': { display: (savedViewType === 'dayGridDay' || summaryMode || timeSeriesMode) ? 'none' : 'block' },
                         '& .fc-header-toolbar': { display: 'none' },
                     }}>
                         {/* ── Unified toolbar ── */}
@@ -823,13 +948,55 @@ const CalendarFC = () => {
                                     Today
                                 </Button>
                                 <ToggleButton value="summary" size="small" className="cal-toggle-btn"
-                                              selected={!!summaryMode || isDayView}
-                                              disabled={isDayView}
+                                              selected={(!!summaryMode || isDayView) && !timeSeriesMode}
+                                              disabled={isDayView || !!timeSeriesMode}
                                               onChange={handleSummaryToggle}
                                               data-testid="summary-toggle"
                                               sx={{ ml: 0.5 }}>
                                     Summary
                                 </ToggleButton>
+                                {/* Bead / Swarm / 24h / 36h / Sidewalk as one connected pill.
+                                    Bead and Swarm replace the old "Time Series" button — clicking
+                                    either turns Time Series on and sets the viz; clicking the
+                                    currently-selected one turns Time Series off. */}
+                                <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
+                                                   data-testid="timeseries-group">
+                                    <ToggleButton value="bead" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesVizKey === 'bead'}
+                                                  disabled={inMonthView}
+                                                  onChange={() => handleVizClick('bead')}
+                                                  data-testid="timeseries-viz-bead">
+                                        Bead
+                                    </ToggleButton>
+                                    <ToggleButton value="swarm" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesVizKey === 'swarm'}
+                                                  disabled={inMonthView}
+                                                  onChange={() => handleVizClick('swarm')}
+                                                  data-testid="timeseries-viz-swarm">
+                                        Swarm
+                                    </ToggleButton>
+                                    <ToggleButton value="24h" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '24h'}
+                                                  disabled={!timeSeriesMode || inMonthView}
+                                                  onChange={() => setTimeSeriesBeadWindow('24h')}
+                                                  data-testid="timeseries-window-24h">
+                                        24h
+                                    </ToggleButton>
+                                    <ToggleButton value="36h" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '36h' && !timeSeriesSidewalkOn}
+                                                  disabled={!timeSeriesMode || !!timeSeriesSidewalkOn || inMonthView}
+                                                  onChange={() => setTimeSeriesBeadWindow('36h')}
+                                                  data-testid="timeseries-window-36h">
+                                        36h
+                                    </ToggleButton>
+                                    <ToggleButton value="sidewalk" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && !!timeSeriesSidewalkOn && savedViewType !== 'dayGridWeek' && !inMonthView}
+                                                  disabled={!timeSeriesMode || savedViewType === 'dayGridWeek' || inMonthView}
+                                                  onChange={handleSidewalkClick}
+                                                  data-testid="timeseries-sidewalk">
+                                        Sidewalk
+                                    </ToggleButton>
+                                </ToggleButtonGroup>
                             </Box>
                             {/* Center: ← Title → */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -873,7 +1040,7 @@ const CalendarFC = () => {
                         />
                     </Box>
                     {/* DayView — below FC box, same as production layout */}
-                    {!summaryMode && savedViewType === 'dayGridDay' && mode.length > 0 && (
+                    {!summaryMode && !timeSeriesMode && savedViewType === 'dayGridDay' && mode.length > 0 && (
                         <DayView
                             mode={mode}
                             localTasksArray={localTasksArray}
@@ -889,7 +1056,7 @@ const CalendarFC = () => {
                         />
                     )}
                     {/* Summary mode — single wrapper div for CSS Grid (max 2 items in right column) */}
-                    {summaryMode && mode.length > 0 && (
+                    {summaryMode && !timeSeriesMode && mode.length > 0 && (
                         <div>
                             <PeriodSummaryView
                                 summaryMode={summaryMode}
@@ -907,6 +1074,38 @@ const CalendarFC = () => {
                                 requirementEventColor={requirementEventColor}
                             />
                         </div>
+                    )}
+                    {/* Time Series mode — alternate day summary, requirements only */}
+                    {timeSeriesMode && isRequirementsMode && (
+                        <div>
+                            <TimeSeriesView
+                                requirements={localRequirementsArray}
+                                sessions={sessionList || []}
+                                selectedDate={savedDate}
+                                timezone={profile?.timezone}
+                                beadWindow={timeSeriesBeadWindow}
+                                vizKey={timeSeriesVizKey}
+                                sidewalkOn={timeSeriesSidewalkOn}
+                                isWeekView={savedViewType === 'dayGridWeek'}
+                                categoryList={allCategoryList || []}
+                                onChipClick={(reqId) => {
+                                    sessionStorage.setItem('calview_scrollY', String(window.scrollY));
+                                    navigate(`/swarm/requirement/${reqId}`, { state: { from: 'calendar' } });
+                                }}
+                                onCenterDateChange={(d) => {
+                                    if (d && d !== savedDate) {
+                                        setCalendarView({ viewType: savedViewType, currentDate: d });
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
+                    {timeSeriesMode && !isRequirementsMode && (
+                        <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                            <Typography color="text.secondary" data-testid="ts-requires-requirements">
+                                Enable the <strong>Requirements</strong> mode toggle to see the time series.
+                            </Typography>
+                        </Box>
                     )}
                 </>
             )}
