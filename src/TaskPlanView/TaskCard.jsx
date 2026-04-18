@@ -466,22 +466,30 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
                     // Apply any mutations made while POST was in-flight (e.g. priority click)
                     const pending = pendingMutationsRef.current;
-                    if (Object.keys(pending).length > 0) {
+                    const hasPending = Object.keys(pending).length > 0;
+                    if (hasPending) {
                         Object.assign(newTasksArray[taskIndex], pending);
+                        // Fire follow-up PUT and defer cache invalidation until it completes —
+                        // otherwise the refetch can race the PUT and overwrite the just-set fields
+                        // with the POST's original values (priority=0, done=0).
                         call_rest_api(uri, 'PUT', [{'id': result.data[0].id, ...pending}], idToken)
                             .then(putResult => {
-                                if (putResult.httpStatus.httpStatus !== 200) {
+                                if (putResult.httpStatus.httpStatus > 204) {
                                     showError(putResult, 'Unable to update task after save');
                                 }
                             }).catch(putError => {
                                 showError(putError, 'Unable to update task after save');
+                            }).finally(() => {
+                                queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                             });
                     }
 
                     newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
                     newTasksArray.push({'id':'', 'description':'', 'priority': 0, 'done': 0, 'area_fk': area.id, 'sort_order': null });
                     setTasksArray(newTasksArray);
-                    queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
+                    if (!hasPending) {
+                        queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
+                    }
                 } else if (result.httpStatus.httpStatus === 201) {
                     // 201 => record added to database but new data not returned in body
                     queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
