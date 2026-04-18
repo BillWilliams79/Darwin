@@ -1,18 +1,21 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12 } from '../utils/dateFormat';
+import {
+    DEFAULT_FONT_SIZE,
+    getFontSize, getCircleSize, formatCoordination,
+    DEFAULT_VIZ,
+    DEFAULT_SPACE, getSpaceMultiplier,
+    DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
+    indexSessionsByRequirement,
+} from './timeSeriesSizes';
 import './TimeSeriesView.css';
 
-// ─────────── Cluster-stack layout ─────────────────────────────────────────────
-// Chips sorted by leftPct. If a chip is within clusterGapPct of the *previous*
-// chip, it extends the current stack upward (row = prev.row + 1). Otherwise a
-// new stack begins at row 0. Produces the "tall finger" look — chips from the
-// same time window grow a single tower; distinct clusters each get their own.
+// ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
+// Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
+// it extends the stack upward; otherwise a new stack begins at row 0.
 const MAX_ROWS = 24;
 const assignRows = (chips, minGapPct) => {
     const sorted = [...chips].sort((a, b) => a.leftPct - b.leftPct);
@@ -27,8 +30,6 @@ const assignRows = (chips, minGapPct) => {
                 out.push({ ...chip, row: nextRow });
                 stackRow = nextRow;
             } else {
-                // Rare: >24 chips inside the same time cluster — drop the oldest overflow;
-                // keep chip in the stack at MAX_ROWS-1 (reader sees the cluster capped).
                 out.push({ ...chip, row: MAX_ROWS - 1 });
             }
         } else {
@@ -40,70 +41,135 @@ const assignRows = (chips, minGapPct) => {
     return out;
 };
 
+// ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
+// Each (requirement, session) pair — or bare requirement with no session — gets
+// its own row. Sorted by completed_at ascending so row 0 = earliest (bottom) and
+// the highest row = latest (top). Long-running swarms bubble toward the top.
+// Exported for unit-test coverage.
+export const assignSwarmLanes = (chips) => {
+    const sorted = [...chips].sort((a, b) => {
+        const aT = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+        const bT = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+        if (aT !== bT) return aT - bT;
+        // tiebreak: stable by chipKey / id for deterministic ordering
+        return String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
+    });
+    return sorted.map((chip, idx) => ({ ...chip, row: idx }));
+};
+
 // ─────────── Date helpers ─────────────────────────────────────────────────────
 const shiftDateStr = (dateStr, delta) => {
     const d = new Date(dateStr + 'T12:00:00');
     d.setDate(d.getDate() + delta);
-    return d.toISOString().slice(0, 10);
+    // Use local-calendar date parts to avoid UTC rollover when west of UTC.
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 };
 
-// 36h window: 18:00 prev → 06:00 next
-const bead36hXPct = (completedAt, timezone, selectedDate) => {
-    const chipDay = toLocaleDateString(completedAt, timezone);
-    const chipFrac = getTimeOfDayFraction(completedAt, timezone);
-    if (chipFrac === null || chipDay === null) return null;
-    const prevDay = shiftDateStr(selectedDate, -1);
-    const nextDay = shiftDateStr(selectedDate, 1);
-
-    let hoursFromStart;
-    if (chipDay === prevDay) {
-        if (chipFrac < 18 / 24) return null;
-        hoursFromStart = (chipFrac - 18 / 24) * 24;
-    } else if (chipDay === selectedDate) {
-        hoursFromStart = 6 + chipFrac * 24;
-    } else if (chipDay === nextDay) {
-        if (chipFrac >= 6 / 24) return null;
-        hoursFromStart = 30 + chipFrac * 24;
-    } else {
-        return null;
+// Build N day strings centered on `centerDate` (half before, half after).
+export const centeredDateRange = (centerDate, halfWidth = 10) => {
+    if (!centerDate) return [];
+    const out = [];
+    for (let i = -halfWidth; i <= halfWidth; i++) {
+        out.push(shiftDateStr(centerDate, i));
     }
-    return (hoursFromStart / 36) * 100;
+    return out;
 };
 
-// 24h window: selectedDate 00:00 → 24:00
-const bead24hXPct = (completedAt, timezone, selectedDate) => {
-    const chipDay = toLocaleDateString(completedAt, timezone);
-    if (chipDay !== selectedDate) return null;
-    const frac = getTimeOfDayFraction(completedAt, timezone);
-    if (frac === null) return null;
-    return frac * 100;
+// Return the 7 YYYY-MM-DD dates of the ISO week (Mon first) that contains `dateStr`.
+// Output order: Mon, Tue, Wed, Thu, Fri, Sat, Sun (ascending).
+// Uses local calendar parts (not toISOString()) so extreme east-of-UTC
+// timezones don't roll the dates back by one day.
+export const weekDates = (dateStr) => {
+    if (!dateStr) return [];
+    const d = new Date(dateStr + 'T12:00:00');
+    const mondayOffset = (d.getDay() + 6) % 7;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - mondayOffset);
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+        const di = new Date(monday);
+        di.setDate(monday.getDate() + i);
+        const y = di.getFullYear();
+        const m = String(di.getMonth() + 1).padStart(2, '0');
+        const day = String(di.getDate()).padStart(2, '0');
+        out.push(`${y}-${m}-${day}`);
+    }
+    return out;
 };
 
-// ─────────── Tick sets ────────────────────────────────────────────────────────
-const BEAD_TICKS_36H = [
-    { pct: 0,              label: '6pm',  kind: 'minor' },
-    { pct: 100 * 6  / 36,  label: '12am', kind: 'major' },
-    { pct: 100 * 12 / 36,  label: '6am',  kind: 'minor' },
-    { pct: 100 * 18 / 36,  label: '12pm', kind: 'major' },
-    { pct: 100 * 24 / 36,  label: '6pm',  kind: 'minor' },
-    { pct: 100 * 30 / 36,  label: '12am', kind: 'major' },
-    { pct: 100,            label: '6am',  kind: 'minor' },
-];
-const BEAD_TICKS_24H = [
-    { pct: 0,     label: '12am', kind: 'major' },
-    { pct: 12.5,  label: '3am',  kind: 'minor' },
-    { pct: 25,    label: '6am',  kind: 'minor' },
-    { pct: 37.5,  label: '9am',  kind: 'minor' },
-    { pct: 50,    label: '12pm', kind: 'major' },
-    { pct: 62.5,  label: '3pm',  kind: 'minor' },
-    { pct: 75,    label: '6pm',  kind: 'minor' },
-    { pct: 87.5,  label: '9pm',  kind: 'minor' },
-    { pct: 100,   label: '12am', kind: 'major' },
-];
+// Unified window-aware positioning. Anchors on noon of selectedDate in user tz.
+// baseHours    — total horizontal span (0..100% across it). Use ZOOM_HOURS[zoom]['36h'].
+// visibleHours — only chips whose offset from noon is ≤ visibleHours/2 render;
+//                anything outside is returned null (rendered beyond the band).
+//
+// All zoom levels position the same chips at the same % within their base
+// window, so switching 24h ↔ 36h never moves a chip — the 24h view just
+// rejects anything that falls in the hidden outer bands.
+const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
+    const chipDay  = toLocaleDateString(completedAt, timezone);
+    const chipFrac = getTimeOfDayFraction(completedAt, timezone);
+    if (chipDay === null || chipFrac === null) return null;
+    const selAnchor  = new Date(selectedDate + 'T12:00:00');
+    const chipAnchor = new Date(chipDay + 'T12:00:00');
+    const dayOffset  = Math.round((chipAnchor - selAnchor) / 86400000);
+    const hoursFromNoon = dayOffset * 24 + chipFrac * 24 - 12;
+    if (Math.abs(hoursFromNoon) > visibleHours / 2) return null;
+    return (hoursFromNoon + baseHours / 2) / baseHours * 100;
+};
 
-// ─────────── Tick / label components ──────────────────────────────────────────
+// Legacy alias — cross-day map still calls this for 'start' partial pct. Uses
+// the X-zoom 36h base (same as prior behaviour) so historical positions don't
+// shift when zoom is X.
+const bead36hXPct = (completedAt, timezone, selectedDate) =>
+    positionFor(completedAt, timezone, selectedDate, 36, 36);
+
+// ─────────── Tick / day-label builders (zoom-aware) ───────────────────────────
+// Tick interval depends on visible span: dense for small windows, coarser for
+// larger ones, so the label bar never looks crowded.
+const tickStepHoursFor = (visibleHours) => {
+    if (visibleHours <= 24) return 3;
+    if (visibleHours <= 48) return 6;
+    return 12;
+};
+
+const buildTicks = (baseHours, visibleHours) => {
+    const step = tickStepHoursFor(visibleHours);
+    const ticks = [];
+    for (let h = -baseHours / 2; h <= baseHours / 2 + 0.0001; h += step) {
+        if (Math.abs(h) > visibleHours / 2 + 0.0001) continue;  // in hidden band
+        const pct = (h + baseHours / 2) / baseHours * 100;
+        let hourOfDay = ((Math.round(h) + 12) % 24 + 24) % 24;
+        const label = hourOfDay === 0 ? '12am'
+            : hourOfDay === 12 ? '12pm'
+            : hourOfDay < 12 ? `${hourOfDay}am`
+            : `${hourOfDay - 12}pm`;
+        const kind = hourOfDay % 12 === 0 ? 'major' : 'minor';
+        ticks.push({ pct, label, kind });
+    }
+    return ticks;
+};
+
+// Day labels for each calendar day whose NOON is within the visible window.
+// The selected day is always the center; outer days appear as the window widens.
+const buildDayLabels = (selectedDate, timezone, baseHours, visibleHours) => {
+    const labels = [];
+    const halfV = visibleHours / 2;
+    const maxOffset = Math.ceil(halfV / 24);
+    for (let d = -maxOffset; d <= maxOffset; d++) {
+        const dayCenterH = d * 24;
+        if (Math.abs(dayCenterH) > halfV) continue;          // noon outside visible band
+        const pct = (dayCenterH + baseHours / 2) / baseHours * 100;
+        const dateStr = shiftDateStr(selectedDate, d);
+        labels.push({ pct, dateStr, isSelected: d === 0 });
+    }
+    return labels;
+};
+
 const BeadTimeline = ({ ticks }) => (
-    <Box className="ts-bead-timeline" data-testid="ts-bead-timeline" aria-hidden="true">
+    <Box className="ts-bead-timeline" aria-hidden="true">
         {ticks.map((t, i) => (
             <Box key={i} className={`ts-bead-tick ts-bead-tick-${t.kind}`} style={{ left: `${t.pct}%` }}>
                 <span className="ts-bead-tick-line" />
@@ -113,49 +179,77 @@ const BeadTimeline = ({ ticks }) => (
     </Box>
 );
 
-const DayLabels36h = ({ selectedDate, timezone }) => {
-    const fmt = (s) => {
-        const d = new Date(s + 'T12:00:00');
-        const opts = { weekday: 'short', month: 'short', day: 'numeric', ...(timezone && { timeZone: timezone }) };
-        return d.toLocaleDateString(undefined, opts);
-    };
-    return (
-        <Box className="ts-bead-days" aria-hidden="true">
-            <span className="ts-bead-day-label" style={{ left: '8.33%' }}>{fmt(shiftDateStr(selectedDate, -1))}</span>
-            <span className="ts-bead-day-label ts-bead-day-label-sel" style={{ left: '50%' }}>{fmt(selectedDate)}</span>
-            <span className="ts-bead-day-label" style={{ left: '91.67%' }}>{fmt(shiftDateStr(selectedDate, 1))}</span>
-        </Box>
-    );
+const formatDayLabel = (s, tz) => {
+    if (!s) return '';
+    const d = new Date(s + 'T12:00:00');
+    return d.toLocaleDateString(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric',
+        ...(tz && { timeZone: tz }),
+    });
 };
 
-const DayLabel24h = ({ selectedDate, timezone }) => {
-    const d = new Date(selectedDate + 'T12:00:00');
-    const opts = { weekday: 'short', month: 'short', day: 'numeric', ...(timezone && { timeZone: timezone }) };
-    return (
-        <Box className="ts-bead-days" aria-hidden="true">
-            <span className="ts-bead-day-label ts-bead-day-label-sel" style={{ left: '50%' }}>
-                {d.toLocaleDateString(undefined, opts)}
+// Generic day-label strip — builds labels dynamically from buildDayLabels().
+// When `inlineCount` is provided, the selected day's label shows the count
+// pill inline (to its right), on the same line — used by Sidewalk panels
+// where the standalone top-left count badge is hidden in favour of this.
+const DayLabels = ({ labels, timezone, inlineCount = null }) => (
+    <Box className="ts-bead-days" aria-hidden="true">
+        {labels.map(l => (
+            <span key={l.dateStr}
+                  className={`ts-bead-day-label ${l.isSelected ? 'ts-bead-day-label-sel' : ''}`}
+                  style={{ left: `${l.pct}%` }}>
+                {formatDayLabel(l.dateStr, timezone)}
+                {l.isSelected && inlineCount !== null && (
+                    <span className="ts-bead-day-count-inline" data-testid="ts-bead-day-count-inline">
+                        {inlineCount}
+                    </span>
+                )}
             </span>
-        </Box>
-    );
-};
+        ))}
+    </Box>
+);
 
-// ─────────── Main Bead Necklace ────────────────────────────────────────────────
-const TimeSeriesView = ({
-    requirements = [],
-    selectedDate,
-    timezone,
-    beadWindow = '24h',      // '24h' | '36h'
-    categoryList = [],
-    onPrevDay,
-    onNextDay,
-    onChipClick,
+// ─────────── Per-day bead row (reusable — 1 instance for day, 7 for week) ─────
+const BeadRow = ({
+    requirements, sessions, categoryList, selectedDate, timezone,
+    beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
+    zoomKey = DEFAULT_ZOOM,
+    crossDays = [], onChipClick, isWeekView = false,
+    sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
+    sidewalkHeight,
 }) => {
     const window36h = beadWindow === '36h';
-    const ticks = window36h ? BEAD_TICKS_36H : BEAD_TICKS_24H;
-    const xPctFn = window36h ? bead36hXPct : bead24hXPct;
+    // Sidewalk panels: each panel shows exactly the 24h day, no hidden outer
+    // bands — so adjacent panels flow together without visible seams.
+    const baseHours    = sidewalkPanel ? 24 : (ZOOM_HOURS[zoomKey]?.['36h'] ?? 36);
+    const visibleHours = sidewalkPanel ? 24 : getZoomHours(zoomKey, beadWindow);
+    const ticks        = useMemo(() => buildTicks(baseHours, visibleHours), [baseHours, visibleHours]);
+    const dayLabels    = useMemo(() => buildDayLabels(selectedDate, timezone, baseHours, visibleHours),
+                                 [selectedDate, timezone, baseHours, visibleHours]);
+    const xPctFn       = useMemo(
+        () => (t, tz, d) => positionFor(t, tz, d, baseHours, visibleHours),
+        [baseHours, visibleHours]
+    );
 
-    // Chips within the window.
+    // Layout constants:
+    //   Day view     — roomy; bubble sits above the wire/X-axis with clearance.
+    //   Week view    — compressed so 7 rows fit.
+    //   Sidewalk     — top-down flow: date + x-axis at top, bubbles stream down.
+    // bubbleOffset is the CSS bottom for row 0 in bottom-up layouts. For the
+    // top-down sidewalk layout we use topHeader instead (pixels from TOP).
+    const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
+    const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
+    // Sidewalk keeps bottom-up bubble stacking (earliest met = bottom, latest = top)
+    // just like Day/Week; only the chrome moves to the top of the panel. Fixed 400px
+    // so every panel looks identical.
+    const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
+    const { bubbleOffset, baseHeight } =
+        sidewalkPanel ? LAYOUT_SIDEWALK
+        : isWeekView   ? LAYOUT_WEEK
+        :                LAYOUT_DAY;
+
+    const sessionsByReq = useMemo(() => indexSessionsByRequirement(sessions), [sessions]);
+
     const windowChips = useMemo(() => {
         if (!selectedDate) return [];
         const out = [];
@@ -169,6 +263,9 @@ const TimeSeriesView = ({
                 title: r.title || '',
                 completed_at: r.completed_at,
                 category_fk: r.category_fk,
+                requirement_status: r.requirement_status || null,
+                coordination_type: r.coordination_type || null,
+                categoryName: cat?.category_name || null,
                 color: cat?.color || null,
                 timeHHMM: formatHM12(r.completed_at, timezone),
                 leftPct: xPct,
@@ -178,97 +275,726 @@ const TimeSeriesView = ({
         return out;
     }, [requirements, categoryList, selectedDate, timezone, xPctFn]);
 
-    // Cluster-stack the beads.
-    const minGapPct = 1.2;
-    const placed = assignRows(windowChips, minGapPct);
-    const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
-    const height = Math.max(200, maxStackRow * 18 + 140);
+    // Bead: one chip per requirement. Swarm: one chip per (req, session) pair;
+    // requirements with zero sessions get a lone chip with markerMode='left' —
+    // rendered as a short vertical bar immediately left of the met bubble.
+    //
+    // markerMode values:
+    //   'normal'  — session fully inside window; horizontal line + vertical tick at started_at
+    //   'clamped' — session started before window; dashed horizontal line from left edge
+    //   'left'    — no session at all OR started_at ≈ completed_at; vertical bar
+    //               immediately left of bubble (sessions always start before they end)
+    const CLOSE_THRESHOLD_PCT = 1.5;
+    const drawChips = useMemo(() => {
+        if (vizKey !== 'swarm') return windowChips;
+        const out = [];
+        for (const chip of windowChips) {
+            const sess = sessionsByReq.get(String(chip.id)) || [];
+            if (sess.length === 0) {
+                // No session — keep chipKey equal to the requirement id so E2E
+                // tests and anything else that looks up `ts-chip-${id}` still works.
+                out.push({
+                    ...chip,
+                    chipKey: String(chip.id),
+                    startPct: null,
+                    startClamped: false,
+                    markerMode: 'left',
+                    session: null,
+                });
+                continue;
+            }
+            for (const s of sess) {
+                const rawStart = xPctFn(s.started_at, timezone, selectedDate);
+                let startPct = rawStart;
+                let startClamped = false;
+                let markerMode = 'normal';
+                if (startPct === null && s.started_at) {
+                    startPct = 0;
+                    startClamped = true;
+                    markerMode = 'clamped';
+                } else if (
+                    startPct !== null &&
+                    Math.abs(chip.leftPct - startPct) < CLOSE_THRESHOLD_PCT
+                ) {
+                    markerMode = 'left';   // start ≈ met → bar hugs the bubble's left side
+                }
+                out.push({
+                    ...chip,
+                    chipKey: `${chip.id}-s${s.id}`,
+                    startPct,
+                    startClamped,
+                    markerMode,
+                    session: s,
+                });
+            }
+        }
+        return out;
+    }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate]);
 
-    // Now marker.
+    // Placement: cluster-stack for Bead, swarm-lane for Swarm.
+    const placed = vizKey === 'swarm' ? assignSwarmLanes(drawChips) : assignRows(drawChips, 1.2);
+    const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
+
+    // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
+    const spaceMul = isWeekView ? 1 : getSpaceMultiplier(spaceKey);
+    const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+
+    // Vertical height — must clear the date label at the top by at least half a
+    // bubble so the tallest bubble never crowds the date.
+    const dateBottom   = isWeekView ? 26 : 46;
+    const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+    const height = sidewalkPanel
+        ? baseHeight                                    // fixed uniform panels
+        : Math.max(baseHeight,
+                   maxStackRow * rowSpacing + bubbleOffset + circleDiameter
+                   + dateBottom + dateClearance);
+
+    // Unified bottom-anchored bubble positioning — earliest met (row 0) always at
+    // the bottom, latest at the top, in Day/Week and Sidewalk alike.
+    const bubbleYCss      = (row) => ({ bottom: `${row * rowSpacing + bubbleOffset}px` });
+    const bubbleCenterCss = (row) =>
+        `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
+
     const nowPct = useMemo(() => {
         const now = new Date().toISOString();
         return xPctFn(now, timezone, selectedDate);
     }, [timezone, selectedDate, xPctFn]);
 
-    const windowLabel = window36h ? '36h window' : '24h window';
+    return (
+        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''}`}
+             data-testid="ts-bead"
+             data-date={selectedDate}
+             style={{ height: `${height}px` }}>
+
+            <DayLabels
+                labels={dayLabels}
+                timezone={timezone}
+                inlineCount={sidewalkPanel ? windowChips.length : null}
+            />
+
+            {ticks.filter(t => t.kind === 'major').map((t, i) => (
+                <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
+            ))}
+
+            {nowPct !== null && (
+                <Box className="ts-now-marker" data-testid="ts-now-marker" style={{ left: `${nowPct}%` }} />
+            )}
+
+            <Box className="ts-bead-wire" />
+            <BeadTimeline ticks={ticks} />
+
+            {vizKey === 'swarm' && (
+                <svg className="ts-swarm-lines" data-testid="ts-swarm-lines"
+                     aria-hidden="true" preserveAspectRatio="none"
+                     width="100%" height="100%">
+                    <defs>
+                        <marker id={`ts-swarm-arrow-${selectedDate}`} viewBox="0 0 10 10"
+                                refX="9" refY="5" markerWidth="7" markerHeight="7"
+                                orient="auto-start-reverse">
+                            <path d="M0,0 L10,5 L0,10 z" fill="rgba(96,125,139,0.85)" />
+                        </marker>
+                    </defs>
+                    {/* Cross-day (multi-day) pass-through lines. Y lane matches the
+                        end-day's bubble lane (computed at parent) so the dashed line
+                        on intermediate days lands at the SAME Y as the bubble it leads
+                        to. Each 'start' entry also carries a vertical start bar with
+                        a datacard tooltip — gives starts without a same-day bubble
+                        the same context the met bubble provides. */}
+                    {crossDays.map((cd, i) => {
+                        const yBottom = bubbleCenterCss(cd.lane);
+                        const key = `xd-${cd.sessionId}-${cd.role}-${i}`;
+                        const hLine = {
+                            className: 'ts-swarm-line ts-swarm-line-clamped',
+                            stroke: 'rgba(96,125,139,0.85)',
+                            strokeWidth: 1.5,
+                            y1: yBottom,
+                            y2: yBottom,
+                        };
+                        if (cd.role === 'middle') {
+                            return <line key={key} {...hLine} x1="0%" x2="100%" />;
+                        }
+                        if (cd.role === 'start') {
+                            const barHalf = Math.max(6, circleDiameter / 2);
+                            const yTop = `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 + barHalf}px)`;
+                            const yBot = `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 - barHalf}px)`;
+                            const card = cd.card;
+                            return (
+                                <Tooltip
+                                    key={key}
+                                    arrow
+                                    slotProps={{
+                                        tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } },
+                                    }}
+                                    title={card ? (
+                                        <Box className="ts-datacard" data-testid={`ts-datacard-xd-${card.id}-${cd.sessionId}`}>
+                                            <div className="ts-datacard-title">#{card.id} {card.title}</div>
+                                            <div className="ts-datacard-row">
+                                                <span className="ts-datacard-key">Category</span>
+                                                <span>{card.categoryName || '—'}</span>
+                                            </div>
+                                            <div className="ts-datacard-row">
+                                                <span className="ts-datacard-key">Status</span>
+                                                <span>{card.requirement_status || '—'}</span>
+                                            </div>
+                                            <div className="ts-datacard-row">
+                                                <span className="ts-datacard-key">Autonomy</span>
+                                                <span>{formatCoordination(card.coordination_type)}</span>
+                                            </div>
+                                            <div className="ts-datacard-row">
+                                                <span className="ts-datacard-key">Closed</span>
+                                                <span>{formatCardDateTime(card.completed_at, card.timezone)}</span>
+                                            </div>
+                                            {card.session && (
+                                                <>
+                                                    <div className="ts-datacard-row">
+                                                        <span className="ts-datacard-key">Session</span>
+                                                        <span>#{card.session.id} · {card.session.swarm_status || '—'}</span>
+                                                    </div>
+                                                    <div className="ts-datacard-row">
+                                                        <span className="ts-datacard-key">Started</span>
+                                                        <span>{formatCardDateTime(card.session.started_at, card.timezone)}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </Box>
+                                    ) : ''}
+                                >
+                                    <g data-testid={`ts-swarm-start-xd-${cd.sessionId}`}>
+                                        {/* dashed horizontal tail from start to right edge */}
+                                        <line {...hLine} x1={`${cd.pct}%`} x2="100%" />
+                                        {/* solid vertical start bar at startPct */}
+                                        <line
+                                            className="ts-swarm-start-tick ts-swarm-start-tick-xstart"
+                                            stroke="rgba(96,125,139,0.85)" strokeWidth="2" strokeLinecap="round"
+                                            x1={`${cd.pct}%`} x2={`${cd.pct}%`}
+                                            y1={yTop} y2={yBot}
+                                        />
+                                        {/* invisible wider hit zone for tooltip reliability */}
+                                        <rect
+                                            x={`calc(${cd.pct}% - 8px)`} y={yTop}
+                                            width="16" height={`${barHalf * 2}`}
+                                            fill="transparent" pointerEvents="all"
+                                        />
+                                    </g>
+                                </Tooltip>
+                            );
+                        }
+                        return null;
+                    })}
+
+                    {/* Horizontal line — only for 'normal' and 'clamped'. Line y is the
+                        bubble CENTER (bubbleBottom + radius) so the arrowhead lands
+                        on the middle of the circle, not its bottom. */}
+                    {placed.map(chip => {
+                        if (chip.markerMode !== 'normal' && chip.markerMode !== 'clamped') return null;
+                        const yCenter = bubbleCenterCss(chip.row);
+                        return (
+                            <line
+                                key={`line-${chip.chipKey}`}
+                                data-testid={`ts-swarm-line-${chip.chipKey}`}
+                                className={`ts-swarm-line ${chip.markerMode === 'clamped' ? 'ts-swarm-line-clamped' : ''}`}
+                                x1={`${chip.startPct}%`}
+                                y1={yCenter}
+                                x2={`calc(${chip.leftPct}% - ${circleDiameter / 2 + 2}px)`}
+                                y2={yCenter}
+                                stroke="rgba(96,125,139,0.85)"
+                                strokeWidth="1.5"
+                                markerEnd={`url(#ts-swarm-arrow-${selectedDate})`}
+                            />
+                        );
+                    })}
+                    {/* Vertical start bar — position depends on markerMode:
+                        'normal'  → at startPct
+                        'left'    → immediately left of bubble (no session OR start ≈ met)
+                        'clamped' → skipped (horizontal dashed line already conveys it) */}
+                    {placed.map(chip => {
+                        if (chip.markerMode === 'clamped') return null;
+                        const halfBar = Math.max(6, circleDiameter / 2);
+                        const y1 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 - halfBar}px)`;
+                        const y2 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 + halfBar}px)`;
+                        const gap = circleDiameter / 2 + 3;
+                        let x;
+                        if (chip.markerMode === 'left') {
+                            x = `calc(${chip.leftPct}% - ${gap}px)`;
+                        } else if (chip.markerMode === 'normal' && chip.startPct !== null) {
+                            x = `${chip.startPct}%`;
+                        } else {
+                            return null;
+                        }
+                        return (
+                            <line
+                                key={`tick-${chip.chipKey}`}
+                                data-testid={`ts-swarm-start-${chip.chipKey}`}
+                                className={`ts-swarm-start-tick ts-swarm-start-tick-${chip.markerMode}`}
+                                x1={x} y1={y1}
+                                x2={x} y2={y2}
+                                stroke="rgba(96,125,139,0.85)"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                            />
+                        );
+                    })}
+                </svg>
+            )}
+
+            {placed.map(chip => (
+                <Tooltip
+                    key={chip.chipKey || chip.id}
+                    arrow
+                    slotProps={{
+                        tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } },
+                    }}
+                    title={
+                        <Box className="ts-datacard" data-testid={`ts-datacard-${chip.chipKey || chip.id}`}>
+                            <div className="ts-datacard-title">#{chip.id} {chip.title}</div>
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Category</span>
+                                <span>{chip.categoryName || '—'}</span>
+                            </div>
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Status</span>
+                                <span>{chip.requirement_status || '—'}</span>
+                            </div>
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Autonomy</span>
+                                <span data-testid={`ts-datacard-autonomy-${chip.chipKey || chip.id}`}>
+                                    {formatCoordination(chip.coordination_type)}
+                                </span>
+                            </div>
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Closed</span>
+                                <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
+                            </div>
+                            {chip.session && (
+                                <>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Session</span>
+                                        <span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span>
+                                    </div>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Started</span>
+                                        <span>
+                                            {chip.session.started_at
+                                                ? formatCardDateTime(chip.session.started_at, chip.timezone)
+                                                : '—'}
+                                            {chip.startClamped ? ' (before window)' : ''}
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </Box>
+                    }
+                >
+                    <Box
+                        className="ts-bead-group"
+                        data-testid={`ts-chip-${chip.chipKey || chip.id}`}
+                        data-reqid={chip.id}
+                        style={{
+                            left: `${chip.leftPct}%`,
+                            ...bubbleYCss(chip.row),
+                        }}
+                        onClick={() => onChipClick && onChipClick(chip.id)}
+                    >
+                        <span
+                            className="ts-bead-dot"
+                            data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
+                            style={{
+                                backgroundColor: chip.color || '#90a4ae',
+                                width:  `${circleDiameter}px`,
+                                height: `${circleDiameter}px`,
+                            }}
+                        />
+                    </Box>
+                </Tooltip>
+            ))}
+
+            {/* Count bubble — muted-green pill with just the number of requirements met. */}
+            <Box className="ts-bead-count" data-testid="ts-bead-count"
+                 title={`${windowChips.length} requirements met on ${formatDayLabel(selectedDate, timezone)}`}>
+                <Typography variant="caption">
+                    {windowChips.length}
+                </Typography>
+            </Box>
+        </Box>
+    );
+};
+
+// ─────────── Sidewalk — transform-based pure-drag horizontal scroller ─────────
+// The outer frame is fixed (width: 100%, overflow: hidden). The inner flex strip
+// contains 21 day panels (centered on centerDate), each exactly one frame wide.
+// Dragging the inner strip horizontally changes its translateX; release applies
+// a momentum decay then snaps to the nearest panel. No native scrollbar — the
+// user is pushing content around, not a thumb.
+const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+    const frameRef = React.useRef(null);
+    const innerRef = React.useRef(null);
+    const offsetRef = React.useRef(0);      // current translateX in px (negative = panels to the left)
+    const velocityRef = React.useRef(0);    // px / frame
+    const rafRef = React.useRef(null);
+    const lastReported = React.useRef(centerDate);
+    const hasDragged = React.useRef(false);
+    const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    const [frameWidth, setFrameWidth] = React.useState(0);
+
+    // Measure frame width; re-measure on resize. `layoutEffect` so initial paint has a width.
+    React.useLayoutEffect(() => {
+        const measure = () => {
+            const w = frameRef.current?.clientWidth || 0;
+            setFrameWidth(w);
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
+    // Apply a translateX to the inner strip without triggering React re-renders
+    // — keeps drag at native-refresh smoothness.
+    const applyOffset = (x) => {
+        offsetRef.current = x;
+        if (innerRef.current) innerRef.current.style.transform = `translate3d(${x}px,0,0)`;
+    };
+
+    const stopAnim = () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+    };
+
+    const animateTo = (target) => {
+        stopAnim();
+        const start = offsetRef.current;
+        const delta = target - start;
+        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
+        const t0 = performance.now();
+        const step = (now) => {
+            const t = Math.min(1, (now - t0) / duration);
+            const eased = 1 - (1 - t) ** 3;   // ease-out cubic
+            applyOffset(start + delta * eased);
+            if (t < 1) rafRef.current = requestAnimationFrame(step);
+            else { rafRef.current = null; reportCenterIfChanged(); }
+        };
+        rafRef.current = requestAnimationFrame(step);
+    };
+
+    const indexForOffset = () => {
+        if (frameWidth === 0) return 0;
+        const raw = -offsetRef.current / frameWidth;
+        return Math.max(0, Math.min(dates.length - 1, Math.round(raw)));
+    };
+
+    const reportCenterIfChanged = () => {
+        const d = dates[indexForOffset()];
+        if (d && d !== lastReported.current) {
+            lastReported.current = d;
+            onCenterDateChange(d);
+        }
+    };
+
+    // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
+    // If centerDate is outside the current 21-day strip (user jumped far via
+    // chevrons), rebuild the strip around the new centerDate so the Sidewalk
+    // stays coherent with the rest of the calendar state.
+    React.useEffect(() => {
+        if (frameWidth === 0) return;
+        if (centerDate === lastReported.current) return;
+        const idx = dates.indexOf(centerDate);
+        if (idx < 0) {
+            // Rebuild strip around the new centerDate and snap to its center.
+            const rebuilt = centeredDateRange(centerDate, 10);
+            setDates(rebuilt);
+            lastReported.current = centerDate;
+            requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * frameWidth));
+            return;
+        }
+        lastReported.current = centerDate;
+        animateTo(-idx * frameWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [centerDate, frameWidth]);
+
+    // Initial placement on mount — put centerDate at index-of.
+    React.useEffect(() => {
+        if (frameWidth === 0) return;
+        const idx = dates.indexOf(centerDate);
+        if (idx >= 0) applyOffset(-idx * frameWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameWidth]);
+
+    // Drag + momentum. Bind once per frameWidth so closures see a stable width.
+    React.useEffect(() => {
+        const frame = frameRef.current;
+        if (!frame || frameWidth === 0) return;
+        let isDown = false;
+        let startPageX = 0;
+        let startOffset = 0;
+        let lastPageX = 0;
+        let lastT = 0;
+
+        const onDown = (e) => {
+            if (e.button !== 0) return;
+            isDown = true;
+            hasDragged.current = false;
+            startPageX = e.pageX;
+            startOffset = offsetRef.current;
+            lastPageX = e.pageX;
+            lastT = performance.now();
+            velocityRef.current = 0;
+            stopAnim();
+            frame.style.cursor = 'grabbing';
+            e.preventDefault();
+        };
+        const onMove = (e) => {
+            if (!isDown) return;
+            const dx = e.pageX - startPageX;
+            if (Math.abs(dx) > 4) hasDragged.current = true;
+            applyOffset(startOffset + dx);
+            const now = performance.now();
+            const dt = Math.max(1, now - lastT);
+            velocityRef.current = ((e.pageX - lastPageX) / dt) * 16;
+            lastPageX = e.pageX;
+            lastT = now;
+        };
+        const onUp = () => {
+            if (!isDown) return;
+            isDown = false;
+            frame.style.cursor = '';
+            if (!hasDragged.current) { return; }    // treat as click
+            const decay = () => {
+                if (Math.abs(velocityRef.current) < 0.4) {
+                    rafRef.current = null;
+                    reportCenterIfChanged();       // no snap — stop wherever momentum ends
+                    return;
+                }
+                applyOffset(offsetRef.current + velocityRef.current);
+                velocityRef.current *= 0.93;
+                rafRef.current = requestAnimationFrame(decay);
+            };
+            rafRef.current = requestAnimationFrame(decay);
+        };
+        // Suppress bubble clicks that would fire at the end of a drag.
+        const onClickCapture = (e) => {
+            if (hasDragged.current) {
+                e.stopPropagation();
+                e.preventDefault();
+                hasDragged.current = false;
+            }
+        };
+        // Trackpad / mouse wheel: horizontal scroll translates to offset.
+        const onWheel = (e) => {
+            const dxRaw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (!dxRaw) return;
+            e.preventDefault();
+            stopAnim();
+            applyOffset(offsetRef.current - dxRaw);
+            reportCenterIfChanged();
+        };
+
+        frame.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        frame.addEventListener('click', onClickCapture, true);
+        frame.addEventListener('wheel', onWheel, { passive: false });
+        return () => {
+            frame.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('click', onClickCapture, true);
+            frame.removeEventListener('wheel', onWheel);
+            stopAnim();
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameWidth, dates.length]);
 
     return (
-        <Box className="ts-view" data-testid="time-series-view">
-            <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'}`}
-                 data-testid="ts-bead"
-                 style={{ height: `${height}px` }}>
+        <Box className="ts-sidewalk" data-testid="ts-sidewalk" ref={frameRef}>
+            <Box className="ts-sidewalk-inner" ref={innerRef}>
+                {dates.map(d => (
+                    <Box key={d} className="ts-sidewalk-panel" data-date={d}
+                         style={{ width: frameWidth || '100%', flex: `0 0 ${frameWidth || 1}px` }}>
+                        <BeadRow selectedDate={d}
+                                 sidewalkPanel={true}
+                                 sidewalkHeight={400}
+                                 {...rowProps} />
+                    </Box>
+                ))}
+            </Box>
+        </Box>
+    );
+};
 
-                <IconButton
-                    className="ts-bead-nav ts-bead-nav-prev"
-                    data-testid="ts-bead-prev-day"
-                    onClick={onPrevDay}
-                    size="small"
-                    aria-label="previous day"
-                >
-                    <ChevronLeftIcon />
-                </IconButton>
-                <IconButton
-                    className="ts-bead-nav ts-bead-nav-next"
-                    data-testid="ts-bead-next-day"
-                    onClick={onNextDay}
-                    size="small"
-                    aria-label="next day"
-                >
-                    <ChevronRightIcon />
-                </IconButton>
+// ─────────── Top-level TimeSeriesView ──────────────────────────────────────────
+const TimeSeriesView = ({
+    requirements = [],
+    sessions = [],
+    selectedDate,
+    timezone,
+    beadWindow = '24h',
+    vizKey = DEFAULT_VIZ,
+    sidewalkOn = false,
+    isWeekView = false,
+    categoryList = [],
+    onChipClick,
+    onCenterDateChange,
+}) => {
+    // The UI Options amber bar was removed 2026-04-18 — Viz and Sidewalk
+    // were promoted to the toolbar, and the remaining controls have landed
+    // on good defaults that ship as-is.
+    const fontSizeKey  = DEFAULT_FONT_SIZE;
+    const spaceKey     = DEFAULT_SPACE;
+    const zoomKey      = DEFAULT_ZOOM;
+    const circleSizeKey = sidewalkOn
+        ? 1                                              // Sidewalk always uses size 1
+        : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
+    const tooltipFontSize = getFontSize(fontSizeKey);
+    const circleDiameter  = getCircleSize(circleSizeKey);
 
-                {window36h
-                    ? <DayLabels36h selectedDate={selectedDate} timezone={timezone} />
-                    : <DayLabel24h selectedDate={selectedDate} timezone={timezone} />
+    // Week view: 7 dates Mon..Sun rendered top=earliest → bottom=Sunday.
+    // Stack always ends at Sunday (ISO week convention).
+    const rowDates = useMemo(() => {
+        if (!isWeekView) return [selectedDate];
+        return weekDates(selectedDate); // Mon..Sun ascending
+    }, [isWeekView, selectedDate]);
+
+    // Cross-day session lines — only matters in Week + Swarm mode. For each
+    // session whose started_at and linked requirement's completed_at fall on
+    // different days within the visible week, build a per-day entry so BeadRow
+    // can draw a dashed "in-flight" line at the session's lane Y.
+    //
+    // Each entry also carries the chip datacard payload (reqId, title,
+    // category, status, coordination, session info) so BeadRow can wrap the
+    // vertical start bar in a tooltip matching the bubble's datacard.
+    //
+    // Lane alignment — each cross-day entry uses the row the session's chip
+    // will actually occupy on its end day (computed via assignSwarmLanes per
+    // day). That way the dashed line on prior days lands at the SAME Y as
+    // the bubble on the end day.
+    const crossDayMap = useMemo(() => {
+        const map = new Map(); // date → [{ sessionId, role, lane, pct?, card? }]
+        if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return map;
+        const dateSet = new Set(rowDates);
+        const sessionsByReq = indexSessionsByRequirement(sessions);
+
+        // Build the same swarm chip list BeadRow will build for each day, then
+        // run assignSwarmLanes to find each chip's row. Lets us look up
+        // `endDayLane(reqId, sessionId)` → row.
+        const dayLaneMap = new Map(); // date → Map(chipKey → row)
+        for (const d of rowDates) {
+            const chips = [];
+            for (const r of requirements) {
+                if (!r.completed_at) continue;
+                if (toLocaleDateString(r.completed_at, timezone) !== d) continue;
+                const linked = sessionsByReq.get(String(r.id)) || [];
+                if (linked.length === 0) {
+                    chips.push({ chipKey: String(r.id), id: r.id, completed_at: r.completed_at });
+                    continue;
+                }
+                for (const s of linked) {
+                    chips.push({ chipKey: `${r.id}-s${s.id}`, id: r.id, completed_at: r.completed_at });
+                }
+            }
+            const placed = assignSwarmLanes(chips);
+            const m = new Map();
+            for (const c of placed) m.set(c.chipKey, c.row);
+            dayLaneMap.set(d, m);
+        }
+
+        for (const r of requirements) {
+            if (!r.completed_at) continue;
+            const endDay = toLocaleDateString(r.completed_at, timezone);
+            if (!dateSet.has(endDay)) continue;
+            const linked = sessionsByReq.get(String(r.id)) || [];
+            const cat = categoryList.find(c => c.id === r.category_fk);
+            for (const s of linked) {
+                if (!s.started_at) continue;
+                const startDay = toLocaleDateString(s.started_at, timezone);
+                if (startDay === endDay) continue;           // single-day session — skip
+                if (startDay > endDay) continue;             // nonsensical — skip
+
+                const chipKey = `${r.id}-s${s.id}`;
+                const endLane = dayLaneMap.get(endDay)?.get(chipKey) ?? 0;
+
+                // Datacard payload — shared by the vertical start bar's tooltip
+                // and the end-day bubble's tooltip.
+                const card = {
+                    id: r.id,
+                    title: r.title || '',
+                    categoryName: cat?.category_name || null,
+                    color: cat?.color || null,
+                    requirement_status: r.requirement_status || null,
+                    coordination_type: r.coordination_type || null,
+                    completed_at: r.completed_at,
+                    timezone,
+                    session: s,
+                };
+
+                // Start day entry — partial dashed line from startPct → 100%,
+                // plus a vertical start bar at startPct with a tooltip.
+                if (dateSet.has(startDay)) {
+                    const startPct = bead36hXPct(s.started_at, timezone, startDay);
+                    if (startPct !== null) {
+                        const arr = map.get(startDay) || [];
+                        arr.push({ sessionId: s.id, role: 'start', lane: endLane, pct: startPct, card });
+                        map.set(startDay, arr);
+                    }
                 }
 
-                {ticks.filter(t => t.kind === 'major').map((t, i) => (
-                    <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
-                ))}
+                // Middle days — full-width pass-through
+                let cursor = shiftDateStr(startDay, 1);
+                while (cursor < endDay && dateSet.has(cursor)) {
+                    const arr = map.get(cursor) || [];
+                    arr.push({ sessionId: s.id, role: 'middle', lane: endLane });
+                    map.set(cursor, arr);
+                    cursor = shiftDateStr(cursor, 1);
+                }
+                // End day — bubble + in-row clamped line handle it.
+            }
+        }
+        return map;
+    }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone, categoryList]);
 
-                {nowPct !== null && (
-                    <Box className="ts-now-marker" data-testid="ts-now-marker" style={{ left: `${nowPct}%` }} />
-                )}
-
-                <Box className="ts-bead-wire" />
-                <BeadTimeline ticks={ticks} />
-
-                {placed.map(chip => (
-                    <Tooltip
-                        key={chip.id}
-                        title={
-                            <>
-                                <div>#{chip.id} {chip.title}</div>
-                                <div style={{ opacity: 0.8, fontSize: '0.8em' }}>{formatCardDateTime(chip.completed_at, chip.timezone)}</div>
-                            </>
-                        }
-                        arrow
-                    >
-                        <Box
-                            className="ts-bead-group"
-                            data-testid={`ts-chip-${chip.id}`}
-                            style={{
-                                left: `${chip.leftPct}%`,
-                                bottom: `${chip.row * 18 + 88}px`,
-                            }}
-                            onClick={() => onChipClick && onChipClick(chip.id)}
-                        >
-                            <span className="ts-bead-id">#{chip.id}</span>
-                            <span
-                                className="ts-bead-dot"
-                                style={{ backgroundColor: chip.color || '#90a4ae' }}
-                            />
-                        </Box>
-                    </Tooltip>
-                ))}
-
-                <Box className={`ts-bead-count ts-bead-count-${window36h ? '36h' : '24h'}`}
-                     data-testid="ts-bead-count">
-                    <Typography variant="caption" color="text.secondary">
-                        {windowChips.length} closed · {windowLabel}
-                    </Typography>
+    return (
+        <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
+            {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
+                horizontally-scrolling Sidewalk for Day + sidewalkOn. */}
+            {sidewalkOn && !isWeekView ? (
+                <Sidewalk
+                    centerDate={selectedDate}
+                    onCenterDateChange={onCenterDateChange || (() => {})}
+                    requirements={requirements}
+                    sessions={sessions}
+                    timezone={timezone}
+                    beadWindow={beadWindow}
+                    vizKey={vizKey}
+                    tooltipFontSize={tooltipFontSize}
+                    circleDiameter={circleDiameter}
+                    spaceKey={spaceKey}
+                    zoomKey={zoomKey}
+                    categoryList={categoryList}
+                    isWeekView={false}
+                    onChipClick={onChipClick}
+                />
+            ) : (
+                <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
+                    {rowDates.map(d => (
+                        <BeadRow
+                            key={d}
+                            requirements={requirements}
+                            sessions={sessions}
+                            selectedDate={d}
+                            timezone={timezone}
+                            beadWindow={beadWindow}
+                            vizKey={vizKey}
+                            tooltipFontSize={tooltipFontSize}
+                            circleDiameter={circleDiameter}
+                            spaceKey={spaceKey}
+                            zoomKey={zoomKey}
+                            categoryList={categoryList}
+                            isWeekView={isWeekView}
+                            crossDays={crossDayMap.get(d) || []}
+                            onChipClick={onChipClick}
+                        />
+                    ))}
                 </Box>
-            </Box>
+            )}
         </Box>
     );
 };

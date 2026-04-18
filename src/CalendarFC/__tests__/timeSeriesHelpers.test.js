@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { trimTo35 } from '../../utils/stringFormat';
-import { getTimeOfDayFraction, toLocaleDateString, formatHHMM, formatHM12 } from '../../utils/dateFormat';
+import { getTimeOfDayFraction, toLocaleDateString, formatHHMM, formatHM12, localDateStr } from '../../utils/dateFormat';
 
 describe('trimTo35', () => {
     it('returns empty for null/undefined/empty', () => {
@@ -119,6 +119,29 @@ describe('formatHM12 (AM/PM chip labels)', () => {
 
     it('zero-pads minutes', () => {
         expect(formatHM12('2026-04-17 09:05:00', 'UTC')).toBe('9:05a');
+    });
+});
+
+describe('localDateStr (browser-local YYYY-MM-DD)', () => {
+    it('returns YYYY-MM-DD format', () => {
+        expect(localDateStr()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('uses the browser local calendar, not UTC', () => {
+        // Construct a Date that is explicitly 23:30 local on Apr 17.
+        // toISOString() would report Apr 18 if browser is west of UTC — localDateStr must not.
+        const d = new Date(2026, 3, 17, 23, 30, 0);   // month is 0-indexed: 3 = April
+        expect(localDateStr(d)).toBe('2026-04-17');
+    });
+
+    it('pads single-digit months and days to two chars', () => {
+        const d = new Date(2026, 0, 5, 12, 0, 0);
+        expect(localDateStr(d)).toBe('2026-01-05');
+    });
+
+    it('handles the end-of-year boundary correctly', () => {
+        const d = new Date(2026, 11, 31, 23, 59, 59);
+        expect(localDateStr(d)).toBe('2026-12-31');
     });
 });
 

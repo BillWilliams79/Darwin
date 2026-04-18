@@ -5,11 +5,72 @@
     gap: 16px;
 }
 
+/* ── Datacard (hover tooltip body) ── */
+.ts-datacard {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.ts-datacard-title {
+    font-weight: 700;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+    margin-bottom: 4px;
+}
+.ts-datacard-row {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+}
+.ts-datacard-key {
+    opacity: 0.75;
+    font-weight: 500;
+    min-width: 68px;
+    flex-shrink: 0;
+}
+
+/* ── Sidewalk — transform-based pure-drag scroller ── */
+.ts-sidewalk {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+    touch-action: pan-y;       /* let vertical page scroll pass through, we handle horizontal */
+}
+.ts-sidewalk:active { cursor: grabbing; }
+.ts-sidewalk-inner {
+    display: flex;
+    flex-direction: row;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+.ts-sidewalk-panel {
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+.ts-sidewalk-panel .ts-bead {
+    min-width: 0;              /* override BeadRow's 720px so it shrinks into the panel */
+}
+
+/* ── Row stack (Day = 1 row, Week = 7 rows) ── */
+.ts-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ts-rows-week {
+    gap: 6px;
+}
+
 /* ── Bead Necklace ── */
 .ts-bead {
     position: relative;
     min-width: 720px;
-    padding: 0 40px;          /* room for edge nav arrows */
+    padding: 0 16px;
     border-radius: 8px;
     overflow: hidden;
 }
@@ -28,9 +89,8 @@
 
 .ts-bead-wire {
     position: absolute;
-    left: 40px;
-    right: 40px;
-    bottom: 78px;
+    left: 16px;
+    right: 16px;
     height: 1px;
     background: rgba(0, 0, 0, 0.2);
     z-index: 1;
@@ -39,8 +99,6 @@
 /* Midnight/noon dividers */
 .ts-bead-divider {
     position: absolute;
-    top: 8px;
-    bottom: 48px;
     width: 1px;
     background: rgba(0, 0, 0, 0.22);
     pointer-events: none;
@@ -50,12 +108,99 @@
 /* X-axis timeline ticks */
 .ts-bead-timeline {
     position: absolute;
-    left: 40px;
-    right: 40px;
-    bottom: 24px;
+    left: 16px;
+    right: 16px;
     height: 44px;
     pointer-events: none;
     z-index: 1;
+}
+
+/* Day view — roomy (default) */
+.ts-bead-day  .ts-bead-wire     { bottom: 78px; }
+.ts-bead-day  .ts-bead-timeline { bottom: 24px; }
+.ts-bead-day  .ts-bead-divider  { top: 8px; bottom: 48px; }
+
+/* Week view — compressed so 7 rows fit */
+.ts-bead-week .ts-bead-wire     { bottom: 64px; }
+.ts-bead-week .ts-bead-timeline { bottom: 10px; }
+.ts-bead-week .ts-bead-divider  { top: 4px; bottom: 34px; }
+
+/* Sidewalk panel — chrome at top (date on row 1, x-axis time on row 2),
+   bubbles stack bottom-up as usual. No side padding so adjacent 24h panels
+   butt up seamlessly. */
+.ts-bead-sidewalk {
+    padding: 0;
+    background: transparent;
+}
+/* Row 1 — date (with inline count pill) */
+.ts-bead-sidewalk .ts-bead-days {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    height: 18px;
+}
+.ts-bead-sidewalk .ts-bead-day-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+}
+.ts-bead-day-count-inline {
+    display: inline-block;
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #6fa86f;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.74rem;
+    line-height: 1.4;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+body.darwin-dark .ts-bead-day-count-inline {
+    background: #2e3b2e;
+    border: 1px solid #4a7a4a;
+    color: #81c784;
+}
+
+/* Row 2 — time axis */
+.ts-bead-sidewalk .ts-bead-timeline {
+    top: 30px;
+    bottom: auto;
+    left: 0;
+    right: 0;
+    height: 18px;
+}
+/* Tick label above the line so the numbers sit outside the bubble area */
+.ts-bead-sidewalk .ts-bead-tick {
+    flex-direction: column-reverse;
+}
+.ts-bead-sidewalk .ts-bead-tick-line {
+    height: 6px;
+}
+.ts-bead-sidewalk .ts-bead-tick-major .ts-bead-tick-line {
+    height: 10px;
+}
+.ts-bead-sidewalk .ts-bead-tick-label {
+    margin-top: 0;
+    margin-bottom: 2px;
+}
+/* Vertical dividers span only the bubble area (below the chrome). */
+.ts-bead-sidewalk .ts-bead-divider {
+    top: 50px;
+    bottom: 10px;
+    height: auto;
+}
+/* Wire — short axis line just under the time ticks, above bubble area. */
+.ts-bead-sidewalk .ts-bead-wire {
+    top: 50px;
+    bottom: auto;
+    left: 0;
+    right: 0;
+}
+/* Hide the standalone count badge — Sidewalk shows it inline with the date. */
+.ts-bead-sidewalk .ts-bead-count {
+    display: none;
 }
 .ts-bead-tick {
     position: absolute;
@@ -85,16 +230,20 @@
     color: rgba(0, 0, 0, 0.85);
 }
 
-/* Day labels */
+/* Day labels — share the top row with the count bubble */
 .ts-bead-days {
     position: absolute;
-    left: 40px;
-    right: 40px;
-    top: 8px;
+    left: 56px;              /* clear the count bubble */
+    right: 16px;
+    top: 6px;
     height: 20px;
     pointer-events: none;
     z-index: 1;
 }
+
+/* Day view — add ~20px whitespace above the date/count so the bubble rail breathes. */
+.ts-bead-day .ts-bead-days { top: 26px; }
+.ts-bead-day .ts-bead-count { top: 24px; }
 .ts-bead-day-label {
     position: absolute;
     transform: translateX(-50%);
@@ -136,18 +285,6 @@
     z-index: 2;
     gap: 2px;
 }
-.ts-bead-id {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: rgba(0, 0, 0, 0.78);
-    background: rgba(255, 255, 255, 0.9);
-    padding: 0 4px;
-    line-height: 1.2;
-    border-radius: 3px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-    white-space: nowrap;
-}
 .ts-bead-dot {
     display: inline-block;
     width: 12px;
@@ -159,6 +296,21 @@
 .ts-bead-group:hover .ts-bead-dot {
     transform: scale(1.4);
     box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Swarm Visualizer — SVG overlay for session-start → bubble lines */
+.ts-swarm-lines {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+.ts-swarm-line-clamped {
+    stroke-dasharray: 4 3;
+    opacity: 0.7;
 }
 
 /* Now marker */
@@ -173,26 +325,28 @@
     z-index: 2;
 }
 
-/* Count — below the X axis */
-.ts-bead-count-36h {
+/* Count bubble — muted green, top-left, same line as the date label.
+   Tight padding — the number alone, no extra chrome. */
+.ts-bead-count {
     position: absolute;
-    bottom: 4px;
-    left: 40px;
-    max-width: calc(16.67% - 4px);
-    z-index: 2;
-    opacity: 0.85;
-    font-style: italic;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    top: 4px;
+    left: 12px;
+    z-index: 3;
+    min-width: 20px;
+    padding: 0 6px;
+    text-align: center;
+    border-radius: 999px;
+    background: #6fa86f;
+    color: #ffffff;
+    font-weight: 700;
+    line-height: 1.45;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-.ts-bead-count-24h {
-    position: absolute;
-    bottom: 4px;
-    left: 40px;
-    z-index: 2;
-    opacity: 0.85;
-    font-style: italic;
+.ts-bead-count .MuiTypography-root {
+    color: #ffffff;
+    font-weight: 700;
+    font-size: clamp(0.7rem, 2.5vw, 0.85rem);
+    line-height: inherit;
 }
 
 @media (max-width: 900px) {
@@ -225,11 +379,6 @@ body.darwin-dark .ts-bead-tick-label { color: rgba(255, 255, 255, 0.82); }
 body.darwin-dark .ts-bead-tick-major .ts-bead-tick-label { color: #fff; }
 body.darwin-dark .ts-bead-day-label { color: rgba(255, 255, 255, 0.6); }
 body.darwin-dark .ts-bead-day-label-sel { color: #fff; }
-body.darwin-dark .ts-bead-id {
-    color: rgba(255, 255, 255, 0.95);
-    background: rgba(40, 40, 40, 0.9);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
 body.darwin-dark .ts-bead-dot {
     box-shadow: 0 0 0 2px rgba(220, 220, 220, 0.85), 0 1px 3px rgba(0, 0, 0, 0.6);
 }
@@ -247,4 +396,23 @@ body.darwin-dark .ts-bead-nav:hover {
 }
 body.darwin-dark .ts-bead-nav .MuiSvgIcon-root {
     color: rgba(255, 255, 255, 0.92);
+}
+/* Dark-mode count bubble = task-on-calendar dark scheme
+   (bg #2e3b2e, text #81c784, border #4a7a4a — matches PRIORITY_STYLE_DARK in CalendarFC). */
+body.darwin-dark .ts-bead-count {
+    background: #2e3b2e;
+    border: 1px solid #4a7a4a;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+body.darwin-dark .ts-bead-count .MuiTypography-root {
+    color: #81c784;
+    font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+}
+
+body.darwin-dark .ts-swarm-line,
+body.darwin-dark .ts-swarm-start-tick {
+    stroke: rgba(207, 216, 220, 0.85) !important;
+}
+body.darwin-dark .ts-swarm-lines marker path {
+    fill: rgba(207, 216, 220, 0.85);
 }

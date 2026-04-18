@@ -1,18 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { currentPeriodStart } from '../utils/dateFormat';
+import { currentPeriodStart, localDateStr } from '../utils/dateFormat';
 
 export const useCalendarViewStore = create(
     persist(
         (set, get) => ({
             viewType: 'dayGridMonth',
-            currentDate: new Date().toISOString().slice(0, 10),
+            currentDate: localDateStr(),
             mode: ['tasks', 'activities', 'requirements'],
             summaryMode: null,   // null | 'week' | 'month'
             summaryDate: null,   // YYYY-MM-DD start of viewed period
 
             timeSeriesMode: null,          // null | 'day'
             timeSeriesBeadWindow: '24h',   // '24h' | '36h'
+            timeSeriesVizKey: 'bead',      // 'bead' | 'swarm' — controlled by toolbar buttons
+            timeSeriesSidewalkOn: false,   // toolbar toggle
 
             setCalendarView: ({ viewType, currentDate }) =>
                 set({ viewType, currentDate }),
@@ -39,10 +41,16 @@ export const useCalendarViewStore = create(
 
             setTimeSeriesBeadWindow: (win) =>
                 set({ timeSeriesBeadWindow: win }),
+
+            setTimeSeriesVizKey: (viz) =>
+                set({ timeSeriesVizKey: viz }),
+
+            setTimeSeriesSidewalkOn: (on) =>
+                set({ timeSeriesSidewalkOn: !!on }),
         }),
         {
             name: 'darwin_calendar_view',
-            version: 5,
+            version: 6,
             migrate: (persisted, version) => {
                 const base = {
                     ...persisted,
@@ -51,12 +59,12 @@ export const useCalendarViewStore = create(
                         : persisted.mode || ['tasks', 'activities', 'requirements'],
                     summaryMode: persisted.summaryMode ?? null,
                     summaryDate: persisted.summaryDate ?? null,
-                    timeSeriesMode: null,            // always reset (bead defaults)
-                    timeSeriesBeadWindow: '24h',     // always reset
+                    timeSeriesMode: null,
+                    timeSeriesBeadWindow: '24h',
+                    timeSeriesVizKey: 'bead',
+                    timeSeriesSidewalkOn: false,
                 };
-                // mode value rename from earlier migrations
                 base.mode = base.mode.map(m => m === 'priorities' ? 'requirements' : m);
-                // Drop obsolete v4 keys (rich UI option set) silently.
                 delete base.timeSeriesView;
                 delete base.timeSeriesGranularity;
                 delete base.timeSeriesChipMode;
