@@ -303,7 +303,10 @@ const PeriodSummaryView = ({
                                                         <Typography key={requirement.id} variant="body2" sx={{
                                                             pl: 2, cursor: 'pointer', '&:hover': { textDecoration: 'underline' },
                                                         }}
-                                                            onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}>
+                                                            onClick={() => {
+                                                                sessionStorage.setItem('calview_scrollY', String(window.scrollY));
+                                                                navigate(`/swarm/requirement/${requirement.id}`, { state: { from: 'calendar' } });
+                                                            }}>
                                                             {requirement.title}
                                                         </Typography>
                                                     ))}
