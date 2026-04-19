@@ -8,6 +8,7 @@ import {
     VIZ_KEYS, DEFAULT_VIZ,
     SPACE_KEYS, DEFAULT_SPACE, SPACE_MULTIPLIERS, getSpaceMultiplier,
     ZOOM_KEYS, DEFAULT_ZOOM, ZOOM_HOURS, getZoomHours,
+    SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime,
 } from '../timeSeriesSizes';
 
 describe('Font size option A/B/C/D', () => {
@@ -248,6 +249,137 @@ describe('Space option 1/2/3/4 — bubble whitespace multiplier', () => {
         expect(getSpaceMultiplier(null)).toBe(SPACE_MULTIPLIERS[DEFAULT_SPACE]);
         expect(getSpaceMultiplier(undefined)).toBe(SPACE_MULTIPLIERS[DEFAULT_SPACE]);
         expect(getSpaceMultiplier(99)).toBe(SPACE_MULTIPLIERS[DEFAULT_SPACE]);
+    });
+});
+
+// ─── clusterSessionsByStartTime (req #2341 — Visualizer start-time alignment) ────
+describe('clusterSessionsByStartTime', () => {
+    const mk = (id, startedAt) => ({ id, started_at: startedAt });
+
+    it('returns empty maps for null / undefined / empty / non-array input', () => {
+        for (const v of [null, undefined, [], 'nope', 42]) {
+            const { canonical, clusterSize } = clusterSessionsByStartTime(v);
+            expect(canonical.size).toBe(0);
+            expect(clusterSize.size).toBe(0);
+        }
+    });
+
+    it('exposes a 3-minute default window constant', () => {
+        expect(SWARM_CLUSTER_WINDOW_MS).toBe(3 * 60 * 1000);
+    });
+
+    it('single session → singleton cluster, canonical = own started_at, size = 1', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(10, '2026-04-17T09:00:00Z'),
+        ]);
+        expect(canonical.get('10')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('10')).toBe(1);
+    });
+
+    it('two sessions within 3 min → same cluster, canonical = earliest, size = 2', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, '2026-04-17T09:02:30Z'),
+        ]);
+        expect(canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('2')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('1')).toBe(2);
+        expect(clusterSize.get('2')).toBe(2);
+    });
+
+    it('two sessions > 3 min apart → two singleton clusters', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, '2026-04-17T09:04:00Z'),
+        ]);
+        expect(canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('2')).toBe('2026-04-17T09:04:00Z');
+        expect(clusterSize.get('1')).toBe(1);
+        expect(clusterSize.get('2')).toBe(1);
+    });
+
+    it('transitive chain (0, +2, +4 min) collapses into one cluster', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, '2026-04-17T09:02:00Z'),
+            mk(3, '2026-04-17T09:04:00Z'),
+        ]);
+        expect(canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('2')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('3')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('1')).toBe(3);
+        expect(clusterSize.get('2')).toBe(3);
+        expect(clusterSize.get('3')).toBe(3);
+    });
+
+    it('unsorted input still clusters correctly', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(3, '2026-04-17T09:04:00Z'),
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, '2026-04-17T09:02:00Z'),
+        ]);
+        expect(canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('2')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('3')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('1')).toBe(3);
+    });
+
+    it('sessions with null / missing started_at are excluded', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, null),
+            mk(3, undefined),
+            mk(4, ''),
+            mk(5, '2026-04-17T09:01:00Z'),
+        ]);
+        expect(canonical.has('2')).toBe(false);
+        expect(canonical.has('3')).toBe(false);
+        expect(canonical.has('4')).toBe(false);
+        expect(canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('5')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('1')).toBe(2);
+    });
+
+    it('sessions with invalid started_at are excluded', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, 'not-a-date'),
+        ]);
+        expect(canonical.has('2')).toBe(false);
+        expect(clusterSize.get('1')).toBe(1);
+    });
+
+    it('threshold override splits a pair that the default would have merged', () => {
+        const sessions = [
+            mk(1, '2026-04-17T09:00:00Z'),
+            mk(2, '2026-04-17T09:02:30Z'),
+        ];
+        const tight = clusterSessionsByStartTime(sessions, 60 * 1000); // 1 min
+        expect(tight.canonical.get('1')).toBe('2026-04-17T09:00:00Z');
+        expect(tight.canonical.get('2')).toBe('2026-04-17T09:02:30Z');
+        expect(tight.clusterSize.get('1')).toBe(1);
+        expect(tight.clusterSize.get('2')).toBe(1);
+    });
+
+    it('string ids are supported and keyed consistently as strings', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            { id: 'abc', started_at: '2026-04-17T09:00:00Z' },
+            { id: 42,    started_at: '2026-04-17T09:01:00Z' },
+        ]);
+        expect(canonical.get('abc')).toBe('2026-04-17T09:00:00Z');
+        expect(canonical.get('42')).toBe('2026-04-17T09:00:00Z');
+        expect(clusterSize.get('abc')).toBe(2);
+        expect(clusterSize.get('42')).toBe(2);
+    });
+
+    it('malformed entries (null, missing id) are skipped silently', () => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            null,
+            { started_at: '2026-04-17T09:00:00Z' }, // no id
+            mk(7, '2026-04-17T09:01:00Z'),
+        ]);
+        expect(canonical.size).toBe(1);
+        expect(clusterSize.get('7')).toBe(1);
     });
 });
 
