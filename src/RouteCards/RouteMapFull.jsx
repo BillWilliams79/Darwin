@@ -37,9 +37,6 @@ const CARTO_VOYAGER_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager
 const ESRI_TOPO_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
 const ESRI_TOPO_ATTR = '&copy; Esri, HERE, Garmin, USGS';
 
-const ESRI_NATGEO_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}';
-const ESRI_NATGEO_ATTR = '&copy; Esri, National Geographic';
-
 // --- Overlays (no key required) ---
 const WAYMARKED_CYCLING_URL = 'https://tile.waymarkedtrails.org/cycling/{z}/{x}/{y}.png';
 const WAYMARKED_ATTR = '&copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>';
@@ -242,9 +239,6 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
                 </LayersControl.BaseLayer>
                 <LayersControl.BaseLayer name="Cycling (CyclOSM)">
                     <TileLayer url={CYCLOSM_URL} attribution={CYCLOSM_ATTR} />
-                </LayersControl.BaseLayer>
-                <LayersControl.BaseLayer name="National Geographic">
-                    <TileLayer url={ESRI_NATGEO_URL} attribution={ESRI_NATGEO_ATTR} />
                 </LayersControl.BaseLayer>
                 <LayersControl.BaseLayer name="Voyager">
                     <TileLayer url={CARTO_VOYAGER_URL} attribution={CARTO_ATTR} />
