@@ -97,3 +97,47 @@ export const VIZ_KEYS = ['bead', 'swarm'];
 export const VIZ_LABELS = { bead: 'Bead', swarm: 'Swarm' };
 export const DEFAULT_VIZ = 'bead';
 
+// ── Swarm start-time clustering (req #2341) ─────────────────────────────────────
+// Sessions whose started_at fall within this window are treated as a single swarm
+// and share one canonical start X so their vertical start-bars line up.
+export const SWARM_CLUSTER_WINDOW_MS = 3 * 60 * 1000;   // 3 minutes
+
+// Group sessions by proximity of started_at. Any two sessions whose starts are
+// within `thresholdMs` of each other belong to the same cluster (transitive).
+// Returns:
+//   canonical    — Map<string sessionId, ISO started_at of earliest in cluster>
+//   clusterSize  — Map<string sessionId, number of members in its cluster>
+// Sessions with null/invalid started_at are excluded silently.
+export function clusterSessionsByStartTime(sessions, thresholdMs = SWARM_CLUSTER_WINDOW_MS) {
+    const canonical = new Map();
+    const clusterSize = new Map();
+    if (!Array.isArray(sessions) || sessions.length === 0) return { canonical, clusterSize };
+
+    const valid = [];
+    for (const s of sessions) {
+        if (!s || s.id == null || !s.started_at) continue;
+        const ms = new Date(s.started_at).getTime();
+        if (Number.isNaN(ms)) continue;
+        valid.push({ id: String(s.id), startedAt: s.started_at, startMs: ms });
+    }
+    valid.sort((a, b) => a.startMs - b.startMs || a.id.localeCompare(b.id));
+
+    let cur = null;
+    const clusters = [];
+    for (const item of valid) {
+        if (!cur || item.startMs - cur.lastMs > thresholdMs) {
+            cur = { minStartedAt: item.startedAt, lastMs: item.startMs, members: [] };
+            clusters.push(cur);
+        }
+        cur.members.push(item.id);
+        cur.lastMs = item.startMs;
+    }
+    for (const c of clusters) {
+        for (const id of c.members) {
+            canonical.set(id, c.minStartedAt);
+            clusterSize.set(id, c.members.length);
+        }
+    }
+    return { canonical, clusterSize };
+}
+
