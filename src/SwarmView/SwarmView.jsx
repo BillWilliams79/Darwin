@@ -191,20 +191,47 @@ const SwarmView = () => {
             :
             <>
             <Box className="app-content-planpage">
-                    {/* Row A — view toggle + chips + [rocket if cards] + settings (always visible).
+                    {/* Combined row — project tabs (Cards view only) + view toggle + chips +
+                        [rocket if cards] + settings (req #2325). Project tabs occupy the left
+                        with flex:1 (scrollable); the buttons pack to the right in the same
+                        visual order as before.
                         Padding `px: 3` matches `p: 3` on `.app-content-tabpanel` below, so
-                        Row A's right edge aligns with the tabpanel's right content edge
+                        the row's right edge aligns with the tabpanel's right content edge
                         (= right edge of rightmost card in Cards view).
                         In Table view, maxWidth is capped at SWARM_TABLE_WIDTH so settings
                         aligns with the table's right edge instead.
+                        Bottom border is drawn in Cards view so the visual separator from the
+                        tabpanel below (previously on the standalone tabs row) is preserved;
+                        Table view has no border, matching prior behaviour.
                         Rocket icon is CARDS-ONLY — it controls the SwarmStartCard aggregator
                         which doesn't exist in Table view.
                         Spacing (mt/mb/gap) matches MapsPage.jsx header row. */}
                     <Box className="app-content-view-toggle"
                          sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 3, mb: 1, px: 3,
+                               ...(view === 'cards' && { borderBottom: 1, borderColor: 'divider' }),
                                ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }) }}
                          data-testid="swarm-view-toggle-row"
                     >
+                        {view === 'cards' && (
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto"
+                                  sx={{ flex: 1, minWidth: 0 }} >
+                                {projectsArray.map( (project, projectIndex) =>
+                                    <Tab key={project.id}
+                                         icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
+                                         label={project.project_name}
+                                         value={projectIndex.toString()}
+                                         iconPosition="end" />
+                                )}
+                                <Tab key={'add-project'}
+                                     icon={<AddIcon onClick={addProject}/>}
+                                     iconPosition="start"
+                                     value={9999}
+                                />
+                            </Tabs>
+                        )}
                         <ToggleButtonGroup
                             value={view}
                             exclusive
@@ -224,7 +251,7 @@ const SwarmView = () => {
                                 </ToggleButton>
                             </Tooltip>
                         </ToggleButtonGroup>
-                        <Stack direction="row" spacing={0.5} sx={{ ml: 3 }} data-testid="requirement-status-filter">
+                        <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
                             {ALL_REQUIREMENT_STATUSES.map(status => {
                                 const selected = requirementStatusFilter.includes(status);
                                 const chipProps = requirementStatusChipProps(status);
@@ -261,41 +288,14 @@ const SwarmView = () => {
                                 </IconButton>
                             </Tooltip>
                         )}
-                        {/* Spacer pushes settings to far right — in Cards view that's the
-                            tabpanel's right content edge (= rightmost card's right edge);
-                            in Table view that's the table's right edge (via maxWidth cap). */}
-                        <Box sx={{ flexGrow: 1 }} />
+                        {/* Table-view spacer pushes settings to the table's right edge (maxWidth cap).
+                            Cards view doesn't need it — the Tabs' flex:1 already consumes the free space. */}
+                        {view === 'table' && <Box sx={{ flexGrow: 1 }} />}
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
                             links={settingsLinks}
                         />
                     </Box>
-
-                    {/* Row B — project tabs only (cards mode only) */}
-                    {view === 'cards' && (
-                        <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
-                             className="app-content-tabs"
-                        >
-                            <Tabs value={activeTab.toString()}
-                                  onChange={changeActiveTab}
-                                  variant="scrollable"
-                                  scrollButtons="auto"
-                                  sx={{ flex: 1 }} >
-                                {projectsArray.map( (project, projectIndex) =>
-                                    <Tab key={project.id}
-                                         icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
-                                         label={project.project_name}
-                                         value={projectIndex.toString()}
-                                         iconPosition="end" />
-                                )}
-                                <Tab key={'add-project'}
-                                     icon={<AddIcon onClick={addProject}/>}
-                                     iconPosition="start"
-                                     value={9999}
-                                />
-                            </Tabs>
-                        </Box>
-                    )}
 
                     {/* Content — table view */}
                     {view === 'table' && (
