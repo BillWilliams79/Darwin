@@ -10,6 +10,7 @@ import {
     DEFAULT_SPACE, getSpaceMultiplier,
     DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
     indexSessionsByRequirement,
+    clusterSessionsByStartTime,
 } from './timeSeriesSizes';
 import './TimeSeriesView.css';
 
@@ -217,6 +218,8 @@ const BeadRow = ({
     crossDays = [], onChipClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     sidewalkHeight,
+    canonicalStartById,      // Map<string sessionId, ISO started_at> — swarm alignment
+    clusterSizeById,         // Map<string sessionId, n members in its cluster>
 }) => {
     const window36h = beadWindow === '36h';
     // Sidewalk panels: each panel shows exactly the 24h day, no hidden outer
@@ -285,6 +288,11 @@ const BeadRow = ({
     //   'left'    — no session at all OR started_at ≈ completed_at; vertical bar
     //               immediately left of bubble (sessions always start before they end)
     const CLOSE_THRESHOLD_PCT = 1.5;
+    // Below this horizontal-gap %, the drawable line is shorter than the 7px
+    // arrowhead — the arrow overlaps / swamps the bubble. Drop markerEnd and
+    // render a plain line instead. Must be ≥ CLOSE_THRESHOLD_PCT so aligned-cluster
+    // chips (which force 'normal' even at tiny gaps) still skip the arrow.
+    const ARROW_OMIT_THRESHOLD_PCT = 2.5;
     const drawChips = useMemo(() => {
         if (vizKey !== 'swarm') return windowChips;
         const out = [];
@@ -304,16 +312,27 @@ const BeadRow = ({
                 continue;
             }
             for (const s of sess) {
-                const rawStart = xPctFn(s.started_at, timezone, selectedDate);
+                // Swarm alignment (req #2341): if this session is part of a
+                // multi-member cluster, every member uses the cluster's canonical
+                // earliest started_at so vertical start-bars line up. Singletons
+                // keep their own started_at and the existing 'left' heuristic.
+                const sKey = String(s.id);
+                const canonicalStartedAt =
+                    canonicalStartById?.get(sKey) ?? s.started_at;
+                const clusterN = clusterSizeById?.get(sKey) ?? 1;
+                const isAligned = clusterN > 1;
+
+                const rawStart = xPctFn(canonicalStartedAt, timezone, selectedDate);
                 let startPct = rawStart;
                 let startClamped = false;
                 let markerMode = 'normal';
-                if (startPct === null && s.started_at) {
+                if (startPct === null && canonicalStartedAt) {
                     startPct = 0;
                     startClamped = true;
                     markerMode = 'clamped';
                 } else if (
                     startPct !== null &&
+                    !isAligned &&
                     Math.abs(chip.leftPct - startPct) < CLOSE_THRESHOLD_PCT
                 ) {
                     markerMode = 'left';   // start ≈ met → bar hugs the bubble's left side
@@ -329,7 +348,8 @@ const BeadRow = ({
             }
         }
         return out;
-    }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate]);
+    }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate,
+        canonicalStartById, clusterSizeById]);
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
     const placed = vizKey === 'swarm' ? assignSwarmLanes(drawChips) : assignRows(drawChips, 1.2);
@@ -488,6 +508,11 @@ const BeadRow = ({
                     {placed.map(chip => {
                         if (chip.markerMode !== 'normal' && chip.markerMode !== 'clamped') return null;
                         const yCenter = bubbleCenterCss(chip.row);
+                        // Omit the arrowhead when the line would be shorter than
+                        // the arrow itself — happens for cluster-aligned chips
+                        // whose canonical start sits close to the met bubble.
+                        const gapPct = chip.leftPct - chip.startPct;
+                        const showArrow = gapPct >= ARROW_OMIT_THRESHOLD_PCT;
                         return (
                             <line
                                 key={`line-${chip.chipKey}`}
@@ -499,7 +524,7 @@ const BeadRow = ({
                                 y2={yCenter}
                                 stroke="rgba(96,125,139,0.85)"
                                 strokeWidth="1.5"
-                                markerEnd={`url(#ts-swarm-arrow-${selectedDate})`}
+                                markerEnd={showArrow ? `url(#ts-swarm-arrow-${selectedDate})` : undefined}
                             />
                         );
                     })}
@@ -854,6 +879,14 @@ const TimeSeriesView = ({
         return weekDates(selectedDate); // Mon..Sun ascending
     }, [isWeekView, selectedDate]);
 
+    // Swarm start-time clustering (req #2341) — computed once per session-array
+    // change and threaded to every BeadRow / cross-day calculation so all members
+    // of a 3-minute launch cluster share one canonical start X.
+    const { canonicalStartById, clusterSizeById } = useMemo(() => {
+        const { canonical, clusterSize } = clusterSessionsByStartTime(sessions);
+        return { canonicalStartById: canonical, clusterSizeById: clusterSize };
+    }, [sessions]);
+
     // Cross-day session lines — only matters in Week + Swarm mode. For each
     // session whose started_at and linked requirement's completed_at fall on
     // different days within the visible week, build a per-day entry so BeadRow
@@ -928,8 +961,12 @@ const TimeSeriesView = ({
 
                 // Start day entry — partial dashed line from startPct → 100%,
                 // plus a vertical start bar at startPct with a tooltip.
+                // Use the cluster's canonical started_at (req #2341) so cross-day
+                // cluster members share the same X on the start day.
                 if (dateSet.has(startDay)) {
-                    const startPct = bead36hXPct(s.started_at, timezone, startDay);
+                    const canonicalStart =
+                        canonicalStartById.get(String(s.id)) ?? s.started_at;
+                    const startPct = bead36hXPct(canonicalStart, timezone, startDay);
                     if (startPct !== null) {
                         const arr = map.get(startDay) || [];
                         arr.push({ sessionId: s.id, role: 'start', lane: endLane, pct: startPct, card });
@@ -949,7 +986,8 @@ const TimeSeriesView = ({
             }
         }
         return map;
-    }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone, categoryList]);
+    }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone,
+        categoryList, canonicalStartById]);
 
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
@@ -971,6 +1009,8 @@ const TimeSeriesView = ({
                     categoryList={categoryList}
                     isWeekView={false}
                     onChipClick={onChipClick}
+                    canonicalStartById={canonicalStartById}
+                    clusterSizeById={clusterSizeById}
                 />
             ) : (
                 <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
@@ -991,6 +1031,8 @@ const TimeSeriesView = ({
                             isWeekView={isWeekView}
                             crossDays={crossDayMap.get(d) || []}
                             onChipClick={onChipClick}
+                            canonicalStartById={canonicalStartById}
+                            clusterSizeById={clusterSizeById}
                         />
                     ))}
                 </Box>
