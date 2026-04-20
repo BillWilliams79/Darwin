@@ -424,6 +424,30 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         return {requirement: requirement.id};
     };
 
+    // Optimistically apply `updates` to every requirement cache for this creator
+    // (byCategory, byStatus, done, etc.) so downstream views — including the
+    // Visualizer's `useRequirementsDone` cache (req #2381) — reflect the mutation
+    // without waiting for a refetch. Returns a revert fn that restores every
+    // snapshot captured before the write.
+    //
+    // The updater returns the same `old` reference when no row matches `requirementId`,
+    // so unrelated caches (e.g. counts aggregates) don't trigger spurious re-renders.
+    const writeThroughRequirementCaches = (requirementId, updates) => {
+        const prefix = requirementKeys.all(profile.userName);
+        queryClient.cancelQueries({ queryKey: prefix });
+        const snapshots = queryClient.getQueriesData({ queryKey: prefix });
+        queryClient.setQueriesData({ queryKey: prefix }, (old) => {
+            if (!Array.isArray(old)) return old;
+            if (!old.some(r => r.id === requirementId)) return old;
+            return old.map(r => r.id === requirementId ? { ...r, ...updates } : r);
+        });
+        return () => {
+            for (const [key, data] of snapshots) {
+                queryClient.setQueryData(key, data);
+            }
+        };
+    };
+
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
         const current = requirementsArray[requirementIndex].requirement_status;
@@ -432,37 +456,23 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
 
         if (requirementId !== '') {
-            // Optimistic cache update — prevent TanStack refetches (e.g. from a concurrent
-            // invalidateQueries on requirementKeys.all) from clobbering the local mutation.
+            // Optimistic write-through across every requirement cache (req #2381).
             // Snapshot BEFORE any local-state mutation: requirementsArray and the cache
             // share object references (useEffect seeds from serverRequirements via shallow
             // copy), so in-place mutation would poison the snapshot.
-            const withClosedKey = requirementKeys.byCategoryWithClosed(profile.userName, category.id);
-            const openKey = requirementKeys.byCategoryOpen(profile.userName, category.id);
-            queryClient.cancelQueries({ queryKey: withClosedKey });
-            queryClient.cancelQueries({ queryKey: openKey });
-            const previousWithClosed = queryClient.getQueryData(withClosedKey);
-            const previousOpen = queryClient.getQueryData(openKey);
-            const updateCache = (old) => {
-                if (!Array.isArray(old)) return old;
-                return old.map(r => r.id === requirementId ? { ...r, requirement_status: next } : r);
-            };
-            queryClient.setQueryData(withClosedKey, updateCache);
-            queryClient.setQueryData(openKey, updateCache);
+            const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next });
 
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        queryClient.setQueryData(withClosedKey, previousWithClosed);
-                        queryClient.setQueryData(openKey, previousOpen);
+                        revert();
                         setRequirementsArray(prev => prev.map(r =>
                             r.id === requirementId ? { ...r, requirement_status: current } : r));
                         showError(result, "Unable to change requirement status");
                     }
                 }).catch(error => {
-                    queryClient.setQueryData(withClosedKey, previousWithClosed);
-                    queryClient.setQueryData(openKey, previousOpen);
+                    revert();
                     setRequirementsArray(prev => prev.map(r =>
                         r.id === requirementId ? { ...r, requirement_status: current } : r));
                     showError(error, "Unable to change requirement status");
@@ -483,33 +493,21 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
 
         if (requirementId !== '') {
-            // Optimistic cache update — see statusClick above for snapshot-ordering rationale.
-            const withClosedKey = requirementKeys.byCategoryWithClosed(profile.userName, category.id);
-            const openKey = requirementKeys.byCategoryOpen(profile.userName, category.id);
-            queryClient.cancelQueries({ queryKey: withClosedKey });
-            queryClient.cancelQueries({ queryKey: openKey });
-            const previousWithClosed = queryClient.getQueryData(withClosedKey);
-            const previousOpen = queryClient.getQueryData(openKey);
-            const updateCache = (old) => {
-                if (!Array.isArray(old)) return old;
-                return old.map(r => r.id === requirementId ? { ...r, coordination_type: next } : r);
-            };
-            queryClient.setQueryData(withClosedKey, updateCache);
-            queryClient.setQueryData(openKey, updateCache);
+            // Write-through to every requirement cache (req #2381) — see statusClick
+            // for snapshot-ordering rationale.
+            const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
             let uri = `${darwinUri}/requirements`;
             call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        queryClient.setQueryData(withClosedKey, previousWithClosed);
-                        queryClient.setQueryData(openKey, previousOpen);
+                        revert();
                         setRequirementsArray(prev => prev.map(r =>
                             r.id === requirementId ? { ...r, coordination_type: current } : r));
                         showError(result, "Unable to change coordination type");
                     }
                 }).catch(error => {
-                    queryClient.setQueryData(withClosedKey, previousWithClosed);
-                    queryClient.setQueryData(openKey, previousOpen);
+                    revert();
                     setRequirementsArray(prev => prev.map(r =>
                         r.id === requirementId ? { ...r, coordination_type: current } : r));
                     showError(error, "Unable to change coordination type");
