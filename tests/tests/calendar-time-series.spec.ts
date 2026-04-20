@@ -129,8 +129,14 @@ test.describe('Calendar Time Series — Bead / Swarm / Sidewalk toolbar', () => 
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
 
-    // Month view: Bead/Swarm disabled (auto-off while in Month).
+    // Month view: all visualizer buttons disabled — they don't apply to a
+    // month grid (req #2333). Time Series auto-turns off on Month select,
+    // which also keeps the window (24h/36h) and Sidewalk buttons disabled.
     await expect(page.getByTestId('timeseries-viz-bead')).toBeDisabled();
+    await expect(page.getByTestId('timeseries-viz-swarm')).toBeDisabled();
+    await expect(page.getByTestId('timeseries-window-24h')).toBeDisabled();
+    await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+    await expect(page.getByTestId('timeseries-sidewalk')).toBeDisabled();
 
     // Switch to Day view then toggle Bead.
     await page.getByRole('button', { name: 'Day', exact: true }).click();
