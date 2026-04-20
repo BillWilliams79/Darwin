@@ -579,6 +579,136 @@ test.describe('Profile', () => {
     await restorePromise;
   });
 
+  // PROF-08f: rapid-click race coverage (req #2330).
+  // The `currentApp*Ref` pattern in ProfileContent.jsx (lines 54-59, 230-251)
+  // makes the last-enabled-app guard immune to rapid clicks that fire before
+  // React commits the first state update. These tests assert: when only one
+  // app is enabled, rapid `.click().click()` on that app's card fires zero
+  // PUT requests and leaves the toggle visually enabled. If the refs are
+  // ever removed again, both click handlers would read the same stale closure
+  // state, the guard would misfire, and these tests would catch it.
+  const rapidClickGuardTest = (label: string, onlyApp: 'tasks' | 'maps' | 'swarm', cardIndex: number) => {
+    test(`PROF-08f-${label}: rapid double-click on only-enabled ${label} is rejected`, async ({ page }) => {
+      const idToken = await getIdToken(page);
+      const sub = process.env.E2E_TEST_COGNITO_SUB!;
+      // Set DB to "only <label> enabled" via API so the test is independent of
+      // other PROF-08 tests' intermediate state.
+      const onlyState = {
+        id: sub,
+        app_tasks: onlyApp === 'tasks' ? 1 : 0,
+        app_maps: onlyApp === 'maps' ? 1 : 0,
+        app_swarm: onlyApp === 'swarm' ? 1 : 0,
+      };
+      await apiCall('profiles', 'PUT', [onlyState], idToken);
+
+      try {
+        const profileGet = page.waitForResponse(
+          res => res.request().method() === 'GET' && res.url().includes('/profiles'),
+          { timeout: 10000 }
+        );
+        await page.goto('/profile');
+        await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+        await profileGet;
+
+        const toggle = page.getByTestId('profile-app-toggle');
+        const targetCard = toggle.locator('> div').nth(cardIndex);
+
+        // Capture any PUT to /profiles fired during the rapid-click burst.
+        const profilePuts: string[] = [];
+        const listener = (req: import('@playwright/test').Request) => {
+          if (req.method() === 'PUT' && req.url().includes('/profiles')) profilePuts.push(req.url());
+        };
+        page.on('request', listener);
+
+        // Rapid double-click on the only enabled app's card — both clicks
+        // must be rejected by the last-enabled-app guard.
+        await targetCard.click();
+        await targetCard.click();
+        await page.waitForTimeout(1500);
+        page.off('request', listener);
+
+        expect(profilePuts).toHaveLength(0);
+
+        // Visual invariant: the target card's border color must differ from a
+        // disabled card's border color (i.e. still primary, not divider).
+        // Pick a different card as the disabled reference.
+        const disabledRefIndex = cardIndex === 0 ? 1 : 0;
+        const targetBorder = await targetCard.locator('.app-thumb').evaluate(el => getComputedStyle(el).borderColor);
+        const disabledBorder = await toggle.locator('> div').nth(disabledRefIndex).locator('.app-thumb').evaluate(el => getComputedStyle(el).borderColor);
+        expect(targetBorder).not.toBe(disabledBorder);
+      } finally {
+        // Restore default state for subsequent tests.
+        await apiCall('profiles', 'PUT', [{ id: sub, app_tasks: 1, app_maps: 1, app_swarm: 0 }], idToken);
+      }
+    });
+  };
+
+  rapidClickGuardTest('tasks', 'tasks', 0);
+  rapidClickGuardTest('maps', 'maps', 1);
+  rapidClickGuardTest('swarm', 'swarm', 2);
+
+  // PROF-08g: rapid cross-card disable exercises the actual ref race that
+  // PROF-08f-{tasks,maps,swarm} cannot — the single-enabled-app guard fires
+  // on stale state too, so those tests pass even if refs are removed. This
+  // test starts with two apps enabled (Tasks + Maps), then rapid-clicks both
+  // to disable. Without the refs, click 2's closure still reads the pre-click-1
+  // state (count=2) and proceeds to disable the second app, firing two PUTs
+  // and violating the last-enabled-app invariant. With refs, click 1 writes
+  // the updated ref synchronously, click 2 sees count=1, and the guard fires.
+  test('PROF-08g: rapid cross-card disable rejects second click when only one remains', async ({ page }) => {
+    const idToken = await getIdToken(page);
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    // Default is tasks=1, maps=1, swarm=0 — explicit reset guards against any
+    // earlier test that left different state.
+    await apiCall('profiles', 'PUT', [{ id: sub, app_tasks: 1, app_maps: 1, app_swarm: 0 }], idToken);
+
+    try {
+      const profileGet = page.waitForResponse(
+        res => res.request().method() === 'GET' && res.url().includes('/profiles'),
+        { timeout: 10000 }
+      );
+      await page.goto('/profile');
+      await page.waitForSelector('[data-testid="profile-app-toggle"]', { timeout: 10000 });
+      await profileGet;
+
+      const toggle = page.getByTestId('profile-app-toggle');
+      const tasksCard = toggle.locator('> div').nth(0);
+      const mapsCard = toggle.locator('> div').nth(1);
+
+      // Capture PUT request bodies so we can assert the exact app-flag state
+      // the server was asked to persist — not just PUT count.
+      const profilePutBodies: Array<{ app_tasks?: number; app_maps?: number; app_swarm?: number }> = [];
+      const listener = (req: import('@playwright/test').Request) => {
+        if (req.method() === 'PUT' && req.url().includes('/profiles')) {
+          const body = req.postDataJSON();
+          if (Array.isArray(body) && body[0]) profilePutBodies.push(body[0]);
+        }
+      };
+      page.on('request', listener);
+
+      // Rapid cross-card: disable Maps, then immediately try to disable Tasks.
+      // With refs: click 1 succeeds, click 2 is rejected by the guard.
+      // Without refs: both clicks see stale {1,1,0}, both proceed, both PUT fires.
+      await mapsCard.click();
+      await tasksCard.click();
+      await page.waitForTimeout(1500);
+      page.off('request', listener);
+
+      // Exactly one PUT must have fired — the Maps disable.
+      expect(profilePutBodies).toHaveLength(1);
+      expect(profilePutBodies[0].app_tasks).toBe(1);
+      expect(profilePutBodies[0].app_maps).toBe(0);
+      expect(profilePutBodies[0].app_swarm).toBe(0);
+
+      // Tasks must still be visually enabled (primary border, not disabled border).
+      const tasksBorder = await tasksCard.locator('.app-thumb').evaluate(el => getComputedStyle(el).borderColor);
+      const swarmBorder = await toggle.locator('> div').nth(2).locator('.app-thumb').evaluate(el => getComputedStyle(el).borderColor);
+      expect(tasksBorder).not.toBe(swarmBorder);
+    } finally {
+      await apiCall('profiles', 'PUT', [{ id: sub, app_tasks: 1, app_maps: 1, app_swarm: 0 }], idToken);
+    }
+  });
+
   test('PROF-09a: export dialog shows only enabled app checkboxes', async ({ page }) => {
     await page.goto('/profile');
     await page.waitForSelector('.MuiTextField-root', { timeout: 5000 });
