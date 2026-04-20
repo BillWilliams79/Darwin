@@ -156,20 +156,53 @@ const SwarmStartCard = () => {
         }
     });
 
+    // Optimistically apply `updates` to every requirement cache for this creator
+    // (byCategory, byStatus, done, etc.) so downstream views — including the
+    // Visualizer's `useRequirementsDone` cache (req #2381) — reflect the mutation
+    // without waiting for a refetch. Returns a revert fn that restores every
+    // snapshot captured before the write.
+    //
+    // IMPORTANT: call this BEFORE any local-state mutation. requirementsArray and
+    // the TanStack cache share object references (useEffect seeds via `[...serverRequirements]`
+    // — shallow copy of the array, not the objects), so in-place mutation of a row
+    // would poison the snapshot captured here.
+    //
+    // The updater returns the same `old` reference when no row matches `requirementId`,
+    // so unrelated caches (e.g. counts aggregates) don't trigger spurious re-renders.
+    const writeThroughRequirementCaches = (requirementId, updates) => {
+        const prefix = requirementKeys.all(profile.userName);
+        queryClient.cancelQueries({ queryKey: prefix });
+        const snapshots = queryClient.getQueriesData({ queryKey: prefix });
+        queryClient.setQueriesData({ queryKey: prefix }, (old) => {
+            if (!Array.isArray(old)) return old;
+            if (!old.some(r => r.id === requirementId)) return old;
+            return old.map(r => r.id === requirementId ? { ...r, ...updates } : r);
+        });
+        return () => {
+            for (const [key, data] of snapshots) {
+                queryClient.setQueryData(key, data);
+            }
+        };
+    };
+
     // Status click — items cycle off the selected status leave the card.
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
-        const newRequirementsArray = [...requirementsArray];
-        const current = newRequirementsArray[requirementIndex].requirement_status;
+        const current = requirementsArray[requirementIndex].requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return;
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-        newRequirementsArray[requirementIndex].requirement_status = next;
+
+        // Capture cache snapshots BEFORE touching local state (shared refs, see helper comment).
+        const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
             [{ id: requirementId, requirement_status: next }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    revert();
+                    setRequirementsArray(prev => prev ? prev.map(r =>
+                        r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
                     showError(result, 'Unable to change requirement status');
                 } else {
                     // Item no longer matches the card's aggregate status — remove it.
@@ -178,28 +211,47 @@ const SwarmStartCard = () => {
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     }
                 }
-            }).catch(error => showError(error, 'Unable to change requirement status'));
+            }).catch(error => {
+                revert();
+                setRequirementsArray(prev => prev ? prev.map(r =>
+                    r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
+                showError(error, 'Unable to change requirement status');
+            });
 
-        setRequirementsArray(newRequirementsArray);
+        // Immutable local update — new object at the target index rather than in-place
+        // mutation on a cache-shared object reference.
+        setRequirementsArray(prev => prev ? prev.map((r, i) =>
+            i === requirementIndex ? { ...r, requirement_status: next } : r) : prev);
     };
 
     // Coordination click — mirrors CategoryCard
     const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
-        const newRequirementsArray = [...requirementsArray];
-        const current = newRequirementsArray[requirementIndex].coordination_type || null;
+        const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
         const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
-        newRequirementsArray[requirementIndex].coordination_type = next;
-        setRequirementsArray(newRequirementsArray);
+
+        // Capture cache snapshots BEFORE touching local state (shared refs, see helper comment).
+        const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
             [{ id: requirementId, coordination_type: next === null ? 'NULL' : next }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    revert();
+                    setRequirementsArray(prev => prev ? prev.map(r =>
+                        r.id === requirementId ? { ...r, coordination_type: current } : r) : prev);
                     showError(result, 'Unable to change coordination type');
                 }
-            }).catch(error => showError(error, 'Unable to change coordination type'));
+            }).catch(error => {
+                revert();
+                setRequirementsArray(prev => prev ? prev.map(r =>
+                    r.id === requirementId ? { ...r, coordination_type: current } : r) : prev);
+                showError(error, 'Unable to change coordination type');
+            });
+
+        setRequirementsArray(prev => prev ? prev.map((r, i) =>
+            i === requirementIndex ? { ...r, coordination_type: next } : r) : prev);
     };
 
     // Title editing — mirrors CategoryCard (PUT only, no POST/template)
