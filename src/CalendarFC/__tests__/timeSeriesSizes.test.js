@@ -385,7 +385,89 @@ describe('clusterSessionsByStartTime', () => {
 
 // ─── assignSwarmLanes: each chip gets its own row, sorted by completed_at asc.
 // Row 0 = earliest met = bottom; higher rows = later met = top. ─────────────────
-import { assignSwarmLanes, weekDates, centeredDateRange } from '../TimeSeriesView';
+import { assignSwarmLanes, weekDates, centeredDateRange, swarmStartBarX } from '../TimeSeriesView';
+
+// ─── swarmStartBarX — vertical start-tick x-coordinate selector (req #2336) ───
+describe('swarmStartBarX (vertical start-tick positioning)', () => {
+    const GAP = 9;          // circleDiameter=12 → gap = 12/2 + 3 = 9
+    const THRESHOLD = 1.5;  // CLOSE_THRESHOLD_PCT
+
+    describe('markerMode=clamped', () => {
+        it('returns null (horizontal dashed line already conveys start)', () => {
+            expect(swarmStartBarX('clamped', 50, 0, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('clamped', 50, null, GAP, THRESHOLD)).toBeNull();
+        });
+    });
+
+    describe('markerMode=left', () => {
+        it('always renders one gap left of the bubble', () => {
+            expect(swarmStartBarX('left', 50, null, GAP, THRESHOLD)).toBe('calc(50% - 9px)');
+            expect(swarmStartBarX('left', 25, 24.5, GAP, THRESHOLD)).toBe('calc(25% - 9px)');
+        });
+    });
+
+    describe('markerMode=normal, distant start (gap ≥ threshold)', () => {
+        it('renders at startPct so cluster-mates align vertically (req #2341)', () => {
+            // Gap = 50 - 40 = 10%, well above 1.5% threshold → align at startPct.
+            expect(swarmStartBarX('normal', 50, 40, GAP, THRESHOLD)).toBe('40%');
+        });
+
+        it('renders at startPct right at threshold', () => {
+            // Gap = 50 - 48.5 = 1.5%, NOT less than threshold → at startPct.
+            expect(swarmStartBarX('normal', 50, 48.5, GAP, THRESHOLD)).toBe('48.5%');
+        });
+    });
+
+    describe('markerMode=normal, close start (gap < threshold) — req #2336 fix', () => {
+        it('shifts bar left of bubble when start ≈ met (prevents hidden-under-bubble)', () => {
+            // Gap = 50 - 49 = 1%, below 1.5% threshold. Pre-fix: bar at 49% lands
+            // under the bubble at 50% (bubble spans 50% ± 6px). Post-fix: bar
+            // shifted to leftPct - gap so it's visible.
+            expect(swarmStartBarX('normal', 50, 49, GAP, THRESHOLD)).toBe('calc(50% - 9px)');
+        });
+
+        it('shifts bar left of bubble even when startPct === leftPct exactly', () => {
+            // Gap = 0, fully below threshold. Bar must shift or disappears.
+            expect(swarmStartBarX('normal', 30, 30, GAP, THRESHOLD)).toBe('calc(30% - 9px)');
+        });
+
+        it('applies to aligned-cluster chips (req #2341 markerMode="normal" forced at tiny gap)', () => {
+            // An aligned-cluster member with start ≈ met is kept as 'normal' so
+            // it aligns vertically with its distant-start cluster-mates. Without
+            // the req #2336 fix, its bar at startPct lands inside its own bubble
+            // and disappears — leaving the other cluster members' bars visible
+            // but this one apparently "gone".
+            expect(swarmStartBarX('normal', 65, 64.2, GAP, THRESHOLD)).toBe('calc(65% - 9px)');
+        });
+    });
+
+    describe('markerMode=normal with null startPct', () => {
+        it('returns null (no session start to mark)', () => {
+            expect(swarmStartBarX('normal', 50, null, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('normal', 50, undefined, GAP, THRESHOLD)).toBeNull();
+        });
+    });
+
+    describe('unknown markerMode', () => {
+        it('returns null', () => {
+            expect(swarmStartBarX(undefined, 50, 40, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('', 50, 40, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('bogus', 50, 40, GAP, THRESHOLD)).toBeNull();
+        });
+    });
+
+    it('deterministic across repeated calls (no hidden state)', () => {
+        // Regression guard — bug #2336 was perceived as "toggle causes
+        // indicators to disappear". The selector must return identical
+        // results no matter how many times it's called.
+        const a = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
+        const b = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
+        const c = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
+        expect(a).toBe(b);
+        expect(b).toBe(c);
+        expect(a).toBe('calc(50% - 9px)');
+    });
+});
 
 describe('assignSwarmLanes (Swarm Visualizer lane order)', () => {
     const mk = (chipKey, completed_at) => ({ chipKey, id: chipKey, completed_at });
