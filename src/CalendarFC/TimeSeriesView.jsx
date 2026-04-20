@@ -453,28 +453,24 @@ const BeadRow = ({
                                                 <span>{card.categoryName || '—'}</span>
                                             </div>
                                             <div className="ts-datacard-row">
-                                                <span className="ts-datacard-key">Status</span>
-                                                <span>{card.requirement_status || '—'}</span>
-                                            </div>
-                                            <div className="ts-datacard-row">
                                                 <span className="ts-datacard-key">Autonomy</span>
                                                 <span>{formatCoordination(card.coordination_type)}</span>
                                             </div>
+                                            {card.session && (
+                                                <div className="ts-datacard-row">
+                                                    <span className="ts-datacard-key">Started</span>
+                                                    <span>{formatCardDateTime(card.session.started_at, card.timezone)}</span>
+                                                </div>
+                                            )}
                                             <div className="ts-datacard-row">
                                                 <span className="ts-datacard-key">Closed</span>
                                                 <span>{formatCardDateTime(card.completed_at, card.timezone)}</span>
                                             </div>
                                             {card.session && (
-                                                <>
-                                                    <div className="ts-datacard-row">
-                                                        <span className="ts-datacard-key">Session</span>
-                                                        <span>#{card.session.id} · {card.session.swarm_status || '—'}</span>
-                                                    </div>
-                                                    <div className="ts-datacard-row">
-                                                        <span className="ts-datacard-key">Started</span>
-                                                        <span>{formatCardDateTime(card.session.started_at, card.timezone)}</span>
-                                                    </div>
-                                                </>
+                                                <div className="ts-datacard-row">
+                                                    <span className="ts-datacard-key">Session</span>
+                                                    <span>#{card.session.id} · {card.session.swarm_status || '—'}</span>
+                                                </div>
                                             )}
                                         </Box>
                                     ) : ''}
@@ -577,35 +573,31 @@ const BeadRow = ({
                                 <span>{chip.categoryName || '—'}</span>
                             </div>
                             <div className="ts-datacard-row">
-                                <span className="ts-datacard-key">Status</span>
-                                <span>{chip.requirement_status || '—'}</span>
-                            </div>
-                            <div className="ts-datacard-row">
                                 <span className="ts-datacard-key">Autonomy</span>
                                 <span data-testid={`ts-datacard-autonomy-${chip.chipKey || chip.id}`}>
                                     {formatCoordination(chip.coordination_type)}
                                 </span>
                             </div>
+                            {chip.session && (
+                                <div className="ts-datacard-row">
+                                    <span className="ts-datacard-key">Started</span>
+                                    <span>
+                                        {chip.session.started_at
+                                            ? formatCardDateTime(chip.session.started_at, chip.timezone)
+                                            : '—'}
+                                        {chip.startClamped ? ' (before window)' : ''}
+                                    </span>
+                                </div>
+                            )}
                             <div className="ts-datacard-row">
                                 <span className="ts-datacard-key">Closed</span>
                                 <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
                             </div>
                             {chip.session && (
-                                <>
-                                    <div className="ts-datacard-row">
-                                        <span className="ts-datacard-key">Session</span>
-                                        <span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span>
-                                    </div>
-                                    <div className="ts-datacard-row">
-                                        <span className="ts-datacard-key">Started</span>
-                                        <span>
-                                            {chip.session.started_at
-                                                ? formatCardDateTime(chip.session.started_at, chip.timezone)
-                                                : '—'}
-                                            {chip.startClamped ? ' (before window)' : ''}
-                                        </span>
-                                    </div>
-                                </>
+                                <div className="ts-datacard-row">
+                                    <span className="ts-datacard-key">Session</span>
+                                    <span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span>
+                                </div>
                             )}
                         </Box>
                     }
