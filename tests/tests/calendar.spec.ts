@@ -196,6 +196,14 @@ test.describe('Calendar View P1', () => {
     await page.reload();
     await expect(page.locator('.fc')).toBeVisible({ timeout: 10000 });
     await expect(page.locator(`td[data-date="${tomorrowStr}"] .fc-event`).filter({ hasText: taskDesc })).toBeVisible({ timeout: 10000 });
+
+    // Req #2329: after a successful task drop, no "Unable to move task" snackbar
+    // should ever surface. Prior to the fix, handleEventDrop treated 204 as an error
+    // and fired a false toast. The direct-PUT flow here cannot invoke the handler,
+    // but this negative assertion guards against any other code path on this page
+    // (initial fetch, reload, other handlers) surfacing an error snackbar on a
+    // healthy happy path.
+    await expect(page.getByTestId('snackbar')).not.toBeVisible();
   });
 
   test('CAL-05: month/week/day view switching', async ({ page }) => {
