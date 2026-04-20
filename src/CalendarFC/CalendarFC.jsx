@@ -441,11 +441,13 @@ const CalendarFC = () => {
         const newDoneTs = newDate.toISOString().slice(0, 19);
         call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: rawId, done_ts: newDoneTs }], idToken)
             .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
+                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    info.revert(); showError(result, 'Unable to move task');
+                } else {
                     setLocalTasksArray(prev => prev.map(t =>
                         String(t.id) === rawId ? { ...t, done_ts: newDoneTs } : t
                     ));
-                } else { info.revert(); showError(result, 'Unable to move task'); }
+                }
             }).catch(error => { info.revert(); showError(error, 'Unable to move task'); });
     }, [darwinUri, idToken, showError]);
 
@@ -456,12 +458,14 @@ const CalendarFC = () => {
         const newCompletedAt = newDate.toISOString().slice(0, 19);
         call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: rawId, completed_at: newCompletedAt }], idToken)
             .then(result => {
-                if (result.httpStatus.httpStatus === 200) {
+                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    info.revert(); showError(result, 'Unable to move requirement');
+                } else {
                     setLocalRequirementsArray(prev => prev.map(p =>
                         String(p.id) === rawId ? { ...p, completed_at: newCompletedAt } : p
                     ));
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-                } else { info.revert(); showError(result, 'Unable to move requirement'); }
+                }
             }).catch(error => { info.revert(); showError(error, 'Unable to move requirement'); });
     }, [darwinUri, idToken, showError, queryClient, profile]);
 
@@ -531,7 +535,7 @@ const CalendarFC = () => {
             ));
             call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: rawId, done_ts: newTs }], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, 'Unable to move task');
                         queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                     }
@@ -545,7 +549,7 @@ const CalendarFC = () => {
             ));
             call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: rawId, completed_at: newTs }], idToken)
                 .then(result => {
-                    if (result.httpStatus.httpStatus !== 200) {
+                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         showError(result, 'Unable to move requirement');
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     }
@@ -562,8 +566,11 @@ const CalendarFC = () => {
         updated[taskIndex].priority = updated[taskIndex].priority ? 0 : 1;
         call_rest_api(`${darwinUri}/tasks`, 'PUT', [{ id: taskId, priority: updated[taskIndex].priority }], idToken)
             .then(result => {
-                if (result.httpStatus.httpStatus === 200) setLocalTasksArray(updated);
-                else if (result.httpStatus.httpStatus > 204) showError(result, "Unable to change task's priority");
+                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    showError(result, "Unable to change task's priority");
+                } else {
+                    setLocalTasksArray(updated);
+                }
             }).catch(error => showError(error, "Unable to change task's priority"));
     };
 
@@ -575,7 +582,7 @@ const CalendarFC = () => {
             id: taskId, done: updated[taskIndex].done,
             ...(updated[taskIndex].done === 1 ? { done_ts: new Date().toISOString() } : { done_ts: 'NULL' })
         }], idToken)
-            .then(result => { if (result.httpStatus.httpStatus !== 200) showError(result, 'Unable to mark task completed'); })
+            .then(result => { if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) showError(result, 'Unable to mark task completed'); })
             .catch(error => showError(error, 'Unable to mark task completed'));
     };
 
