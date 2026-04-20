@@ -42,6 +42,34 @@ const assignRows = (chips, minGapPct) => {
     return out;
 };
 
+// ─────────── Vertical start-bar x-position (Swarm mode) ─────────────────────
+// Returns the SVG x-coordinate string for the vertical start tick, or null
+// when the tick should not render for this chip. The tick is the thin bar
+// that marks when a session started.
+//
+// Rules:
+//   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
+//   • 'left'                    → one gap left of bubble center.
+//   • 'normal', gap ≥ threshold → at startPct (aligns vertically with cluster-mates
+//                                  in req #2341).
+//   • 'normal', gap <  threshold → one gap left of bubble center (req #2336 —
+//                                   when start ≈ met, the SVG tick at startPct
+//                                   lands under the bubble's z-index and disappears).
+//   • 'normal', startPct null    → null (no session start to mark).
+//   • unknown markerMode         → null.
+// Exported for unit-test coverage.
+export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx, closeThresholdPct) => {
+    if (markerMode === 'clamped') return null;
+    if (markerMode === 'left') return `calc(${leftPct}% - ${gapPx}px)`;
+    if (markerMode === 'normal' && startPct !== null && startPct !== undefined) {
+        const gapPct = leftPct - startPct;
+        return gapPct < closeThresholdPct
+            ? `calc(${leftPct}% - ${gapPx}px)`
+            : `${startPct}%`;
+    }
+    return null;
+};
+
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
 // its own row. Sorted by completed_at ascending so row 0 = earliest (bottom) and
@@ -525,23 +553,18 @@ const BeadRow = ({
                         );
                     })}
                     {/* Vertical start bar — position depends on markerMode:
-                        'normal'  → at startPct
+                        'normal'  → at startPct (OR left-of-bubble when start ≈ met, so
+                                    aligned-cluster close-met bars don't hide behind their
+                                    own bubble — req #2336)
                         'left'    → immediately left of bubble (no session OR start ≈ met)
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
                     {placed.map(chip => {
-                        if (chip.markerMode === 'clamped') return null;
                         const halfBar = Math.max(6, circleDiameter / 2);
                         const y1 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 - halfBar}px)`;
                         const y2 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
-                        let x;
-                        if (chip.markerMode === 'left') {
-                            x = `calc(${chip.leftPct}% - ${gap}px)`;
-                        } else if (chip.markerMode === 'normal' && chip.startPct !== null) {
-                            x = `${chip.startPct}%`;
-                        } else {
-                            return null;
-                        }
+                        const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap, CLOSE_THRESHOLD_PCT);
+                        if (x === null) return null;
                         return (
                             <line
                                 key={`tick-${chip.chipKey}`}
