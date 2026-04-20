@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Navigation', () => {
   test('NAV-01: navigate between all views via NavBar', async ({ page }) => {
-    // Enable the Swarm app group client-side so Roadmap/Sessions/Dev Servers nav
+    // Enable the Swarm app group client-side so Requirements/Sessions/Dev Servers nav
     // links render. AuthContext reads profile from localStorage (primary) or the
     // 'profile' cookie (E2E fallback) on mount; auth.setup.ts seeds both with the
     // real DB profile, which has app_swarm=0 for the E2E user (per profile.spec.ts).
@@ -54,18 +54,18 @@ test.describe('Navigation', () => {
     await page.getByRole('menuitem', { name: /areas/i }).click();
     await expect(page).toHaveURL(/\/areaedit/);
 
-    // Navigate to Roadmap (links to /swarm)
-    await page.getByRole('link', { name: /roadmap/i }).click();
+    // Navigate to Requirements (links to /swarm)
+    await page.getByRole('link', { name: /requirements/i }).click();
     await expect(page).toHaveURL(/\/swarm$/);
 
-    // Navigate to Projects (via Roadmap page settings menu)
+    // Navigate to Projects (via Requirements page settings menu)
     await page.getByTestId('settings-menu-button').click();
     await expect(page.getByRole('menu')).toBeVisible({ timeout: 5000 });
     await page.getByRole('menuitem', { name: /projects/i }).click();
     await expect(page).toHaveURL(/\/projectedit/);
 
-    // Navigate back to Roadmap, then to Categories (via settings menu)
-    await page.getByRole('link', { name: /roadmap/i }).click();
+    // Navigate back to Requirements, then to Categories (via settings menu)
+    await page.getByRole('link', { name: /requirements/i }).click();
     await page.getByTestId('settings-menu-button').click();
     await expect(page.getByRole('menu')).toBeVisible({ timeout: 5000 });
     await page.getByRole('menuitem', { name: /categories/i }).click();
