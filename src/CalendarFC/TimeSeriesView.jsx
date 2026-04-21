@@ -270,9 +270,9 @@ const BeadRow = ({
     // top-down sidewalk layout we use topHeader instead (pixels from TOP).
     const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
-    // Sidewalk keeps bottom-up bubble stacking (earliest met = bottom, latest = top)
-    // just like Day/Week; only the chrome moves to the top of the panel. Fixed 400px
-    // so every panel looks identical.
+    // Sidewalk: chrome (date + time axis) pinned at the top; bubbles stack
+    // bottom-up below it. Panel height grows to fit the stack — no false
+    // bottom, so days with many bubbles don't overflow the chrome.
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
@@ -388,14 +388,13 @@ const BeadRow = ({
     const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
 
     // Vertical height — must clear the date label at the top by at least half a
-    // bubble so the tallest bubble never crowds the date.
-    const dateBottom   = isWeekView ? 26 : 46;
+    // bubble so the tallest bubble never crowds the date. Sidewalk's top chrome
+    // (date + time axis + wire) is taller than Day/Week's so it reserves ~70px.
+    const dateBottom   = sidewalkPanel ? 80 : isWeekView ? 26 : 46;
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
-    const height = sidewalkPanel
-        ? baseHeight                                    // fixed uniform panels
-        : Math.max(baseHeight,
-                   maxStackRow * rowSpacing + bubbleOffset + circleDiameter
-                   + dateBottom + dateClearance);
+    const height = Math.max(baseHeight,
+                            maxStackRow * rowSpacing + bubbleOffset + circleDiameter
+                            + dateBottom + dateClearance);
 
     // Unified bottom-anchored bubble positioning — earliest met (row 0) always at
     // the bottom, latest at the top, in Day/Week and Sidewalk alike.
@@ -852,7 +851,6 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                          style={{ width: frameWidth || '100%', flex: `0 0 ${frameWidth || 1}px` }}>
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
-                                 sidewalkHeight={400}
                                  {...rowProps} />
                     </Box>
                 ))}
