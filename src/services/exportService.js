@@ -209,13 +209,20 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
         }));
     }
 
-    // Swarm: requirements, swarm_sessions, projects, categories
+    // Swarm: requirements, swarm_sessions, projects, categories,
+    // features, test_cases, test_plans (req #2380 — persistent content).
+    // test_runs and test_results are ephemeral execution data and NOT exported.
+    // feature_test_cases and test_plan_cases are link-only junction tables and NOT exported.
     if (selectedApps.swarm) {
-        const [requirements, swarmSessions, projects, categories] = await Promise.all([
+        const [requirements, swarmSessions, projects, categories,
+               features, testCases, testPlans] = await Promise.all([
             safeGet(`${darwinUri}/requirements`),
             safeGet(`${darwinUri}/swarm_sessions`),
             safeGet(`${darwinUri}/projects`),
             safeGet(`${darwinUri}/categories`),
+            safeGet(`${darwinUri}/features`),
+            safeGet(`${darwinUri}/test_cases`),
+            safeGet(`${darwinUri}/test_plans`),
         ]);
 
         result.requirements = requirements.map(p => ({
@@ -273,6 +280,44 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
             closed: c.closed,
             create_ts: c.create_ts,
             update_ts: c.update_ts,
+        }));
+
+        result.features = features.map(f => ({
+            id: f.id,
+            title: f.title,
+            description: f.description,
+            feature_status: f.feature_status,
+            category_fk: f.category_fk,
+            closed: f.closed,
+            sort_order: f.sort_order,
+            create_ts: f.create_ts,
+            update_ts: f.update_ts,
+        }));
+
+        result.testCases = testCases.map(tc => ({
+            id: tc.id,
+            title: tc.title,
+            preconditions: tc.preconditions,
+            steps: tc.steps,
+            expected: tc.expected,
+            test_type: tc.test_type,
+            tags: tc.tags,
+            category_fk: tc.category_fk,
+            closed: tc.closed,
+            sort_order: tc.sort_order,
+            create_ts: tc.create_ts,
+            update_ts: tc.update_ts,
+        }));
+
+        result.testPlans = testPlans.map(tp => ({
+            id: tp.id,
+            title: tp.title,
+            description: tp.description,
+            category_fk: tp.category_fk,
+            closed: tp.closed,
+            sort_order: tp.sort_order,
+            create_ts: tp.create_ts,
+            update_ts: tp.update_ts,
         }));
     }
 
