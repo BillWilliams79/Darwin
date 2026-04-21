@@ -140,6 +140,42 @@ export const centeredDateRange = (centerDate, halfWidth = 10) => {
     return out;
 };
 
+// ─────────── Infinite-scroll dates helpers (Sidewalk) ────────────────────────
+// extendDates — return a new dates array with `n` contiguous days added to one
+// end, derived via shiftDateStr from the existing first/last entry. Pure so the
+// Sidewalk effects can extend without rebuilding the strip from scratch.
+// direction: 'left' prepends earlier days; 'right' appends later days.
+export const extendDates = (dates, direction, n) => {
+    if (!Array.isArray(dates) || dates.length === 0) return dates || [];
+    if (!Number.isFinite(n) || n <= 0) return dates;
+    if (direction === 'left') {
+        const first = dates[0];
+        const newDays = [];
+        for (let i = n; i >= 1; i--) newDays.push(shiftDateStr(first, -i));
+        return [...newDays, ...dates];
+    }
+    if (direction === 'right') {
+        const last = dates[dates.length - 1];
+        const newDays = [];
+        for (let i = 1; i <= n; i++) newDays.push(shiftDateStr(last, i));
+        return [...dates, ...newDays];
+    }
+    return dates;
+};
+
+// pruneDates — trim `dates` down to at most `max` entries by removing from one
+// end. Returns the trimmed array plus how many entries were dropped, so the
+// caller can shift its translateX by removedCount * frameWidth when pruning
+// from the left (keeps the visible panel stationary).
+export const pruneDates = (dates, max, fromSide) => {
+    if (!Array.isArray(dates) || dates.length === 0) return { dates: dates || [], removedCount: 0 };
+    if (!Number.isFinite(max) || dates.length <= max) return { dates, removedCount: 0 };
+    const removedCount = dates.length - max;
+    if (fromSide === 'left') return { dates: dates.slice(removedCount), removedCount };
+    if (fromSide === 'right') return { dates: dates.slice(0, dates.length - removedCount), removedCount };
+    return { dates, removedCount: 0 };
+};
+
 // Return the 7 YYYY-MM-DD dates of the ISO week (Mon first) that contains `dateStr`.
 // Output order: Mon, Tue, Wed, Thu, Fri, Sat, Sun (ascending).
 // Uses local calendar parts (not toISOString()) so extreme east-of-UTC
@@ -704,10 +740,20 @@ const BeadRow = ({
 
 // ─────────── Sidewalk — transform-based pure-drag horizontal scroller ─────────
 // The outer frame is fixed (width: 100%, overflow: hidden). The inner flex strip
-// contains 21 day panels (centered on centerDate), each exactly one frame wide.
-// Dragging the inner strip horizontally changes its translateX; release applies
-// a momentum decay then snaps to the nearest panel. No native scrollbar — the
-// user is pushing content around, not a thumb.
+// contains a sliding window of day panels (initially 21 centered on centerDate),
+// each exactly one frame wide. Dragging the inner strip horizontally changes its
+// translateX; release applies a momentum decay then snaps to the nearest panel.
+//
+// Infinite scroll (req #2396): when the visible panel index gets within
+// SIDEWALK_BUFFER_THRESHOLD of either edge of `dates`, we extend that side by
+// SIDEWALK_EXTEND_BY days (and shift translateX for left extensions so the
+// visible panel stays put). Once the array exceeds SIDEWALK_MAX_PANELS we
+// prune the opposite side to keep memory bounded. There's no offset clamp —
+// the strip is effectively endless in both directions.
+const SIDEWALK_BUFFER_THRESHOLD = 5;
+const SIDEWALK_EXTEND_BY = 10;
+const SIDEWALK_MAX_PANELS = 60;
+
 const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
@@ -720,6 +766,10 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const pendingDateRef   = React.useRef(null);   // most-recent candidate waiting to flush
     const hasDragged = React.useRef(false);
     const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    // Mirror of `dates` for synchronous reads inside drag/wheel handlers — lets
+    // maybeExtend check current length without re-binding the drag effect on
+    // every extension (which would trash in-progress drag state).
+    const datesRef = React.useRef(dates);
     const [frameWidth, setFrameWidth] = React.useState(0);
 
     // Uniform panel height — sized to the busiest day in the visible strip so
@@ -768,6 +818,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         }
     }, []);
 
+    // Keep datesRef in sync with React state. maybeExtend writes to datesRef
+    // synchronously to avoid same-frame re-extension; this effect covers
+    // anything else that calls setDates (e.g., the centerDate rebuild path).
+    React.useLayoutEffect(() => { datesRef.current = dates; }, [dates]);
+
     // Apply a translateX to the inner strip without triggering React re-renders
     // — keeps drag at native-refresh smoothness.
     const applyOffset = (x) => {
@@ -784,7 +839,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         stopAnim();
         const start = offsetRef.current;
         const delta = target - start;
-        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        if (Math.abs(delta) < 1) { applyOffset(target); maybeExtend(); return; }
         const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
         const t0 = performance.now();
         const step = (now) => {
@@ -792,15 +847,56 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             const eased = 1 - (1 - t) ** 3;   // ease-out cubic
             applyOffset(start + delta * eased);
             if (t < 1) rafRef.current = requestAnimationFrame(step);
-            else { rafRef.current = null; reportCenterIfChanged(); }
+            else { rafRef.current = null; maybeExtend(); reportCenterIfChanged(); }
         };
         rafRef.current = requestAnimationFrame(step);
     };
 
     const indexForOffset = () => {
         if (frameWidth === 0) return 0;
+        const cur = datesRef.current;
         const raw = -offsetRef.current / frameWidth;
-        return Math.max(0, Math.min(dates.length - 1, Math.round(raw)));
+        return Math.max(0, Math.min(cur.length - 1, Math.round(raw)));
+    };
+
+    // Infinite-scroll buffer maintenance. When the visible panel approaches
+    // either edge, prepend / append SIDEWALK_EXTEND_BY days. Left extension
+    // shifts translateX by -extend*frameWidth so the visible panel stays put;
+    // when the array overflows SIDEWALK_MAX_PANELS, we prune the opposite end
+    // (with a matching +removed*frameWidth shift if pruning the left side).
+    //
+    // datesRef is updated synchronously so a follow-up call within the same
+    // frame doesn't see the pre-extension array and re-extend.
+    const maybeExtend = () => {
+        if (frameWidth === 0) return;
+        const cur = datesRef.current;
+        if (!cur || cur.length === 0) return;
+        const raw = -offsetRef.current / frameWidth;
+        const idx = Math.round(raw);
+        const distLeft  = idx;
+        const distRight = cur.length - 1 - idx;
+
+        if (distLeft <= SIDEWALK_BUFFER_THRESHOLD) {
+            // Extend left, then shift translateX so the visible panel stays put.
+            applyOffset(offsetRef.current - SIDEWALK_EXTEND_BY * frameWidth);
+            let next = extendDates(cur, 'left', SIDEWALK_EXTEND_BY);
+            const pruned = pruneDates(next, SIDEWALK_MAX_PANELS, 'right');
+            next = pruned.dates;
+            datesRef.current = next;
+            setDates(next);
+        } else if (distRight <= SIDEWALK_BUFFER_THRESHOLD) {
+            let next = extendDates(cur, 'right', SIDEWALK_EXTEND_BY);
+            const pruned = pruneDates(next, SIDEWALK_MAX_PANELS, 'left');
+            next = pruned.dates;
+            // Pruning the left side shifts every remaining panel's index down
+            // by `removedCount`; compensate translateX so the visible panel
+            // stays put.
+            if (pruned.removedCount > 0) {
+                applyOffset(offsetRef.current + pruned.removedCount * frameWidth);
+            }
+            datesRef.current = next;
+            setDates(next);
+        }
     };
 
     // Trailing-debounce onCenterDateChange so a scroll sweep through N panels
@@ -809,7 +905,10 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // re-entrance guard still works when the debounced callback finally flushes.
     const REPORT_DEBOUNCE_MS = 150;
     const reportCenterIfChanged = () => {
-        const d = dates[indexForOffset()];
+        // Read from datesRef so a same-frame maybeExtend() that already
+        // updated the array (synchronously) is reflected here too.
+        const cur = datesRef.current;
+        const d = cur[indexForOffset()];
         if (!d || d === lastReported.current) return;
         lastReported.current = d;
         pendingDateRef.current = d;
@@ -837,10 +936,12 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             reportTimeoutRef.current = null;
             pendingDateRef.current = null;
         }
-        const idx = dates.indexOf(centerDate);
+        const cur = datesRef.current;
+        const idx = cur.indexOf(centerDate);
         if (idx < 0) {
             // Rebuild strip around the new centerDate and snap to its center.
             const rebuilt = centeredDateRange(centerDate, 10);
+            datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
             requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * frameWidth));
@@ -854,34 +955,30 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // Initial placement on mount — put centerDate at index-of.
     React.useEffect(() => {
         if (frameWidth === 0) return;
-        const idx = dates.indexOf(centerDate);
+        const idx = datesRef.current.indexOf(centerDate);
         if (idx >= 0) applyOffset(-idx * frameWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frameWidth]);
 
-    // Drag + momentum. Bind once per frameWidth so closures see a stable width.
+    // Drag + momentum. Bind once per frameWidth — `dates.length` is read via
+    // `datesRef` inside maybeExtend so we can extend the strip without
+    // re-binding (which would lose in-progress drag state). onMove uses
+    // delta-from-last instead of cumulative-from-startOffset because
+    // maybeExtend can shift offsetRef mid-drag (left-extension); a delta
+    // formulation stays correct after that shift.
     React.useEffect(() => {
         const frame = frameRef.current;
         if (!frame || frameWidth === 0) return;
         let isDown = false;
         let startPageX = 0;
-        let startOffset = 0;
         let lastPageX = 0;
         let lastT = 0;
-
-        // Clamp offset to the strip bounds so wheel/drag past either edge can't
-        // walk every panel off-screen and leave the viewport blank (day-0 bug,
-        // exposed once bubbles became tall enough to be worth chasing past the
-        // 21st day). True infinite scroll is tracked by req #2396.
-        const minOffset = -(dates.length - 1) * frameWidth;
-        const clampOffset = (x) => Math.max(minOffset, Math.min(0, x));
 
         const onDown = (e) => {
             if (e.button !== 0) return;
             isDown = true;
             hasDragged.current = false;
             startPageX = e.pageX;
-            startOffset = offsetRef.current;
             lastPageX = e.pageX;
             lastT = performance.now();
             velocityRef.current = 0;
@@ -891,9 +988,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         };
         const onMove = (e) => {
             if (!isDown) return;
-            const dx = e.pageX - startPageX;
-            if (Math.abs(dx) > 4) hasDragged.current = true;
-            applyOffset(clampOffset(startOffset + dx));
+            const totalDx = e.pageX - startPageX;
+            if (Math.abs(totalDx) > 4) hasDragged.current = true;
+            const deltaX = e.pageX - lastPageX;
+            applyOffset(offsetRef.current + deltaX);
+            maybeExtend();
             const now = performance.now();
             const dt = Math.max(1, now - lastT);
             velocityRef.current = ((e.pageX - lastPageX) / dt) * 16;
@@ -911,16 +1010,8 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                     reportCenterIfChanged();       // no snap — stop wherever momentum ends
                     return;
                 }
-                const raw = offsetRef.current + velocityRef.current;
-                const clamped = clampOffset(raw);
-                applyOffset(clamped);
-                if (clamped !== raw) {
-                    // Hit a wall — kill momentum so we don't spin frames applying no-op offsets.
-                    velocityRef.current = 0;
-                    rafRef.current = null;
-                    reportCenterIfChanged();
-                    return;
-                }
+                applyOffset(offsetRef.current + velocityRef.current);
+                maybeExtend();
                 velocityRef.current *= 0.93;
                 rafRef.current = requestAnimationFrame(decay);
             };
@@ -940,7 +1031,8 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             if (!dxRaw) return;
             e.preventDefault();
             stopAnim();
-            applyOffset(clampOffset(offsetRef.current - dxRaw));
+            applyOffset(offsetRef.current - dxRaw);
+            maybeExtend();
             reportCenterIfChanged();
         };
 
@@ -958,7 +1050,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             stopAnim();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameWidth, dates.length]);
+    }, [frameWidth]);
 
     return (
         <Box className="ts-sidewalk" data-testid="ts-sidewalk" ref={frameRef}>
