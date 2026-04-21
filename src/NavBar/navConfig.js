@@ -6,6 +6,10 @@ import DnsIcon from '@mui/icons-material/Dns';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import RouteIcon from '@mui/icons-material/Route';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -28,6 +32,10 @@ export const NAV_LINKS = [
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
+    { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
+    { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm' },
+    { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm' },
+    { path: '/swarm/testruns', label: 'Test Runs', icon: PlayCircleIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
 ];
 

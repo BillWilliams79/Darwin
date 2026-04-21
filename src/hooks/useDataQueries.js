@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -460,5 +460,187 @@ export function useMapRunPartners(creatorFk, { fields = 'id,map_run_fk,map_partn
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Req #2380 — Swarm Features & Test Cases registry
+// `fields` is included in every extended query key (req #2213 — avoids cache collisions
+// across callers with different projections).
+// ---------------------------------------------------------------------------
+
+const FEATURE_DEFAULT_FIELDS = 'id,title,feature_status,category_fk,closed,sort_order,create_ts';
+const FEATURE_FULL_FIELDS    = 'id,title,description,feature_status,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
+const TESTCASE_DEFAULT_FIELDS = 'id,title,test_type,tags,category_fk,closed,sort_order,create_ts';
+const TESTCASE_FULL_FIELDS    = 'id,title,preconditions,steps,expected,test_type,tags,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
+const TESTPLAN_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
+const TESTPLANCASE_FIELDS = 'test_plan_fk,test_case_fk,sort_order';
+const TESTRUN_DEFAULT_FIELDS = 'id,test_plan_fk,run_status,started_at,completed_at,notes,create_ts';
+const TESTRESULT_FIELDS = 'id,test_run_fk,test_case_fk,result_status,actual,notes,executed_at,create_ts';
+
+// ----- features -----
+
+export function useAllFeatures(creatorFk, { fields = FEATURE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/features?closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...featureKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useFeaturesByCategory(creatorFk, categoryId, { fields = FEATURE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/features?category_fk=${categoryId}&closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...featureKeys.byCategory(creatorFk, categoryId), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!categoryId && !!idToken,
+    });
+}
+
+export function useFeatureById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/features?id=${id}&fields=${FEATURE_FULL_FIELDS}`;
+    const queryKey = featureKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// ----- test_cases -----
+
+export function useAllTestCases(creatorFk, { fields = TESTCASE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_cases?closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...testCaseKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useTestCaseById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_cases?id=${id}&fields=${TESTCASE_FULL_FIELDS}`;
+    const queryKey = testCaseKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// Full feature_test_cases link table. The callers (coverage indicator, link-check)
+// compute coverage client-side by joining against the features list.
+export function useFeatureTestCaseLinks(creatorFk, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/feature_test_cases?fields=feature_fk,test_case_fk`;
+    const queryKey = featureTestCaseKeys.all(creatorFk);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// ----- test_plans -----
+
+export function useAllTestPlans(creatorFk, { fields = TESTPLAN_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_plans?closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...testPlanKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useTestPlanById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_plans?id=${id}&fields=${TESTPLAN_DEFAULT_FIELDS}`;
+    const queryKey = testPlanKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// Cases contained in one plan, in sort_order (for Plan Detail / DnD reorder).
+export function useTestPlanCases(creatorFk, planId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_plan_cases?test_plan_fk=${planId}&fields=${TESTPLANCASE_FIELDS}&sort=sort_order:asc`;
+    const queryKey = testPlanCaseKeys.byPlan(creatorFk, planId);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!planId && !!idToken,
+    });
+}
+
+// ----- test_runs + test_results -----
+
+export function useAllTestRuns(creatorFk, { fields = TESTRUN_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_runs?fields=${fields}&sort=started_at:desc`;
+    const queryKey = [...testRunKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useTestRunById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_runs?id=${id}&fields=${TESTRUN_DEFAULT_FIELDS}`;
+    const queryKey = testRunKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+export function useTestRunsByPlan(creatorFk, planId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_runs?test_plan_fk=${planId}&fields=${TESTRUN_DEFAULT_FIELDS}&sort=started_at:desc`;
+    const queryKey = testRunKeys.byPlan(creatorFk, planId);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!planId && !!idToken,
+    });
+}
+
+export function useTestResultsByRun(creatorFk, runId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/test_results?test_run_fk=${runId}&fields=${TESTRESULT_FIELDS}`;
+    const queryKey = testResultKeys.byRun(creatorFk, runId);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!runId && !!idToken,
     });
 }
