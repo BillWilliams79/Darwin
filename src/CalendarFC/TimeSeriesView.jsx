@@ -14,6 +14,39 @@ import {
 } from './timeSeriesSizes';
 import './TimeSeriesView.css';
 
+// ─────────── Chip-count helpers (used by Sidewalk height precomputation) ─────
+// Bucket chips by their tz-local date string. Bead mode: one chip per same-day
+// requirement. Swarm mode: one chip per (requirement, session) pair, or a
+// single bare-requirement chip when a requirement has no linked session.
+//
+// Single pass over `requirements` and `sessions` so the Sidewalk parent can
+// size 21 panels without 21 × O(R+S) work (was the 100-200ms stall on scroll
+// that made the strip feel frozen — req #2334 follow-up). Callers that want a
+// specific date's count can use `countChipsForDate`, which just delegates here.
+// Exported for unit-test coverage.
+export const indexChipsByDate = (requirements, sessions, timezone, vizKey) => {
+    const map = new Map();
+    if (!Array.isArray(requirements)) return map;
+    const sessionsByReq = vizKey === 'swarm' ? indexSessionsByRequirement(sessions) : null;
+    for (const r of requirements) {
+        if (!r?.completed_at) continue;
+        const d = toLocaleDateString(r.completed_at, timezone);
+        if (!d) continue;
+        let n = 1;
+        if (vizKey === 'swarm') {
+            const linked = sessionsByReq.get(String(r.id)) || [];
+            n = linked.length > 0 ? linked.length : 1;
+        }
+        map.set(d, (map.get(d) || 0) + n);
+    }
+    return map;
+};
+
+export const countChipsForDate = (requirements, sessions, date, timezone, vizKey) => {
+    if (!date) return 0;
+    return indexChipsByDate(requirements, sessions, timezone, vizKey).get(date) || 0;
+};
+
 // ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
 // Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
 // it extends the stack upward; otherwise a new stack begins at row 0.
@@ -387,15 +420,19 @@ const BeadRow = ({
     const spaceMul = isWeekView ? 1 : getSpaceMultiplier(spaceKey);
     const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
 
-    // Vertical height — must clear the date label at the top by at least half a
-    // bubble so the tallest bubble never crowds the date.
-    const dateBottom   = isWeekView ? 26 : 46;
+    // Vertical height — must clear the top chrome by at least half a bubble so
+    // the tallest bubble never crowds the date / time-axis header. Same formula
+    // for every layout; only the chrome-bottom offset changes:
+    //   Day      → 46 (date band at top 26 + height 20)
+    //   Week     → 26 (no date chrome above the row)
+    //   Sidewalk → 50 (wire/time-axis bottom at CSS top: 50; see TimeSeriesView.css).
+    // Panel uniformity in the Sidewalk strip is handled by the parent, which
+    // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
+    const chromeBottom  = sidewalkPanel ? 50 : (isWeekView ? 26 : 46);
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
-    const height = sidewalkPanel
-        ? baseHeight                                    // fixed uniform panels
-        : Math.max(baseHeight,
-                   maxStackRow * rowSpacing + bubbleOffset + circleDiameter
-                   + dateBottom + dateClearance);
+    const height = Math.max(baseHeight,
+                            maxStackRow * rowSpacing + bubbleOffset + circleDiameter
+                            + chromeBottom + dateClearance);
 
     // Unified bottom-anchored bubble positioning — earliest met (row 0) always at
     // the bottom, latest at the top, in Day/Week and Sidewalk alike.
@@ -666,15 +703,44 @@ const BeadRow = ({
 // a momentum decay then snaps to the nearest panel. No native scrollbar — the
 // user is pushing content around, not a thumb.
 const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
     const offsetRef = React.useRef(0);      // current translateX in px (negative = panels to the left)
     const velocityRef = React.useRef(0);    // px / frame
     const rafRef = React.useRef(null);
     const lastReported = React.useRef(centerDate);
+    const reportTimeoutRef = React.useRef(null);   // trailing debounce of onCenterDateChange
+    const pendingDateRef   = React.useRef(null);   // most-recent candidate waiting to flush
     const hasDragged = React.useRef(false);
     const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
     const [frameWidth, setFrameWidth] = React.useState(0);
+
+    // Uniform panel height — sized to the busiest day in the visible strip so
+    // every panel shows all its lanes below the top chrome. Mirrors BeadRow's
+    // height formula (sidewalk branch: chromeBottom=50, bubbleOffset=20).
+    // Single-pass bucket via indexChipsByDate so 21-day strips stay O(R+S+D)
+    // instead of O(D × (R+S)) — matters during scroll, when requirements
+    // refetches churn this memo.
+    const sidewalkHeight = useMemo(() => {
+        const BASE_HEIGHT   = 400;
+        const bubbleOffset  = 20;
+        const chromeBottom  = 50;
+        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+        const spaceMul      = getSpaceMultiplier(spaceKey);
+        const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+        const chipsByDate   = indexChipsByDate(requirements, sessions, timezone, vizKey);
+        let maxChips = 0;
+        for (const d of dates) {
+            const n = chipsByDate.get(d) || 0;
+            if (n > maxChips) maxChips = n;
+        }
+        const maxStackRow = Math.max(0, maxChips - 1);
+        return Math.max(
+            BASE_HEIGHT,
+            maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+        );
+    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
 
     // Measure frame width; re-measure on resize. `layoutEffect` so initial paint has a width.
     React.useLayoutEffect(() => {
@@ -685,6 +751,15 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         measure();
         window.addEventListener('resize', measure);
         return () => window.removeEventListener('resize', measure);
+    }, []);
+
+    // Cancel any pending debounced onCenterDateChange on unmount.
+    React.useEffect(() => () => {
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
     }, []);
 
     // Apply a translateX to the inner strip without triggering React re-renders
@@ -722,12 +797,23 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         return Math.max(0, Math.min(dates.length - 1, Math.round(raw)));
     };
 
+    // Trailing-debounce onCenterDateChange so a scroll sweep through N panels
+    // doesn't fire N setCalendarView → requirements refetch → re-render cycles.
+    // lastReported updates synchronously so the centerDate useEffect's
+    // re-entrance guard still works when the debounced callback finally flushes.
+    const REPORT_DEBOUNCE_MS = 150;
     const reportCenterIfChanged = () => {
         const d = dates[indexForOffset()];
-        if (d && d !== lastReported.current) {
-            lastReported.current = d;
-            onCenterDateChange(d);
-        }
+        if (!d || d === lastReported.current) return;
+        lastReported.current = d;
+        pendingDateRef.current = d;
+        if (reportTimeoutRef.current) clearTimeout(reportTimeoutRef.current);
+        reportTimeoutRef.current = setTimeout(() => {
+            const pending = pendingDateRef.current;
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+            if (pending) onCenterDateChange(pending);
+        }, REPORT_DEBOUNCE_MS);
     };
 
     // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
@@ -737,6 +823,14 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     React.useEffect(() => {
         if (frameWidth === 0) return;
         if (centerDate === lastReported.current) return;
+        // Parent drove the change (e.g. a chevron click). Cancel any pending
+        // debounced scroll report so a stale scroll date doesn't fire after
+        // this effect and revert the new centerDate.
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
         const idx = dates.indexOf(centerDate);
         if (idx < 0) {
             // Rebuild strip around the new centerDate and snap to its center.
@@ -769,6 +863,13 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         let lastPageX = 0;
         let lastT = 0;
 
+        // Clamp offset to the strip bounds so wheel/drag past either edge can't
+        // walk every panel off-screen and leave the viewport blank (day-0 bug,
+        // exposed once bubbles became tall enough to be worth chasing past the
+        // 21st day). True infinite scroll is tracked by req #2396.
+        const minOffset = -(dates.length - 1) * frameWidth;
+        const clampOffset = (x) => Math.max(minOffset, Math.min(0, x));
+
         const onDown = (e) => {
             if (e.button !== 0) return;
             isDown = true;
@@ -786,7 +887,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             if (!isDown) return;
             const dx = e.pageX - startPageX;
             if (Math.abs(dx) > 4) hasDragged.current = true;
-            applyOffset(startOffset + dx);
+            applyOffset(clampOffset(startOffset + dx));
             const now = performance.now();
             const dt = Math.max(1, now - lastT);
             velocityRef.current = ((e.pageX - lastPageX) / dt) * 16;
@@ -804,7 +905,16 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                     reportCenterIfChanged();       // no snap — stop wherever momentum ends
                     return;
                 }
-                applyOffset(offsetRef.current + velocityRef.current);
+                const raw = offsetRef.current + velocityRef.current;
+                const clamped = clampOffset(raw);
+                applyOffset(clamped);
+                if (clamped !== raw) {
+                    // Hit a wall — kill momentum so we don't spin frames applying no-op offsets.
+                    velocityRef.current = 0;
+                    rafRef.current = null;
+                    reportCenterIfChanged();
+                    return;
+                }
                 velocityRef.current *= 0.93;
                 rafRef.current = requestAnimationFrame(decay);
             };
@@ -824,7 +934,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             if (!dxRaw) return;
             e.preventDefault();
             stopAnim();
-            applyOffset(offsetRef.current - dxRaw);
+            applyOffset(clampOffset(offsetRef.current - dxRaw));
             reportCenterIfChanged();
         };
 
@@ -852,7 +962,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                          style={{ width: frameWidth || '100%', flex: `0 0 ${frameWidth || 1}px` }}>
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
-                                 sidewalkHeight={400}
+                                 sidewalkHeight={sidewalkHeight}
                                  {...rowProps} />
                     </Box>
                 ))}
