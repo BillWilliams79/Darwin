@@ -96,13 +96,26 @@
     z-index: 1;
 }
 
-/* Midnight/noon dividers */
-.ts-bead-divider {
+/* Midnight/noon dividers. The layer mirrors .ts-bead-timeline's horizontal
+   anchoring so divider % positions share the tick coordinate system. Each
+   divider spans the layer's full height and centers on its pct via
+   translateX(-50%), matching .ts-bead-tick's centering. Per-view top/bottom
+   live on the layer so dividers clear the date-label and time-label zones. */
+.ts-bead-divider-layer {
     position: absolute;
-    width: 1px;
-    background: rgba(0, 0, 0, 0.22);
+    left: 16px;
+    right: 16px;
     pointer-events: none;
     z-index: 1;
+}
+.ts-bead-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.22);
+    pointer-events: none;
 }
 
 /* X-axis timeline ticks */
@@ -115,15 +128,19 @@
     z-index: 1;
 }
 
-/* Day view — roomy (default) */
-.ts-bead-day  .ts-bead-wire     { bottom: 78px; }
-.ts-bead-day  .ts-bead-timeline { bottom: 24px; }
-.ts-bead-day  .ts-bead-divider  { top: 8px; bottom: 48px; }
+/* Day view — roomy (default). Divider layer sits below the date area
+   (26-46 from top) and above the timeline top (68 from bottom), still
+   crossing the wire (78 from bottom). */
+.ts-bead-day  .ts-bead-wire            { bottom: 78px; }
+.ts-bead-day  .ts-bead-timeline        { bottom: 24px; }
+.ts-bead-day  .ts-bead-divider-layer   { top: 50px; bottom: 70px; }
 
-/* Week view — compressed so 7 rows fit */
-.ts-bead-week .ts-bead-wire     { bottom: 64px; }
-.ts-bead-week .ts-bead-timeline { bottom: 10px; }
-.ts-bead-week .ts-bead-divider  { top: 4px; bottom: 34px; }
+/* Week view — compressed so 7 rows fit. Divider layer sits below the date
+   area (6-26 from top) and above the timeline top (54 from bottom), still
+   crossing the wire (64 from bottom). */
+.ts-bead-week .ts-bead-wire            { bottom: 64px; }
+.ts-bead-week .ts-bead-timeline        { bottom: 10px; }
+.ts-bead-week .ts-bead-divider-layer   { top: 28px; bottom: 56px; }
 
 /* Sidewalk panel — chrome at top (date on row 1, x-axis time on row 2),
    bubbles stack bottom-up as usual. No side padding so adjacent 24h panels
@@ -185,11 +202,14 @@ body.darwin-dark .ts-bead-day-count-inline {
     margin-top: 0;
     margin-bottom: 2px;
 }
-/* Vertical dividers span only the bubble area (below the chrome). */
-.ts-bead-sidewalk .ts-bead-divider {
+/* Vertical dividers span only the bubble area (below the chrome). Sidewalk
+   has no 16px side padding, so the layer fills edge-to-edge — matching the
+   timeline's `left: 0; right: 0` anchoring in this variant. */
+.ts-bead-sidewalk .ts-bead-divider-layer {
+    left: 0;
+    right: 0;
     top: 50px;
     bottom: 10px;
-    height: auto;
 }
 /* Wire — short axis line just under the time ticks, above bubble area. */
 .ts-bead-sidewalk .ts-bead-wire {
