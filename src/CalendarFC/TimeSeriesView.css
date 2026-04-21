@@ -149,18 +149,21 @@
     padding: 0;
     background: transparent;
 }
-/* Row 1 — date (with inline count pill) */
+/* Row 1 — date (with inline count pill).
+   height + label line-height pinned so the inline count pill (line-height: 1.4)
+   can't push the label past the row's declared bottom into Row 2 below. */
 .ts-bead-sidewalk .ts-bead-days {
     top: 8px;
     left: 8px;
     right: 8px;
-    height: 18px;
+    height: 20px;
 }
 .ts-bead-sidewalk .ts-bead-day-label {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 0.82rem;
+    line-height: 1.2;
 }
 .ts-bead-day-count-inline {
     display: inline-block;
@@ -180,9 +183,11 @@ body.darwin-dark .ts-bead-day-count-inline {
     color: #81c784;
 }
 
-/* Row 2 — time axis */
+/* Row 2 — time axis. Pushed down so the tick-labels (12pm, 3pm…) have
+   ≥10px of clear whitespace below the date row. Date row ends around y=28,
+   tick-label top starts at y=46. */
 .ts-bead-sidewalk .ts-bead-timeline {
-    top: 30px;
+    top: 46px;
     bottom: auto;
     left: 0;
     right: 0;
@@ -204,16 +209,18 @@ body.darwin-dark .ts-bead-day-count-inline {
 }
 /* Vertical dividers span only the bubble area (below the chrome). Sidewalk
    has no 16px side padding, so the layer fills edge-to-edge — matching the
-   timeline's `left: 0; right: 0` anchoring in this variant. */
+   timeline's `left: 0; right: 0` anchoring in this variant. Top matches the
+   wire so dividers start just below the tick-line (req #2331 moved the
+   chrome down to give the date row more room). */
 .ts-bead-sidewalk .ts-bead-divider-layer {
     left: 0;
     right: 0;
-    top: 50px;
+    top: 68px;
     bottom: 10px;
 }
 /* Wire — short axis line just under the time ticks, above bubble area. */
 .ts-bead-sidewalk .ts-bead-wire {
-    top: 50px;
+    top: 68px;
     bottom: auto;
     left: 0;
     right: 0;
