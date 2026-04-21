@@ -91,3 +91,43 @@ export const mapPartnerKeys = {
 export const mapRunPartnerKeys = {
     all: (creatorFk) => ['map_run_partners', creatorFk],
 };
+
+// Req #2380 — Swarm Features & Test Cases registry. `fields` must appear in the
+// extended key (req #2213) so two callers with different projections don't collide.
+
+export const featureKeys = {
+    all: (creatorFk) => ['features', creatorFk],
+    byId: (creatorFk, id) => ['features', creatorFk, { id }],
+    byCategory: (creatorFk, categoryId) => ['features', creatorFk, { categoryId }],
+};
+
+export const testCaseKeys = {
+    all: (creatorFk) => ['test_cases', creatorFk],
+    byId: (creatorFk, id) => ['test_cases', creatorFk, { id }],
+    byCategory: (creatorFk, categoryId) => ['test_cases', creatorFk, { categoryId }],
+    byFeature: (creatorFk, featureId) => ['test_cases', creatorFk, { featureId }],
+};
+
+export const featureTestCaseKeys = {
+    all: (creatorFk) => ['feature_test_cases', creatorFk],
+};
+
+export const testPlanKeys = {
+    all: (creatorFk) => ['test_plans', creatorFk],
+    byId: (creatorFk, id) => ['test_plans', creatorFk, { id }],
+    byCategory: (creatorFk, categoryId) => ['test_plans', creatorFk, { categoryId }],
+};
+
+export const testPlanCaseKeys = {
+    byPlan: (creatorFk, planId) => ['test_plan_cases', creatorFk, { planId }],
+};
+
+export const testRunKeys = {
+    all: (creatorFk) => ['test_runs', creatorFk],
+    byId: (creatorFk, id) => ['test_runs', creatorFk, { id }],
+    byPlan: (creatorFk, planId) => ['test_runs', creatorFk, { planId }],
+};
+
+export const testResultKeys = {
+    byRun: (creatorFk, runId) => ['test_results', creatorFk, { runId }],
+};
