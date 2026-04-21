@@ -303,9 +303,9 @@ const BeadRow = ({
     // top-down sidewalk layout we use topHeader instead (pixels from TOP).
     const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
-    // Sidewalk keeps bottom-up bubble stacking (earliest met = bottom, latest = top)
-    // just like Day/Week; only the chrome moves to the top of the panel. Fixed 400px
-    // so every panel looks identical.
+    // Sidewalk: chrome (date + time axis) pinned at the top; bubbles stack
+    // bottom-up below it. Panel height grows to fit the stack — no false
+    // bottom, so days with many bubbles don't overflow the chrome.
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
@@ -425,10 +425,11 @@ const BeadRow = ({
     // for every layout; only the chrome-bottom offset changes:
     //   Day      → 46 (date band at top 26 + height 20)
     //   Week     → 26 (no date chrome above the row)
-    //   Sidewalk → 50 (wire/time-axis bottom at CSS top: 50; see TimeSeriesView.css).
+    //   Sidewalk → 80 (wire at CSS top: 68 after whitespace expansion for
+    //                   req #2331/#2364, plus breathing room before bubbles).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
-    const chromeBottom  = sidewalkPanel ? 50 : (isWeekView ? 26 : 46);
+    const chromeBottom  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
@@ -457,9 +458,14 @@ const BeadRow = ({
                 inlineCount={sidewalkPanel ? windowChips.length : null}
             />
 
-            {ticks.filter(t => t.kind === 'major').map((t, i) => (
-                <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
-            ))}
+            {/* Midnight/noon divider layer — mirrors the timeline's horizontal
+                anchoring so dividers share the tick coordinate system and the
+                1px lines center on their pct via translateX(-50%). */}
+            <Box className="ts-bead-divider-layer" aria-hidden="true">
+                {ticks.filter(t => t.kind === 'major').map((t, i) => (
+                    <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
+                ))}
+            </Box>
 
             {nowPct !== null && (
                 <Box className="ts-now-marker" data-testid="ts-now-marker" style={{ left: `${nowPct}%` }} />
@@ -725,7 +731,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const sidewalkHeight = useMemo(() => {
         const BASE_HEIGHT   = 400;
         const bubbleOffset  = 20;
-        const chromeBottom  = 50;
+        const chromeBottom  = 80;   // matches BeadRow's sidewalk chromeBottom (wire top:68 + padding)
         const dateClearance = Math.ceil(circleDiameter / 2) + 4;
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
