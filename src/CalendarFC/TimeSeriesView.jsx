@@ -420,9 +420,14 @@ const BeadRow = ({
                 inlineCount={sidewalkPanel ? windowChips.length : null}
             />
 
-            {ticks.filter(t => t.kind === 'major').map((t, i) => (
-                <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
-            ))}
+            {/* Midnight/noon divider layer — mirrors the timeline's horizontal
+                anchoring so dividers share the tick coordinate system and the
+                1px lines center on their pct via translateX(-50%). */}
+            <Box className="ts-bead-divider-layer" aria-hidden="true">
+                {ticks.filter(t => t.kind === 'major').map((t, i) => (
+                    <Box key={i} className="ts-bead-divider" style={{ left: `${t.pct}%` }} />
+                ))}
+            </Box>
 
             {nowPct !== null && (
                 <Box className="ts-now-marker" data-testid="ts-now-marker" style={{ left: `${nowPct}%` }} />
