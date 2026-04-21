@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { trimTo35 } from '../../utils/stringFormat';
 import { getTimeOfDayFraction, toLocaleDateString, formatHHMM, formatHM12, localDateStr } from '../../utils/dateFormat';
+import { countChipsForDate, indexChipsByDate } from '../TimeSeriesView';
 
 describe('trimTo35', () => {
     it('returns empty for null/undefined/empty', () => {
@@ -153,5 +154,144 @@ describe('toLocaleDateString (TimeSeries day-bucket filter)', () => {
     it('shifts late-evening UTC event back a day in PDT', () => {
         // 2026-04-18 02:00 UTC → 2026-04-17 19:00 PDT → still April 17 in LA tz.
         expect(toLocaleDateString('2026-04-18 02:00:00', 'America/Los_Angeles')).toBe('2026-04-17');
+    });
+});
+
+describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
+    const TZ = 'UTC';
+    const DAY = '2026-04-17';
+    const OTHER = '2026-04-18';
+
+    it('returns 0 for empty / invalid input', () => {
+        expect(countChipsForDate([], [], DAY, TZ, 'swarm')).toBe(0);
+        expect(countChipsForDate(null, [], DAY, TZ, 'swarm')).toBe(0);
+        expect(countChipsForDate([{ id: 1, completed_at: `${DAY} 12:00:00` }], [], null, TZ, 'bead'))
+            .toBe(0);
+    });
+
+    it('skips requirements with no completed_at', () => {
+        const reqs = [
+            { id: 1, completed_at: null },
+            { id: 2, completed_at: `${DAY} 10:00:00` },
+        ];
+        expect(countChipsForDate(reqs, [], DAY, TZ, 'bead')).toBe(1);
+    });
+
+    it('filters out requirements whose completed_at lands on a different day', () => {
+        const reqs = [
+            { id: 1, completed_at: `${DAY} 09:00:00` },
+            { id: 2, completed_at: `${OTHER} 09:00:00` },
+            { id: 3, completed_at: `${DAY} 23:00:00` },
+        ];
+        expect(countChipsForDate(reqs, [], DAY, TZ, 'bead')).toBe(2);
+        expect(countChipsForDate(reqs, [], OTHER, TZ, 'bead')).toBe(1);
+    });
+
+    it('bead mode: one chip per same-day requirement (sessions ignored)', () => {
+        const reqs = [
+            { id: 1, completed_at: `${DAY} 09:00:00` },
+            { id: 2, completed_at: `${DAY} 10:00:00` },
+            { id: 3, completed_at: `${DAY} 11:00:00` },
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${DAY} 08:00:00` },
+            { id: 11, source_ref: 'requirement:1', started_at: `${DAY} 08:30:00` },
+        ];
+        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'bead')).toBe(3);
+    });
+
+    it('swarm mode: one chip per (requirement, session) pair', () => {
+        const reqs = [
+            { id: 1, completed_at: `${DAY} 09:00:00` },
+            { id: 2, completed_at: `${DAY} 10:00:00` },
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${DAY} 08:00:00` },
+            { id: 11, source_ref: 'requirement:1', started_at: `${DAY} 08:30:00` },
+            { id: 20, source_ref: 'requirement:2', started_at: `${DAY} 09:30:00` },
+        ];
+        // req 1 has 2 sessions + req 2 has 1 session → 3 chips
+        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(3);
+    });
+
+    it('swarm mode: bare-requirement fallback when no linked session', () => {
+        const reqs = [
+            { id: 1, completed_at: `${DAY} 09:00:00` },   // no sessions
+            { id: 2, completed_at: `${DAY} 10:00:00` },   // 2 sessions
+        ];
+        const sessions = [
+            { id: 20, source_ref: 'requirement:2', started_at: `${DAY} 09:00:00` },
+            { id: 21, source_ref: 'requirement:2', started_at: `${DAY} 09:15:00` },
+        ];
+        // req 1 = 1 bare chip, req 2 = 2 session chips → 3 chips
+        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(3);
+    });
+
+    it('swarm mode: sessions whose requirement falls on a different day do not count', () => {
+        const reqs = [
+            { id: 1, completed_at: `${OTHER} 09:00:00` },
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${DAY} 08:00:00` },
+            { id: 11, source_ref: 'requirement:1', started_at: `${DAY} 08:30:00` },
+        ];
+        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(0);
+    });
+});
+
+describe('indexChipsByDate (Sidewalk single-pass bucket)', () => {
+    const TZ = 'UTC';
+    const D1 = '2026-04-17';
+    const D2 = '2026-04-18';
+
+    it('returns empty Map for invalid / empty input', () => {
+        expect(indexChipsByDate(null, [], TZ, 'swarm').size).toBe(0);
+        expect(indexChipsByDate([], [], TZ, 'bead').size).toBe(0);
+    });
+
+    it('bead mode: one count per same-day requirement, grouped by date', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },
+            { id: 2, completed_at: `${D1} 10:00:00` },
+            { id: 3, completed_at: `${D2} 11:00:00` },
+            { id: 4, completed_at: null },
+        ];
+        const map = indexChipsByDate(reqs, [], TZ, 'bead');
+        expect(map.get(D1)).toBe(2);
+        expect(map.get(D2)).toBe(1);
+        expect(map.size).toBe(2);
+    });
+
+    it('swarm mode: sessions bucket under their requirement\'s completed_at date', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },    // 2 sessions
+            { id: 2, completed_at: `${D2} 10:00:00` },    // 0 sessions → bare-req fallback
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` },
+            { id: 11, source_ref: 'requirement:1', started_at: `${D1} 08:30:00` },
+        ];
+        const map = indexChipsByDate(reqs, sessions, TZ, 'swarm');
+        expect(map.get(D1)).toBe(2);    // 2 (req,session) chips on D1
+        expect(map.get(D2)).toBe(1);    // 1 bare-req chip on D2
+    });
+
+    it('produces the same per-date counts as countChipsForDate', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },
+            { id: 2, completed_at: `${D1} 10:00:00` },
+            { id: 3, completed_at: `${D2} 11:00:00` },
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` },
+            { id: 11, source_ref: 'requirement:2', started_at: `${D1} 09:00:00` },
+            { id: 12, source_ref: 'requirement:3', started_at: `${D2} 10:00:00` },
+        ];
+        for (const vizKey of ['bead', 'swarm']) {
+            const map = indexChipsByDate(reqs, sessions, TZ, vizKey);
+            for (const d of [D1, D2]) {
+                expect(map.get(d) || 0).toBe(countChipsForDate(reqs, sessions, d, TZ, vizKey));
+            }
+        }
     });
 });
