@@ -84,18 +84,18 @@ const assignRows = (chips, minGapPct) => {
 //   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
 //   • 'left'                    → one gap left of bubble center (no duration line
 //                                  is drawn in this mode — the bar IS the visual).
-//   • 'normal', startPct valid  → at startPct. A duration line is drawn from
-//                                  startPct to the bubble; the bar MUST coincide
-//                                  with the line's left end or the visualization
-//                                  lies (req #2399: bar was incorrectly bubble-
-//                                  hugged when aligned-cluster gap was < 1.5%,
-//                                  leaving the duration line dangling past it).
-//                                  The non-aligned close-start case is handled
-//                                  upstream in drawChips by switching markerMode
-//                                  to 'left', so this branch never needs a
-//                                  bubble-hug fallback of its own.
-//   • 'normal', startPct null    → null (no session start to mark).
-//   • unknown markerMode         → null.
+//   • 'normal', startPct valid  → at startPct (left edge of the horizontal line;
+//                                  aligns vertically with cluster-mates per req
+//                                  #2341). The bar must coincide with the line's
+//                                  left end — reqs #2398/#2399 fixed the old
+//                                  gap-shift branch that bubble-hugged the tick
+//                                  when aligned-cluster gap was < 1.5%, leaving
+//                                  the duration line dangling past the bar. The
+//                                  non-aligned close-start case is handled
+//                                  upstream in drawChips (markerMode='left'), so
+//                                  this branch never needs a bubble-hug fallback.
+//   • 'normal', startPct null   → null (no session start to mark).
+//   • unknown markerMode        → null.
 // Exported for unit-test coverage.
 export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     if (markerMode === 'clamped') return null;
@@ -209,7 +209,8 @@ export const weekDates = (dateStr) => {
 // All zoom levels position the same chips at the same % within their base
 // window, so switching 24h ↔ 36h never moves a chip — the 24h view just
 // rejects anything that falls in the hidden outer bands.
-const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
+// Exported for unit-test coverage of the 24h↔36h transition.
+export const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
     const chipDay  = toLocaleDateString(completedAt, timezone);
     const chipFrac = getTimeOfDayFraction(completedAt, timezone);
     if (chipDay === null || chipFrac === null) return null;
@@ -639,10 +640,8 @@ const BeadRow = ({
                         );
                     })}
                     {/* Vertical start bar — position depends on markerMode:
-                        'normal'  → at startPct (coincides with the left end of the
-                                    duration line; req #2399 retired the close-gap
-                                    bubble-hug shortcut that dangled the line past
-                                    the bar for aligned-cluster members)
+                        'normal'  → at startPct (left end of the duration line;
+                                    aligns cluster-mates vertically, req #2341/#2398/#2399)
                         'left'    → immediately left of bubble (no session OR start ≈ met
                                     on a non-aligned chip — no duration line drawn)
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
