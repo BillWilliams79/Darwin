@@ -97,6 +97,25 @@ export const VIZ_KEYS = ['bead', 'swarm'];
 export const VIZ_LABELS = { bead: 'Bead', swarm: 'Swarm' };
 export const DEFAULT_VIZ = 'bead';
 
+// Time Series data-selection mode (req #2382).
+// 'category'    — chip color from requirement.category_fk → category.color (default / unchanged).
+// 'coordination' — chip color from requirement.coordination_type (red/orange/yellow/green).
+export const DATA_KEYS = ['category', 'coordination'];
+export const DEFAULT_DATA_KEY = 'category';
+
+// Chip colors when dataKey === 'coordination'. Null / unknown coordination_type
+// falls back to red, making "no setting" visible at a glance — matches the spec
+// in req #2382 ("red = no setting").
+export const COORDINATION_COLORS = {
+    planned:     '#FB8C00',   // orange — planning phase
+    implemented: '#FDD835',   // yellow — built but not yet deployed
+    deployed:    '#43A047',   // green — shipped
+};
+export const COORDINATION_FALLBACK_COLOR = '#E53935'; // red — no coordination set
+export function getCoordinationColor(coordinationType) {
+    return COORDINATION_COLORS[coordinationType] || COORDINATION_FALLBACK_COLOR;
+}
+
 // ── Swarm start-time clustering (req #2341) ─────────────────────────────────────
 // Sessions whose started_at fall within this window are treated as a single swarm
 // and share one canonical start X so their vertical start-bars line up.
