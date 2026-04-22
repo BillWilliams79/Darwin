@@ -389,85 +389,99 @@ describe('clusterSessionsByStartTime', () => {
 // Row 0 = earliest met = bottom; higher rows = later met = top. ─────────────────
 import { assignSwarmLanes, weekDates, centeredDateRange, swarmStartBarX } from '../TimeSeriesView';
 
-// ─── swarmStartBarX — vertical start-tick x-coordinate selector (req #2336) ───
+// ─── swarmStartBarX — vertical start-tick x-coordinate selector ──────────────
+// Contract (simplified by req #2399):
+//   'normal' always returns startPct when startPct is valid. A duration line
+//   is drawn from startPct to the bubble in 'normal' mode, so the bar MUST
+//   coincide with the line's left end. The close-gap bubble-hug shortcut
+//   introduced by req #2336 was reachable ONLY for aligned-cluster chips
+//   (the !isAligned close-gap case already switches markerMode to 'left'
+//   upstream in drawChips), and for those chips it lied about where the
+//   session started — dangling the duration line past the bar.
 describe('swarmStartBarX (vertical start-tick positioning)', () => {
     const GAP = 9;          // circleDiameter=12 → gap = 12/2 + 3 = 9
-    const THRESHOLD = 1.5;  // CLOSE_THRESHOLD_PCT
 
     describe('markerMode=clamped', () => {
         it('returns null (horizontal dashed line already conveys start)', () => {
-            expect(swarmStartBarX('clamped', 50, 0, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('clamped', 50, null, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('clamped', 50, 0, GAP)).toBeNull();
+            expect(swarmStartBarX('clamped', 50, null, GAP)).toBeNull();
         });
     });
 
     describe('markerMode=left', () => {
         it('always renders one gap left of the bubble', () => {
-            expect(swarmStartBarX('left', 50, null, GAP, THRESHOLD)).toBe('calc(50% - 9px)');
-            expect(swarmStartBarX('left', 25, 24.5, GAP, THRESHOLD)).toBe('calc(25% - 9px)');
+            expect(swarmStartBarX('left', 50, null, GAP)).toBe('calc(50% - 9px)');
+            expect(swarmStartBarX('left', 25, 24.5, GAP)).toBe('calc(25% - 9px)');
         });
     });
 
-    describe('markerMode=normal, distant start (gap ≥ threshold)', () => {
-        it('renders at startPct so cluster-mates align vertically (req #2341)', () => {
-            // Gap = 50 - 40 = 10%, well above 1.5% threshold → align at startPct.
-            expect(swarmStartBarX('normal', 50, 40, GAP, THRESHOLD)).toBe('40%');
+    describe('markerMode=normal', () => {
+        it('renders at startPct for a distant start (cluster alignment, req #2341)', () => {
+            // Gap = 50 - 40 = 10% — obviously well clear of the bubble.
+            expect(swarmStartBarX('normal', 50, 40, GAP)).toBe('40%');
         });
 
-        it('renders at startPct right at threshold', () => {
-            // Gap = 50 - 48.5 = 1.5%, NOT less than threshold → at startPct.
-            expect(swarmStartBarX('normal', 50, 48.5, GAP, THRESHOLD)).toBe('48.5%');
-        });
-    });
-
-    describe('markerMode=normal, close start (gap < threshold) — req #2336 fix', () => {
-        it('shifts bar left of bubble when start ≈ met (prevents hidden-under-bubble)', () => {
-            // Gap = 50 - 49 = 1%, below 1.5% threshold. Pre-fix: bar at 49% lands
-            // under the bubble at 50% (bubble spans 50% ± 6px). Post-fix: bar
-            // shifted to leftPct - gap so it's visible.
-            expect(swarmStartBarX('normal', 50, 49, GAP, THRESHOLD)).toBe('calc(50% - 9px)');
+        it('renders at startPct right at the old 1.5% boundary', () => {
+            // Gap = 1.5%. Same answer as anywhere else now that the close-gap
+            // bubble-hug shortcut is gone.
+            expect(swarmStartBarX('normal', 50, 48.5, GAP)).toBe('48.5%');
         });
 
-        it('shifts bar left of bubble even when startPct === leftPct exactly', () => {
-            // Gap = 0, fully below threshold. Bar must shift or disappears.
-            expect(swarmStartBarX('normal', 30, 30, GAP, THRESHOLD)).toBe('calc(30% - 9px)');
+        it('renders at startPct for an aligned-cluster close-gap chip (req #2399 fix)', () => {
+            // The reqs 2330/2336/2381 reproducer: three swarm sessions started
+            // within 7 s of each other on 2026-04-20 (single cluster → every
+            // chip has isAligned=true). In Day view (baseHours=36) their
+            // start→met gaps landed at 1.01%, 1.37%, and 1.45% — all below
+            // the old 1.5% CLOSE_THRESHOLD_PCT. Pre-fix the bar was shoved
+            // to leftPct - gap (bubble-hug) while the duration line continued
+            // to extend from startPct to the bubble — producing a visible
+            // line to the RIGHT of the supposed "start" bar. Post-fix the
+            // bar coincides with the line's left end.
+            expect(swarmStartBarX('normal', 50, 48.99, GAP)).toBe('48.99%');   // gap 1.01%
+            expect(swarmStartBarX('normal', 50, 48.63, GAP)).toBe('48.63%');   // gap 1.37%
+            expect(swarmStartBarX('normal', 50, 48.55, GAP)).toBe('48.55%');   // gap 1.45%
         });
 
-        it('applies to aligned-cluster chips (req #2341 markerMode="normal" forced at tiny gap)', () => {
-            // An aligned-cluster member with start ≈ met is kept as 'normal' so
-            // it aligns vertically with its distant-start cluster-mates. Without
-            // the req #2336 fix, its bar at startPct lands inside its own bubble
-            // and disappears — leaving the other cluster members' bars visible
-            // but this one apparently "gone".
-            expect(swarmStartBarX('normal', 65, 64.2, GAP, THRESHOLD)).toBe('calc(65% - 9px)');
+        it('renders at startPct even when startPct === leftPct exactly', () => {
+            // Zero-gap 'normal' only happens for aligned-cluster chips whose
+            // canonical start == their own met time (rare, but possible at
+            // coarse time resolution). Bar at startPct is the honest answer;
+            // if it overlaps the bubble, the cluster-mates' bars at the same
+            // X still convey the alignment.
+            expect(swarmStartBarX('normal', 30, 30, GAP)).toBe('30%');
+        });
+
+        it('renders at startPct for an aligned-cluster tiny-gap chip (pre-#2399 regression)', () => {
+            // Gap = 0.8% — was the req #2336 "bar hides under bubble" case.
+            // Req #2399 accepts that tradeoff: the duration line + cluster-
+            // mate alignment are more important than eliminating every case
+            // where a thin bar partially overlaps a small bubble.
+            expect(swarmStartBarX('normal', 65, 64.2, GAP)).toBe('64.2%');
         });
     });
 
     describe('markerMode=normal with null startPct', () => {
         it('returns null (no session start to mark)', () => {
-            expect(swarmStartBarX('normal', 50, null, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('normal', 50, undefined, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('normal', 50, null, GAP)).toBeNull();
+            expect(swarmStartBarX('normal', 50, undefined, GAP)).toBeNull();
         });
     });
 
     describe('unknown markerMode', () => {
         it('returns null', () => {
-            expect(swarmStartBarX(undefined, 50, 40, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('', 50, 40, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('bogus', 50, 40, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX(undefined, 50, 40, GAP)).toBeNull();
+            expect(swarmStartBarX('', 50, 40, GAP)).toBeNull();
+            expect(swarmStartBarX('bogus', 50, 40, GAP)).toBeNull();
         });
     });
 
     it('deterministic across repeated calls (no hidden state)', () => {
-        // Regression guard — bug #2336 was perceived as "toggle causes
-        // indicators to disappear". The selector must return identical
-        // results no matter how many times it's called.
-        const a = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
-        const b = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
-        const c = swarmStartBarX('normal', 50, 49, GAP, THRESHOLD);
+        const a = swarmStartBarX('normal', 50, 49, GAP);
+        const b = swarmStartBarX('normal', 50, 49, GAP);
+        const c = swarmStartBarX('normal', 50, 49, GAP);
         expect(a).toBe(b);
         expect(b).toBe(c);
-        expect(a).toBe('calc(50% - 9px)');
+        expect(a).toBe('49%');
     });
 });
 
