@@ -86,10 +86,12 @@ const CalendarFC = () => {
     const timeSeriesBeadWindow = useCalendarViewStore(s => s.timeSeriesBeadWindow);
     const timeSeriesVizKey = useCalendarViewStore(s => s.timeSeriesVizKey);
     const timeSeriesSidewalkOn = useCalendarViewStore(s => s.timeSeriesSidewalkOn);
+    const timeSeriesDataKey = useCalendarViewStore(s => s.timeSeriesDataKey);
     const setTimeSeriesMode = useCalendarViewStore(s => s.setTimeSeriesMode);
     const setTimeSeriesBeadWindow = useCalendarViewStore(s => s.setTimeSeriesBeadWindow);
     const setTimeSeriesVizKey = useCalendarViewStore(s => s.setTimeSeriesVizKey);
     const setTimeSeriesSidewalkOn = useCalendarViewStore(s => s.setTimeSeriesSidewalkOn);
+    const setTimeSeriesDataKey = useCalendarViewStore(s => s.setTimeSeriesDataKey);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
@@ -699,6 +701,15 @@ const CalendarFC = () => {
         setTimeSeriesVizKey(viz);
     }, [timeSeriesMode, timeSeriesVizKey, setTimeSeriesMode, setTimeSeriesVizKey]);
 
+    // Coordination toolbar button — toggles chip color source between
+    // category (default) and coordination_type. Applies to both Bead and
+    // Swarm viz (req #2382 updated 2026-04-22). Disabled only in Month view
+    // and when Time Series is off.
+    const handleCoordinationClick = useCallback(() => {
+        if (!timeSeriesMode) return;
+        setTimeSeriesDataKey(timeSeriesDataKey === 'coordination' ? 'category' : 'coordination');
+    }, [timeSeriesMode, timeSeriesDataKey, setTimeSeriesDataKey]);
+
     // Sidewalk toolbar button — disabled unless Time Series is on. Turning it
     // on also forces 24h bead window (sidewalk panels are one day each).
     const handleSidewalkClick = useCallback(() => {
@@ -1003,6 +1014,16 @@ const CalendarFC = () => {
                                                   data-testid="timeseries-sidewalk">
                                         Sidewalk
                                     </ToggleButton>
+                                    {/* Data-selection toggle (req #2382) — Coordination recolors
+                                        chips by coordination_type (red/orange/yellow/green).
+                                        Works with both Bead and Swarm viz. */}
+                                    <ToggleButton value="coordination" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && timeSeriesDataKey === 'coordination' && !inMonthView}
+                                                  disabled={!timeSeriesMode || inMonthView}
+                                                  onChange={handleCoordinationClick}
+                                                  data-testid="timeseries-data-coordination">
+                                        Coordination
+                                    </ToggleButton>
                                 </ToggleButtonGroup>
                             </Box>
                             {/* Center: ← Title → */}
@@ -1093,6 +1114,7 @@ const CalendarFC = () => {
                                 beadWindow={timeSeriesBeadWindow}
                                 vizKey={timeSeriesVizKey}
                                 sidewalkOn={timeSeriesSidewalkOn}
+                                dataKey={timeSeriesDataKey}
                                 isWeekView={savedViewType === 'dayGridWeek'}
                                 categoryList={allCategoryList || []}
                                 onChipClick={(reqId) => {

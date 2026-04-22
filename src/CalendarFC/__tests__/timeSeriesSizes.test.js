@@ -9,6 +9,8 @@ import {
     SPACE_KEYS, DEFAULT_SPACE, SPACE_MULTIPLIERS, getSpaceMultiplier,
     ZOOM_KEYS, DEFAULT_ZOOM, ZOOM_HOURS, getZoomHours,
     SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime,
+    DATA_KEYS, DEFAULT_DATA_KEY, COORDINATION_COLORS,
+    COORDINATION_FALLBACK_COLOR, getCoordinationColor,
 } from '../timeSeriesSizes';
 
 describe('Font size option A/B/C/D', () => {
@@ -591,5 +593,38 @@ describe('centeredDateRange (Sidewalk strip)', () => {
         expect(centeredDateRange(null)).toEqual([]);
         expect(centeredDateRange(undefined)).toEqual([]);
         expect(centeredDateRange('')).toEqual([]);
+    });
+});
+
+describe('Data selection — Coordination palette (req #2382)', () => {
+    it('DATA_KEYS has the two supported modes in canonical order', () => {
+        expect(DATA_KEYS).toEqual(['category', 'coordination']);
+    });
+
+    it('default data key is category (current design, zero changes)', () => {
+        expect(DEFAULT_DATA_KEY).toBe('category');
+    });
+
+    it('COORDINATION_COLORS maps the three typed coordination values', () => {
+        expect(COORDINATION_COLORS.planned).toBe('#FB8C00');
+        expect(COORDINATION_COLORS.implemented).toBe('#FDD835');
+        expect(COORDINATION_COLORS.deployed).toBe('#43A047');
+    });
+
+    it('fallback color is red (no coordination set)', () => {
+        expect(COORDINATION_FALLBACK_COLOR).toBe('#E53935');
+    });
+
+    it('getCoordinationColor returns the mapped color for every typed value', () => {
+        expect(getCoordinationColor('planned')).toBe('#FB8C00');
+        expect(getCoordinationColor('implemented')).toBe('#FDD835');
+        expect(getCoordinationColor('deployed')).toBe('#43A047');
+    });
+
+    it('getCoordinationColor falls back to red for null/undefined/unknown', () => {
+        expect(getCoordinationColor(null)).toBe('#E53935');
+        expect(getCoordinationColor(undefined)).toBe('#E53935');
+        expect(getCoordinationColor('')).toBe('#E53935');
+        expect(getCoordinationColor('unknown')).toBe('#E53935');
     });
 });
