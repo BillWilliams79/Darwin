@@ -82,23 +82,19 @@ const assignRows = (chips, minGapPct) => {
 //
 // Rules:
 //   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
-//   • 'left'                    → one gap left of bubble center.
-//   • 'normal', gap ≥ threshold → at startPct (aligns vertically with cluster-mates
-//                                  in req #2341).
-//   • 'normal', gap <  threshold → one gap left of bubble center (req #2336 —
-//                                   when start ≈ met, the SVG tick at startPct
-//                                   lands under the bubble's z-index and disappears).
-//   • 'normal', startPct null    → null (no session start to mark).
-//   • unknown markerMode         → null.
+//   • 'left'                    → one gap left of bubble center (no line drawn, so
+//                                  the tick sits right at the bubble).
+//   • 'normal', startPct valid  → at startPct (left edge of the horizontal line —
+//                                  aligns vertically with cluster-mates per req #2341
+//                                  and matches the line's start visually, req #2398).
+//   • 'normal', startPct null   → null (no session start to mark).
+//   • unknown markerMode        → null.
 // Exported for unit-test coverage.
-export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx, closeThresholdPct) => {
+export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     if (markerMode === 'clamped') return null;
     if (markerMode === 'left') return `calc(${leftPct}% - ${gapPx}px)`;
     if (markerMode === 'normal' && startPct !== null && startPct !== undefined) {
-        const gapPct = leftPct - startPct;
-        return gapPct < closeThresholdPct
-            ? `calc(${leftPct}% - ${gapPx}px)`
-            : `${startPct}%`;
+        return `${startPct}%`;
     }
     return null;
 };
@@ -170,7 +166,8 @@ export const weekDates = (dateStr) => {
 // All zoom levels position the same chips at the same % within their base
 // window, so switching 24h ↔ 36h never moves a chip — the 24h view just
 // rejects anything that falls in the hidden outer bands.
-const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
+// Exported for unit-test coverage of the 24h↔36h transition.
+export const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
     const chipDay  = toLocaleDateString(completedAt, timezone);
     const chipFrac = getTimeOfDayFraction(completedAt, timezone);
     if (chipDay === null || chipFrac === null) return null;
@@ -596,17 +593,17 @@ const BeadRow = ({
                         );
                     })}
                     {/* Vertical start bar — position depends on markerMode:
-                        'normal'  → at startPct (OR left-of-bubble when start ≈ met, so
-                                    aligned-cluster close-met bars don't hide behind their
-                                    own bubble — req #2336)
-                        'left'    → immediately left of bubble (no session OR start ≈ met)
+                        'normal'  → at startPct (left edge of the horizontal line;
+                                    aligns cluster-mates vertically, req #2341/#2398)
+                        'left'    → immediately left of bubble (no session OR start ≈ met;
+                                    no horizontal line drawn)
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
                     {placed.map(chip => {
                         const halfBar = Math.max(6, circleDiameter / 2);
                         const y1 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 - halfBar}px)`;
                         const y2 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
-                        const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap, CLOSE_THRESHOLD_PCT);
+                        const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
                         if (x === null) return null;
                         return (
                             <line
