@@ -9,6 +9,8 @@ import {
     SPACE_KEYS, DEFAULT_SPACE, SPACE_MULTIPLIERS, getSpaceMultiplier,
     ZOOM_KEYS, DEFAULT_ZOOM, ZOOM_HOURS, getZoomHours,
     SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime,
+    DATA_KEYS, DEFAULT_DATA_KEY, COORDINATION_COLORS,
+    COORDINATION_FALLBACK_COLOR, getCoordinationColor,
 } from '../timeSeriesSizes';
 
 describe('Font size option A/B/C/D', () => {
@@ -532,74 +534,82 @@ describe('swarmStartBarX — short-window rendering (req #2398)', () => {
     });
 });
 
-// ─── swarmStartBarX — vertical start-tick x-coordinate selector (req #2336) ───
+// ─── swarmStartBarX — vertical start-tick x-coordinate selector ──────────────
+// Contract (simplified by req #2399):
+//   'normal' always returns startPct when startPct is valid. A duration line
+//   is drawn from startPct to the bubble in 'normal' mode, so the bar MUST
+//   coincide with the line's left end. The close-gap bubble-hug shortcut
+//   introduced by req #2336 was reachable ONLY for aligned-cluster chips
+//   (the !isAligned close-gap case already switches markerMode to 'left'
+//   upstream in drawChips), and for those chips it lied about where the
+//   session started — dangling the duration line past the bar.
 describe('swarmStartBarX (vertical start-tick positioning)', () => {
     const GAP = 9;          // circleDiameter=12 → gap = 12/2 + 3 = 9
-    const THRESHOLD = 1.5;  // CLOSE_THRESHOLD_PCT
 
     describe('markerMode=clamped', () => {
         it('returns null (horizontal dashed line already conveys start)', () => {
-            expect(swarmStartBarX('clamped', 50, 0, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('clamped', 50, null, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('clamped', 50, 0, GAP)).toBeNull();
+            expect(swarmStartBarX('clamped', 50, null, GAP)).toBeNull();
         });
     });
 
     describe('markerMode=left', () => {
         it('always renders one gap left of the bubble', () => {
-            expect(swarmStartBarX('left', 50, null, GAP, THRESHOLD)).toBe('calc(50% - 9px)');
-            expect(swarmStartBarX('left', 25, 24.5, GAP, THRESHOLD)).toBe('calc(25% - 9px)');
+            expect(swarmStartBarX('left', 50, null, GAP)).toBe('calc(50% - 9px)');
+            expect(swarmStartBarX('left', 25, 24.5, GAP)).toBe('calc(25% - 9px)');
         });
     });
 
-    describe('markerMode=normal, distant start (gap ≥ threshold)', () => {
-        it('renders at startPct so cluster-mates align vertically (req #2341)', () => {
-            // Gap = 50 - 40 = 10%, well above 1.5% threshold → align at startPct.
-            expect(swarmStartBarX('normal', 50, 40, GAP, THRESHOLD)).toBe('40%');
+    describe('markerMode=normal', () => {
+        it('renders at startPct for a distant start (cluster alignment, req #2341)', () => {
+            // Gap = 50 - 40 = 10% — obviously well clear of the bubble.
+            expect(swarmStartBarX('normal', 50, 40, GAP)).toBe('40%');
         });
 
-        it('renders at startPct right at threshold', () => {
-            // Gap = 50 - 48.5 = 1.5%, NOT less than threshold → at startPct.
-            expect(swarmStartBarX('normal', 50, 48.5, GAP, THRESHOLD)).toBe('48.5%');
+        it('renders at startPct right at the old 1.5% threshold boundary', () => {
+            // Gap = 1.5%. No special branch — same answer as any other gap.
+            expect(swarmStartBarX('normal', 50, 48.5, GAP)).toBe('48.5%');
         });
     });
 
-    describe('markerMode=normal, close start (gap < threshold) — req #2398 fix', () => {
-        // Req #2398: when markerMode='normal' the horizontal line is drawn from
-        // startPct to leftPct. The vertical tick MUST sit at startPct (the line's
-        // left edge), never at the bubble end — the old gap-shift from req #2336
-        // put it next to the bubble, which visually misrepresents where the
-        // session started and breaks cluster-mate alignment.
-        it('renders at startPct when start is close to met (line shows the gap)', () => {
-            // Gap = 50 - 49 = 1%. Bar at 49% = left edge of the horizontal line.
+    describe('markerMode=normal, close start — req #2398/#2399 fix', () => {
+        // Both req #2398 and req #2399 independently fixed the old gap-shift
+        // branch that placed the tick at leftPct-gapPx (bubble-hug) when the
+        // gap was < 1.5%. That left the duration line extending from startPct
+        // to the bubble while the "start" bar sat closer to the bubble — a
+        // visual lie. Post-fix: tick always at startPct (line's left end).
+        it('renders at startPct when start is close to met', () => {
             expect(swarmStartBarX('normal', 50, 49, GAP)).toBe('49%');
         });
 
+        it('renders at startPct for real-world repro values (2026-04-20 cluster)', () => {
+            // Three sessions started within 7s — gaps 1.01%, 1.37%, 1.45%.
+            expect(swarmStartBarX('normal', 50, 48.99, GAP)).toBe('48.99%');
+            expect(swarmStartBarX('normal', 50, 48.63, GAP)).toBe('48.63%');
+            expect(swarmStartBarX('normal', 50, 48.55, GAP)).toBe('48.55%');
+        });
+
         it('renders at startPct even when startPct === leftPct exactly', () => {
-            // Degenerate zero-length line — still place the tick where the line is.
             expect(swarmStartBarX('normal', 30, 30, GAP)).toBe('30%');
         });
 
-        it('aligned-cluster chip with tiny own-gap renders at canonical startPct', () => {
-            // An aligned-cluster member is kept as 'normal' so it aligns
-            // vertically with its cluster-mates (req #2341). The tick sits at
-            // startPct (canonical cluster start) — that's the whole alignment
-            // guarantee req #2398 restored.
+        it('renders at canonical startPct for aligned-cluster tiny-gap chip', () => {
             expect(swarmStartBarX('normal', 65, 64.2, GAP)).toBe('64.2%');
         });
     });
 
     describe('markerMode=normal with null startPct', () => {
         it('returns null (no session start to mark)', () => {
-            expect(swarmStartBarX('normal', 50, null, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('normal', 50, undefined, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX('normal', 50, null, GAP)).toBeNull();
+            expect(swarmStartBarX('normal', 50, undefined, GAP)).toBeNull();
         });
     });
 
     describe('unknown markerMode', () => {
         it('returns null', () => {
-            expect(swarmStartBarX(undefined, 50, 40, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('', 50, 40, GAP, THRESHOLD)).toBeNull();
-            expect(swarmStartBarX('bogus', 50, 40, GAP, THRESHOLD)).toBeNull();
+            expect(swarmStartBarX(undefined, 50, 40, GAP)).toBeNull();
+            expect(swarmStartBarX('', 50, 40, GAP)).toBeNull();
+            expect(swarmStartBarX('bogus', 50, 40, GAP)).toBeNull();
         });
     });
 
@@ -738,5 +748,38 @@ describe('centeredDateRange (Sidewalk strip)', () => {
         expect(centeredDateRange(null)).toEqual([]);
         expect(centeredDateRange(undefined)).toEqual([]);
         expect(centeredDateRange('')).toEqual([]);
+    });
+});
+
+describe('Data selection — Coordination palette (req #2382)', () => {
+    it('DATA_KEYS has the two supported modes in canonical order', () => {
+        expect(DATA_KEYS).toEqual(['category', 'coordination']);
+    });
+
+    it('default data key is category (current design, zero changes)', () => {
+        expect(DEFAULT_DATA_KEY).toBe('category');
+    });
+
+    it('COORDINATION_COLORS maps the three typed coordination values', () => {
+        expect(COORDINATION_COLORS.planned).toBe('#FB8C00');
+        expect(COORDINATION_COLORS.implemented).toBe('#FDD835');
+        expect(COORDINATION_COLORS.deployed).toBe('#43A047');
+    });
+
+    it('fallback color is red (no coordination set)', () => {
+        expect(COORDINATION_FALLBACK_COLOR).toBe('#E53935');
+    });
+
+    it('getCoordinationColor returns the mapped color for every typed value', () => {
+        expect(getCoordinationColor('planned')).toBe('#FB8C00');
+        expect(getCoordinationColor('implemented')).toBe('#FDD835');
+        expect(getCoordinationColor('deployed')).toBe('#43A047');
+    });
+
+    it('getCoordinationColor falls back to red for null/undefined/unknown', () => {
+        expect(getCoordinationColor(null)).toBe('#E53935');
+        expect(getCoordinationColor(undefined)).toBe('#E53935');
+        expect(getCoordinationColor('')).toBe('#E53935');
+        expect(getCoordinationColor('unknown')).toBe('#E53935');
     });
 });
