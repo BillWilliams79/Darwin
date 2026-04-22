@@ -5,8 +5,8 @@ import Tooltip from '@mui/material/Tooltip';
 import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12 } from '../utils/dateFormat';
 import {
     DEFAULT_FONT_SIZE,
-    getFontSize, getCircleSize, formatCoordination,
-    DEFAULT_VIZ,
+    getFontSize, getCircleSize, formatCoordination, getCoordinationColor,
+    DEFAULT_VIZ, DEFAULT_DATA_KEY,
     DEFAULT_SPACE, getSpaceMultiplier,
     DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
     indexSessionsByRequirement,
@@ -315,6 +315,7 @@ const BeadRow = ({
     requirements, sessions, categoryList, selectedDate, timezone,
     beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
+    dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     crossDays = [], onChipClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     sidewalkHeight,
@@ -361,6 +362,9 @@ const BeadRow = ({
             const xPct = xPctFn(r.completed_at, timezone, selectedDate);
             if (xPct === null) continue;
             const cat = categoryList.find(c => c.id === r.category_fk);
+            const color = dataKey === 'coordination'
+                ? getCoordinationColor(r.coordination_type)
+                : (cat?.color || null);
             out.push({
                 id: r.id,
                 title: r.title || '',
@@ -369,14 +373,14 @@ const BeadRow = ({
                 requirement_status: r.requirement_status || null,
                 coordination_type: r.coordination_type || null,
                 categoryName: cat?.category_name || null,
-                color: cat?.color || null,
+                color,
                 timeHHMM: formatHM12(r.completed_at, timezone),
                 leftPct: xPct,
                 timezone,
             });
         }
         return out;
-    }, [requirements, categoryList, selectedDate, timezone, xPctFn]);
+    }, [requirements, categoryList, selectedDate, timezone, xPctFn, dataKey]);
 
     // Bead: one chip per requirement. Swarm: one chip per (req, session) pair;
     // requirements with zero sessions get a lone chip with markerMode='left' —
@@ -1083,6 +1087,7 @@ const TimeSeriesView = ({
     beadWindow = '24h',
     vizKey = DEFAULT_VIZ,
     sidewalkOn = false,
+    dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
     isWeekView = false,
     categoryList = [],
     onChipClick,
@@ -1230,6 +1235,7 @@ const TimeSeriesView = ({
                     timezone={timezone}
                     beadWindow={beadWindow}
                     vizKey={vizKey}
+                    dataKey={dataKey}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -1251,6 +1257,7 @@ const TimeSeriesView = ({
                             timezone={timezone}
                             beadWindow={beadWindow}
                             vizKey={vizKey}
+                            dataKey={dataKey}
                             tooltipFontSize={tooltipFontSize}
                             circleDiameter={circleDiameter}
                             spaceKey={spaceKey}
