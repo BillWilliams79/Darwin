@@ -102,6 +102,21 @@ export const DEFAULT_VIZ = 'bead';
 // and share one canonical start X so their vertical start-bars line up.
 export const SWARM_CLUSTER_WINDOW_MS = 3 * 60 * 1000;   // 3 minutes
 
+// Parse a started_at/completed_at value the same way the rest of the
+// visualizer does (utils/dateFormat.toDate): MySQL-format "YYYY-MM-DD HH:MM:SS"
+// is UTC-stored and must be given an explicit `Z`, otherwise `new Date(...)`
+// parses it in the browser's local tz — which silently disagrees with
+// positionFor/toLocaleDateString and skews relative deltas across DST
+// boundaries. Kept local to this module so timeSeriesSizes stays standalone
+// (no circular dep with the dateFormat utility).
+function parseStartedAtMs(value) {
+    if (!value) return NaN;
+    if (typeof value === 'string' && value.includes(' ') && !value.includes('T')) {
+        return new Date(value.replace(' ', 'T') + 'Z').getTime();
+    }
+    return new Date(value).getTime();
+}
+
 // Group sessions by proximity of started_at. Any two sessions whose starts are
 // within `thresholdMs` of each other belong to the same cluster (transitive).
 // Returns:
@@ -116,7 +131,7 @@ export function clusterSessionsByStartTime(sessions, thresholdMs = SWARM_CLUSTER
     const valid = [];
     for (const s of sessions) {
         if (!s || s.id == null || !s.started_at) continue;
-        const ms = new Date(s.started_at).getTime();
+        const ms = parseStartedAtMs(s.started_at);
         if (Number.isNaN(ms)) continue;
         valid.push({ id: String(s.id), startedAt: s.started_at, startMs: ms });
     }
