@@ -56,6 +56,37 @@
     min-width: 0;              /* override BeadRow's 720px so it shrinks into the panel */
 }
 
+/* ── Elevator — vertical analog of Sidewalk (Week view only; req #2383) ── */
+.ts-elevator {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    /* Bounded height so the strip lives inside the page. Leaves headroom for
+       the FC toolbar (~150px) and a little breathing room at the bottom. */
+    height: calc(100vh - 220px);
+    min-height: 420px;
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+    touch-action: pan-x;       /* let horizontal page scroll pass through; we handle vertical */
+}
+.ts-elevator:active { cursor: grabbing; }
+.ts-elevator-inner {
+    display: flex;
+    flex-direction: column;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+.ts-elevator-panel {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+.ts-elevator-panel .ts-bead {
+    min-width: 0;              /* override BeadRow's 720px so it shrinks into the panel */
+}
+
 /* ── Row stack (Day = 1 row, Week = 7 rows) ── */
 .ts-rows {
     display: flex;

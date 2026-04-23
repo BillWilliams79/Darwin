@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { trimTo35 } from '../../utils/stringFormat';
 import { getTimeOfDayFraction, toLocaleDateString, formatHHMM, formatHM12, localDateStr } from '../../utils/dateFormat';
-import { countChipsForDate, indexChipsByDate } from '../TimeSeriesView';
+import { countChipsForDate, indexChipsByDate, indexMaxStackByDate } from '../TimeSeriesView';
 
 describe('trimTo35', () => {
     it('returns empty for null/undefined/empty', () => {
@@ -293,5 +293,78 @@ describe('indexChipsByDate (Sidewalk single-pass bucket)', () => {
                 expect(map.get(d) || 0).toBe(countChipsForDate(reqs, sessions, d, TZ, vizKey));
             }
         }
+    });
+});
+
+describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
+    const TZ = 'UTC';
+    const D1 = '2026-04-17';
+    const D2 = '2026-04-18';
+
+    it('returns empty Map for invalid / empty input', () => {
+        expect(indexMaxStackByDate(null, [], TZ, 'bead').size).toBe(0);
+        expect(indexMaxStackByDate([], [], TZ, 'swarm').size).toBe(0);
+    });
+
+    it('swarm mode: maxRow = chips − 1 per date (one lane per chip)', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },
+            { id: 2, completed_at: `${D1} 10:00:00` },
+            { id: 3, completed_at: `${D2} 11:00:00` },
+        ];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` },
+            { id: 11, source_ref: 'requirement:1', started_at: `${D1} 08:30:00` },
+            { id: 12, source_ref: 'requirement:2', started_at: `${D1} 09:30:00` },
+        ];
+        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm');
+        expect(map.get(D1)).toBe(2);    // 3 chips → rows 0,1,2 → maxRow 2
+        expect(map.get(D2)).toBe(0);    // 1 bare-req chip → row 0
+    });
+
+    it('bead mode: well-separated chips collapse to row 0 (no stacking)', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 00:00:00` },   // leftPct ≈ 0
+            { id: 2, completed_at: `${D1} 08:00:00` },   // ≈ 33.3
+            { id: 3, completed_at: `${D1} 16:00:00` },   // ≈ 66.6
+            { id: 4, completed_at: `${D1} 23:00:00` },   // ≈ 95.8
+        ];
+        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
+        expect(map.get(D1)).toBe(0);
+    });
+
+    it('bead mode: chips within minGapPct cluster and stack', () => {
+        // Same-minute requirements → identical leftPct → guaranteed to cluster.
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },
+            { id: 2, completed_at: `${D1} 09:00:01` },
+            { id: 3, completed_at: `${D1} 09:00:02` },
+        ];
+        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
+        expect(map.get(D1)).toBe(2);    // 3 clustered chips → rows 0,1,2
+    });
+
+    it('bead mode vs swarm mode: bead can be much shorter than swarm for the same data', () => {
+        // 10 requirements spread evenly through the day — bead clusters them
+        // into row 0 only; swarm gives each its own lane.
+        const reqs = Array.from({ length: 10 }, (_, i) => ({
+            id: i + 1,
+            completed_at: `${D1} ${String(2 + i * 2).padStart(2, '0')}:00:00`,
+        }));
+        const beadMap = indexMaxStackByDate(reqs, [], TZ, 'bead');
+        const swarmMap = indexMaxStackByDate(reqs, [], TZ, 'swarm');
+        expect(beadMap.get(D1)).toBeLessThan(swarmMap.get(D1));
+        expect(swarmMap.get(D1)).toBe(9);   // 10 chips → rows 0..9
+    });
+
+    it('bead mode: ignores requirements with null completed_at', () => {
+        const reqs = [
+            { id: 1, completed_at: `${D1} 09:00:00` },
+            { id: 2, completed_at: null },
+            { id: 3, completed_at: undefined },
+        ];
+        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
+        expect(map.get(D1)).toBe(0);
+        expect(map.size).toBe(1);
     });
 });
