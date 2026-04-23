@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
-// Seed the calendar Zustand store to a known state. Matches persist schema v6.
+// Seed the calendar Zustand store to a known state. Matches persist schema v7.
 async function seedCalendarState(page: Page, currentDate: string, viewType = 'dayGridDay', mode: string[] = ['requirements']): Promise<void> {
   await page.evaluate(({ d, v, m }) => {
     localStorage.setItem('darwin_calendar_view', JSON.stringify({
@@ -15,8 +15,9 @@ async function seedCalendarState(page: Page, currentDate: string, viewType = 'da
         timeSeriesBeadWindow: '24h',
         timeSeriesVizKey: 'bead',
         timeSeriesSidewalkOn: false,
+        timeSeriesElevatorOn: false,
       },
-      version: 6,
+      version: 7,
     }));
   }, { d: currentDate, v: viewType, m: mode });
 }
@@ -185,5 +186,34 @@ test.describe('Calendar Time Series — Bead / Swarm / Sidewalk toolbar', () => 
     await expect(page.getByTestId('ts-sidewalk')).toBeVisible({ timeout: 5000 });
     // 36h is disabled when Sidewalk is on.
     await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+  });
+
+  test('TS-09: Elevator toggle — enabled only in Week view, renders the vertical strip (req #2383)', async ({ page }) => {
+    await page.goto('/calview');
+    await seedCalendarState(page, testDate);
+    await page.reload();
+
+    // Day view + TS off → Elevator disabled.
+    await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
+
+    // Day view + TS on (Bead) → Elevator still disabled (not week view).
+    await page.getByTestId('timeseries-viz-bead').click();
+    await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
+
+    // Switch to Week → Elevator now enabled, Sidewalk disabled.
+    await page.getByRole('button', { name: 'Week', exact: true }).click();
+    await expect(page.getByTestId('timeseries-elevator')).toBeEnabled();
+    await expect(page.getByTestId('timeseries-sidewalk')).toBeDisabled();
+
+    // Click Elevator → ts-elevator mounts, Elevator button aria-pressed, 36h disabled.
+    await page.getByTestId('timeseries-elevator').click();
+    await expect(page.getByTestId('timeseries-elevator')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('ts-elevator')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+
+    // Switch back to Day → Elevator auto-off (no longer rendered), button disabled.
+    await page.getByRole('button', { name: 'Day', exact: true }).click();
+    await expect(page.getByTestId('ts-elevator')).not.toBeVisible();
+    await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
   });
 });

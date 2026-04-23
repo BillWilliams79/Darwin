@@ -86,10 +86,12 @@ const CalendarFC = () => {
     const timeSeriesBeadWindow = useCalendarViewStore(s => s.timeSeriesBeadWindow);
     const timeSeriesVizKey = useCalendarViewStore(s => s.timeSeriesVizKey);
     const timeSeriesSidewalkOn = useCalendarViewStore(s => s.timeSeriesSidewalkOn);
+    const timeSeriesElevatorOn = useCalendarViewStore(s => s.timeSeriesElevatorOn);
     const setTimeSeriesMode = useCalendarViewStore(s => s.setTimeSeriesMode);
     const setTimeSeriesBeadWindow = useCalendarViewStore(s => s.setTimeSeriesBeadWindow);
     const setTimeSeriesVizKey = useCalendarViewStore(s => s.setTimeSeriesVizKey);
     const setTimeSeriesSidewalkOn = useCalendarViewStore(s => s.setTimeSeriesSidewalkOn);
+    const setTimeSeriesElevatorOn = useCalendarViewStore(s => s.setTimeSeriesElevatorOn);
 
     const [calendarTitle, setCalendarTitle] = useState('');
 
@@ -120,6 +122,7 @@ const CalendarFC = () => {
 
     // Time Series fetch range:
     //   • Sidewalk    → ±15 days around savedDate (covers the 21-day panel strip + growth)
+    //   • Elevator    → ±15 days (vertical 21-day strip, week view only)
     //   • Week view   → 7 days (Mon..Sun of the week containing savedDate) ±1 edge
     //   • Day/Month   → ±1 day around savedDate (covers tz boundary cases — a chip
     //                   whose UTC completed_at falls on savedDate-1 or savedDate+1
@@ -136,6 +139,9 @@ const CalendarFC = () => {
         if (sidewalkOn && savedViewType !== 'dayGridWeek') {
             return { start: shift(savedDate, -15), end: shift(savedDate, 15) };
         }
+        if (savedViewType === 'dayGridWeek' && timeSeriesElevatorOn) {
+            return { start: shift(savedDate, -15), end: shift(savedDate, 15) };
+        }
         if (savedViewType === 'dayGridWeek') {
             const d = new Date(savedDate + 'T12:00:00');
             const mondayOffset = (d.getDay() + 6) % 7;
@@ -148,7 +154,7 @@ const CalendarFC = () => {
         // Day view — always fetch ±1 day (not just selectedDate) so the 24h window
         // never misses a chip whose UTC completed_at spills onto an adjacent day.
         return { start: shift(savedDate, -1), end: shift(savedDate, 1) };
-    }, [timeSeriesMode, savedDate, savedViewType, sidewalkOn]);
+    }, [timeSeriesMode, savedDate, savedViewType, sidewalkOn, timeSeriesElevatorOn]);
     const effectiveRange = timeSeriesRange || summaryRange;
     const effectiveStart = effectiveRange ? effectiveRange.start + 'T00:00:00' : (isMobile ? mobileStartStr : startStr);
     const effectiveEnd   = effectiveRange ? effectiveRange.end   + 'T23:59:59' : (isMobile ? mobileEndStr   : endStr);
@@ -700,13 +706,40 @@ const CalendarFC = () => {
     }, [timeSeriesMode, timeSeriesVizKey, setTimeSeriesMode, setTimeSeriesVizKey]);
 
     // Sidewalk toolbar button — disabled unless Time Series is on. Turning it
-    // on also forces 24h bead window (sidewalk panels are one day each).
+    // on also forces 24h bead window (sidewalk panels are one day each) and
+    // turns off Elevator so only one 21-day strip is visible.
     const handleSidewalkClick = useCallback(() => {
         if (!timeSeriesMode) return;
         const next = !timeSeriesSidewalkOn;
         setTimeSeriesSidewalkOn(next);
-        if (next) setTimeSeriesBeadWindow('24h');
-    }, [timeSeriesMode, timeSeriesSidewalkOn, setTimeSeriesSidewalkOn, setTimeSeriesBeadWindow]);
+        if (next) {
+            setTimeSeriesBeadWindow('24h');
+            setTimeSeriesElevatorOn(false);
+        }
+    }, [timeSeriesMode, timeSeriesSidewalkOn, setTimeSeriesSidewalkOn, setTimeSeriesBeadWindow, setTimeSeriesElevatorOn]);
+
+    // Elevator toolbar button — vertical analog of Sidewalk, Week-view only.
+    // Disabled unless Time Series is on AND view is Week. Turning it on forces
+    // 24h bead window (elevator panels are one day each) and turns off Sidewalk
+    // (they're mutually exclusive presentations of the same 21-day strip).
+    const handleElevatorClick = useCallback(() => {
+        if (!timeSeriesMode) return;
+        if (savedViewType !== 'dayGridWeek') return;
+        const next = !timeSeriesElevatorOn;
+        setTimeSeriesElevatorOn(next);
+        if (next) {
+            setTimeSeriesBeadWindow('24h');
+            setTimeSeriesSidewalkOn(false);
+        }
+    }, [timeSeriesMode, timeSeriesElevatorOn, savedViewType, setTimeSeriesElevatorOn, setTimeSeriesBeadWindow, setTimeSeriesSidewalkOn]);
+
+    // Elevator only makes sense in Week view — auto-off when the user leaves
+    // Week (mirrors the Time-Series-auto-off-on-Month effect above).
+    React.useEffect(() => {
+        if (savedViewType !== 'dayGridWeek' && timeSeriesElevatorOn) {
+            setTimeSeriesElevatorOn(false);
+        }
+    }, [savedViewType, timeSeriesElevatorOn, setTimeSeriesElevatorOn]);
 
     // `savedDate` is already a user-tz YYYY-MM-DD; anchor at noon-local so the date
     // object's day field is stable in any formatter tz. Do NOT pass `timeZone:` to
@@ -990,8 +1023,8 @@ const CalendarFC = () => {
                                         24h
                                     </ToggleButton>
                                     <ToggleButton value="36h" className="cal-toggle-btn"
-                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '36h' && !timeSeriesSidewalkOn}
-                                                  disabled={!timeSeriesMode || !!timeSeriesSidewalkOn || inMonthView}
+                                                  selected={!!timeSeriesMode && timeSeriesBeadWindow === '36h' && !timeSeriesSidewalkOn && !timeSeriesElevatorOn}
+                                                  disabled={!timeSeriesMode || !!timeSeriesSidewalkOn || !!timeSeriesElevatorOn || inMonthView}
                                                   onChange={() => setTimeSeriesBeadWindow('36h')}
                                                   data-testid="timeseries-window-36h">
                                         36h
@@ -1002,6 +1035,13 @@ const CalendarFC = () => {
                                                   onChange={handleSidewalkClick}
                                                   data-testid="timeseries-sidewalk">
                                         Sidewalk
+                                    </ToggleButton>
+                                    <ToggleButton value="elevator" className="cal-toggle-btn"
+                                                  selected={!!timeSeriesMode && !!timeSeriesElevatorOn && savedViewType === 'dayGridWeek' && !inMonthView}
+                                                  disabled={!timeSeriesMode || savedViewType !== 'dayGridWeek' || inMonthView}
+                                                  onChange={handleElevatorClick}
+                                                  data-testid="timeseries-elevator">
+                                        Elevator
                                     </ToggleButton>
                                 </ToggleButtonGroup>
                             </Box>
@@ -1093,6 +1133,7 @@ const CalendarFC = () => {
                                 beadWindow={timeSeriesBeadWindow}
                                 vizKey={timeSeriesVizKey}
                                 sidewalkOn={timeSeriesSidewalkOn}
+                                elevatorOn={timeSeriesElevatorOn}
                                 isWeekView={savedViewType === 'dayGridWeek'}
                                 categoryList={allCategoryList || []}
                                 onChipClick={(reqId) => {

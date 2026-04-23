@@ -14,7 +14,8 @@ export const useCalendarViewStore = create(
             timeSeriesMode: null,          // null | 'day'
             timeSeriesBeadWindow: '24h',   // '24h' | '36h'
             timeSeriesVizKey: 'bead',      // 'bead' | 'swarm' — controlled by toolbar buttons
-            timeSeriesSidewalkOn: false,   // toolbar toggle
+            timeSeriesSidewalkOn: false,   // toolbar toggle (horizontal 21-day strip; non-week views)
+            timeSeriesElevatorOn: false,   // toolbar toggle (vertical 21-day strip; week view)
 
             setCalendarView: ({ viewType, currentDate }) =>
                 set({ viewType, currentDate }),
@@ -47,10 +48,13 @@ export const useCalendarViewStore = create(
 
             setTimeSeriesSidewalkOn: (on) =>
                 set({ timeSeriesSidewalkOn: !!on }),
+
+            setTimeSeriesElevatorOn: (on) =>
+                set({ timeSeriesElevatorOn: !!on }),
         }),
         {
             name: 'darwin_calendar_view',
-            version: 6,
+            version: 7,
             migrate: (persisted, version) => {
                 const base = {
                     ...persisted,
@@ -63,6 +67,7 @@ export const useCalendarViewStore = create(
                     timeSeriesBeadWindow: '24h',
                     timeSeriesVizKey: 'bead',
                     timeSeriesSidewalkOn: false,
+                    timeSeriesElevatorOn: false,
                 };
                 base.mode = base.mode.map(m => m === 'priorities' ? 'requirements' : m);
                 delete base.timeSeriesView;
