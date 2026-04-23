@@ -50,14 +50,23 @@ export const countChipsForDate = (requirements, sessions, date, timezone, vizKey
 // ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
 // Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
 // it extends the stack upward; otherwise a new stack begins at row 0.
+//
+// `topDown` reverses the walk direction (descending leftPct). Sidewalk mode uses
+// this so the latest chip in a cluster gets row 0 — the row rendered closest to
+// the wire (which is at the TOP of a sidewalk panel). Cluster-gap detection uses
+// |Δ leftPct| so the direction of traversal doesn't change what counts as a
+// cluster. Exported for unit-test coverage.
 const MAX_ROWS = 24;
-const assignRows = (chips, minGapPct) => {
-    const sorted = [...chips].sort((a, b) => a.leftPct - b.leftPct);
+export const assignRows = (chips, minGapPct, topDown = false) => {
+    const sorted = [...chips].sort((a, b) =>
+        topDown ? b.leftPct - a.leftPct : a.leftPct - b.leftPct
+    );
     const out = [];
     let stackRow = -1;
-    let lastPct = -Infinity;
+    let lastPct = null;
     for (const chip of sorted) {
-        const isCluster = chip.leftPct - lastPct < minGapPct;
+        const isCluster = lastPct !== null
+            && Math.abs(chip.leftPct - lastPct) < minGapPct;
         if (isCluster) {
             const nextRow = stackRow + 1;
             if (nextRow < MAX_ROWS) {
@@ -108,16 +117,21 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
 
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
-// its own row. Sorted by completed_at ascending so row 0 = earliest (bottom) and
-// the highest row = latest (top). Long-running swarms bubble toward the top.
+// its own row. Sorted by completed_at so row 0 is the chip rendered closest to
+// the wire:
+//   topDown=false (Day / Week) — ascending: row 0 = earliest (wire is at bottom).
+//   topDown=true  (Sidewalk)   — descending: row 0 = latest   (wire is at top).
+// Long-running swarms bubble away from the wire regardless of direction.
 // Exported for unit-test coverage.
-export const assignSwarmLanes = (chips) => {
+export const assignSwarmLanes = (chips, topDown = false) => {
     const sorted = [...chips].sort((a, b) => {
         const aT = a.completed_at ? new Date(a.completed_at).getTime() : 0;
         const bT = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-        if (aT !== bT) return aT - bT;
-        // tiebreak: stable by chipKey / id for deterministic ordering
-        return String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
+        if (aT !== bT) return topDown ? bT - aT : aT - bT;
+        // tiebreak: stable by chipKey / id for deterministic ordering, mirroring
+        // the primary sort direction so ties flow the same way as the time sort.
+        const key = String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
+        return topDown ? -key : key;
     });
     return sorted.map((chip, idx) => ({ ...chip, row: idx }));
 };
@@ -386,14 +400,15 @@ const BeadRow = ({
     // Layout constants:
     //   Day view     — roomy; bubble sits above the wire/X-axis with clearance.
     //   Week view    — compressed so 7 rows fit.
-    //   Sidewalk     — top-down flow: date + x-axis at top, bubbles stream down.
-    // bubbleOffset is the CSS bottom for row 0 in bottom-up layouts. For the
-    // top-down sidewalk layout we use topHeader instead (pixels from TOP).
+    //   Sidewalk     — top-down flow: wire/timeline pinned at top, bubbles stream
+    //                  down from there with the LATEST chip at row 0 just below
+    //                  the wire.
+    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored layouts
+    // (Day / Week). Sidewalk uses top-anchored positioning (see bubbleYCss
+    // below) so its bubbleOffset is the bottom-padding of the panel instead —
+    // kept only so the height formula below still computes a sane lower bound.
     const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
-    // Sidewalk: chrome (date + time axis) pinned at the top; bubbles stack
-    // bottom-up below it. Panel height grows to fit the stack — no false
-    // bottom, so days with many bubbles don't overflow the chrome.
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
@@ -504,7 +519,15 @@ const BeadRow = ({
         canonicalStartById, clusterSizeById]);
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
-    const placed = vizKey === 'swarm' ? assignSwarmLanes(drawChips) : assignRows(drawChips, 1.2);
+    //
+    // In Sidewalk the wire is at the TOP of the panel, so row 0 — the row
+    // rendered closest to the wire — must hold the LATEST chip. Thread
+    // `topDown = sidewalkPanel` through both assigners so they emit rows in
+    // the direction the layout below wants.
+    const topDown = sidewalkPanel;
+    const placed = vizKey === 'swarm'
+        ? assignSwarmLanes(drawChips, topDown)
+        : assignRows(drawChips, 1.2, topDown);
     const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
 
     // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
@@ -513,24 +536,29 @@ const BeadRow = ({
 
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
-    // for every layout; only the chrome-bottom offset changes:
+    // for every layout; only the chrome offset changes:
     //   Day      → 46 (date band at top 26 + height 20)
     //   Week     → 26 (no date chrome above the row)
     //   Sidewalk → 80 (wire at CSS top: 68 after whitespace expansion for
-    //                   req #2331/#2364, plus breathing room before bubbles).
+    //                   req #2331/#2364, plus ~12px breathing room before row 0).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
-    const chromeBottom  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
+    const chromeOffset  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
-                            + chromeBottom + dateClearance);
+                            + chromeOffset + dateClearance);
 
-    // Unified bottom-anchored bubble positioning — earliest met (row 0) always at
-    // the bottom, latest at the top, in Day/Week and Sidewalk alike.
-    const bubbleYCss      = (row) => ({ bottom: `${row * rowSpacing + bubbleOffset}px` });
-    const bubbleCenterCss = (row) =>
-        `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
+    // Bubble positioning — top-anchored in Sidewalk (wire at top, row 0 = latest
+    // right below it) and bottom-anchored in Day/Week (wire at bottom, row 0 =
+    // earliest right above it). Either way row 0 renders closest to the wire;
+    // the row-assignment direction above decides which chip lands there.
+    const bubbleYCss      = sidewalkPanel
+        ? (row) => ({ top:    `${chromeOffset + row * rowSpacing}px` })
+        : (row) => ({ bottom: `${bubbleOffset + row * rowSpacing}px` });
+    const bubbleCenterCss = sidewalkPanel
+        ? (row) => `${chromeOffset + row * rowSpacing + circleDiameter / 2}px`
+        : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
     const nowPct = useMemo(() => {
         const now = new Date().toISOString();
@@ -694,8 +722,18 @@ const BeadRow = ({
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
                     {placed.map(chip => {
                         const halfBar = Math.max(6, circleDiameter / 2);
-                        const y1 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 - halfBar}px)`;
-                        const y2 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 + halfBar}px)`;
+                        // Bar endpoints are bubble-center ± halfBar. The center
+                        // is already expressed in the active anchoring by
+                        // bubbleCenterCss — top-anchored `${N}px` for sidewalk,
+                        // `calc(100% - ${N}px)` for Day/Week — so the bar
+                        // follows row 0 to whichever edge the wire is on.
+                        const yStride = chip.row * rowSpacing + circleDiameter / 2;
+                        const y1 = sidewalkPanel
+                            ? `${chromeOffset + yStride - halfBar}px`
+                            : `calc(100% - ${bubbleOffset + yStride - halfBar}px)`;
+                        const y2 = sidewalkPanel
+                            ? `${chromeOffset + yStride + halfBar}px`
+                            : `calc(100% - ${bubbleOffset + yStride + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
                         const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
                         if (x === null) return null;
@@ -829,14 +867,14 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 
     // Uniform panel height — sized to the busiest day in the visible strip so
     // every panel shows all its lanes below the top chrome. Mirrors BeadRow's
-    // height formula (sidewalk branch: chromeBottom=50, bubbleOffset=20).
+    // height formula (sidewalk branch: chromeOffset=80, bubbleOffset=20).
     // Single-pass bucket via indexChipsByDate so 21-day strips stay O(R+S+D)
     // instead of O(D × (R+S)) — matters during scroll, when requirements
     // refetches churn this memo.
     const sidewalkHeight = useMemo(() => {
         const BASE_HEIGHT   = 400;
         const bubbleOffset  = 20;
-        const chromeBottom  = 80;   // matches BeadRow's sidewalk chromeBottom (wire top:68 + padding)
+        const chromeOffset  = 80;   // matches BeadRow's sidewalk chromeOffset (wire top:68 + padding)
         const dateClearance = Math.ceil(circleDiameter / 2) + 4;
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
@@ -849,7 +887,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         const maxStackRow = Math.max(0, maxChips - 1);
         return Math.max(
             BASE_HEIGHT,
-            maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+            maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeOffset + dateClearance,
         );
     }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
 
