@@ -74,7 +74,6 @@ const CalendarFC = () => {
 
     // ── Desktop persisted state ──────────────────────────────────────────────
     const savedViewType = useCalendarViewStore(s => s.viewType);
-    const savedDate = useCalendarViewStore(s => s.currentDate);
     const savedMode = useCalendarViewStore(s => s.mode);
     const setCalendarView = useCalendarViewStore(s => s.setCalendarView);
     const setPersistedMode = useCalendarViewStore(s => s.setMode);
@@ -1053,7 +1052,7 @@ const CalendarFC = () => {
                             ref={calendarRef}
                             plugins={[dayGridPlugin, interactionPlugin]}
                             initialView={desktopView}
-                            initialDate={savedDate || undefined}
+                            initialDate={todayStr}
                             headerToolbar={false}
                             events={events}
                             editable={hasDraggable}
