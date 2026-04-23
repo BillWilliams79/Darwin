@@ -386,8 +386,10 @@ describe('clusterSessionsByStartTime', () => {
 });
 
 // ─── assignSwarmLanes: each chip gets its own row, sorted by completed_at asc.
-// Row 0 = earliest met = bottom; higher rows = later met = top. ─────────────────
-import { assignSwarmLanes, weekDates, centeredDateRange, swarmStartBarX, positionFor } from '../TimeSeriesView';
+// Row 0 = earliest met = bottom; higher rows = later met = top.
+// topDown=true reverses the order so the latest gets row 0 (Sidewalk mode —
+// wire sits at the top of the panel, so row 0 renders closest to it). ──────────
+import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor } from '../TimeSeriesView';
 
 // ─── clusterSessionsByStartTime — MySQL-format parsing (req #2398) ─────────────
 // Regression guard: before the fix, clusterSessionsByStartTime parsed
@@ -674,6 +676,152 @@ describe('assignSwarmLanes (Swarm Visualizer lane order)', () => {
         expect(new Set(rows).size).toBe(10);
         expect(Math.min(...rows)).toBe(0);
         expect(Math.max(...rows)).toBe(9);
+    });
+
+    // ─── topDown=true (req #2400 — Sidewalk) ───────────────────────────────
+    // Sidewalk renders the wire at the TOP of each panel. Row 0 is the row
+    // closest to the wire, so it must hold the LATEST chip. Assigner emits
+    // rows descending by completed_at.
+    describe('topDown=true (Sidewalk — latest = row 0)', () => {
+        it('orders chips by completed_at descending so row 0 = latest', () => {
+            const input = [
+                mk('a', '2026-04-17 09:00:00'),
+                mk('c', '2026-04-17 18:00:00'),
+                mk('b', '2026-04-17 12:00:00'),
+            ];
+            const out = assignSwarmLanes(input, true);
+            // c (18:00) is latest → row 0; a (09:00) is earliest → row 2
+            expect(out.map(c => c.chipKey)).toEqual(['c', 'b', 'a']);
+            expect(out.map(c => c.row)).toEqual([0, 1, 2]);
+        });
+
+        it('ties broken deterministically by chipKey in reverse', () => {
+            const input = [
+                mk('a', '2026-04-17 10:00:00'),
+                mk('m', '2026-04-17 10:00:00'),
+                mk('z', '2026-04-17 10:00:00'),
+            ];
+            // When completed_at ties, topDown reverses the chipKey tie-break
+            // too so the overall ordering mirrors the primary sort direction.
+            expect(assignSwarmLanes(input, true).map(c => c.chipKey))
+                .toEqual(['z', 'm', 'a']);
+        });
+
+        it('missing completed_at lands at the BOTTOM of the stack (highest row)', () => {
+            const input = [
+                mk('withStamp', '2026-04-17 10:00:00'),
+                mk('blank', null),
+            ];
+            const out = assignSwarmLanes(input, true);
+            // Blank treated as epoch 0 → oldest → furthest from wire.
+            expect(out[0].chipKey).toBe('withStamp'); // row 0 (top, near wire)
+            expect(out[1].chipKey).toBe('blank');     // row 1 (bottom)
+        });
+
+        it('topDown=false (default) is unchanged', () => {
+            // Regression guard — Day/Week mode keeps ascending lanes.
+            const input = [
+                mk('c', '2026-04-17 18:00:00'),
+                mk('a', '2026-04-17 09:00:00'),
+            ];
+            expect(assignSwarmLanes(input).map(c => c.chipKey)).toEqual(['a', 'c']);
+            expect(assignSwarmLanes(input, false).map(c => c.chipKey)).toEqual(['a', 'c']);
+        });
+    });
+});
+
+// ─── assignRows: bead-mode cluster stack. Chips close in leftPct stack at
+// rows 0, 1, 2…; otherwise a new stack begins at row 0. topDown=true reverses
+// the walk direction so in a cluster the latest (highest leftPct) lands at
+// row 0 (closest to the wire in Sidewalk's top-anchored layout). ───────────────
+describe('assignRows (Bead cluster-stack)', () => {
+    const mk = (id, leftPct) => ({ id, leftPct });
+    const MIN_GAP = 1.2;
+
+    it('returns empty array for empty input', () => {
+        expect(assignRows([], MIN_GAP)).toEqual([]);
+    });
+
+    it('single chip → row 0, single-stack', () => {
+        expect(assignRows([mk('a', 50)], MIN_GAP)).toEqual([
+            expect.objectContaining({ id: 'a', row: 0 }),
+        ]);
+    });
+
+    it('chips far apart each start a fresh row-0 stack', () => {
+        const out = assignRows([mk('a', 10), mk('b', 40), mk('c', 70)], MIN_GAP);
+        expect(out.map(c => [c.id, c.row])).toEqual([
+            ['a', 0], ['b', 0], ['c', 0],
+        ]);
+    });
+
+    it('chips closer than minGapPct stack upward — first-in-cluster at row 0', () => {
+        // Default (topDown=false): ascending leftPct walk.
+        const out = assignRows(
+            [mk('a', 50), mk('b', 50.5), mk('c', 51.0), mk('d', 80)],
+            MIN_GAP,
+        );
+        expect(out.find(c => c.id === 'a').row).toBe(0);
+        expect(out.find(c => c.id === 'b').row).toBe(1);
+        expect(out.find(c => c.id === 'c').row).toBe(2);
+        expect(out.find(c => c.id === 'd').row).toBe(0); // new stack, far from c
+    });
+
+    it('topDown=true reverses the walk — latest-in-cluster at row 0', () => {
+        // Same input as above; topDown sorts descending by leftPct.
+        const out = assignRows(
+            [mk('a', 50), mk('b', 50.5), mk('c', 51.0), mk('d', 80)],
+            MIN_GAP,
+            true,
+        );
+        // d (80) is its own stack at row 0.
+        // Within the 50..51 cluster, c (51.0) is now first in the descending
+        // walk so gets row 0, then b (50.5) row 1, then a (50) row 2.
+        expect(out.find(c => c.id === 'd').row).toBe(0);
+        expect(out.find(c => c.id === 'c').row).toBe(0);
+        expect(out.find(c => c.id === 'b').row).toBe(1);
+        expect(out.find(c => c.id === 'a').row).toBe(2);
+    });
+
+    it('topDown cluster-gap detection uses |Δ leftPct| — cluster survives reversal', () => {
+        // A cluster that would be detected ascending MUST also be detected
+        // descending. Use gaps just under MIN_GAP (=1.2): [60, 61, 62].
+        const ascending = assignRows(
+            [mk('a', 60), mk('b', 61), mk('c', 62)],
+            MIN_GAP,
+        );
+        const descending = assignRows(
+            [mk('a', 60), mk('b', 61), mk('c', 62)],
+            MIN_GAP,
+            true,
+        );
+        // Ascending: a=0, b=1, c=2  (a starts stack, b/c extend).
+        // Descending: c=0, b=1, a=2 (c starts stack, b/a extend).
+        expect(ascending.find(c => c.id === 'a').row).toBe(0);
+        expect(ascending.find(c => c.id === 'c').row).toBe(2);
+        expect(descending.find(c => c.id === 'c').row).toBe(0);
+        expect(descending.find(c => c.id === 'a').row).toBe(2);
+    });
+
+    it('clamps stacks at MAX_ROWS (24) — 25+ clustered chips land at row 23', () => {
+        const chips = Array.from({ length: 26 }, (_, i) =>
+            mk(`r${i}`, 50 + i * 0.1)  // gaps of 0.1 well under 1.2 threshold
+        );
+        const out = assignRows(chips, MIN_GAP);
+        const maxRow = Math.max(...out.map(c => c.row));
+        expect(maxRow).toBe(23);
+    });
+
+    it('clamp at MAX_ROWS still applies when topDown=true', () => {
+        // Same oversize cluster, descending walk — the clamp is direction-
+        // independent but worth a regression guard so Sidewalk doesn't grow
+        // a 25-row panel by accident.
+        const chips = Array.from({ length: 26 }, (_, i) =>
+            mk(`r${i}`, 50 + i * 0.1)
+        );
+        const out = assignRows(chips, MIN_GAP, true);
+        const maxRow = Math.max(...out.map(c => c.row));
+        expect(maxRow).toBe(23);
     });
 });
 
