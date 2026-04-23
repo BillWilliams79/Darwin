@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execSync } from 'node:child_process'
 
 function devserverMarker() {
   const markerPath = path.resolve(import.meta.dirname, '.devserver')
@@ -27,24 +28,56 @@ function devserverMarker() {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), basicSsl(), devserverMarker()],
-  define: {
-    global: 'globalThis',
-  },
-  resolve: {
-    alias: { buffer: 'buffer/' },
-  },
-  worker: {
-    format: 'es',
-  },
-  server: {
-    port: 3000,
-    proxy: {
-      '/photos': {
-        target: 'http://localhost:8091',
-        changeOrigin: true,
+export default defineConfig(({ command }) => {
+  // Read swarm manifest only in dev server mode — skipped during production builds
+  let devReqId = ''
+  let devReqTitle = ''
+  if (command === 'serve') {
+    const manifestPath = path.resolve(import.meta.dirname, '..', '.swarm-manifest.json')
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        const reqId = manifest.reqId ?? ''
+        const taskName = manifest.taskName ?? ''
+        if (reqId) {
+          devReqId = String(reqId)
+          const darwinRead = path.resolve(import.meta.dirname, '..', 'scripts', 'mcp', 'darwin-read.sh')
+          try {
+            const out = execSync(
+              `MCP_CALL_SCRIPT=vite-config bash "${darwinRead}" "darwin://requirements/${reqId}"`,
+              { timeout: 5000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            )
+            const req = JSON.parse(out.trim())
+            devReqTitle = req.title ?? taskName
+          } catch {
+            devReqTitle = taskName
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return {
+    plugins: [react(), basicSsl(), devserverMarker()],
+    define: {
+      global: 'globalThis',
+      'import.meta.env.VITE_DEV_REQ_ID': JSON.stringify(devReqId),
+      'import.meta.env.VITE_DEV_REQ_TITLE': JSON.stringify(devReqTitle),
+    },
+    resolve: {
+      alias: { buffer: 'buffer/' },
+    },
+    worker: {
+      format: 'es',
+    },
+    server: {
+      port: 3000,
+      proxy: {
+        '/photos': {
+          target: 'http://localhost:8091',
+          changeOrigin: true,
+        },
       },
     },
-  },
+  }
 })

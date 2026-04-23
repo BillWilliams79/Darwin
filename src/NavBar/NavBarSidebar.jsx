@@ -29,9 +29,12 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
+const DEV_ORANGE = '#FF6B35';
 
 const isDev = import.meta.env.MODE === 'development';
-const DEV_BORDER = isDev ? '4px solid #FF6B35' : 'none';
+const DEV_BORDER = isDev ? `4px solid ${DEV_ORANGE}` : 'none';
+const DEV_REQ_ID = isDev ? (import.meta.env.VITE_DEV_REQ_ID || '') : '';
+const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
 
 const NavBarSidebar = () => {
     const { idToken, profile } = useContext(AuthContext);
@@ -121,7 +124,7 @@ const NavBarSidebar = () => {
 
         return (
             <>
-                {isDev && <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, height: '4px', bgcolor: '#FF6B35', zIndex: 1300 }} />}
+                {isDev && <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, height: '4px', bgcolor: DEV_ORANGE, zIndex: 1300 }} />}
                 <Box
                     className="app-navbar"
                     sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0 }}
@@ -160,7 +163,7 @@ const NavBarSidebar = () => {
                             </Box>
 
                             {/* Primary nav links */}
-                            <List sx={{ flex: 1, pt: 0, pb: 0 }}>
+                            <List sx={{ pt: 0, pb: 0 }}>
                                 {visibleGroups.map((group) => {
                                     const groupLinks = visibleLinks.filter(l => l.group === group.id);
                                     return (
@@ -184,6 +187,50 @@ const NavBarSidebar = () => {
                                     );
                                 })}
                             </List>
+
+                            {/* Dev server indicator — dev builds only, never included in production */}
+                            {isDev && showText && (
+                                <Box sx={{
+                                    mx: 1.5,
+                                    mb: 1.5,
+                                    mt: 1,
+                                    px: 1.25,
+                                    py: 0.75,
+                                    border: `1px solid ${DEV_ORANGE}`,
+                                    borderRadius: 1,
+                                    flexShrink: 0,
+                                }}>
+                                    <Typography sx={{
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: DEV_ORANGE,
+                                        letterSpacing: 0.5,
+                                        textTransform: 'uppercase',
+                                        lineHeight: 1.4,
+                                    }}>
+                                        Dev Server
+                                    </Typography>
+                                    {DEV_REQ_ID && (
+                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
+                                            Req - {DEV_REQ_ID}
+                                        </Typography>
+                                    )}
+                                    {DEV_REQ_TITLE && (
+                                        <Typography sx={{
+                                            fontSize: 12,
+                                            color: 'rgba(255,255,255,0.55)',
+                                            lineHeight: 1.4,
+                                            whiteSpace: 'normal',
+                                            wordBreak: 'break-word',
+                                        }}>
+                                            {DEV_REQ_TITLE.slice(0, 35)}
+                                        </Typography>
+                                    )}
+                                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.4 }}>
+                                        Port - {window.location.port || '3000'}
+                                    </Typography>
+                                </Box>
+                            )}
                     </Box>
 
                     {/* Google Maps-style edge collapse tab */}
