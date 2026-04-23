@@ -53,21 +53,29 @@ const SwarmVisualizerView = () => {
     const vizKey      = useSwarmVisualizerStore(s => s.vizKey);
     const beadWindow  = useSwarmVisualizerStore(s => s.beadWindow);
     const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
+    const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
+    const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setVizKey      = useSwarmVisualizerStore(s => s.setVizKey);
     const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
     const setSidewalkOn  = useSwarmVisualizerStore(s => s.setSidewalkOn);
+    const setElevatorOn  = useSwarmVisualizerStore(s => s.setElevatorOn);
+    const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
 
     const isWeekView = viewType === 'week';
     const todayStr = useMemo(() => localDateStr(), []);
 
     // Query date range — matches the calendar's time-series logic verbatim:
-    //   Sidewalk on + Day view → ±15 days around currentDate (21-day panel strip)
+    //   Sidewalk on (Day)      → ±15 days around currentDate (21-day panel strip)
+    //   Elevator on (Week)     → ±15 days around currentDate (vertical 21-day strip)
     //   Week view              → Mon..Sun of currentDate's week, ±1 day edges
     //   Day view               → ±1 day around currentDate (tz spillover safety)
     const fetchRange = useMemo(() => {
         if (sidewalkOn && !isWeekView) {
+            return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
+        }
+        if (elevatorOn && isWeekView) {
             return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
         }
         if (isWeekView) {
@@ -79,7 +87,7 @@ const SwarmVisualizerView = () => {
             return { start: localDateStr(start), end: localDateStr(end) };
         }
         return { start: shiftDay(currentDate, -1), end: shiftDay(currentDate, 1) };
-    }, [sidewalkOn, isWeekView, currentDate]);
+    }, [sidewalkOn, elevatorOn, isWeekView, currentDate]);
 
     const fetchStart = fetchRange.start + 'T00:00:00';
     const fetchEnd   = fetchRange.end   + 'T23:59:59';
@@ -118,23 +126,46 @@ const SwarmVisualizerView = () => {
         setVizKey(viz);
     }, [setVizKey]);
 
-    // Sidewalk forces 24h bead window; also auto-disabled in week view.
+    // Sidewalk forces 24h bead window and turns off Elevator (mutually
+    // exclusive presentations of the same 21-day strip). Day-view only.
     const handleSidewalkClick = useCallback(() => {
         const next = !sidewalkOn;
         setSidewalkOn(next);
-        if (next) setBeadWindow('24h');
-    }, [sidewalkOn, setSidewalkOn, setBeadWindow]);
+        if (next) {
+            setBeadWindow('24h');
+            setElevatorOn(false);
+        }
+    }, [sidewalkOn, setSidewalkOn, setBeadWindow, setElevatorOn]);
 
-    // If the user switches to Week view while Sidewalk is on, turn Sidewalk off
-    // (Sidewalk is a Day-only layout).
+    // Elevator — vertical analog of Sidewalk, Week-view only. Forces 24h and
+    // turns off Sidewalk.
+    const handleElevatorClick = useCallback(() => {
+        if (!isWeekView) return;
+        const next = !elevatorOn;
+        setElevatorOn(next);
+        if (next) {
+            setBeadWindow('24h');
+            setSidewalkOn(false);
+        }
+    }, [isWeekView, elevatorOn, setElevatorOn, setBeadWindow, setSidewalkOn]);
+
+    // Coordination — recolor chips by coordination_type. Applies to both viz.
+    const handleCoordinationClick = useCallback(() => {
+        setDataKey(dataKey === 'coordination' ? 'category' : 'coordination');
+    }, [dataKey, setDataKey]);
+
+    // Auto-off when the active layout stops applying to the new view.
     React.useEffect(() => {
         if (isWeekView && sidewalkOn) setSidewalkOn(false);
     }, [isWeekView, sidewalkOn, setSidewalkOn]);
+    React.useEffect(() => {
+        if (!isWeekView && elevatorOn) setElevatorOn(false);
+    }, [isWeekView, elevatorOn, setElevatorOn]);
 
     const displayTitle = isWeekView ? formatWeekTitle(currentDate) : formatDayTitle(currentDate);
 
-    // Scroll restore — use a visualizer-specific sessionStorage key so the
-    // saved position never leaks into /calview (which has its own `calview_scrollY`).
+    // Scroll restore — visualizer-specific key so the saved position never
+    // leaks into /calview (which has its own `calview_scrollY`).
     React.useEffect(() => {
         const savedY = sessionStorage.getItem('visualizer_scrollY');
         if (savedY !== null) {
@@ -165,7 +196,7 @@ const SwarmVisualizerView = () => {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 mb: 1.5, flexWrap: 'wrap', gap: 1,
             }}>
-                {/* Left: Day/Week + Today + Bead/Swarm/24h/36h/Sidewalk */}
+                {/* Left: Day/Week + Today + Bead/Swarm/24h/36h/Sidewalk/Elevator/Coordination */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <ToggleButtonGroup value={viewType} exclusive onChange={handleViewTypeChange}
                                        size="small" data-testid="visualizer-view-toggle">
@@ -197,8 +228,8 @@ const SwarmVisualizerView = () => {
                             24h
                         </ToggleButton>
                         <ToggleButton value="36h" className="cal-toggle-btn"
-                                      selected={beadWindow === '36h' && !sidewalkOn}
-                                      disabled={sidewalkOn}
+                                      selected={beadWindow === '36h' && !sidewalkOn && !elevatorOn}
+                                      disabled={sidewalkOn || elevatorOn}
                                       onChange={() => setBeadWindow('36h')}
                                       data-testid="timeseries-window-36h">
                             36h
@@ -209,6 +240,22 @@ const SwarmVisualizerView = () => {
                                       onChange={handleSidewalkClick}
                                       data-testid="timeseries-sidewalk">
                             Sidewalk
+                        </ToggleButton>
+                        <ToggleButton value="elevator" className="cal-toggle-btn"
+                                      selected={elevatorOn && isWeekView}
+                                      disabled={!isWeekView}
+                                      onChange={handleElevatorClick}
+                                      data-testid="timeseries-elevator">
+                            Elevator
+                        </ToggleButton>
+                        {/* Data-selection toggle (req #2382) — Coordination recolors chips
+                            by coordination_type (red/orange/yellow/green). Works with both
+                            Bead and Swarm viz. */}
+                        <ToggleButton value="coordination" className="cal-toggle-btn"
+                                      selected={dataKey === 'coordination'}
+                                      onChange={handleCoordinationClick}
+                                      data-testid="timeseries-data-coordination">
+                            Coordination
                         </ToggleButton>
                     </ToggleButtonGroup>
                 </Box>
@@ -241,6 +288,8 @@ const SwarmVisualizerView = () => {
                     beadWindow={beadWindow}
                     vizKey={vizKey}
                     sidewalkOn={sidewalkOn}
+                    elevatorOn={elevatorOn}
+                    dataKey={dataKey}
                     isWeekView={isWeekView}
                     categoryList={categoryList}
                     onChipClick={onChipClick}
