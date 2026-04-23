@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { trimTo35 } from '../../utils/stringFormat';
 import { getTimeOfDayFraction, toLocaleDateString, formatHHMM, formatHM12, localDateStr } from '../../utils/dateFormat';
-import { countChipsForDate, indexChipsByDate, indexMaxStackByDate } from '../TimeSeriesView';
+import {
+    countChipsForDate,
+    indexChipsByDate,
+    indexMaxStackByDate,
+    centeredDateRange,
+    extendDates,
+    pruneDates,
+} from '../TimeSeriesView';
 
 describe('trimTo35', () => {
     it('returns empty for null/undefined/empty', () => {
@@ -366,5 +373,120 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
         const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
         expect(map.get(D1)).toBe(0);
         expect(map.size).toBe(1);
+    });
+});
+
+describe('extendDates (Sidewalk infinite scroll)', () => {
+    const BASE = centeredDateRange('2026-04-17', 2);   // [04-15..04-19], 5 panels
+
+    it('returns the original (or empty) for invalid input', () => {
+        expect(extendDates(null, 'left', 5)).toEqual([]);
+        expect(extendDates(undefined, 'right', 5)).toEqual([]);
+        expect(extendDates([], 'left', 5)).toEqual([]);
+        expect(extendDates(BASE, 'left', 0)).toBe(BASE);
+        expect(extendDates(BASE, 'left', -3)).toBe(BASE);
+        expect(extendDates(BASE, 'sideways', 5)).toBe(BASE);
+    });
+
+    it('left extension prepends N earlier days, in chronological order', () => {
+        const next = extendDates(BASE, 'left', 3);
+        expect(next.length).toBe(BASE.length + 3);
+        expect(next.slice(0, 3)).toEqual(['2026-04-12', '2026-04-13', '2026-04-14']);
+        // Original entries follow, untouched.
+        expect(next.slice(3)).toEqual(BASE);
+    });
+
+    it('right extension appends N later days, in chronological order', () => {
+        const next = extendDates(BASE, 'right', 3);
+        expect(next.length).toBe(BASE.length + 3);
+        expect(next.slice(0, BASE.length)).toEqual(BASE);
+        expect(next.slice(BASE.length)).toEqual(['2026-04-20', '2026-04-21', '2026-04-22']);
+    });
+
+    it('produces a contiguous date string sequence with no gaps or duplicates', () => {
+        const next = extendDates(extendDates(BASE, 'left', 5), 'right', 5);
+        const set = new Set(next);
+        expect(set.size).toBe(next.length);
+        for (let i = 1; i < next.length; i++) {
+            const prev = new Date(next[i - 1] + 'T12:00:00');
+            const cur  = new Date(next[i]     + 'T12:00:00');
+            expect(Math.round((cur - prev) / 86400000)).toBe(1);
+        }
+    });
+
+    it('handles month / year boundaries', () => {
+        const eom = extendDates(['2026-12-30', '2026-12-31'], 'right', 3);
+        expect(eom).toEqual(['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']);
+
+        const bom = extendDates(['2026-03-01', '2026-03-02'], 'left', 3);
+        expect(bom).toEqual(['2026-02-26', '2026-02-27', '2026-02-28', '2026-03-01', '2026-03-02']);
+    });
+
+    it('does not mutate the input array', () => {
+        const original = [...BASE];
+        extendDates(BASE, 'left', 4);
+        extendDates(BASE, 'right', 4);
+        expect(BASE).toEqual(original);
+    });
+});
+
+describe('pruneDates (Sidewalk infinite scroll)', () => {
+    const TEN = centeredDateRange('2026-04-17', 4); // 9 entries 04-13..04-21
+    const NINE_DATES = TEN;
+
+    it('returns input untouched when length ≤ max', () => {
+        expect(pruneDates(NINE_DATES, 9, 'left')).toEqual({ dates: NINE_DATES, removedCount: 0 });
+        expect(pruneDates(NINE_DATES, 100, 'right')).toEqual({ dates: NINE_DATES, removedCount: 0 });
+    });
+
+    it('returns empty / original for invalid input', () => {
+        expect(pruneDates(null, 5, 'left')).toEqual({ dates: [], removedCount: 0 });
+        expect(pruneDates(undefined, 5, 'left')).toEqual({ dates: [], removedCount: 0 });
+        expect(pruneDates([], 5, 'left')).toEqual({ dates: [], removedCount: 0 });
+        expect(pruneDates(NINE_DATES, NaN, 'left')).toEqual({ dates: NINE_DATES, removedCount: 0 });
+        expect(pruneDates(NINE_DATES, 3, 'middle')).toEqual({ dates: NINE_DATES, removedCount: 0 });
+    });
+
+    it('left prune drops entries from the start', () => {
+        const { dates: pruned, removedCount } = pruneDates(NINE_DATES, 5, 'left');
+        expect(removedCount).toBe(4);
+        expect(pruned.length).toBe(5);
+        // Last 5 of the original
+        expect(pruned).toEqual(NINE_DATES.slice(4));
+    });
+
+    it('right prune drops entries from the end', () => {
+        const { dates: pruned, removedCount } = pruneDates(NINE_DATES, 5, 'right');
+        expect(removedCount).toBe(4);
+        expect(pruned.length).toBe(5);
+        // First 5 of the original
+        expect(pruned).toEqual(NINE_DATES.slice(0, 5));
+    });
+
+    it('does not mutate the input array', () => {
+        const original = [...NINE_DATES];
+        pruneDates(NINE_DATES, 5, 'left');
+        pruneDates(NINE_DATES, 5, 'right');
+        expect(NINE_DATES).toEqual(original);
+    });
+
+    it('extension + prune is the bounded steady-state for one-directional scroll', () => {
+        // Simulate ten right-extensions of 10 panels each, capped at 60.
+        let dates = centeredDateRange('2026-04-17', 10);   // 21 panels
+        for (let i = 0; i < 10; i++) {
+            const extended = extendDates(dates, 'right', 10);
+            dates = pruneDates(extended, 60, 'left').dates;
+        }
+        expect(dates.length).toBe(60);
+        // After 10 extensions of 10, the latest day is 100 days past 2026-04-27
+        // (the original last day). The last entry should be that latest day.
+        // Use shiftDate inline to check.
+        const lastEntry = dates[dates.length - 1];
+        const expectedLast = new Date('2026-04-27T12:00:00');
+        expectedLast.setDate(expectedLast.getDate() + 100);
+        const y = expectedLast.getFullYear();
+        const m = String(expectedLast.getMonth() + 1).padStart(2, '0');
+        const day = String(expectedLast.getDate()).padStart(2, '0');
+        expect(lastEntry).toBe(`${y}-${m}-${day}`);
     });
 });
