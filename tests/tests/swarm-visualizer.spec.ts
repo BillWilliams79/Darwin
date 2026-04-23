@@ -3,7 +3,8 @@ import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
 // Seed the visualizer Zustand store AND the /swarm view choice so the visualizer
 // toggle button is pre-selected when the page renders. Matches visualizer store
-// schema v1 and the `darwin-swarm-view` localStorage key used by SwarmView.
+// schema v2 (adds `elevatorOn` req #2383 + `dataKey` req #2382) and the
+// `darwin-swarm-view` localStorage key used by SwarmView.
 async function seedVisualizerState(
     page: Page,
     currentDate: string,
@@ -17,8 +18,10 @@ async function seedVisualizerState(
                 vizKey: 'bead',
                 beadWindow: '24h',
                 sidewalkOn: false,
+                elevatorOn: false,
+                dataKey: 'category',
             },
-            version: 1,
+            version: 2,
         }));
         localStorage.setItem('darwin-swarm-view', 'visualizer');
     }, { d: currentDate, v: viewType });
@@ -174,5 +177,40 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         await expect(page.getByTestId('ts-sidewalk')).toBeVisible({ timeout: 5000 });
         // 36h is disabled when Sidewalk is on.
         await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+    });
+
+    test('TS-09: Elevator toggle — enabled only in Week view, renders vertical strip (req #2383)', async ({ page }) => {
+        await page.goto('/swarm');
+        await seedVisualizerState(page, testDate);
+        await page.reload();
+
+        // Day view → Elevator disabled.
+        await expect(page.getByTestId('timeseries-elevator')).toBeDisabled({ timeout: 10000 });
+
+        // Switch to Week → Elevator now enabled, Sidewalk disabled.
+        await page.getByRole('button', { name: 'Week', exact: true }).click();
+        await expect(page.getByTestId('timeseries-elevator')).toBeEnabled();
+        await expect(page.getByTestId('timeseries-sidewalk')).toBeDisabled();
+
+        // Click Elevator → ts-elevator mounts, Elevator button aria-pressed, 36h disabled.
+        await page.getByTestId('timeseries-elevator').click();
+        await expect(page.getByTestId('timeseries-elevator')).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByTestId('ts-elevator')).toBeVisible({ timeout: 5000 });
+        await expect(page.getByTestId('timeseries-window-36h')).toBeDisabled();
+
+        // Switch back to Day → Elevator auto-off, button disabled.
+        await page.getByRole('button', { name: 'Day', exact: true }).click();
+        await expect(page.getByTestId('ts-elevator')).toHaveCount(0);
+        await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
+    });
+
+    test('TS-10: Coordination toggle — recolors chips by coordination_type (req #2382)', async ({ page }) => {
+        await page.goto('/swarm');
+        await seedVisualizerState(page, testDate);
+        await page.reload();
+        await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
+
+        await page.getByTestId('timeseries-data-coordination').click();
+        await expect(page.getByTestId('timeseries-data-coordination')).toHaveAttribute('aria-pressed', 'true');
     });
 });
