@@ -97,10 +97,44 @@ export const VIZ_KEYS = ['bead', 'swarm'];
 export const VIZ_LABELS = { bead: 'Bead', swarm: 'Swarm' };
 export const DEFAULT_VIZ = 'bead';
 
+// Time Series data-selection mode (req #2382).
+// 'category'    — chip color from requirement.category_fk → category.color (default / unchanged).
+// 'coordination' — chip color from requirement.coordination_type (red/orange/yellow/green).
+export const DATA_KEYS = ['category', 'coordination'];
+export const DEFAULT_DATA_KEY = 'category';
+
+// Chip colors when dataKey === 'coordination'. Null / unknown coordination_type
+// falls back to red, making "no setting" visible at a glance — matches the spec
+// in req #2382 ("red = no setting").
+export const COORDINATION_COLORS = {
+    planned:     '#FB8C00',   // orange — planning phase
+    implemented: '#FDD835',   // yellow — built but not yet deployed
+    deployed:    '#43A047',   // green — shipped
+};
+export const COORDINATION_FALLBACK_COLOR = '#E53935'; // red — no coordination set
+export function getCoordinationColor(coordinationType) {
+    return COORDINATION_COLORS[coordinationType] || COORDINATION_FALLBACK_COLOR;
+}
+
 // ── Swarm start-time clustering (req #2341) ─────────────────────────────────────
 // Sessions whose started_at fall within this window are treated as a single swarm
 // and share one canonical start X so their vertical start-bars line up.
 export const SWARM_CLUSTER_WINDOW_MS = 3 * 60 * 1000;   // 3 minutes
+
+// Parse a started_at/completed_at value the same way the rest of the
+// visualizer does (utils/dateFormat.toDate): MySQL-format "YYYY-MM-DD HH:MM:SS"
+// is UTC-stored and must be given an explicit `Z`, otherwise `new Date(...)`
+// parses it in the browser's local tz — which silently disagrees with
+// positionFor/toLocaleDateString and skews relative deltas across DST
+// boundaries. Kept local to this module so timeSeriesSizes stays standalone
+// (no circular dep with the dateFormat utility).
+function parseStartedAtMs(value) {
+    if (!value) return NaN;
+    if (typeof value === 'string' && value.includes(' ') && !value.includes('T')) {
+        return new Date(value.replace(' ', 'T') + 'Z').getTime();
+    }
+    return new Date(value).getTime();
+}
 
 // Group sessions by proximity of started_at. Any two sessions whose starts are
 // within `thresholdMs` of each other belong to the same cluster (transitive).
@@ -116,7 +150,7 @@ export function clusterSessionsByStartTime(sessions, thresholdMs = SWARM_CLUSTER
     const valid = [];
     for (const s of sessions) {
         if (!s || s.id == null || !s.started_at) continue;
-        const ms = new Date(s.started_at).getTime();
+        const ms = parseStartedAtMs(s.started_at);
         if (Number.isNaN(ms)) continue;
         valid.push({ id: String(s.id), startedAt: s.started_at, startMs: ms });
     }
