@@ -15,6 +15,7 @@ import ProjectAddDialog from './ProjectAddDialog';
 import CategoryTabPanel from './CategoryTabPanel';
 import RequirementDragLayer from './RequirementDragLayer';
 import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableView';
+import SwarmVisualizerView from './SwarmVisualizerView';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,6 +35,7 @@ import IconButton from '@mui/material/IconButton';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
+import BubbleChartIcon from '@mui/icons-material/BubbleChart';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
@@ -209,7 +211,8 @@ const SwarmView = () => {
                     <Box className="app-content-view-toggle"
                          sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 3, mb: 1, px: 3,
                                ...(view === 'cards' && { borderBottom: 1, borderColor: 'divider' }),
-                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }) }}
+                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }),
+                               ...(view === 'visualizer' && { borderBottom: 1, borderColor: 'divider' }) }}
                          data-testid="swarm-view-toggle-row"
                     >
                         {view === 'cards' && (
@@ -250,29 +253,39 @@ const SwarmView = () => {
                                     <TableChartIcon fontSize="small" />
                                 </ToggleButton>
                             </Tooltip>
+                            <Tooltip title="Visualizer View">
+                                <ToggleButton value="visualizer" data-testid="view-toggle-visualizer" sx={{ px: 2 }}>
+                                    <BubbleChartIcon fontSize="small" />
+                                </ToggleButton>
+                            </Tooltip>
                         </ToggleButtonGroup>
-                        <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
-                            {ALL_REQUIREMENT_STATUSES.map(status => {
-                                const selected = requirementStatusFilter.includes(status);
-                                const chipProps = requirementStatusChipProps(status);
-                                return (
-                                    <Chip
-                                        key={status}
-                                        label={requirementStatusLabel(status)}
-                                        size="small"
-                                        onClick={() => toggleRequirementStatus(status)}
-                                        {...(selected ? chipProps : { variant: 'outlined' })}
-                                        sx={{
-                                            ...(selected ? chipProps.sx : {}),
-                                            ...(!selected && { opacity: 0.5 }),
-                                            cursor: 'pointer',
-                                            textTransform: 'capitalize',
-                                        }}
-                                        data-testid={`filter-chip-${status}`}
-                                    />
-                                );
-                            })}
-                        </Stack>
+                        {/* Status-filter chips — Cards/Table only. Visualizer shows
+                            completed requirements (met status) exclusively, so these
+                            chips don't apply. */}
+                        {view !== 'visualizer' && (
+                            <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
+                                {ALL_REQUIREMENT_STATUSES.map(status => {
+                                    const selected = requirementStatusFilter.includes(status);
+                                    const chipProps = requirementStatusChipProps(status);
+                                    return (
+                                        <Chip
+                                            key={status}
+                                            label={requirementStatusLabel(status)}
+                                            size="small"
+                                            onClick={() => toggleRequirementStatus(status)}
+                                            {...(selected ? chipProps : { variant: 'outlined' })}
+                                            sx={{
+                                                ...(selected ? chipProps.sx : {}),
+                                                ...(!selected && { opacity: 0.5 }),
+                                                cursor: 'pointer',
+                                                textTransform: 'capitalize',
+                                            }}
+                                            data-testid={`filter-chip-${status}`}
+                                        />
+                                    );
+                                })}
+                            </Stack>
+                        )}
                         {/* Rocket — Cards view only. Controls the cross-category SwarmStartCard
                             aggregator, which is irrelevant in Table view. */}
                         {view === 'cards' && (
@@ -289,8 +302,9 @@ const SwarmView = () => {
                             </Tooltip>
                         )}
                         {/* Table-view spacer pushes settings to the table's right edge (maxWidth cap).
-                            Cards view doesn't need it — the Tabs' flex:1 already consumes the free space. */}
-                        {view === 'table' && <Box sx={{ flexGrow: 1 }} />}
+                            Cards view doesn't need it — the Tabs' flex:1 already consumes the free space.
+                            Visualizer view also needs a flex spacer since it has no left-side Tabs. */}
+                        {(view === 'table' || view === 'visualizer') && <Box sx={{ flexGrow: 1 }} />}
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
                             links={settingsLinks}
@@ -313,6 +327,16 @@ const SwarmView = () => {
                                           showClosed = {showClosed}
                                           showSwarmStartCard = {showSwarmStartCard}>
                         </CategoryTabPanel>
+                    )}
+
+                    {/* Content — visualizer view (req #2394 — migrated from /calview).
+                        Wrap in `.app-content-tabpanel` so the visualizer claims the full
+                        `tab-panels` grid area of `.app-content-planpage` (same pattern
+                        as table view); otherwise it collapses into an implicit grid cell. */}
+                    {view === 'visualizer' && (
+                        <Box className="app-content-tabpanel">
+                            <SwarmVisualizerView />
+                        </Box>
                     )}
             </Box>
             <ProjectCloseDialog dialogOpen={projectClose.dialogOpen}
