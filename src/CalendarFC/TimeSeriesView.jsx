@@ -5,8 +5,8 @@ import Tooltip from '@mui/material/Tooltip';
 import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12 } from '../utils/dateFormat';
 import {
     DEFAULT_FONT_SIZE,
-    getFontSize, getCircleSize, formatCoordination,
-    DEFAULT_VIZ,
+    getFontSize, getCircleSize, formatCoordination, getCoordinationColor,
+    DEFAULT_VIZ, DEFAULT_DATA_KEY,
     DEFAULT_SPACE, getSpaceMultiplier,
     DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
     indexSessionsByRequirement,
@@ -91,23 +91,26 @@ export const assignRows = (chips, minGapPct, topDown = false) => {
 //
 // Rules:
 //   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
-//   • 'left'                    → one gap left of bubble center.
-//   • 'normal', gap ≥ threshold → at startPct (aligns vertically with cluster-mates
-//                                  in req #2341).
-//   • 'normal', gap <  threshold → one gap left of bubble center (req #2336 —
-//                                   when start ≈ met, the SVG tick at startPct
-//                                   lands under the bubble's z-index and disappears).
-//   • 'normal', startPct null    → null (no session start to mark).
-//   • unknown markerMode         → null.
+//   • 'left'                    → one gap left of bubble center (no duration line
+//                                  is drawn in this mode — the bar IS the visual).
+//   • 'normal', startPct valid  → at startPct (left edge of the horizontal line;
+//                                  aligns vertically with cluster-mates per req
+//                                  #2341). The bar must coincide with the line's
+//                                  left end — reqs #2398/#2399 fixed the old
+//                                  gap-shift branch that bubble-hugged the tick
+//                                  when aligned-cluster gap was < 1.5%, leaving
+//                                  the duration line dangling past the bar. The
+//                                  non-aligned close-start case is handled
+//                                  upstream in drawChips (markerMode='left'), so
+//                                  this branch never needs a bubble-hug fallback.
+//   • 'normal', startPct null   → null (no session start to mark).
+//   • unknown markerMode        → null.
 // Exported for unit-test coverage.
-export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx, closeThresholdPct) => {
+export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     if (markerMode === 'clamped') return null;
     if (markerMode === 'left') return `calc(${leftPct}% - ${gapPx}px)`;
     if (markerMode === 'normal' && startPct !== null && startPct !== undefined) {
-        const gapPct = leftPct - startPct;
-        return gapPct < closeThresholdPct
-            ? `calc(${leftPct}% - ${gapPx}px)`
-            : `${startPct}%`;
+        return `${startPct}%`;
     }
     return null;
 };
@@ -133,6 +136,53 @@ export const assignSwarmLanes = (chips, topDown = false) => {
     return sorted.map((chip, idx) => ({ ...chip, row: idx }));
 };
 
+// ─────────── Max-stack-row index (Elevator per-day sizing) ───────────────────
+// Return Map<YYYY-MM-DD, maxRow> where maxRow is the row index BeadRow will
+// assign to its tallest chip on that date. Elevator uses this to size each day
+// panel to its actual rendered content instead of the swarm worst case:
+//
+//   • Swarm: every chip (req + per-session fan-out) gets its own lane via
+//     `assignSwarmLanes`, so maxRow = chipsByDate(date) - 1.
+//   • Bead:  chips cluster-stack via `assignRows` with minGapPct=1.2 on leftPct.
+//     leftPct in a 24h sidewalk panel = time-of-day fraction × 100, so we can
+//     reproduce the placement here without going through positionFor.
+//
+// A 39-req day in bead mode that's spread across the day might only stack to
+// row 3 or 4, not row 38 — this is what makes the per-day heights differ
+// between bead and swarm for the same dataset (req #2383 follow-up).
+// Exported for unit-test coverage.
+export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey) => {
+    const out = new Map();
+    if (!Array.isArray(requirements)) return out;
+
+    if (vizKey === 'swarm') {
+        const chipsByDate = indexChipsByDate(requirements, sessions, timezone, vizKey);
+        for (const [date, n] of chipsByDate) {
+            out.set(date, Math.max(0, n - 1));
+        }
+        return out;
+    }
+
+    // Bead: bucket leftPcts by date, then run assignRows per date.
+    const leftPctsByDate = new Map();
+    for (const r of requirements) {
+        if (!r?.completed_at) continue;
+        const d = toLocaleDateString(r.completed_at, timezone);
+        if (!d) continue;
+        const frac = getTimeOfDayFraction(r.completed_at, timezone);
+        if (frac === null || frac === undefined) continue;
+        if (!leftPctsByDate.has(d)) leftPctsByDate.set(d, []);
+        leftPctsByDate.get(d).push(frac * 100);
+    }
+    for (const [date, leftPcts] of leftPctsByDate) {
+        const chips = leftPcts.map(p => ({ leftPct: p }));
+        const placed = assignRows(chips, 1.2);
+        const maxRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
+        out.set(date, maxRow);
+    }
+    return out;
+};
+
 // ─────────── Date helpers ─────────────────────────────────────────────────────
 const shiftDateStr = (dateStr, delta) => {
     const d = new Date(dateStr + 'T12:00:00');
@@ -152,6 +202,42 @@ export const centeredDateRange = (centerDate, halfWidth = 10) => {
         out.push(shiftDateStr(centerDate, i));
     }
     return out;
+};
+
+// ─────────── Infinite-scroll dates helpers (Sidewalk) ────────────────────────
+// extendDates — return a new dates array with `n` contiguous days added to one
+// end, derived via shiftDateStr from the existing first/last entry. Pure so the
+// Sidewalk effects can extend without rebuilding the strip from scratch.
+// direction: 'left' prepends earlier days; 'right' appends later days.
+export const extendDates = (dates, direction, n) => {
+    if (!Array.isArray(dates) || dates.length === 0) return dates || [];
+    if (!Number.isFinite(n) || n <= 0) return dates;
+    if (direction === 'left') {
+        const first = dates[0];
+        const newDays = [];
+        for (let i = n; i >= 1; i--) newDays.push(shiftDateStr(first, -i));
+        return [...newDays, ...dates];
+    }
+    if (direction === 'right') {
+        const last = dates[dates.length - 1];
+        const newDays = [];
+        for (let i = 1; i <= n; i++) newDays.push(shiftDateStr(last, i));
+        return [...dates, ...newDays];
+    }
+    return dates;
+};
+
+// pruneDates — trim `dates` down to at most `max` entries by removing from one
+// end. Returns the trimmed array plus how many entries were dropped, so the
+// caller can shift its translateX by removedCount * frameWidth when pruning
+// from the left (keeps the visible panel stationary).
+export const pruneDates = (dates, max, fromSide) => {
+    if (!Array.isArray(dates) || dates.length === 0) return { dates: dates || [], removedCount: 0 };
+    if (!Number.isFinite(max) || dates.length <= max) return { dates, removedCount: 0 };
+    const removedCount = dates.length - max;
+    if (fromSide === 'left') return { dates: dates.slice(removedCount), removedCount };
+    if (fromSide === 'right') return { dates: dates.slice(0, dates.length - removedCount), removedCount };
+    return { dates, removedCount: 0 };
 };
 
 // Return the 7 YYYY-MM-DD dates of the ISO week (Mon first) that contains `dateStr`.
@@ -184,7 +270,8 @@ export const weekDates = (dateStr) => {
 // All zoom levels position the same chips at the same % within their base
 // window, so switching 24h ↔ 36h never moves a chip — the 24h view just
 // rejects anything that falls in the hidden outer bands.
-const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
+// Exported for unit-test coverage of the 24h↔36h transition.
+export const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
     const chipDay  = toLocaleDateString(completedAt, timezone);
     const chipFrac = getTimeOfDayFraction(completedAt, timezone);
     if (chipDay === null || chipFrac === null) return null;
@@ -290,6 +377,7 @@ const BeadRow = ({
     requirements, sessions, categoryList, selectedDate, timezone,
     beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
+    dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     crossDays = [], onChipClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     sidewalkHeight,
@@ -337,6 +425,9 @@ const BeadRow = ({
             const xPct = xPctFn(r.completed_at, timezone, selectedDate);
             if (xPct === null) continue;
             const cat = categoryList.find(c => c.id === r.category_fk);
+            const color = dataKey === 'coordination'
+                ? getCoordinationColor(r.coordination_type)
+                : (cat?.color || null);
             out.push({
                 id: r.id,
                 title: r.title || '',
@@ -345,14 +436,14 @@ const BeadRow = ({
                 requirement_status: r.requirement_status || null,
                 coordination_type: r.coordination_type || null,
                 categoryName: cat?.category_name || null,
-                color: cat?.color || null,
+                color,
                 timeHHMM: formatHM12(r.completed_at, timezone),
                 leftPct: xPct,
                 timezone,
             });
         }
         return out;
-    }, [requirements, categoryList, selectedDate, timezone, xPctFn]);
+    }, [requirements, categoryList, selectedDate, timezone, xPctFn, dataKey]);
 
     // Bead: one chip per requirement. Swarm: one chip per (req, session) pair;
     // requirements with zero sessions get a lone chip with markerMode='left' —
@@ -624,10 +715,10 @@ const BeadRow = ({
                         );
                     })}
                     {/* Vertical start bar — position depends on markerMode:
-                        'normal'  → at startPct (OR left-of-bubble when start ≈ met, so
-                                    aligned-cluster close-met bars don't hide behind their
-                                    own bubble — req #2336)
-                        'left'    → immediately left of bubble (no session OR start ≈ met)
+                        'normal'  → at startPct (left end of the duration line;
+                                    aligns cluster-mates vertically, req #2341/#2398/#2399)
+                        'left'    → immediately left of bubble (no session OR start ≈ met
+                                    on a non-aligned chip — no duration line drawn)
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
                     {placed.map(chip => {
                         const halfBar = Math.max(6, circleDiameter / 2);
@@ -644,7 +735,7 @@ const BeadRow = ({
                             ? `${chromeOffset + yStride + halfBar}px`
                             : `calc(100% - ${bubbleOffset + yStride + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
-                        const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap, CLOSE_THRESHOLD_PCT);
+                        const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
                         if (x === null) return null;
                         return (
                             <line
@@ -742,10 +833,20 @@ const BeadRow = ({
 
 // ─────────── Sidewalk — transform-based pure-drag horizontal scroller ─────────
 // The outer frame is fixed (width: 100%, overflow: hidden). The inner flex strip
-// contains 21 day panels (centered on centerDate), each exactly one frame wide.
-// Dragging the inner strip horizontally changes its translateX; release applies
-// a momentum decay then snaps to the nearest panel. No native scrollbar — the
-// user is pushing content around, not a thumb.
+// contains a sliding window of day panels (initially 21 centered on centerDate),
+// each exactly one frame wide. Dragging the inner strip horizontally changes its
+// translateX; release applies a momentum decay then snaps to the nearest panel.
+//
+// Infinite scroll (req #2396): when the visible panel index gets within
+// SIDEWALK_BUFFER_THRESHOLD of either edge of `dates`, we extend that side by
+// SIDEWALK_EXTEND_BY days (and shift translateX for left extensions so the
+// visible panel stays put). Once the array exceeds SIDEWALK_MAX_PANELS we
+// prune the opposite side to keep memory bounded. There's no offset clamp —
+// the strip is effectively endless in both directions.
+const SIDEWALK_BUFFER_THRESHOLD = 5;
+const SIDEWALK_EXTEND_BY = 10;
+const SIDEWALK_MAX_PANELS = 60;
+
 const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
@@ -758,6 +859,10 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const pendingDateRef   = React.useRef(null);   // most-recent candidate waiting to flush
     const hasDragged = React.useRef(false);
     const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    // Mirror of `dates` for synchronous reads inside drag/wheel handlers — lets
+    // maybeExtend check current length without re-binding the drag effect on
+    // every extension (which would trash in-progress drag state).
+    const datesRef = React.useRef(dates);
     const [frameWidth, setFrameWidth] = React.useState(0);
 
     // Uniform panel height — sized to the busiest day in the visible strip so
@@ -806,6 +911,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         }
     }, []);
 
+    // Keep datesRef in sync with React state. maybeExtend writes to datesRef
+    // synchronously to avoid same-frame re-extension; this effect covers
+    // anything else that calls setDates (e.g., the centerDate rebuild path).
+    React.useLayoutEffect(() => { datesRef.current = dates; }, [dates]);
+
     // Apply a translateX to the inner strip without triggering React re-renders
     // — keeps drag at native-refresh smoothness.
     const applyOffset = (x) => {
@@ -822,7 +932,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         stopAnim();
         const start = offsetRef.current;
         const delta = target - start;
-        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        if (Math.abs(delta) < 1) { applyOffset(target); maybeExtend(); return; }
         const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
         const t0 = performance.now();
         const step = (now) => {
@@ -830,15 +940,56 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             const eased = 1 - (1 - t) ** 3;   // ease-out cubic
             applyOffset(start + delta * eased);
             if (t < 1) rafRef.current = requestAnimationFrame(step);
-            else { rafRef.current = null; reportCenterIfChanged(); }
+            else { rafRef.current = null; maybeExtend(); reportCenterIfChanged(); }
         };
         rafRef.current = requestAnimationFrame(step);
     };
 
     const indexForOffset = () => {
         if (frameWidth === 0) return 0;
+        const cur = datesRef.current;
         const raw = -offsetRef.current / frameWidth;
-        return Math.max(0, Math.min(dates.length - 1, Math.round(raw)));
+        return Math.max(0, Math.min(cur.length - 1, Math.round(raw)));
+    };
+
+    // Infinite-scroll buffer maintenance. When the visible panel approaches
+    // either edge, prepend / append SIDEWALK_EXTEND_BY days. Left extension
+    // shifts translateX by -extend*frameWidth so the visible panel stays put;
+    // when the array overflows SIDEWALK_MAX_PANELS, we prune the opposite end
+    // (with a matching +removed*frameWidth shift if pruning the left side).
+    //
+    // datesRef is updated synchronously so a follow-up call within the same
+    // frame doesn't see the pre-extension array and re-extend.
+    const maybeExtend = () => {
+        if (frameWidth === 0) return;
+        const cur = datesRef.current;
+        if (!cur || cur.length === 0) return;
+        const raw = -offsetRef.current / frameWidth;
+        const idx = Math.round(raw);
+        const distLeft  = idx;
+        const distRight = cur.length - 1 - idx;
+
+        if (distLeft <= SIDEWALK_BUFFER_THRESHOLD) {
+            // Extend left, then shift translateX so the visible panel stays put.
+            applyOffset(offsetRef.current - SIDEWALK_EXTEND_BY * frameWidth);
+            let next = extendDates(cur, 'left', SIDEWALK_EXTEND_BY);
+            const pruned = pruneDates(next, SIDEWALK_MAX_PANELS, 'right');
+            next = pruned.dates;
+            datesRef.current = next;
+            setDates(next);
+        } else if (distRight <= SIDEWALK_BUFFER_THRESHOLD) {
+            let next = extendDates(cur, 'right', SIDEWALK_EXTEND_BY);
+            const pruned = pruneDates(next, SIDEWALK_MAX_PANELS, 'left');
+            next = pruned.dates;
+            // Pruning the left side shifts every remaining panel's index down
+            // by `removedCount`; compensate translateX so the visible panel
+            // stays put.
+            if (pruned.removedCount > 0) {
+                applyOffset(offsetRef.current + pruned.removedCount * frameWidth);
+            }
+            datesRef.current = next;
+            setDates(next);
+        }
     };
 
     // Trailing-debounce onCenterDateChange so a scroll sweep through N panels
@@ -847,7 +998,10 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // re-entrance guard still works when the debounced callback finally flushes.
     const REPORT_DEBOUNCE_MS = 150;
     const reportCenterIfChanged = () => {
-        const d = dates[indexForOffset()];
+        // Read from datesRef so a same-frame maybeExtend() that already
+        // updated the array (synchronously) is reflected here too.
+        const cur = datesRef.current;
+        const d = cur[indexForOffset()];
         if (!d || d === lastReported.current) return;
         lastReported.current = d;
         pendingDateRef.current = d;
@@ -875,10 +1029,12 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             reportTimeoutRef.current = null;
             pendingDateRef.current = null;
         }
-        const idx = dates.indexOf(centerDate);
+        const cur = datesRef.current;
+        const idx = cur.indexOf(centerDate);
         if (idx < 0) {
             // Rebuild strip around the new centerDate and snap to its center.
             const rebuilt = centeredDateRange(centerDate, 10);
+            datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
             requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * frameWidth));
@@ -892,34 +1048,30 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // Initial placement on mount — put centerDate at index-of.
     React.useEffect(() => {
         if (frameWidth === 0) return;
-        const idx = dates.indexOf(centerDate);
+        const idx = datesRef.current.indexOf(centerDate);
         if (idx >= 0) applyOffset(-idx * frameWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frameWidth]);
 
-    // Drag + momentum. Bind once per frameWidth so closures see a stable width.
+    // Drag + momentum. Bind once per frameWidth — `dates.length` is read via
+    // `datesRef` inside maybeExtend so we can extend the strip without
+    // re-binding (which would lose in-progress drag state). onMove uses
+    // delta-from-last instead of cumulative-from-startOffset because
+    // maybeExtend can shift offsetRef mid-drag (left-extension); a delta
+    // formulation stays correct after that shift.
     React.useEffect(() => {
         const frame = frameRef.current;
         if (!frame || frameWidth === 0) return;
         let isDown = false;
         let startPageX = 0;
-        let startOffset = 0;
         let lastPageX = 0;
         let lastT = 0;
-
-        // Clamp offset to the strip bounds so wheel/drag past either edge can't
-        // walk every panel off-screen and leave the viewport blank (day-0 bug,
-        // exposed once bubbles became tall enough to be worth chasing past the
-        // 21st day). True infinite scroll is tracked by req #2396.
-        const minOffset = -(dates.length - 1) * frameWidth;
-        const clampOffset = (x) => Math.max(minOffset, Math.min(0, x));
 
         const onDown = (e) => {
             if (e.button !== 0) return;
             isDown = true;
             hasDragged.current = false;
             startPageX = e.pageX;
-            startOffset = offsetRef.current;
             lastPageX = e.pageX;
             lastT = performance.now();
             velocityRef.current = 0;
@@ -929,9 +1081,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         };
         const onMove = (e) => {
             if (!isDown) return;
-            const dx = e.pageX - startPageX;
-            if (Math.abs(dx) > 4) hasDragged.current = true;
-            applyOffset(clampOffset(startOffset + dx));
+            const totalDx = e.pageX - startPageX;
+            if (Math.abs(totalDx) > 4) hasDragged.current = true;
+            const deltaX = e.pageX - lastPageX;
+            applyOffset(offsetRef.current + deltaX);
+            maybeExtend();
             const now = performance.now();
             const dt = Math.max(1, now - lastT);
             velocityRef.current = ((e.pageX - lastPageX) / dt) * 16;
@@ -949,16 +1103,8 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                     reportCenterIfChanged();       // no snap — stop wherever momentum ends
                     return;
                 }
-                const raw = offsetRef.current + velocityRef.current;
-                const clamped = clampOffset(raw);
-                applyOffset(clamped);
-                if (clamped !== raw) {
-                    // Hit a wall — kill momentum so we don't spin frames applying no-op offsets.
-                    velocityRef.current = 0;
-                    rafRef.current = null;
-                    reportCenterIfChanged();
-                    return;
-                }
+                applyOffset(offsetRef.current + velocityRef.current);
+                maybeExtend();
                 velocityRef.current *= 0.93;
                 rafRef.current = requestAnimationFrame(decay);
             };
@@ -978,7 +1124,8 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             if (!dxRaw) return;
             e.preventDefault();
             stopAnim();
-            applyOffset(clampOffset(offsetRef.current - dxRaw));
+            applyOffset(offsetRef.current - dxRaw);
+            maybeExtend();
             reportCenterIfChanged();
         };
 
@@ -996,7 +1143,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             stopAnim();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameWidth, dates.length]);
+    }, [frameWidth]);
 
     return (
         <Box className="ts-sidewalk" data-testid="ts-sidewalk" ref={frameRef}>
@@ -1015,6 +1162,325 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     );
 };
 
+// ─────────── Elevator — vertical analog of Sidewalk (Week view only) ─────────
+// The outer frame is fixed-height with overflow hidden. The inner flex strip
+// stacks 21 day panels (centered on centerDate) vertically. Dragging the inner
+// strip vertically changes its translateY; release applies momentum decay and
+// stops where momentum ends (no snap-to-panel, matching Sidewalk). Adjacent
+// day panels butt up with no seam, so bubbles that straddle Sun→Mon feel
+// continuous (req #2383).
+const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
+    const frameRef = React.useRef(null);
+    const innerRef = React.useRef(null);
+    const offsetRef = React.useRef(0);      // current translateY in px (negative = panels above)
+    const velocityRef = React.useRef(0);    // px / frame
+    const rafRef = React.useRef(null);
+    const lastReported = React.useRef(centerDate);
+    const reportTimeoutRef = React.useRef(null);   // trailing debounce of onCenterDateChange
+    const pendingDateRef   = React.useRef(null);
+    const hasDragged = React.useRef(false);
+    const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    const [frameHeight, setFrameHeight] = React.useState(0);
+
+    // Per-panel heights — one entry per date, sized to THAT day's chip density.
+    // Sidewalk uniforms every panel to the busiest day; Elevator lets light days
+    // stay short so a strip with one 12-chip day and 20 single-chip days isn't
+    // 21× the 12-chip height tall (req #2383 follow-up). Mirrors BeadRow's
+    // sidewalk-variant height formula so DOM heights match what BeadRow lays out.
+    //
+    // maxStackRow comes from indexMaxStackByDate, which reproduces BeadRow's
+    // placement for the active vizKey: bead uses cluster-stack (many chips
+    // collapse to a handful of rows when spread across the day), swarm uses
+    // one-lane-per-chip (maxRow = chips − 1). Without this, bead panels were
+    // sized to the swarm worst case and wasted ~80% of their vertical space.
+    //
+    // BASE_HEIGHT is intentionally low (140px) — enough to fit the top chrome
+    // (date + time-axis ≈ 122px minimum) plus a little breathing room.
+    const panelHeights = useMemo(() => {
+        const BASE_HEIGHT   = 140;
+        const bubbleOffset  = 20;
+        const chromeBottom  = 80;
+        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+        const spaceMul      = getSpaceMultiplier(spaceKey);
+        const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+        const maxRowByDate  = indexMaxStackByDate(requirements, sessions, timezone, vizKey);
+        return dates.map(d => {
+            const maxStackRow = maxRowByDate.get(d) || 0;
+            return Math.max(
+                BASE_HEIGHT,
+                maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+            );
+        });
+    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
+
+    // Cumulative offsets + total strip height — precomputed so indexForOffset /
+    // offsetForIndex / clampOffset don't re-scan on every frame.
+    const panelGeom = useMemo(() => {
+        const cumulative = new Array(panelHeights.length);
+        let acc = 0;
+        for (let i = 0; i < panelHeights.length; i++) {
+            cumulative[i] = acc;
+            acc += panelHeights[i];
+        }
+        return { heights: panelHeights, cumulative, stripHeight: acc };
+    }, [panelHeights]);
+
+    // Ref-mirror of panelGeom so offsetForIndex / clampOffset called from a
+    // rebuild-path requestAnimationFrame always see the LATEST geometry — not
+    // the panelHeights captured when the centerDate effect ran. Without this, a
+    // rebuild that also shifts per-panel density would position the first frame
+    // using the old geometry and the strip would briefly sit at the wrong offset.
+    // useLayoutEffect so the ref is current before any rAF fires.
+    const panelGeomRef = React.useRef(panelGeom);
+    React.useLayoutEffect(() => { panelGeomRef.current = panelGeom; }, [panelGeom]);
+
+    React.useLayoutEffect(() => {
+        const measure = () => {
+            const h = frameRef.current?.clientHeight || 0;
+            setFrameHeight(h);
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
+    React.useEffect(() => () => {
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
+    }, []);
+
+    const applyOffset = (y) => {
+        offsetRef.current = y;
+        if (innerRef.current) innerRef.current.style.transform = `translate3d(0,${y}px,0)`;
+    };
+
+    const stopAnim = () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+    };
+
+    const animateTo = (target) => {
+        stopAnim();
+        const start = offsetRef.current;
+        const delta = target - start;
+        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
+        const t0 = performance.now();
+        const step = (now) => {
+            const t = Math.min(1, (now - t0) / duration);
+            const eased = 1 - (1 - t) ** 3;
+            applyOffset(start + delta * eased);
+            if (t < 1) rafRef.current = requestAnimationFrame(step);
+            else { rafRef.current = null; reportCenterIfChanged(); }
+        };
+        rafRef.current = requestAnimationFrame(step);
+    };
+
+    // Map current translateY to the panel whose [top, bottom] range contains
+    // the frame's vertical center. Linear scan over cumulative offsets — N≤21,
+    // no need for binary search.
+    const indexForOffset = () => {
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length === 0 || g.stripHeight === 0) return 0;
+        const frameCenterInStrip = -offsetRef.current + (frameHeight / 2);
+        for (let i = 0; i < g.heights.length; i++) {
+            const bottom = g.cumulative[i] + g.heights[i];
+            if (frameCenterInStrip < bottom) return i;
+        }
+        return g.heights.length - 1;
+    };
+
+    // Offset that places the panel at `idx` centered in the frame (or flush
+    // to the top when the strip is shorter than the frame).
+    const offsetForIndex = (idx) => {
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length === 0) return 0;
+        const i = Math.max(0, Math.min(g.heights.length - 1, idx));
+        const target = frameHeight / 2 - g.cumulative[i] - g.heights[i] / 2;
+        return clampOffset(target);
+    };
+
+    // Clamp offset so the user can't walk the strip off-screen. When the strip
+    // is shorter than the frame, lock to 0.
+    const clampOffset = (y) => {
+        const g = panelGeomRef.current;
+        if (!g || g.stripHeight <= frameHeight) return 0;
+        const minOffset = frameHeight - g.stripHeight;
+        return Math.max(minOffset, Math.min(0, y));
+    };
+
+    // If panel geometry changes mid-session (data updates shifting some day's
+    // chip count), re-clamp the current offset so it stays within the new
+    // [minOffset, 0] range. Does NOT re-center — the user's scroll position is
+    // preserved wherever it was.
+    React.useEffect(() => {
+        applyOffset(clampOffset(offsetRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [panelGeom]);
+
+    const REPORT_DEBOUNCE_MS = 150;
+    const reportCenterIfChanged = () => {
+        const d = dates[indexForOffset()];
+        if (!d || d === lastReported.current) return;
+        lastReported.current = d;
+        pendingDateRef.current = d;
+        if (reportTimeoutRef.current) clearTimeout(reportTimeoutRef.current);
+        reportTimeoutRef.current = setTimeout(() => {
+            const pending = pendingDateRef.current;
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+            if (pending) onCenterDateChange(pending);
+        }, REPORT_DEBOUNCE_MS);
+    };
+
+    // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
+    React.useEffect(() => {
+        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (centerDate === lastReported.current) return;
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
+        const idx = dates.indexOf(centerDate);
+        if (idx < 0) {
+            // Rebuild strip around the new centerDate and snap to its center.
+            const rebuilt = centeredDateRange(centerDate, 10);
+            setDates(rebuilt);
+            lastReported.current = centerDate;
+            requestAnimationFrame(() => {
+                const newIdx = rebuilt.indexOf(centerDate);
+                applyOffset(offsetForIndex(newIdx));
+            });
+            return;
+        }
+        lastReported.current = centerDate;
+        animateTo(offsetForIndex(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [centerDate, frameHeight, panelGeom.stripHeight]);
+
+    // Initial placement — put centerDate centered in the frame.
+    React.useEffect(() => {
+        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        const idx = dates.indexOf(centerDate);
+        if (idx >= 0) applyOffset(offsetForIndex(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameHeight, panelGeom.stripHeight]);
+
+    // Drag + momentum + wheel.
+    React.useEffect(() => {
+        const frame = frameRef.current;
+        if (!frame || frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        let isDown = false;
+        let startPageY = 0;
+        let startOffset = 0;
+        let lastPageY = 0;
+        let lastT = 0;
+
+        const onDown = (e) => {
+            if (e.button !== 0) return;
+            isDown = true;
+            hasDragged.current = false;
+            startPageY = e.pageY;
+            startOffset = offsetRef.current;
+            lastPageY = e.pageY;
+            lastT = performance.now();
+            velocityRef.current = 0;
+            stopAnim();
+            frame.style.cursor = 'grabbing';
+            e.preventDefault();
+        };
+        const onMove = (e) => {
+            if (!isDown) return;
+            const dy = e.pageY - startPageY;
+            if (Math.abs(dy) > 4) hasDragged.current = true;
+            applyOffset(clampOffset(startOffset + dy));
+            const now = performance.now();
+            const dt = Math.max(1, now - lastT);
+            velocityRef.current = ((e.pageY - lastPageY) / dt) * 16;
+            lastPageY = e.pageY;
+            lastT = now;
+        };
+        const onUp = () => {
+            if (!isDown) return;
+            isDown = false;
+            frame.style.cursor = '';
+            if (!hasDragged.current) { return; }
+            const decay = () => {
+                if (Math.abs(velocityRef.current) < 0.4) {
+                    rafRef.current = null;
+                    reportCenterIfChanged();
+                    return;
+                }
+                const raw = offsetRef.current + velocityRef.current;
+                const clamped = clampOffset(raw);
+                applyOffset(clamped);
+                if (clamped !== raw) {
+                    velocityRef.current = 0;
+                    rafRef.current = null;
+                    reportCenterIfChanged();
+                    return;
+                }
+                velocityRef.current *= 0.93;
+                rafRef.current = requestAnimationFrame(decay);
+            };
+            rafRef.current = requestAnimationFrame(decay);
+        };
+        const onClickCapture = (e) => {
+            if (hasDragged.current) {
+                e.stopPropagation();
+                e.preventDefault();
+                hasDragged.current = false;
+            }
+        };
+        // Wheel: scroll Y translates to offset. deltaY is the natural vertical
+        // scroll; ignore deltaX (no horizontal presentation inside Elevator).
+        const onWheel = (e) => {
+            const dyRaw = e.deltaY;
+            if (!dyRaw) return;
+            e.preventDefault();
+            stopAnim();
+            applyOffset(clampOffset(offsetRef.current - dyRaw));
+            reportCenterIfChanged();
+        };
+
+        frame.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        frame.addEventListener('click', onClickCapture, true);
+        frame.addEventListener('wheel', onWheel, { passive: false });
+        return () => {
+            frame.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('click', onClickCapture, true);
+            frame.removeEventListener('wheel', onWheel);
+            stopAnim();
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameHeight, panelGeom.stripHeight, dates.length]);
+
+    return (
+        <Box className="ts-elevator" data-testid="ts-elevator" ref={frameRef}>
+            <Box className="ts-elevator-inner" ref={innerRef}>
+                {dates.map((d, i) => (
+                    <Box key={d} className="ts-elevator-panel" data-date={d}
+                         style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
+                        <BeadRow selectedDate={d}
+                                 sidewalkPanel={true}
+                                 sidewalkHeight={panelHeights[i]}
+                                 {...rowProps} />
+                    </Box>
+                ))}
+            </Box>
+        </Box>
+    );
+};
+
 // ─────────── Top-level TimeSeriesView ──────────────────────────────────────────
 const TimeSeriesView = ({
     requirements = [],
@@ -1024,6 +1490,8 @@ const TimeSeriesView = ({
     beadWindow = '24h',
     vizKey = DEFAULT_VIZ,
     sidewalkOn = false,
+    elevatorOn = false,
+    dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
     isWeekView = false,
     categoryList = [],
     onChipClick,
@@ -1035,8 +1503,8 @@ const TimeSeriesView = ({
     const fontSizeKey  = DEFAULT_FONT_SIZE;
     const spaceKey     = DEFAULT_SPACE;
     const zoomKey      = DEFAULT_ZOOM;
-    const circleSizeKey = sidewalkOn
-        ? 1                                              // Sidewalk always uses size 1
+    const circleSizeKey = (sidewalkOn || elevatorOn)
+        ? 1                                              // 21-day strips always use size 1
         : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
     const tooltipFontSize = getFontSize(fontSizeKey);
     const circleDiameter  = getCircleSize(circleSizeKey);
@@ -1161,8 +1629,28 @@ const TimeSeriesView = ({
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
             {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
-                horizontally-scrolling Sidewalk for Day + sidewalkOn. */}
-            {sidewalkOn && !isWeekView ? (
+                horizontally-scrolling Sidewalk for Day + sidewalkOn, OR a
+                vertically-scrolling Elevator for Week + elevatorOn (req #2383). */}
+            {elevatorOn && isWeekView ? (
+                <Elevator
+                    centerDate={selectedDate}
+                    onCenterDateChange={onCenterDateChange || (() => {})}
+                    requirements={requirements}
+                    sessions={sessions}
+                    timezone={timezone}
+                    beadWindow={beadWindow}
+                    vizKey={vizKey}
+                    tooltipFontSize={tooltipFontSize}
+                    circleDiameter={circleDiameter}
+                    spaceKey={spaceKey}
+                    zoomKey={zoomKey}
+                    categoryList={categoryList}
+                    isWeekView={false}
+                    onChipClick={onChipClick}
+                    canonicalStartById={canonicalStartById}
+                    clusterSizeById={clusterSizeById}
+                />
+            ) : sidewalkOn && !isWeekView ? (
                 <Sidewalk
                     centerDate={selectedDate}
                     onCenterDateChange={onCenterDateChange || (() => {})}
@@ -1171,6 +1659,7 @@ const TimeSeriesView = ({
                     timezone={timezone}
                     beadWindow={beadWindow}
                     vizKey={vizKey}
+                    dataKey={dataKey}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -1192,6 +1681,7 @@ const TimeSeriesView = ({
                             timezone={timezone}
                             beadWindow={beadWindow}
                             vizKey={vizKey}
+                            dataKey={dataKey}
                             tooltipFontSize={tooltipFontSize}
                             circleDiameter={circleDiameter}
                             spaceKey={spaceKey}
