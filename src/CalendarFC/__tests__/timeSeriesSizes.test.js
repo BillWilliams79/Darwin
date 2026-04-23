@@ -386,8 +386,155 @@ describe('clusterSessionsByStartTime', () => {
 });
 
 // ─── assignSwarmLanes: each chip gets its own row, sorted by completed_at asc.
-// Row 0 = earliest met = bottom; higher rows = later met = top. ─────────────────
-import { assignSwarmLanes, weekDates, centeredDateRange, swarmStartBarX } from '../TimeSeriesView';
+// Row 0 = earliest met = bottom; higher rows = later met = top.
+// topDown=true reverses the order so the latest gets row 0 (Sidewalk mode —
+// wire sits at the top of the panel, so row 0 renders closest to it). ──────────
+import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor } from '../TimeSeriesView';
+
+// ─── clusterSessionsByStartTime — MySQL-format parsing (req #2398) ─────────────
+// Regression guard: before the fix, clusterSessionsByStartTime parsed
+// started_at with raw `new Date(...)`, which treats MySQL "YYYY-MM-DD HH:MM:SS"
+// as LOCAL time, while every other consumer in the visualizer (positionFor,
+// toLocaleDateString, formatCardDateTime) uses toDate() which correctly
+// interprets that format as UTC (by appending 'Z'). The mismatch could skew
+// cluster membership when two sessions' local-vs-UTC offsets fell across the
+// 3-minute cluster threshold, or when DST transitions changed the offset.
+describe('clusterSessionsByStartTime — MySQL-format UTC parsing', () => {
+    it('treats MySQL-format started_at ("YYYY-MM-DD HH:MM:SS") as UTC', () => {
+        // Same UTC instant expressed both ways — must cluster as one.
+        const { canonical, clusterSize } = clusterSessionsByStartTime([
+            { id: 'mysql', started_at: '2026-04-21 01:55:00' },          // MySQL UTC
+            { id: 'iso',   started_at: '2026-04-21T01:55:30.000Z' },     // ISO UTC, 30s later
+        ]);
+        // 30-second gap < 3-min cluster window → same cluster of size 2.
+        expect(clusterSize.get('mysql')).toBe(2);
+        expect(clusterSize.get('iso')).toBe(2);
+        // Canonical is the earlier one (mysql @ 01:55:00 UTC).
+        expect(canonical.get('mysql')).toBe('2026-04-21 01:55:00');
+        expect(canonical.get('iso')).toBe('2026-04-21 01:55:00');
+    });
+
+    it('splits MySQL-format sessions > 3 min apart in UTC', () => {
+        const { clusterSize } = clusterSessionsByStartTime([
+            { id: 'a', started_at: '2026-04-21 01:55:00' },
+            { id: 'b', started_at: '2026-04-21 02:00:00' },   // 5 min later UTC
+        ]);
+        expect(clusterSize.get('a')).toBe(1);
+        expect(clusterSize.get('b')).toBe(1);
+    });
+
+    it('falls back to Date constructor for non-MySQL strings', () => {
+        // Plain ISO, numeric, etc — still parsed correctly.
+        const { canonical } = clusterSessionsByStartTime([
+            { id: 'a', started_at: '2026-04-21T05:00:00Z' },
+            { id: 'b', started_at: '2026-04-21T05:02:00Z' },
+        ]);
+        expect(canonical.get('a')).toBe('2026-04-21T05:00:00Z');
+        expect(canonical.get('b')).toBe('2026-04-21T05:00:00Z');
+    });
+});
+
+// ─── positionFor — 24h ↔ 36h transition (req #2398) ───────────────────────────
+// Guard rails: the specific scenario described in the bug — reqs closing in the
+// wee hours of the NEXT day become visible when the window widens 24h → 36h.
+// Both the met bubble AND the session's start position must produce valid
+// percentages inside the 36h band so the vertical start-bar renders.
+describe('positionFor — 24h ↔ 36h transition (req #2398)', () => {
+    const TZ = 'UTC';
+    const SEL = '2026-04-20';   // selectedDate (today)
+
+    // Helper — shorthand for the 36h baseHours the non-sidewalk paths use.
+    const at24 = (t) => positionFor(t, TZ, SEL, 36, 24);
+    const at36 = (t) => positionFor(t, TZ, SEL, 36, 36);
+
+    it('req closing at 02:00 next day → hidden at 24h, visible at 36h', () => {
+        const t = '2026-04-21 02:00:00';   // 14h past noon of SEL
+        expect(at24(t)).toBeNull();
+        const p36 = at36(t);
+        expect(p36).not.toBeNull();
+        expect(p36).toBeGreaterThan(0);
+        expect(p36).toBeLessThan(100);
+    });
+
+    it('session starting 5 min before (01:55 next day) → hidden at 24h, visible at 36h', () => {
+        const t = '2026-04-21 01:55:00';   // 13.92h past noon of SEL
+        expect(at24(t)).toBeNull();
+        const p36 = at36(t);
+        expect(p36).not.toBeNull();
+        expect(p36).toBeGreaterThan(0);
+        expect(p36).toBeLessThan(100);
+    });
+
+    it('short-window pair (start 01:55, met 02:00) → both visible at 36h with start before met', () => {
+        const startPct = at36('2026-04-21 01:55:00');
+        const metPct   = at36('2026-04-21 02:00:00');
+        expect(startPct).not.toBeNull();
+        expect(metPct).not.toBeNull();
+        // Start must be LEFT OF met on the axis.
+        expect(startPct).toBeLessThan(metPct);
+        // Gap is small (5 min) — under the 1.5% CLOSE_THRESHOLD used for
+        // markerMode='left' selection.
+        expect(metPct - startPct).toBeLessThan(1.5);
+        expect(metPct - startPct).toBeGreaterThan(0);
+    });
+
+    it('session started before the 36h window → null (clamped path), met still visible', () => {
+        // 2pm on selectedDate-1 = 22h before noon of SEL, beyond ±18h 36h band.
+        const early = at36('2026-04-19 10:00:00');
+        expect(early).toBeNull();
+        // Met at 02:00 next day is still visible → bubble renders, dashed
+        // clamped line conveys the off-window start.
+        expect(at36('2026-04-21 02:00:00')).not.toBeNull();
+    });
+});
+
+// ─── swarmStartBarX — short-window rendering guarantee (req #2398) ─────────────
+// The specific failure mode was reported as "start points do not re-render for
+// the ones that had short windows between swarm start and requirement met."
+// This set of assertions pins down the exact (leftPct, startPct) combinations
+// produced by the 36h-edge short-window scenario and proves each produces a
+// non-null x-coordinate, so the vertical start bar DOES render.
+describe('swarmStartBarX — short-window rendering (req #2398)', () => {
+    const GAP = 9;
+    const THRESHOLD = 1.5;
+
+    it('short-window singleton at right edge → left mode, non-null bar x', () => {
+        // Representative numbers from positionFor simulation for req #2398
+        // scenario (met 02:00 next day, session started 01:55 next day):
+        const leftPct  = 88.889;
+        const startPct = 88.657;
+        // Gap = 0.23% < threshold, not aligned → markerMode='left'.
+        const x = swarmStartBarX('left', leftPct, startPct, GAP, THRESHOLD);
+        expect(x).not.toBeNull();
+        expect(x).toBe('calc(88.889% - 9px)');
+    });
+
+    it('cluster of 3 short-window sessions at right edge → all bars align at canonical startPct', () => {
+        // Three reqs: met at 02:00, 02:10, 03:00 next day. Cluster canonical
+        // start = 01:55 (all three sessions within 3 min). clusterSize>1 →
+        // isAligned=true → markerMode stays 'normal'. The bar MUST render at
+        // canonicalStartPct (left edge of its horizontal line) so all three
+        // cluster-mates' bars sit at the same x — that's the whole point of
+        // req #2341 alignment, and the bug in req #2398 was the old gap-shift
+        // branch breaking this for short-gap members.
+        const canonicalStartPct = 88.657;   // 01:55 canonical
+
+        expect(swarmStartBarX('normal', 88.889, canonicalStartPct, GAP))
+            .toBe('88.657%');
+        expect(swarmStartBarX('normal', 89.352, canonicalStartPct, GAP))
+            .toBe('88.657%');
+        expect(swarmStartBarX('normal', 91.667, canonicalStartPct, GAP))
+            .toBe('88.657%');
+    });
+
+    it('short-window singleton just inside window → bar stays inside container', () => {
+        // Tight edge case: bubble at 99%, bar would shift to calc(99% - 9px).
+        // Still a valid position, still renders (container is 100% wide).
+        const x = swarmStartBarX('left', 99.0, 98.95, GAP, THRESHOLD);
+        expect(x).not.toBeNull();
+        expect(x).toBe('calc(99% - 9px)');
+    });
+});
 
 // ─── swarmStartBarX — vertical start-tick x-coordinate selector ──────────────
 // Contract (simplified by req #2399):
@@ -421,41 +568,34 @@ describe('swarmStartBarX (vertical start-tick positioning)', () => {
             expect(swarmStartBarX('normal', 50, 40, GAP)).toBe('40%');
         });
 
-        it('renders at startPct right at the old 1.5% boundary', () => {
-            // Gap = 1.5%. Same answer as anywhere else now that the close-gap
-            // bubble-hug shortcut is gone.
+        it('renders at startPct right at the old 1.5% threshold boundary', () => {
+            // Gap = 1.5%. No special branch — same answer as any other gap.
             expect(swarmStartBarX('normal', 50, 48.5, GAP)).toBe('48.5%');
         });
+    });
 
-        it('renders at startPct for an aligned-cluster close-gap chip (req #2399 fix)', () => {
-            // The reqs 2330/2336/2381 reproducer: three swarm sessions started
-            // within 7 s of each other on 2026-04-20 (single cluster → every
-            // chip has isAligned=true). In Day view (baseHours=36) their
-            // start→met gaps landed at 1.01%, 1.37%, and 1.45% — all below
-            // the old 1.5% CLOSE_THRESHOLD_PCT. Pre-fix the bar was shoved
-            // to leftPct - gap (bubble-hug) while the duration line continued
-            // to extend from startPct to the bubble — producing a visible
-            // line to the RIGHT of the supposed "start" bar. Post-fix the
-            // bar coincides with the line's left end.
-            expect(swarmStartBarX('normal', 50, 48.99, GAP)).toBe('48.99%');   // gap 1.01%
-            expect(swarmStartBarX('normal', 50, 48.63, GAP)).toBe('48.63%');   // gap 1.37%
-            expect(swarmStartBarX('normal', 50, 48.55, GAP)).toBe('48.55%');   // gap 1.45%
+    describe('markerMode=normal, close start — req #2398/#2399 fix', () => {
+        // Both req #2398 and req #2399 independently fixed the old gap-shift
+        // branch that placed the tick at leftPct-gapPx (bubble-hug) when the
+        // gap was < 1.5%. That left the duration line extending from startPct
+        // to the bubble while the "start" bar sat closer to the bubble — a
+        // visual lie. Post-fix: tick always at startPct (line's left end).
+        it('renders at startPct when start is close to met', () => {
+            expect(swarmStartBarX('normal', 50, 49, GAP)).toBe('49%');
+        });
+
+        it('renders at startPct for real-world repro values (2026-04-20 cluster)', () => {
+            // Three sessions started within 7s — gaps 1.01%, 1.37%, 1.45%.
+            expect(swarmStartBarX('normal', 50, 48.99, GAP)).toBe('48.99%');
+            expect(swarmStartBarX('normal', 50, 48.63, GAP)).toBe('48.63%');
+            expect(swarmStartBarX('normal', 50, 48.55, GAP)).toBe('48.55%');
         });
 
         it('renders at startPct even when startPct === leftPct exactly', () => {
-            // Zero-gap 'normal' only happens for aligned-cluster chips whose
-            // canonical start == their own met time (rare, but possible at
-            // coarse time resolution). Bar at startPct is the honest answer;
-            // if it overlaps the bubble, the cluster-mates' bars at the same
-            // X still convey the alignment.
             expect(swarmStartBarX('normal', 30, 30, GAP)).toBe('30%');
         });
 
-        it('renders at startPct for an aligned-cluster tiny-gap chip (pre-#2399 regression)', () => {
-            // Gap = 0.8% — was the req #2336 "bar hides under bubble" case.
-            // Req #2399 accepts that tradeoff: the duration line + cluster-
-            // mate alignment are more important than eliminating every case
-            // where a thin bar partially overlaps a small bubble.
+        it('renders at canonical startPct for aligned-cluster tiny-gap chip', () => {
             expect(swarmStartBarX('normal', 65, 64.2, GAP)).toBe('64.2%');
         });
     });
@@ -476,6 +616,9 @@ describe('swarmStartBarX (vertical start-tick positioning)', () => {
     });
 
     it('deterministic across repeated calls (no hidden state)', () => {
+        // Regression guard — bug #2336 was perceived as "toggle causes
+        // indicators to disappear". The selector must return identical
+        // results no matter how many times it's called.
         const a = swarmStartBarX('normal', 50, 49, GAP);
         const b = swarmStartBarX('normal', 50, 49, GAP);
         const c = swarmStartBarX('normal', 50, 49, GAP);
@@ -533,6 +676,152 @@ describe('assignSwarmLanes (Swarm Visualizer lane order)', () => {
         expect(new Set(rows).size).toBe(10);
         expect(Math.min(...rows)).toBe(0);
         expect(Math.max(...rows)).toBe(9);
+    });
+
+    // ─── topDown=true (req #2400 — Sidewalk) ───────────────────────────────
+    // Sidewalk renders the wire at the TOP of each panel. Row 0 is the row
+    // closest to the wire, so it must hold the LATEST chip. Assigner emits
+    // rows descending by completed_at.
+    describe('topDown=true (Sidewalk — latest = row 0)', () => {
+        it('orders chips by completed_at descending so row 0 = latest', () => {
+            const input = [
+                mk('a', '2026-04-17 09:00:00'),
+                mk('c', '2026-04-17 18:00:00'),
+                mk('b', '2026-04-17 12:00:00'),
+            ];
+            const out = assignSwarmLanes(input, true);
+            // c (18:00) is latest → row 0; a (09:00) is earliest → row 2
+            expect(out.map(c => c.chipKey)).toEqual(['c', 'b', 'a']);
+            expect(out.map(c => c.row)).toEqual([0, 1, 2]);
+        });
+
+        it('ties broken deterministically by chipKey in reverse', () => {
+            const input = [
+                mk('a', '2026-04-17 10:00:00'),
+                mk('m', '2026-04-17 10:00:00'),
+                mk('z', '2026-04-17 10:00:00'),
+            ];
+            // When completed_at ties, topDown reverses the chipKey tie-break
+            // too so the overall ordering mirrors the primary sort direction.
+            expect(assignSwarmLanes(input, true).map(c => c.chipKey))
+                .toEqual(['z', 'm', 'a']);
+        });
+
+        it('missing completed_at lands at the BOTTOM of the stack (highest row)', () => {
+            const input = [
+                mk('withStamp', '2026-04-17 10:00:00'),
+                mk('blank', null),
+            ];
+            const out = assignSwarmLanes(input, true);
+            // Blank treated as epoch 0 → oldest → furthest from wire.
+            expect(out[0].chipKey).toBe('withStamp'); // row 0 (top, near wire)
+            expect(out[1].chipKey).toBe('blank');     // row 1 (bottom)
+        });
+
+        it('topDown=false (default) is unchanged', () => {
+            // Regression guard — Day/Week mode keeps ascending lanes.
+            const input = [
+                mk('c', '2026-04-17 18:00:00'),
+                mk('a', '2026-04-17 09:00:00'),
+            ];
+            expect(assignSwarmLanes(input).map(c => c.chipKey)).toEqual(['a', 'c']);
+            expect(assignSwarmLanes(input, false).map(c => c.chipKey)).toEqual(['a', 'c']);
+        });
+    });
+});
+
+// ─── assignRows: bead-mode cluster stack. Chips close in leftPct stack at
+// rows 0, 1, 2…; otherwise a new stack begins at row 0. topDown=true reverses
+// the walk direction so in a cluster the latest (highest leftPct) lands at
+// row 0 (closest to the wire in Sidewalk's top-anchored layout). ───────────────
+describe('assignRows (Bead cluster-stack)', () => {
+    const mk = (id, leftPct) => ({ id, leftPct });
+    const MIN_GAP = 1.2;
+
+    it('returns empty array for empty input', () => {
+        expect(assignRows([], MIN_GAP)).toEqual([]);
+    });
+
+    it('single chip → row 0, single-stack', () => {
+        expect(assignRows([mk('a', 50)], MIN_GAP)).toEqual([
+            expect.objectContaining({ id: 'a', row: 0 }),
+        ]);
+    });
+
+    it('chips far apart each start a fresh row-0 stack', () => {
+        const out = assignRows([mk('a', 10), mk('b', 40), mk('c', 70)], MIN_GAP);
+        expect(out.map(c => [c.id, c.row])).toEqual([
+            ['a', 0], ['b', 0], ['c', 0],
+        ]);
+    });
+
+    it('chips closer than minGapPct stack upward — first-in-cluster at row 0', () => {
+        // Default (topDown=false): ascending leftPct walk.
+        const out = assignRows(
+            [mk('a', 50), mk('b', 50.5), mk('c', 51.0), mk('d', 80)],
+            MIN_GAP,
+        );
+        expect(out.find(c => c.id === 'a').row).toBe(0);
+        expect(out.find(c => c.id === 'b').row).toBe(1);
+        expect(out.find(c => c.id === 'c').row).toBe(2);
+        expect(out.find(c => c.id === 'd').row).toBe(0); // new stack, far from c
+    });
+
+    it('topDown=true reverses the walk — latest-in-cluster at row 0', () => {
+        // Same input as above; topDown sorts descending by leftPct.
+        const out = assignRows(
+            [mk('a', 50), mk('b', 50.5), mk('c', 51.0), mk('d', 80)],
+            MIN_GAP,
+            true,
+        );
+        // d (80) is its own stack at row 0.
+        // Within the 50..51 cluster, c (51.0) is now first in the descending
+        // walk so gets row 0, then b (50.5) row 1, then a (50) row 2.
+        expect(out.find(c => c.id === 'd').row).toBe(0);
+        expect(out.find(c => c.id === 'c').row).toBe(0);
+        expect(out.find(c => c.id === 'b').row).toBe(1);
+        expect(out.find(c => c.id === 'a').row).toBe(2);
+    });
+
+    it('topDown cluster-gap detection uses |Δ leftPct| — cluster survives reversal', () => {
+        // A cluster that would be detected ascending MUST also be detected
+        // descending. Use gaps just under MIN_GAP (=1.2): [60, 61, 62].
+        const ascending = assignRows(
+            [mk('a', 60), mk('b', 61), mk('c', 62)],
+            MIN_GAP,
+        );
+        const descending = assignRows(
+            [mk('a', 60), mk('b', 61), mk('c', 62)],
+            MIN_GAP,
+            true,
+        );
+        // Ascending: a=0, b=1, c=2  (a starts stack, b/c extend).
+        // Descending: c=0, b=1, a=2 (c starts stack, b/a extend).
+        expect(ascending.find(c => c.id === 'a').row).toBe(0);
+        expect(ascending.find(c => c.id === 'c').row).toBe(2);
+        expect(descending.find(c => c.id === 'c').row).toBe(0);
+        expect(descending.find(c => c.id === 'a').row).toBe(2);
+    });
+
+    it('clamps stacks at MAX_ROWS (24) — 25+ clustered chips land at row 23', () => {
+        const chips = Array.from({ length: 26 }, (_, i) =>
+            mk(`r${i}`, 50 + i * 0.1)  // gaps of 0.1 well under 1.2 threshold
+        );
+        const out = assignRows(chips, MIN_GAP);
+        const maxRow = Math.max(...out.map(c => c.row));
+        expect(maxRow).toBe(23);
+    });
+
+    it('clamp at MAX_ROWS still applies when topDown=true', () => {
+        // Same oversize cluster, descending walk — the clamp is direction-
+        // independent but worth a regression guard so Sidewalk doesn't grow
+        // a 25-row panel by accident.
+        const chips = Array.from({ length: 26 }, (_, i) =>
+            mk(`r${i}`, 50 + i * 0.1)
+        );
+        const out = assignRows(chips, MIN_GAP, true);
+        const maxRow = Math.max(...out.map(c => c.row));
+        expect(maxRow).toBe(23);
     });
 });
 

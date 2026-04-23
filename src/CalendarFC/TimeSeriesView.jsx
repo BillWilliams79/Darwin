@@ -50,14 +50,23 @@ export const countChipsForDate = (requirements, sessions, date, timezone, vizKey
 // ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
 // Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
 // it extends the stack upward; otherwise a new stack begins at row 0.
+//
+// `topDown` reverses the walk direction (descending leftPct). Sidewalk mode uses
+// this so the latest chip in a cluster gets row 0 — the row rendered closest to
+// the wire (which is at the TOP of a sidewalk panel). Cluster-gap detection uses
+// |Δ leftPct| so the direction of traversal doesn't change what counts as a
+// cluster. Exported for unit-test coverage.
 const MAX_ROWS = 24;
-const assignRows = (chips, minGapPct) => {
-    const sorted = [...chips].sort((a, b) => a.leftPct - b.leftPct);
+export const assignRows = (chips, minGapPct, topDown = false) => {
+    const sorted = [...chips].sort((a, b) =>
+        topDown ? b.leftPct - a.leftPct : a.leftPct - b.leftPct
+    );
     const out = [];
     let stackRow = -1;
-    let lastPct = -Infinity;
+    let lastPct = null;
     for (const chip of sorted) {
-        const isCluster = chip.leftPct - lastPct < minGapPct;
+        const isCluster = lastPct !== null
+            && Math.abs(chip.leftPct - lastPct) < minGapPct;
         if (isCluster) {
             const nextRow = stackRow + 1;
             if (nextRow < MAX_ROWS) {
@@ -84,18 +93,18 @@ const assignRows = (chips, minGapPct) => {
 //   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
 //   • 'left'                    → one gap left of bubble center (no duration line
 //                                  is drawn in this mode — the bar IS the visual).
-//   • 'normal', startPct valid  → at startPct. A duration line is drawn from
-//                                  startPct to the bubble; the bar MUST coincide
-//                                  with the line's left end or the visualization
-//                                  lies (req #2399: bar was incorrectly bubble-
-//                                  hugged when aligned-cluster gap was < 1.5%,
-//                                  leaving the duration line dangling past it).
-//                                  The non-aligned close-start case is handled
-//                                  upstream in drawChips by switching markerMode
-//                                  to 'left', so this branch never needs a
-//                                  bubble-hug fallback of its own.
-//   • 'normal', startPct null    → null (no session start to mark).
-//   • unknown markerMode         → null.
+//   • 'normal', startPct valid  → at startPct (left edge of the horizontal line;
+//                                  aligns vertically with cluster-mates per req
+//                                  #2341). The bar must coincide with the line's
+//                                  left end — reqs #2398/#2399 fixed the old
+//                                  gap-shift branch that bubble-hugged the tick
+//                                  when aligned-cluster gap was < 1.5%, leaving
+//                                  the duration line dangling past the bar. The
+//                                  non-aligned close-start case is handled
+//                                  upstream in drawChips (markerMode='left'), so
+//                                  this branch never needs a bubble-hug fallback.
+//   • 'normal', startPct null   → null (no session start to mark).
+//   • unknown markerMode        → null.
 // Exported for unit-test coverage.
 export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     if (markerMode === 'clamped') return null;
@@ -108,18 +117,70 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
 
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
-// its own row. Sorted by completed_at ascending so row 0 = earliest (bottom) and
-// the highest row = latest (top). Long-running swarms bubble toward the top.
+// its own row. Sorted by completed_at so row 0 is the chip rendered closest to
+// the wire:
+//   topDown=false (Day / Week) — ascending: row 0 = earliest (wire is at bottom).
+//   topDown=true  (Sidewalk)   — descending: row 0 = latest   (wire is at top).
+// Long-running swarms bubble away from the wire regardless of direction.
 // Exported for unit-test coverage.
-export const assignSwarmLanes = (chips) => {
+export const assignSwarmLanes = (chips, topDown = false) => {
     const sorted = [...chips].sort((a, b) => {
         const aT = a.completed_at ? new Date(a.completed_at).getTime() : 0;
         const bT = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-        if (aT !== bT) return aT - bT;
-        // tiebreak: stable by chipKey / id for deterministic ordering
-        return String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
+        if (aT !== bT) return topDown ? bT - aT : aT - bT;
+        // tiebreak: stable by chipKey / id for deterministic ordering, mirroring
+        // the primary sort direction so ties flow the same way as the time sort.
+        const key = String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
+        return topDown ? -key : key;
     });
     return sorted.map((chip, idx) => ({ ...chip, row: idx }));
+};
+
+// ─────────── Max-stack-row index (Elevator per-day sizing) ───────────────────
+// Return Map<YYYY-MM-DD, maxRow> where maxRow is the row index BeadRow will
+// assign to its tallest chip on that date. Elevator uses this to size each day
+// panel to its actual rendered content instead of the swarm worst case:
+//
+//   • Swarm: every chip (req + per-session fan-out) gets its own lane via
+//     `assignSwarmLanes`, so maxRow = chipsByDate(date) - 1.
+//   • Bead:  chips cluster-stack via `assignRows` with minGapPct=1.2 on leftPct.
+//     leftPct in a 24h sidewalk panel = time-of-day fraction × 100, so we can
+//     reproduce the placement here without going through positionFor.
+//
+// A 39-req day in bead mode that's spread across the day might only stack to
+// row 3 or 4, not row 38 — this is what makes the per-day heights differ
+// between bead and swarm for the same dataset (req #2383 follow-up).
+// Exported for unit-test coverage.
+export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey) => {
+    const out = new Map();
+    if (!Array.isArray(requirements)) return out;
+
+    if (vizKey === 'swarm') {
+        const chipsByDate = indexChipsByDate(requirements, sessions, timezone, vizKey);
+        for (const [date, n] of chipsByDate) {
+            out.set(date, Math.max(0, n - 1));
+        }
+        return out;
+    }
+
+    // Bead: bucket leftPcts by date, then run assignRows per date.
+    const leftPctsByDate = new Map();
+    for (const r of requirements) {
+        if (!r?.completed_at) continue;
+        const d = toLocaleDateString(r.completed_at, timezone);
+        if (!d) continue;
+        const frac = getTimeOfDayFraction(r.completed_at, timezone);
+        if (frac === null || frac === undefined) continue;
+        if (!leftPctsByDate.has(d)) leftPctsByDate.set(d, []);
+        leftPctsByDate.get(d).push(frac * 100);
+    }
+    for (const [date, leftPcts] of leftPctsByDate) {
+        const chips = leftPcts.map(p => ({ leftPct: p }));
+        const placed = assignRows(chips, 1.2);
+        const maxRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
+        out.set(date, maxRow);
+    }
+    return out;
 };
 
 // ─────────── Date helpers ─────────────────────────────────────────────────────
@@ -209,7 +270,8 @@ export const weekDates = (dateStr) => {
 // All zoom levels position the same chips at the same % within their base
 // window, so switching 24h ↔ 36h never moves a chip — the 24h view just
 // rejects anything that falls in the hidden outer bands.
-const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
+// Exported for unit-test coverage of the 24h↔36h transition.
+export const positionFor = (completedAt, timezone, selectedDate, baseHours, visibleHours) => {
     const chipDay  = toLocaleDateString(completedAt, timezone);
     const chipFrac = getTimeOfDayFraction(completedAt, timezone);
     if (chipDay === null || chipFrac === null) return null;
@@ -338,14 +400,15 @@ const BeadRow = ({
     // Layout constants:
     //   Day view     — roomy; bubble sits above the wire/X-axis with clearance.
     //   Week view    — compressed so 7 rows fit.
-    //   Sidewalk     — top-down flow: date + x-axis at top, bubbles stream down.
-    // bubbleOffset is the CSS bottom for row 0 in bottom-up layouts. For the
-    // top-down sidewalk layout we use topHeader instead (pixels from TOP).
+    //   Sidewalk     — top-down flow: wire/timeline pinned at top, bubbles stream
+    //                  down from there with the LATEST chip at row 0 just below
+    //                  the wire.
+    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored layouts
+    // (Day / Week). Sidewalk uses top-anchored positioning (see bubbleYCss
+    // below) so its bubbleOffset is the bottom-padding of the panel instead —
+    // kept only so the height formula below still computes a sane lower bound.
     const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
-    // Sidewalk: chrome (date + time axis) pinned at the top; bubbles stack
-    // bottom-up below it. Panel height grows to fit the stack — no false
-    // bottom, so days with many bubbles don't overflow the chrome.
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
@@ -456,7 +519,15 @@ const BeadRow = ({
         canonicalStartById, clusterSizeById]);
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
-    const placed = vizKey === 'swarm' ? assignSwarmLanes(drawChips) : assignRows(drawChips, 1.2);
+    //
+    // In Sidewalk the wire is at the TOP of the panel, so row 0 — the row
+    // rendered closest to the wire — must hold the LATEST chip. Thread
+    // `topDown = sidewalkPanel` through both assigners so they emit rows in
+    // the direction the layout below wants.
+    const topDown = sidewalkPanel;
+    const placed = vizKey === 'swarm'
+        ? assignSwarmLanes(drawChips, topDown)
+        : assignRows(drawChips, 1.2, topDown);
     const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
 
     // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
@@ -465,24 +536,29 @@ const BeadRow = ({
 
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
-    // for every layout; only the chrome-bottom offset changes:
+    // for every layout; only the chrome offset changes:
     //   Day      → 46 (date band at top 26 + height 20)
     //   Week     → 26 (no date chrome above the row)
     //   Sidewalk → 80 (wire at CSS top: 68 after whitespace expansion for
-    //                   req #2331/#2364, plus breathing room before bubbles).
+    //                   req #2331/#2364, plus ~12px breathing room before row 0).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
-    const chromeBottom  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
+    const chromeOffset  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
-                            + chromeBottom + dateClearance);
+                            + chromeOffset + dateClearance);
 
-    // Unified bottom-anchored bubble positioning — earliest met (row 0) always at
-    // the bottom, latest at the top, in Day/Week and Sidewalk alike.
-    const bubbleYCss      = (row) => ({ bottom: `${row * rowSpacing + bubbleOffset}px` });
-    const bubbleCenterCss = (row) =>
-        `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
+    // Bubble positioning — top-anchored in Sidewalk (wire at top, row 0 = latest
+    // right below it) and bottom-anchored in Day/Week (wire at bottom, row 0 =
+    // earliest right above it). Either way row 0 renders closest to the wire;
+    // the row-assignment direction above decides which chip lands there.
+    const bubbleYCss      = sidewalkPanel
+        ? (row) => ({ top:    `${chromeOffset + row * rowSpacing}px` })
+        : (row) => ({ bottom: `${bubbleOffset + row * rowSpacing}px` });
+    const bubbleCenterCss = sidewalkPanel
+        ? (row) => `${chromeOffset + row * rowSpacing + circleDiameter / 2}px`
+        : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
     const nowPct = useMemo(() => {
         const now = new Date().toISOString();
@@ -639,17 +715,25 @@ const BeadRow = ({
                         );
                     })}
                     {/* Vertical start bar — position depends on markerMode:
-                        'normal'  → at startPct (coincides with the left end of the
-                                    duration line; req #2399 retired the close-gap
-                                    bubble-hug shortcut that dangled the line past
-                                    the bar for aligned-cluster members)
+                        'normal'  → at startPct (left end of the duration line;
+                                    aligns cluster-mates vertically, req #2341/#2398/#2399)
                         'left'    → immediately left of bubble (no session OR start ≈ met
                                     on a non-aligned chip — no duration line drawn)
                         'clamped' → skipped (horizontal dashed line already conveys it) */}
                     {placed.map(chip => {
                         const halfBar = Math.max(6, circleDiameter / 2);
-                        const y1 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 - halfBar}px)`;
-                        const y2 = `calc(100% - ${chip.row * rowSpacing + bubbleOffset + circleDiameter / 2 + halfBar}px)`;
+                        // Bar endpoints are bubble-center ± halfBar. The center
+                        // is already expressed in the active anchoring by
+                        // bubbleCenterCss — top-anchored `${N}px` for sidewalk,
+                        // `calc(100% - ${N}px)` for Day/Week — so the bar
+                        // follows row 0 to whichever edge the wire is on.
+                        const yStride = chip.row * rowSpacing + circleDiameter / 2;
+                        const y1 = sidewalkPanel
+                            ? `${chromeOffset + yStride - halfBar}px`
+                            : `calc(100% - ${bubbleOffset + yStride - halfBar}px)`;
+                        const y2 = sidewalkPanel
+                            ? `${chromeOffset + yStride + halfBar}px`
+                            : `calc(100% - ${bubbleOffset + yStride + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
                         const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
                         if (x === null) return null;
@@ -783,14 +867,14 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 
     // Uniform panel height — sized to the busiest day in the visible strip so
     // every panel shows all its lanes below the top chrome. Mirrors BeadRow's
-    // height formula (sidewalk branch: chromeBottom=50, bubbleOffset=20).
+    // height formula (sidewalk branch: chromeOffset=80, bubbleOffset=20).
     // Single-pass bucket via indexChipsByDate so 21-day strips stay O(R+S+D)
     // instead of O(D × (R+S)) — matters during scroll, when requirements
     // refetches churn this memo.
     const sidewalkHeight = useMemo(() => {
         const BASE_HEIGHT   = 400;
         const bubbleOffset  = 20;
-        const chromeBottom  = 80;   // matches BeadRow's sidewalk chromeBottom (wire top:68 + padding)
+        const chromeOffset  = 80;   // matches BeadRow's sidewalk chromeOffset (wire top:68 + padding)
         const dateClearance = Math.ceil(circleDiameter / 2) + 4;
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
@@ -803,7 +887,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         const maxStackRow = Math.max(0, maxChips - 1);
         return Math.max(
             BASE_HEIGHT,
-            maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+            maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeOffset + dateClearance,
         );
     }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
 
@@ -1078,6 +1162,325 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     );
 };
 
+// ─────────── Elevator — vertical analog of Sidewalk (Week view only) ─────────
+// The outer frame is fixed-height with overflow hidden. The inner flex strip
+// stacks 21 day panels (centered on centerDate) vertically. Dragging the inner
+// strip vertically changes its translateY; release applies momentum decay and
+// stops where momentum ends (no snap-to-panel, matching Sidewalk). Adjacent
+// day panels butt up with no seam, so bubbles that straddle Sun→Mon feel
+// continuous (req #2383).
+const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
+    const frameRef = React.useRef(null);
+    const innerRef = React.useRef(null);
+    const offsetRef = React.useRef(0);      // current translateY in px (negative = panels above)
+    const velocityRef = React.useRef(0);    // px / frame
+    const rafRef = React.useRef(null);
+    const lastReported = React.useRef(centerDate);
+    const reportTimeoutRef = React.useRef(null);   // trailing debounce of onCenterDateChange
+    const pendingDateRef   = React.useRef(null);
+    const hasDragged = React.useRef(false);
+    const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    const [frameHeight, setFrameHeight] = React.useState(0);
+
+    // Per-panel heights — one entry per date, sized to THAT day's chip density.
+    // Sidewalk uniforms every panel to the busiest day; Elevator lets light days
+    // stay short so a strip with one 12-chip day and 20 single-chip days isn't
+    // 21× the 12-chip height tall (req #2383 follow-up). Mirrors BeadRow's
+    // sidewalk-variant height formula so DOM heights match what BeadRow lays out.
+    //
+    // maxStackRow comes from indexMaxStackByDate, which reproduces BeadRow's
+    // placement for the active vizKey: bead uses cluster-stack (many chips
+    // collapse to a handful of rows when spread across the day), swarm uses
+    // one-lane-per-chip (maxRow = chips − 1). Without this, bead panels were
+    // sized to the swarm worst case and wasted ~80% of their vertical space.
+    //
+    // BASE_HEIGHT is intentionally low (140px) — enough to fit the top chrome
+    // (date + time-axis ≈ 122px minimum) plus a little breathing room.
+    const panelHeights = useMemo(() => {
+        const BASE_HEIGHT   = 140;
+        const bubbleOffset  = 20;
+        const chromeBottom  = 80;
+        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+        const spaceMul      = getSpaceMultiplier(spaceKey);
+        const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+        const maxRowByDate  = indexMaxStackByDate(requirements, sessions, timezone, vizKey);
+        return dates.map(d => {
+            const maxStackRow = maxRowByDate.get(d) || 0;
+            return Math.max(
+                BASE_HEIGHT,
+                maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+            );
+        });
+    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
+
+    // Cumulative offsets + total strip height — precomputed so indexForOffset /
+    // offsetForIndex / clampOffset don't re-scan on every frame.
+    const panelGeom = useMemo(() => {
+        const cumulative = new Array(panelHeights.length);
+        let acc = 0;
+        for (let i = 0; i < panelHeights.length; i++) {
+            cumulative[i] = acc;
+            acc += panelHeights[i];
+        }
+        return { heights: panelHeights, cumulative, stripHeight: acc };
+    }, [panelHeights]);
+
+    // Ref-mirror of panelGeom so offsetForIndex / clampOffset called from a
+    // rebuild-path requestAnimationFrame always see the LATEST geometry — not
+    // the panelHeights captured when the centerDate effect ran. Without this, a
+    // rebuild that also shifts per-panel density would position the first frame
+    // using the old geometry and the strip would briefly sit at the wrong offset.
+    // useLayoutEffect so the ref is current before any rAF fires.
+    const panelGeomRef = React.useRef(panelGeom);
+    React.useLayoutEffect(() => { panelGeomRef.current = panelGeom; }, [panelGeom]);
+
+    React.useLayoutEffect(() => {
+        const measure = () => {
+            const h = frameRef.current?.clientHeight || 0;
+            setFrameHeight(h);
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
+    React.useEffect(() => () => {
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
+    }, []);
+
+    const applyOffset = (y) => {
+        offsetRef.current = y;
+        if (innerRef.current) innerRef.current.style.transform = `translate3d(0,${y}px,0)`;
+    };
+
+    const stopAnim = () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+    };
+
+    const animateTo = (target) => {
+        stopAnim();
+        const start = offsetRef.current;
+        const delta = target - start;
+        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
+        const t0 = performance.now();
+        const step = (now) => {
+            const t = Math.min(1, (now - t0) / duration);
+            const eased = 1 - (1 - t) ** 3;
+            applyOffset(start + delta * eased);
+            if (t < 1) rafRef.current = requestAnimationFrame(step);
+            else { rafRef.current = null; reportCenterIfChanged(); }
+        };
+        rafRef.current = requestAnimationFrame(step);
+    };
+
+    // Map current translateY to the panel whose [top, bottom] range contains
+    // the frame's vertical center. Linear scan over cumulative offsets — N≤21,
+    // no need for binary search.
+    const indexForOffset = () => {
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length === 0 || g.stripHeight === 0) return 0;
+        const frameCenterInStrip = -offsetRef.current + (frameHeight / 2);
+        for (let i = 0; i < g.heights.length; i++) {
+            const bottom = g.cumulative[i] + g.heights[i];
+            if (frameCenterInStrip < bottom) return i;
+        }
+        return g.heights.length - 1;
+    };
+
+    // Offset that places the panel at `idx` centered in the frame (or flush
+    // to the top when the strip is shorter than the frame).
+    const offsetForIndex = (idx) => {
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length === 0) return 0;
+        const i = Math.max(0, Math.min(g.heights.length - 1, idx));
+        const target = frameHeight / 2 - g.cumulative[i] - g.heights[i] / 2;
+        return clampOffset(target);
+    };
+
+    // Clamp offset so the user can't walk the strip off-screen. When the strip
+    // is shorter than the frame, lock to 0.
+    const clampOffset = (y) => {
+        const g = panelGeomRef.current;
+        if (!g || g.stripHeight <= frameHeight) return 0;
+        const minOffset = frameHeight - g.stripHeight;
+        return Math.max(minOffset, Math.min(0, y));
+    };
+
+    // If panel geometry changes mid-session (data updates shifting some day's
+    // chip count), re-clamp the current offset so it stays within the new
+    // [minOffset, 0] range. Does NOT re-center — the user's scroll position is
+    // preserved wherever it was.
+    React.useEffect(() => {
+        applyOffset(clampOffset(offsetRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [panelGeom]);
+
+    const REPORT_DEBOUNCE_MS = 150;
+    const reportCenterIfChanged = () => {
+        const d = dates[indexForOffset()];
+        if (!d || d === lastReported.current) return;
+        lastReported.current = d;
+        pendingDateRef.current = d;
+        if (reportTimeoutRef.current) clearTimeout(reportTimeoutRef.current);
+        reportTimeoutRef.current = setTimeout(() => {
+            const pending = pendingDateRef.current;
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+            if (pending) onCenterDateChange(pending);
+        }, REPORT_DEBOUNCE_MS);
+    };
+
+    // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
+    React.useEffect(() => {
+        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (centerDate === lastReported.current) return;
+        if (reportTimeoutRef.current) {
+            clearTimeout(reportTimeoutRef.current);
+            reportTimeoutRef.current = null;
+            pendingDateRef.current = null;
+        }
+        const idx = dates.indexOf(centerDate);
+        if (idx < 0) {
+            // Rebuild strip around the new centerDate and snap to its center.
+            const rebuilt = centeredDateRange(centerDate, 10);
+            setDates(rebuilt);
+            lastReported.current = centerDate;
+            requestAnimationFrame(() => {
+                const newIdx = rebuilt.indexOf(centerDate);
+                applyOffset(offsetForIndex(newIdx));
+            });
+            return;
+        }
+        lastReported.current = centerDate;
+        animateTo(offsetForIndex(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [centerDate, frameHeight, panelGeom.stripHeight]);
+
+    // Initial placement — put centerDate centered in the frame.
+    React.useEffect(() => {
+        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        const idx = dates.indexOf(centerDate);
+        if (idx >= 0) applyOffset(offsetForIndex(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameHeight, panelGeom.stripHeight]);
+
+    // Drag + momentum + wheel.
+    React.useEffect(() => {
+        const frame = frameRef.current;
+        if (!frame || frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        let isDown = false;
+        let startPageY = 0;
+        let startOffset = 0;
+        let lastPageY = 0;
+        let lastT = 0;
+
+        const onDown = (e) => {
+            if (e.button !== 0) return;
+            isDown = true;
+            hasDragged.current = false;
+            startPageY = e.pageY;
+            startOffset = offsetRef.current;
+            lastPageY = e.pageY;
+            lastT = performance.now();
+            velocityRef.current = 0;
+            stopAnim();
+            frame.style.cursor = 'grabbing';
+            e.preventDefault();
+        };
+        const onMove = (e) => {
+            if (!isDown) return;
+            const dy = e.pageY - startPageY;
+            if (Math.abs(dy) > 4) hasDragged.current = true;
+            applyOffset(clampOffset(startOffset + dy));
+            const now = performance.now();
+            const dt = Math.max(1, now - lastT);
+            velocityRef.current = ((e.pageY - lastPageY) / dt) * 16;
+            lastPageY = e.pageY;
+            lastT = now;
+        };
+        const onUp = () => {
+            if (!isDown) return;
+            isDown = false;
+            frame.style.cursor = '';
+            if (!hasDragged.current) { return; }
+            const decay = () => {
+                if (Math.abs(velocityRef.current) < 0.4) {
+                    rafRef.current = null;
+                    reportCenterIfChanged();
+                    return;
+                }
+                const raw = offsetRef.current + velocityRef.current;
+                const clamped = clampOffset(raw);
+                applyOffset(clamped);
+                if (clamped !== raw) {
+                    velocityRef.current = 0;
+                    rafRef.current = null;
+                    reportCenterIfChanged();
+                    return;
+                }
+                velocityRef.current *= 0.93;
+                rafRef.current = requestAnimationFrame(decay);
+            };
+            rafRef.current = requestAnimationFrame(decay);
+        };
+        const onClickCapture = (e) => {
+            if (hasDragged.current) {
+                e.stopPropagation();
+                e.preventDefault();
+                hasDragged.current = false;
+            }
+        };
+        // Wheel: scroll Y translates to offset. deltaY is the natural vertical
+        // scroll; ignore deltaX (no horizontal presentation inside Elevator).
+        const onWheel = (e) => {
+            const dyRaw = e.deltaY;
+            if (!dyRaw) return;
+            e.preventDefault();
+            stopAnim();
+            applyOffset(clampOffset(offsetRef.current - dyRaw));
+            reportCenterIfChanged();
+        };
+
+        frame.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        frame.addEventListener('click', onClickCapture, true);
+        frame.addEventListener('wheel', onWheel, { passive: false });
+        return () => {
+            frame.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('click', onClickCapture, true);
+            frame.removeEventListener('wheel', onWheel);
+            stopAnim();
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [frameHeight, panelGeom.stripHeight, dates.length]);
+
+    return (
+        <Box className="ts-elevator" data-testid="ts-elevator" ref={frameRef}>
+            <Box className="ts-elevator-inner" ref={innerRef}>
+                {dates.map((d, i) => (
+                    <Box key={d} className="ts-elevator-panel" data-date={d}
+                         style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
+                        <BeadRow selectedDate={d}
+                                 sidewalkPanel={true}
+                                 sidewalkHeight={panelHeights[i]}
+                                 {...rowProps} />
+                    </Box>
+                ))}
+            </Box>
+        </Box>
+    );
+};
+
 // ─────────── Top-level TimeSeriesView ──────────────────────────────────────────
 const TimeSeriesView = ({
     requirements = [],
@@ -1087,6 +1490,7 @@ const TimeSeriesView = ({
     beadWindow = '24h',
     vizKey = DEFAULT_VIZ,
     sidewalkOn = false,
+    elevatorOn = false,
     dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
     isWeekView = false,
     categoryList = [],
@@ -1099,8 +1503,8 @@ const TimeSeriesView = ({
     const fontSizeKey  = DEFAULT_FONT_SIZE;
     const spaceKey     = DEFAULT_SPACE;
     const zoomKey      = DEFAULT_ZOOM;
-    const circleSizeKey = sidewalkOn
-        ? 1                                              // Sidewalk always uses size 1
+    const circleSizeKey = (sidewalkOn || elevatorOn)
+        ? 1                                              // 21-day strips always use size 1
         : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
     const tooltipFontSize = getFontSize(fontSizeKey);
     const circleDiameter  = getCircleSize(circleSizeKey);
@@ -1225,8 +1629,28 @@ const TimeSeriesView = ({
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
             {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
-                horizontally-scrolling Sidewalk for Day + sidewalkOn. */}
-            {sidewalkOn && !isWeekView ? (
+                horizontally-scrolling Sidewalk for Day + sidewalkOn, OR a
+                vertically-scrolling Elevator for Week + elevatorOn (req #2383). */}
+            {elevatorOn && isWeekView ? (
+                <Elevator
+                    centerDate={selectedDate}
+                    onCenterDateChange={onCenterDateChange || (() => {})}
+                    requirements={requirements}
+                    sessions={sessions}
+                    timezone={timezone}
+                    beadWindow={beadWindow}
+                    vizKey={vizKey}
+                    tooltipFontSize={tooltipFontSize}
+                    circleDiameter={circleDiameter}
+                    spaceKey={spaceKey}
+                    zoomKey={zoomKey}
+                    categoryList={categoryList}
+                    isWeekView={false}
+                    onChipClick={onChipClick}
+                    canonicalStartById={canonicalStartById}
+                    clusterSizeById={clusterSizeById}
+                />
+            ) : sidewalkOn && !isWeekView ? (
                 <Sidewalk
                     centerDate={selectedDate}
                     onCenterDateChange={onCenterDateChange || (() => {})}
