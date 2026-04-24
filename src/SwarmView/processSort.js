@@ -22,12 +22,16 @@ export const STATUS_SORT_PROCESS = {
     authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5
 };
 
-export const processSort = (a, b) => {
-    if (a.id === '') return 1;
-    if (b.id === '') return -1;
-    const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
-    const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
-    if (aRank !== bRank) return aRank - bRank;
+// Reverse-order rank for status sort (req #2406). Literal user spec:
+// deferred, met, development, swarm_ready, approved, authoring.
+export const STATUS_SORT_PROCESS_REVERSE = {
+    deferred: 0, met: 1, development: 2, swarm_ready: 3, approved: 4, authoring: 5
+};
+
+// Within-group secondary sort. Shared by processSort and processSortReverse —
+// recency / hand-sort / id-tiebreaker carry the same semantic meaning regardless
+// of the primary rank direction, so they are NOT flipped in the reverse variant.
+const secondarySort = (a, b) => {
     switch (a.requirement_status) {
         case 'development': {
             const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
@@ -49,6 +53,24 @@ export const processSort = (a, b) => {
         default:  // authoring, approved — oldest (smallest id) first
             return a.id - b.id;
     }
+};
+
+export const processSort = (a, b) => {
+    if (a.id === '') return 1;
+    if (b.id === '') return -1;
+    const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
+    const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
+    if (aRank !== bRank) return aRank - bRank;
+    return secondarySort(a, b);
+};
+
+export const processSortReverse = (a, b) => {
+    if (a.id === '') return 1;
+    if (b.id === '') return -1;
+    const aRank = STATUS_SORT_PROCESS_REVERSE[a.requirement_status] ?? 0;
+    const bRank = STATUS_SORT_PROCESS_REVERSE[b.requirement_status] ?? 0;
+    if (aRank !== bRank) return aRank - bRank;
+    return secondarySort(a, b);
 };
 
 // Statuses that /swarm-start considers when picking a requirement by position.
