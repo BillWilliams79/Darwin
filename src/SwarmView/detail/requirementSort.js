@@ -20,6 +20,16 @@ export const STATUS_SORT_PROCESS = {
     met: 5,
 };
 
+// Reverse-order rank (req #2406). Must match STATUS_SORT_PROCESS_REVERSE in ../processSort.js.
+export const STATUS_SORT_PROCESS_REVERSE = {
+    deferred: 0,
+    met: 1,
+    development: 2,
+    swarm_ready: 3,
+    approved: 4,
+    authoring: 5,
+};
+
 export const siblingHandSort = (a, b) => {
     const aOrder = a.sort_order ?? Infinity;
     const bOrder = b.sort_order ?? Infinity;
@@ -28,10 +38,9 @@ export const siblingHandSort = (a, b) => {
 
 export const siblingCreatedSort = (a, b) => a.id - b.id;
 
-export const siblingProcessSort = (a, b) => {
-    const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
-    const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
-    if (aRank !== bRank) return aRank - bRank;
+// Within-group secondary sort shared by forward and reverse process sorts.
+// Recency/hand-order/id-tiebreaker carry the same meaning in either direction.
+const secondarySort = (a, b) => {
     switch (a.requirement_status) {
         case 'development': {
             const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
@@ -55,8 +64,23 @@ export const siblingProcessSort = (a, b) => {
     }
 };
 
+export const siblingProcessSort = (a, b) => {
+    const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
+    const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
+    if (aRank !== bRank) return aRank - bRank;
+    return secondarySort(a, b);
+};
+
+export const siblingProcessSortReverse = (a, b) => {
+    const aRank = STATUS_SORT_PROCESS_REVERSE[a.requirement_status] ?? 0;
+    const bRank = STATUS_SORT_PROCESS_REVERSE[b.requirement_status] ?? 0;
+    if (aRank !== bRank) return aRank - bRank;
+    return secondarySort(a, b);
+};
+
 export const siblingActiveSort = (sortMode, a, b) => {
     if (sortMode === 'process') return siblingProcessSort(a, b);
+    if (sortMode === 'reverse') return siblingProcessSortReverse(a, b);
     const aState = STATUS_SORT[a.requirement_status] ?? 0;
     const bState = STATUS_SORT[b.requirement_status] ?? 0;
     if (aState !== bState) return aState - bState;

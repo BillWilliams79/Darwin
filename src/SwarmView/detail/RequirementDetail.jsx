@@ -148,8 +148,9 @@ const RequirementDetail = () => {
                     setSiblings(siblingsResult.data);
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
-                    // Mirror CategoryCard coercion: anything other than 'hand' is treated as 'process'.
-                    setSibSortMode(categoryResult.data[0].sort_mode === 'hand' ? 'hand' : 'process');
+                    // Mirror CategoryCard coercion: 'hand' / 'reverse' pass through, anything else → 'process'.
+                    const raw = categoryResult.data[0].sort_mode;
+                    setSibSortMode(raw === 'hand' ? 'hand' : raw === 'reverse' ? 'reverse' : 'process');
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -266,7 +267,7 @@ const RequirementDetail = () => {
             : `&requirement_status=(${siblingStatuses.join(',')})`;
         try {
             const [siblingsResult, categoryResult] = await Promise.all([
-                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                 call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
             ]);
             if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);

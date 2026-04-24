@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { siblingActiveSort, STATUS_SORT, STATUS_SORT_PROCESS, siblingProcessSort } from '../requirementSort';
+import {
+    siblingActiveSort,
+    STATUS_SORT,
+    STATUS_SORT_PROCESS,
+    STATUS_SORT_PROCESS_REVERSE,
+    siblingProcessSort,
+    siblingProcessSortReverse,
+} from '../requirementSort';
 
 const r = (id, status, overrides = {}) => ({
     id,
@@ -174,5 +181,61 @@ describe('siblingActiveSort — process mode', () => {
         const a = r(1, 'authoring');
         const b = r(2, 'met',  { completed_at: '2026-04-01T00:00:00Z' });
         expect(siblingProcessSort(a, b)).toBeLessThan(0);  // authoring before met
+    });
+});
+
+describe('siblingActiveSort — reverse mode (req #2406)', () => {
+    const sortBy = (items) => [...items].sort((a, b) => siblingActiveSort('reverse', a, b));
+
+    it('STATUS_SORT_PROCESS_REVERSE matches the user spec', () => {
+        expect(STATUS_SORT_PROCESS_REVERSE).toEqual({
+            deferred: 0,
+            met: 1,
+            development: 2,
+            swarm_ready: 3,
+            approved: 4,
+            authoring: 5,
+        });
+    });
+
+    it('reverse order: deferred, met, development, swarm_ready, approved, authoring', () => {
+        const items = [
+            r(0, 'authoring'),
+            r(1, 'approved'),
+            r(2, 'swarm_ready', { sort_order: 0 }),
+            r(3, 'development', { started_at: '2026-04-01T00:00:00Z' }),
+            r(4, 'deferred',    { deferred_at: '2026-04-01T00:00:00Z' }),
+            r(5, 'met',         { completed_at: '2026-04-01T00:00:00Z' }),
+        ];
+        const sorted = sortBy(items);
+        expect(sorted.map(i => i.requirement_status)).toEqual([
+            'deferred', 'met', 'development', 'swarm_ready', 'approved', 'authoring',
+        ]);
+    });
+
+    it('preserves within-group secondary sort (most recently completed met first)', () => {
+        const items = [
+            r(1, 'met', { completed_at: '2026-01-01T00:00:00Z' }),
+            r(2, 'met', { completed_at: '2026-04-10T00:00:00Z' }),
+            r(3, 'met', { completed_at: '2026-02-15T00:00:00Z' }),
+        ];
+        const sorted = sortBy(items);
+        expect(sorted.map(i => i.id)).toEqual([2, 3, 1]);
+    });
+
+    it('preserves within-group secondary sort (oldest started_at development first)', () => {
+        const items = [
+            r(3, 'development', { started_at: '2026-04-10T00:00:00Z' }),
+            r(1, 'development', { started_at: '2026-01-01T00:00:00Z' }),
+            r(2, 'development', { started_at: '2026-03-01T00:00:00Z' }),
+        ];
+        const sorted = sortBy(items);
+        expect(sorted.map(i => i.id)).toEqual([1, 2, 3]);
+    });
+
+    it('siblingProcessSortReverse can be called directly', () => {
+        const a = r(1, 'authoring');
+        const b = r(2, 'met', { completed_at: '2026-04-01T00:00:00Z' });
+        expect(siblingProcessSortReverse(a, b)).toBeGreaterThan(0);  // met before authoring in reverse
     });
 });
