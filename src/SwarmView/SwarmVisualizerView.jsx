@@ -1,15 +1,6 @@
 import React, { useContext, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import Typography from '@mui/material/Typography';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-
 import AuthContext from '../Context/AuthContext';
 import { useSwarmVisualizerStore } from '../stores/useSwarmVisualizerStore';
 import { useRequirementsDone, useSessions, useAllCategories } from '../hooks/useDataQueries';
@@ -25,25 +16,6 @@ const shiftDay = (dateStr, delta) => {
     return localDateStr(d);
 };
 
-const formatDayTitle = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr + 'T12:00:00');
-    return d.toLocaleDateString(undefined, {
-        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-    });
-};
-
-const formatWeekTitle = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr + 'T12:00:00');
-    const mondayOffset = (d.getDay() + 6) % 7;
-    const monday = new Date(d); monday.setDate(d.getDate() - mondayOffset);
-    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-    const opts   = { month: 'short', day: 'numeric' };
-    const optsYr = { month: 'short', day: 'numeric', year: 'numeric' };
-    return `Week of ${monday.toLocaleDateString(undefined, opts)} – ${sunday.toLocaleDateString(undefined, optsYr)}`;
-};
-
 const SwarmVisualizerView = () => {
     const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
@@ -55,16 +27,9 @@ const SwarmVisualizerView = () => {
     const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
-    const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
-    const setVizKey      = useSwarmVisualizerStore(s => s.setVizKey);
-    const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
-    const setSidewalkOn  = useSwarmVisualizerStore(s => s.setSidewalkOn);
-    const setElevatorOn  = useSwarmVisualizerStore(s => s.setElevatorOn);
-    const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
 
     const isWeekView = viewType === 'week';
-    const todayStr = useMemo(() => localDateStr(), []);
 
     // Query date range — matches the calendar's time-series logic verbatim:
     //   Sidewalk on (Day)      → ±15 days around currentDate (21-day panel strip)
@@ -101,69 +66,6 @@ const SwarmVisualizerView = () => {
         profile?.userName, { fields: 'id,category_name,color,sort_order' }
     );
 
-    // Prev/Next shifts by 7 days in week view, 1 day otherwise. Today returns to today.
-    const step = isWeekView ? 7 : 1;
-    const handlePrev = useCallback(() => {
-        setCurrentDate(shiftDay(currentDate, -step));
-    }, [currentDate, step, setCurrentDate]);
-    const handleNext = useCallback(() => {
-        setCurrentDate(shiftDay(currentDate, step));
-    }, [currentDate, step, setCurrentDate]);
-    const handleToday = useCallback(() => {
-        setCurrentDate(todayStr);
-    }, [todayStr, setCurrentDate]);
-
-    const handleViewTypeChange = useCallback((_event, next) => {
-        if (!next) return;
-        setViewType(next);
-    }, [setViewType]);
-
-    // Bead / Swarm click behaves like a radio — the only currently-selectable
-    // viz is the one clicked. Unlike the old calendar toolbar there's no
-    // "Time Series off" state to toggle into, because the visualizer IS the
-    // time series view here.
-    const handleVizClick = useCallback((viz) => {
-        setVizKey(viz);
-    }, [setVizKey]);
-
-    // Sidewalk forces 24h bead window and turns off Elevator (mutually
-    // exclusive presentations of the same 21-day strip). Day-view only.
-    const handleSidewalkClick = useCallback(() => {
-        const next = !sidewalkOn;
-        setSidewalkOn(next);
-        if (next) {
-            setBeadWindow('24h');
-            setElevatorOn(false);
-        }
-    }, [sidewalkOn, setSidewalkOn, setBeadWindow, setElevatorOn]);
-
-    // Elevator — vertical analog of Sidewalk, Week-view only. Forces 24h and
-    // turns off Sidewalk.
-    const handleElevatorClick = useCallback(() => {
-        if (!isWeekView) return;
-        const next = !elevatorOn;
-        setElevatorOn(next);
-        if (next) {
-            setBeadWindow('24h');
-            setSidewalkOn(false);
-        }
-    }, [isWeekView, elevatorOn, setElevatorOn, setBeadWindow, setSidewalkOn]);
-
-    // Coordination — recolor chips by coordination_type. Applies to both viz.
-    const handleCoordinationClick = useCallback(() => {
-        setDataKey(dataKey === 'coordination' ? 'category' : 'coordination');
-    }, [dataKey, setDataKey]);
-
-    // Auto-off when the active layout stops applying to the new view.
-    React.useEffect(() => {
-        if (isWeekView && sidewalkOn) setSidewalkOn(false);
-    }, [isWeekView, sidewalkOn, setSidewalkOn]);
-    React.useEffect(() => {
-        if (!isWeekView && elevatorOn) setElevatorOn(false);
-    }, [isWeekView, elevatorOn, setElevatorOn]);
-
-    const displayTitle = isWeekView ? formatWeekTitle(currentDate) : formatDayTitle(currentDate);
-
     // Scroll restore — visualizer-specific key so the saved position never
     // leaks into /calview (which has its own `calview_scrollY`).
     React.useEffect(() => {
@@ -184,119 +86,26 @@ const SwarmVisualizerView = () => {
         if (d && d !== currentDate) setCurrentDate(d);
     }, [currentDate, setCurrentDate]);
 
-    // Layout mirrors the old Calendar Time-Series render: toolbar sits inside
-    // a `px: 2, pt: '18pt'` Box (same as the Calendar toolbar wrapper), and
-    // TimeSeriesView renders full-bleed below it — identical to the previous
-    // `<div><TimeSeriesView/></div>` placement outside the calendar's padded Box.
+    // Toolbar moved into the parent SwarmView header row (req #2407); this
+    // component now renders only the time-series content.
     return (
-        <>
-            <Box sx={{ px: 2, pt: '18pt' }}>
-            {/* Toolbar row: view toggle + viz toggle group + date nav */}
-            <Box sx={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                mb: 1.5, flexWrap: 'wrap', gap: 1,
-            }}>
-                {/* Left: Day/Week + Today + Bead/Swarm/24h/36h/Sidewalk/Elevator/Coordination */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <ToggleButtonGroup value={viewType} exclusive onChange={handleViewTypeChange}
-                                       size="small" data-testid="visualizer-view-toggle">
-                        <ToggleButton value="day"  className="cal-toggle-btn">Day</ToggleButton>
-                        <ToggleButton value="week" className="cal-toggle-btn">Week</ToggleButton>
-                    </ToggleButtonGroup>
-                    <Button onClick={handleToday} size="small" className="cal-toggle-btn"
-                            variant="outlined" sx={{ textTransform: 'none', ml: 0.5 }}>
-                        Today
-                    </Button>
-                    <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
-                                       data-testid="timeseries-group">
-                        <ToggleButton value="bead" className="cal-toggle-btn"
-                                      selected={vizKey === 'bead'}
-                                      onChange={() => handleVizClick('bead')}
-                                      data-testid="timeseries-viz-bead">
-                            Bead
-                        </ToggleButton>
-                        <ToggleButton value="swarm" className="cal-toggle-btn"
-                                      selected={vizKey === 'swarm'}
-                                      onChange={() => handleVizClick('swarm')}
-                                      data-testid="timeseries-viz-swarm">
-                            Swarm
-                        </ToggleButton>
-                        <ToggleButton value="24h" className="cal-toggle-btn"
-                                      selected={beadWindow === '24h'}
-                                      onChange={() => setBeadWindow('24h')}
-                                      data-testid="timeseries-window-24h">
-                            24h
-                        </ToggleButton>
-                        <ToggleButton value="36h" className="cal-toggle-btn"
-                                      selected={beadWindow === '36h' && !sidewalkOn && !elevatorOn}
-                                      disabled={sidewalkOn || elevatorOn}
-                                      onChange={() => setBeadWindow('36h')}
-                                      data-testid="timeseries-window-36h">
-                            36h
-                        </ToggleButton>
-                        <ToggleButton value="sidewalk" className="cal-toggle-btn"
-                                      selected={sidewalkOn && !isWeekView}
-                                      disabled={isWeekView}
-                                      onChange={handleSidewalkClick}
-                                      data-testid="timeseries-sidewalk">
-                            Sidewalk
-                        </ToggleButton>
-                        <ToggleButton value="elevator" className="cal-toggle-btn"
-                                      selected={elevatorOn && isWeekView}
-                                      disabled={!isWeekView}
-                                      onChange={handleElevatorClick}
-                                      data-testid="timeseries-elevator">
-                            Elevator
-                        </ToggleButton>
-                        {/* Data-selection toggle (req #2382) — Coordination recolors chips
-                            by coordination_type (red/orange/yellow/green). Works with both
-                            Bead and Swarm viz. */}
-                        <ToggleButton value="coordination" className="cal-toggle-btn"
-                                      selected={dataKey === 'coordination'}
-                                      onChange={handleCoordinationClick}
-                                      data-testid="timeseries-data-coordination">
-                            Coordination
-                        </ToggleButton>
-                    </ToggleButtonGroup>
-                </Box>
-                {/* Center: ← Title → */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton onClick={handlePrev} size="small" data-testid="visualizer-prev">
-                        <ChevronLeftIcon />
-                    </IconButton>
-                    <Typography sx={{
-                        fontFamily: "'Roboto',sans-serif", fontSize: '1.3em', fontWeight: 500,
-                        textAlign: 'center', minWidth: 180,
-                    }}>
-                        {displayTitle}
-                    </Typography>
-                    <IconButton onClick={handleNext} size="small" data-testid="visualizer-next">
-                        <ChevronRightIcon />
-                    </IconButton>
-                </Box>
-                {/* Right spacer to keep center column truly centered when width allows */}
-                <Box sx={{ minWidth: 1 }} />
-            </Box>
-            </Box>
-
-            <div>
-                <TimeSeriesView
-                    requirements={requirements}
-                    sessions={sessions}
-                    selectedDate={currentDate}
-                    timezone={profile?.timezone}
-                    beadWindow={beadWindow}
-                    vizKey={vizKey}
-                    sidewalkOn={sidewalkOn}
-                    elevatorOn={elevatorOn}
-                    dataKey={dataKey}
-                    isWeekView={isWeekView}
-                    categoryList={categoryList}
-                    onChipClick={onChipClick}
-                    onCenterDateChange={onCenterDateChange}
-                />
-            </div>
-        </>
+        <div>
+            <TimeSeriesView
+                requirements={requirements}
+                sessions={sessions}
+                selectedDate={currentDate}
+                timezone={profile?.timezone}
+                beadWindow={beadWindow}
+                vizKey={vizKey}
+                sidewalkOn={sidewalkOn}
+                elevatorOn={elevatorOn}
+                dataKey={dataKey}
+                isWeekView={isWeekView}
+                categoryList={categoryList}
+                onChipClick={onChipClick}
+                onCenterDateChange={onCenterDateChange}
+            />
+        </div>
     );
 };
 
