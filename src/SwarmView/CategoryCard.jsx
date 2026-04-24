@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { requirementHandSort, STATUS_SORT_PROCESS, processSort } from './processSort';
+import { requirementHandSort, STATUS_SORT_PROCESS, processSort, processSortReverse } from './processSort';
 import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
@@ -30,6 +30,8 @@ import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Card from '@mui/material/Card';
@@ -77,19 +79,40 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     });
 
-    // Legacy categories may have sort_mode='created' — treat anything other than 'hand' as 'process'.
-    const [sortMode, setSortMode] = useState(category.sort_mode === 'hand' ? 'hand' : 'process');
+    // Legacy categories may have sort_mode='created' — treat anything other than
+    // 'hand' / 'reverse' as 'process'. Three live values: 'hand' | 'process' | 'reverse'.
+    const [sortMode, setSortMode] = useState(
+        category.sort_mode === 'hand'
+            ? 'hand'
+            : category.sort_mode === 'reverse' ? 'reverse' : 'process'
+    );
 
-    const changeSortMode = (event, newMode) => {
-        if (newMode === null) return;
+    // Status Sort menu item toggles direction when already active: process ↔ reverse.
+    // Hand Sort menu item always sets 'hand' directly.
+    const changeSortMode = (event, requestedMode) => {
+        if (requestedMode === null) return;
         // Block while a previous sort-mode PUT is still in flight — cancelQueries only cancels
         // background refetches, not the mutation itself. Without this guard, two concurrent PUTs
         // race and the server may commit the older value.
         if (sortModePendingRef.current) return;
+
+        // When caller requests 'process' but Status Sort is already in 'process',
+        // flip to 'reverse'. When already in 'reverse', flip back to 'process'.
+        // 'hand' is always a direct set.
+        let newMode = requestedMode;
+        if (requestedMode === 'process') {
+            if (sortMode === 'process') newMode = 'reverse';
+            else if (sortMode === 'reverse') newMode = 'process';
+            // else sortMode is 'hand' → newMode stays 'process'
+        }
+        if (newMode === sortMode) return;  // no-op (shouldn't happen but safe)
+
         setSortMode(newMode);
 
         if (requirementsArray) {
-            const sortFn = newMode === 'hand' ? requirementHandSort : processSort;
+            const sortFn = newMode === 'hand'
+                ? requirementHandSort
+                : newMode === 'reverse' ? processSortReverse : processSort;
             const sorted = [...requirementsArray];
             sorted.sort((a, b) => sortFn(a, b));
             setRequirementsArray(sorted);
@@ -127,7 +150,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 if (sortModeMutationRef.current !== mutationId) return;
                 queryClient.setQueryData(openKey, previousOpen);
                 queryClient.setQueryData(allKey, previousAll);
-                setSortMode(category.sort_mode === 'hand' ? 'hand' : 'process');
+                const prior = category.sort_mode === 'hand'
+                    ? 'hand'
+                    : category.sort_mode === 'reverse' ? 'reverse' : 'process';
+                setSortMode(prior);
                 showError(errorArg, message);
             };
 
@@ -616,6 +642,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (a.id === '') return 1;
         if (b.id === '') return -1;
         if (sortMode === 'process') return processSort(a, b);
+        if (sortMode === 'reverse') return processSortReverse(a, b);
         // Three-group sort: active (0) < deferred (1) < met (2)
         const aState = STATUS_SORT[a.requirement_status] ?? 0;
         const bState = STATUS_SORT[b.requirement_status] ?? 0;
@@ -688,7 +715,20 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 >
                                     <ListItemIcon><AccountTreeIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>Status Sort</ListItemText>
-                                    {sortMode === 'process' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                    {sortMode === 'process' && (
+                                        <ArrowUpwardIcon
+                                            fontSize="small"
+                                            sx={{ ml: 1 }}
+                                            data-testid={`sort-direction-asc-${category.id}`}
+                                        />
+                                    )}
+                                    {sortMode === 'reverse' && (
+                                        <ArrowDownwardIcon
+                                            fontSize="small"
+                                            sx={{ ml: 1 }}
+                                            data-testid={`sort-direction-desc-${category.id}`}
+                                        />
+                                    )}
                                 </MenuItem>
                                 <MenuItem
                                     onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
