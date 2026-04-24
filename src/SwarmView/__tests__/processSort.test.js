@@ -11,7 +11,6 @@ const req = (id, overrides = {}) => ({
     id,
     category_fk: overrides.category_fk ?? 1,
     requirement_status: overrides.requirement_status ?? 'authoring',
-    sort_order: overrides.sort_order ?? null,
     started_at: overrides.started_at ?? null,
     deferred_at: overrides.deferred_at ?? null,
     completed_at: overrides.completed_at ?? null,
@@ -43,7 +42,7 @@ describe('computeCategoryRankMap', () => {
         const requirements = [
             req(20, { requirement_status: 'approved' }),
             req(10, { requirement_status: 'authoring' }),
-            req(30, { requirement_status: 'swarm_ready', sort_order: 0 }),
+            req(30, { requirement_status: 'swarm_ready' }),
         ];
         const map = computeCategoryRankMap(requirements);
         // processSort: authoring(0) < approved(1) < swarm_ready(2)
@@ -85,16 +84,14 @@ describe('computeCategoryRankMap', () => {
         expect(map).toEqual({ 20: 1, 10: 2, 30: 3 });
     });
 
-    it('orders swarm_ready items by sort_order asc, NULLs last, id tiebreaker', () => {
+    it('orders swarm_ready items by id asc (req #2405 — sort_order removed, id is the tiebreaker)', () => {
         const requirements = [
-            req(10, { requirement_status: 'swarm_ready', sort_order: null }),
-            req(20, { requirement_status: 'swarm_ready', sort_order: 5 }),
-            req(30, { requirement_status: 'swarm_ready', sort_order: 1 }),
-            req(40, { requirement_status: 'swarm_ready', sort_order: null }),
+            req(30, { requirement_status: 'swarm_ready' }),
+            req(10, { requirement_status: 'swarm_ready' }),
+            req(20, { requirement_status: 'swarm_ready' }),
         ];
         const map = computeCategoryRankMap(requirements);
-        // sort_order 1, 5, then NULLs by id asc
-        expect(map).toEqual({ 30: 1, 20: 2, 10: 3, 40: 4 });
+        expect(map).toEqual({ 10: 1, 20: 2, 30: 3 });
     });
 
     it('skips requirements missing id or category_fk', () => {
@@ -147,7 +144,7 @@ describe('processSortReverse', () => {
         const requirements = [
             req(1, { requirement_status: 'authoring' }),
             req(2, { requirement_status: 'approved' }),
-            req(3, { requirement_status: 'swarm_ready', sort_order: 0 }),
+            req(3, { requirement_status: 'swarm_ready' }),
             req(4, { requirement_status: 'development', started_at: '2026-04-15T10:00:00Z' }),
             req(5, { requirement_status: 'deferred', deferred_at: '2026-04-15T10:00:00Z' }),
             req(6, { requirement_status: 'met', completed_at: '2026-04-15T10:00:00Z' }),
@@ -190,14 +187,14 @@ describe('processSortReverse', () => {
         expect(sorted.map(r => r.id)).toEqual([20, 10, 30]);
     });
 
-    it('preserves within-group secondary sort — swarm_ready hand-ordered by sort_order', () => {
+    it('preserves within-group secondary sort — swarm_ready ordered by id asc (req #2405)', () => {
         const requirements = [
-            req(10, { requirement_status: 'swarm_ready', sort_order: 5 }),
-            req(20, { requirement_status: 'swarm_ready', sort_order: 1 }),
-            req(30, { requirement_status: 'swarm_ready', sort_order: null }),
+            req(30, { requirement_status: 'swarm_ready' }),
+            req(10, { requirement_status: 'swarm_ready' }),
+            req(20, { requirement_status: 'swarm_ready' }),
         ];
         const sorted = [...requirements].sort(processSortReverse);
-        expect(sorted.map(r => r.id)).toEqual([20, 10, 30]);
+        expect(sorted.map(r => r.id)).toEqual([10, 20, 30]);
     });
 
     it('preserves within-group secondary sort — authoring/approved by smallest id', () => {
