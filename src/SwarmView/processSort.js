@@ -10,14 +10,6 @@
 // A cross-language consistency test lives in
 // tests/swarm/test-process-sort-cross-impl.sh — edit either impl and it will fail.
 
-export const requirementHandSort = (a, b) => {
-    if (a.id === '') return 1;
-    if (b.id === '') return -1;
-    const aOrder = a.sort_order ?? Infinity;
-    const bOrder = b.sort_order ?? Infinity;
-    return aOrder - bOrder;
-};
-
 export const STATUS_SORT_PROCESS = {
     authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5
 };
@@ -29,8 +21,8 @@ export const STATUS_SORT_PROCESS_REVERSE = {
 };
 
 // Within-group secondary sort. Shared by processSort and processSortReverse —
-// recency / hand-sort / id-tiebreaker carry the same semantic meaning regardless
-// of the primary rank direction, so they are NOT flipped in the reverse variant.
+// recency / id-tiebreaker carry the same semantic meaning regardless of the
+// primary rank direction, so they are NOT flipped in the reverse variant.
 const secondarySort = (a, b) => {
     switch (a.requirement_status) {
         case 'development': {
@@ -38,8 +30,6 @@ const secondarySort = (a, b) => {
             const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
             return aTime - bTime;  // oldest started first
         }
-        case 'swarm_ready':
-            return requirementHandSort(a, b);  // hand sort within swarm_ready group
         case 'deferred': {
             const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
@@ -50,7 +40,7 @@ const secondarySort = (a, b) => {
             const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
             return bTime - aTime;  // most recently completed first
         }
-        default:  // authoring, approved — oldest (smallest id) first
+        default:  // authoring, approved, swarm_ready — oldest (smallest id) first
             return a.id - b.id;
     }
 };

@@ -137,7 +137,7 @@ const RequirementDetail = () => {
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -267,7 +267,7 @@ const RequirementDetail = () => {
             : `&requirement_status=(${siblingStatuses.join(',')})`;
         try {
             const [siblingsResult, categoryResult] = await Promise.all([
-                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                 call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
             ]);
             if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);

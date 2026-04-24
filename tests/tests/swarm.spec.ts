@@ -41,7 +41,7 @@ test.describe('Swarm View', () => {
     // Create requirement
     const priResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testRequirementTitle, category_fk: testCategoryId,
-      requirement_status: 'development', sort_order: 0,
+      requirement_status: 'development',
     }, idToken) as Array<{ id: string }>;
     if (!priResult?.length) throw new Error('Failed to create test requirement');
     testRequirementId = priResult[0].id;
@@ -51,7 +51,7 @@ test.describe('Swarm View', () => {
     // one item for row-number assertions).
     const idlePriResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: testIdleRequirementTitle, category_fk: testCategoryId,
-      requirement_status: 'authoring', sort_order: 1,
+      requirement_status: 'authoring',
     }, idToken) as Array<{ id: string }>;
     if (!idlePriResult?.length) throw new Error('Failed to create idle test requirement');
     testIdleRequirementId = idlePriResult[0].id;
@@ -241,7 +241,7 @@ test.describe('Swarm View', () => {
     // Create a closed requirement after the two open ones
     const closedResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: uniqueName('ClosedNav'), category_fk: testCategoryId,
-      requirement_status: 'met', sort_order: 99,
+      requirement_status: 'met',
     }, idToken) as Array<{ id: string }>;
     const closedRequirementId = closedResult[0].id;
 
@@ -256,7 +256,7 @@ test.describe('Swarm View', () => {
         await metChip.click();
       }
 
-      // Navigate to the idle requirement (sort_order=1, second open item — last open item)
+      // Navigate to the idle requirement (second open item — last open item by id ASC)
       await page.goto(`/swarm/requirement/${testIdleRequirementId}`);
       await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
 
@@ -284,15 +284,15 @@ test.describe('Swarm View', () => {
 
     const oldResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: oldTitle, category_fk: testCategoryId,
-      requirement_status: 'met', sort_order: 90, completed_at: oldClosed,
+      requirement_status: 'met', completed_at: oldClosed,
     }, idToken) as Array<{ id: string }>;
     const midResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: midTitle, category_fk: testCategoryId,
-      requirement_status: 'met', sort_order: 91, completed_at: midClosed,
+      requirement_status: 'met', completed_at: midClosed,
     }, idToken) as Array<{ id: string }>;
     const newResult = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: newTitle, category_fk: testCategoryId,
-      requirement_status: 'met', sort_order: 92, completed_at: newClosed,
+      requirement_status: 'met', completed_at: newClosed,
     }, idToken) as Array<{ id: string }>;
 
     const oldId = oldResult[0].id;
@@ -395,7 +395,7 @@ test.describe('Swarm View', () => {
     const deleteTitle = uniqueName('DeleteMe');
     const result = await apiCall('requirements', 'POST', {
       creator_fk: sub, title: deleteTitle, category_fk: testCategoryId,
-      requirement_status: 'authoring', sort_order: 99,
+      requirement_status: 'authoring',
     }, idToken) as Array<{ id: string }>;
     const deleteId = result[0].id;
 
