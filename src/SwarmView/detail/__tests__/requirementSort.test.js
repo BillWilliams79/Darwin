@@ -11,7 +11,6 @@ import {
 const r = (id, status, overrides = {}) => ({
     id,
     requirement_status: status,
-    sort_order: overrides.sort_order ?? null,
     completed_at: overrides.completed_at ?? null,
     deferred_at: overrides.deferred_at ?? null,
     started_at: overrides.started_at ?? null,
@@ -20,24 +19,25 @@ const r = (id, status, overrides = {}) => ({
 const sortBy = (mode, items) => [...items].sort((a, b) => siblingActiveSort(mode, a, b));
 
 describe('siblingActiveSort', () => {
-    it('hand mode: active statuses share one group, ordered by sort_order', () => {
+    it('hand mode: active statuses share one group, ordered by id asc (req #2405)', () => {
         const items = [
-            r(10, 'development', { sort_order: 2 }),
-            r(11, 'authoring',   { sort_order: 0 }),
-            r(12, 'swarm_ready', { sort_order: 1 }),
+            r(10, 'development'),
+            r(11, 'authoring'),
+            r(12, 'swarm_ready'),
         ];
         const sorted = sortBy('hand', items);
-        expect(sorted.map(i => i.id)).toEqual([11, 12, 10]);
+        expect(sorted.map(i => i.id)).toEqual([10, 11, 12]);
     });
 
     // Regression guard for #2112: status-rank ordering would yield
-    // [authoring, swarm_ready, development] = [2, 3, 1], but the correct
-    // (grouped) behavior is hand sort by sort_order = [1, 2, 3].
-    it('hand mode: status rank does NOT override sort_order within active group', () => {
+    // [authoring, swarm_ready, development] = [2, 3, 1]. After req #2405 removed
+    // sort_order, the grouped behavior for 'hand' mode falls back to id-ascending
+    // (no status rank within the active group, no hand-assigned order).
+    it('hand mode: status rank does NOT override id tiebreak within active group', () => {
         const items = [
-            r(1, 'development', { sort_order: 0 }),
-            r(2, 'authoring',   { sort_order: 1 }),
-            r(3, 'swarm_ready', { sort_order: 2 }),
+            r(1, 'development'),
+            r(2, 'authoring'),
+            r(3, 'swarm_ready'),
         ];
         const sorted = sortBy('hand', items);
         expect(sorted.map(i => i.id)).toEqual([1, 2, 3]);
@@ -45,9 +45,9 @@ describe('siblingActiveSort', () => {
 
     it('created mode: active statuses share one group, ordered by id', () => {
         const items = [
-            r(30, 'development', { sort_order: 0 }),
-            r(10, 'approved',    { sort_order: 99 }),
-            r(20, 'swarm_ready', { sort_order: 50 }),
+            r(30, 'development'),
+            r(10, 'approved'),
+            r(20, 'swarm_ready'),
         ];
         const sorted = sortBy('created', items);
         expect(sorted.map(i => i.id)).toEqual([10, 20, 30]);
@@ -55,8 +55,8 @@ describe('siblingActiveSort', () => {
 
     it('places active ahead of deferred', () => {
         const items = [
-            r(1, 'deferred',    { sort_order: 0, deferred_at: '2026-04-01T00:00:00Z' }),
-            r(2, 'development', { sort_order: 5 }),
+            r(1, 'deferred',    { deferred_at: '2026-04-01T00:00:00Z' }),
+            r(2, 'development'),
         ];
         const sorted = sortBy('hand', items);
         expect(sorted.map(i => i.id)).toEqual([2, 1]);
@@ -64,9 +64,9 @@ describe('siblingActiveSort', () => {
 
     it('places met last, after active and deferred', () => {
         const items = [
-            r(1, 'met',         { sort_order: 0, completed_at: '2026-04-01T00:00:00Z' }),
-            r(2, 'deferred',    { sort_order: 1, deferred_at: '2026-04-01T00:00:00Z' }),
-            r(3, 'authoring',   { sort_order: 2 }),
+            r(1, 'met',       { completed_at: '2026-04-01T00:00:00Z' }),
+            r(2, 'deferred',  { deferred_at: '2026-04-01T00:00:00Z' }),
+            r(3, 'authoring'),
         ];
         const sorted = sortBy('hand', items);
         expect(sorted.map(i => i.id)).toEqual([3, 2, 1]);
@@ -109,7 +109,7 @@ describe('siblingActiveSort — process mode', () => {
             r(5, 'met',         { completed_at: '2026-04-01T00:00:00Z' }),
             r(4, 'deferred',    { deferred_at:  '2026-04-01T00:00:00Z' }),
             r(3, 'development', { started_at:   '2026-04-01T00:00:00Z' }),
-            r(2, 'swarm_ready', { sort_order: 0 }),
+            r(2, 'swarm_ready'),
             r(1, 'approved'),
             r(0, 'authoring'),
         ];
@@ -136,14 +136,14 @@ describe('siblingActiveSort — process mode', () => {
         expect(sorted.map(i => i.id)).toEqual([1, 2]);
     });
 
-    it('swarm_ready items: sorted by sort_order (hand sort)', () => {
+    it('swarm_ready items: sorted by id asc (req #2405 — sort_order removed)', () => {
         const items = [
-            r(10, 'swarm_ready', { sort_order: 5 }),
-            r(11, 'swarm_ready', { sort_order: 1 }),
-            r(12, 'swarm_ready', { sort_order: 3 }),
+            r(12, 'swarm_ready'),
+            r(10, 'swarm_ready'),
+            r(11, 'swarm_ready'),
         ];
         const sorted = sortBy(items);
-        expect(sorted.map(i => i.id)).toEqual([11, 12, 10]);
+        expect(sorted.map(i => i.id)).toEqual([10, 11, 12]);
     });
 
     it('deferred items: most recently deferred first', () => {
@@ -202,7 +202,7 @@ describe('siblingActiveSort — reverse mode (req #2406)', () => {
         const items = [
             r(0, 'authoring'),
             r(1, 'approved'),
-            r(2, 'swarm_ready', { sort_order: 0 }),
+            r(2, 'swarm_ready'),
             r(3, 'development', { started_at: '2026-04-01T00:00:00Z' }),
             r(4, 'deferred',    { deferred_at: '2026-04-01T00:00:00Z' }),
             r(5, 'met',         { completed_at: '2026-04-01T00:00:00Z' }),

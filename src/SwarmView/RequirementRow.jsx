@@ -1,9 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React from 'react'
 import { useNavigate } from 'react-router-dom';
 
-import { useDrag, useDrop } from "react-dnd";
-import { getEmptyImage } from "react-dnd-html5-backend";
-import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useRequirementActions } from '../hooks/useRequirementActions';
 
 import Box from '@mui/material/Box';
@@ -27,93 +24,12 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
 
-const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId, categoryName }) => {
+const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
-        titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-        sortMode, setCrossCardInsertIndex, sessionStatusMap,
+        titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap } = useRequirementActions();
-    const [insertIndicator, setInsertIndicator] = useState(null);
-    const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
-    const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
-
-    const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: "requirementRow",
-        item: () => {
-            const rect = rowRef.current?.getBoundingClientRect();
-            return {...requirement, requirementIndex, sourceWidth: rect?.width || 300, sourceHeight: rect?.height || 40};
-        },
-        canDrag: () => true,
-        end: (item, monitor) => {
-            const dropResult = monitor.getDropResult();
-            if (!dropResult || dropResult.requirement === null) {
-                setCrossCardInsertIndex(null);
-                revertDragTabSwitch();
-                return;
-            }
-            removeRequirementFromCategory(item, monitor);
-        },
-        collect: (monitor) => ({
-          isDragging: !!monitor.isDragging(),
-        }),
-    }),[requirementsArray, requirementIndex]);
-
-    useEffect(() => {
-        preview(getEmptyImage());
-    }, [preview]);
-
-    const [{ isRequirementOver }, requirementDrop] = useDrop(() => ({
-        accept: "requirementRow",
-        canDrop: () => false,
-        hover: (dragItem, monitor) => {
-            if (sortMode !== 'hand') return;
-            if (requirement.id === '') return;
-
-            if (dragItem.category_fk === requirement.category_fk && dragItem.requirementIndex === requirementIndex) return;
-
-            const hoverRect = rowRef.current?.getBoundingClientRect();
-            if (!hoverRect) return;
-            const clientOffset = monitor.getClientOffset();
-            if (!clientOffset) return;
-            const hoverClientY = clientOffset.y - hoverRect.top;
-            const hoverMiddleY = (hoverRect.bottom - hoverRect.top) / 2;
-
-            if (hoverClientY < hoverMiddleY) {
-                setInsertIndicator('above');
-                setCrossCardInsertIndex(requirementIndex);
-            } else {
-                setInsertIndicator('below');
-                setCrossCardInsertIndex(requirementIndex + 1);
-            }
-        },
-        collect: (monitor) => ({
-            isRequirementOver: monitor.isOver(),
-        }),
-    }), [sortMode, requirement.id, requirement.category_fk, requirementIndex, setCrossCardInsertIndex]);
-
-    useEffect(() => {
-        if (!isRequirementOver) setInsertIndicator(null);
-    }, [isRequirementOver]);
-
-    const removeRequirementFromCategory = async (item, monitor) => {
-        var dropResult = monitor.getDropResult();
-        if (!dropResult || dropResult.requirement === null) {
-            revertDragTabSwitch();
-            return;
-        }
-        clearDragTabSwitch();
-        var newRequirementsArray = [...requirementsArray];
-        newRequirementsArray = newRequirementsArray.filter( p => p.id !== item.id);
-        setRequirementsArray(newRequirementsArray);
-    }
-
-    const rowRef = useRef(null);
-    const mergedRef = useCallback((node) => {
-        rowRef.current = node;
-        drag(node);
-        requirementDrop(node);
-    }, [drag, requirementDrop]);
 
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
@@ -160,21 +76,6 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
         <Box className={rowClassName}
              data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
              key={`box-${requirement.id}`}
-             ref={requirement.id === '' ? null :
-                  supportDrag === false ? null : mergedRef}
-             sx = {{
-                 ...(isDragging && sortMode === 'hand' && {
-                    height: 0,
-                    minHeight: 0,
-                    overflow: 'hidden',
-                    padding: 0,
-                    margin: 0,
-                    opacity: 0,
-                }),
-                 ...(isDragging && sortMode !== 'hand' && { opacity: 0.2 }),
-                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
-                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
-             }}
         >
             {/* Col 1 (aggregator only): Category color bar */}
             {isAggregatorRow && (

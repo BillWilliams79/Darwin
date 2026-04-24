@@ -67,7 +67,6 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
                 category_fk: testCategoryId,
                 requirement_status: 'met',
                 coordination_type: coord[i],
-                sort_order: i,
                 completed_at: completedAt,
             }, idToken) as Array<{ id: string }>;
             if (!res?.length) throw new Error('Failed to seed requirement');
