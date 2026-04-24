@@ -30,11 +30,21 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 // Exact column width sum + DataGrid chrome (borders + column separators + scrollbar gutter
 // + checkbox column). Exported so SwarmView.jsx can align the header row (toggle + chips +
 // settings) to the same width — keeps the settings icon flush with the table's right edge.
-// Columns: checkbox(50) + id(70) + category(150) + title(220) + status(140) + autonomy(110)
-//          + created(105) + completed(105) = 950
-export const SWARM_TABLE_WIDTH = 1000;
+// Columns: checkbox(50) + id(70) + category(150) + title(220) + description(550) + status(140)
+//          + autonomy(110) + created(105) + completed(105) = 1500
+export const SWARM_TABLE_WIDTH = 1550;
 
-const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,completed_at,create_ts';
+const FIELDS = 'id,title,description,requirement_status,category_fk,coordination_type,completed_at,create_ts';
+
+const WRAP_CELL_SX = {
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+    lineHeight: 1.3,
+    py: 1,
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+};
 
 const STATUS_SORT_ORDER = {
     authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5,
@@ -184,6 +194,18 @@ const RequirementsTableView = () => {
             field: 'title',
             headerName: 'Title',
             width: 220,
+            renderCell: (params) => (
+                <Box sx={WRAP_CELL_SX}>{params.value}</Box>
+            ),
+        },
+        {
+            field: 'description',
+            headerName: 'Description',
+            width: 550,
+            sortable: false,
+            renderCell: (params) => (
+                <Box sx={WRAP_CELL_SX}>{params.value}</Box>
+            ),
         },
         {
             field: 'requirement_status',
@@ -240,7 +262,7 @@ const RequirementsTableView = () => {
                 rows={filteredRequirements}
                 columns={columns}
                 loading={reqLoading || catLoading}
-                rowHeight={52}
+                getRowHeight={() => 'auto'}
                 slots={{ toolbar: GridToolbar }}
                 slotProps={{ toolbar: { showQuickFilter: true } }}
                 initialState={{
