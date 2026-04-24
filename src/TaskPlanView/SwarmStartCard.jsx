@@ -78,7 +78,7 @@ const SwarmStartCard = () => {
     // so each aggregator row can show its 1-based swarm-start position within its origin
     // category — the same N that `/swarm-start <category> <N>` would target.
     const { data: allRequirementsForRanking } = useAllRequirements(profile?.userName, {
-        fields: 'id,category_fk,requirement_status,sort_order,started_at',
+        fields: 'id,category_fk,requirement_status,started_at',
     });
     const requirementRankMap = React.useMemo(
         () => computeCategoryRankMap(allRequirementsForRanking),
@@ -86,20 +86,18 @@ const SwarmStartCard = () => {
     );
 
     const createdSort = (a, b) => a.id - b.id;
-    const requirementHandSort = (a, b) => {
-        const aOrder = a.sort_order ?? Infinity;
-        const bOrder = b.sort_order ?? Infinity;
-        return aOrder - bOrder;
-    };
 
-    // Seed local state from server data (re-runs on every fetch — including chip switch)
+    // Seed local state from server data (re-runs on every fetch — including chip switch).
+    // After req #2405 removed requirements.sort_order, 'hand' and 'created' sort modes
+    // both resolve to id-ascending order; the toggle is retained only for UI continuity
+    // and will be removed in a follow-up req.
     useEffect(() => {
         if (!serverRequirements) {
             setRequirementsArray(undefined);
             return;
         }
         const sorted = [...serverRequirements];
-        sorted.sort((a, b) => sortMode === 'hand' ? requirementHandSort(a, b) : createdSort(a, b));
+        sorted.sort((a, b) => createdSort(a, b));
         setRequirementsArray(sorted);
     }, [serverRequirements]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -131,7 +129,7 @@ const SwarmStartCard = () => {
         setSortMode(newMode);
         if (requirementsArray) {
             const sorted = [...requirementsArray];
-            sorted.sort((a, b) => newMode === 'hand' ? requirementHandSort(a, b) : createdSort(a, b));
+            sorted.sort((a, b) => createdSort(a, b));
             setRequirementsArray(sorted);
         }
     };

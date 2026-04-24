@@ -189,7 +189,7 @@ export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,sort_order,completed_at,deferred_at,started_at,coordination_type', enabled = true } = {}) {
+export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
