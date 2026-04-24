@@ -10,7 +10,7 @@ import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SavingsIcon from '@mui/icons-material/Savings';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
@@ -25,7 +25,6 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
-import SettingsIcon from '@mui/icons-material/Settings';
 
 
 const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId, categoryName }) => {
@@ -33,8 +32,8 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
     const navigate = useNavigate();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-        sortMode, setCrossCardInsertIndex, sessionStatusMap, categoryColorMap,
-        requirementRankMap } = useRequirementActions();
+        sortMode, setCrossCardInsertIndex, sessionStatusMap,
+        categoryColorMap } = useRequirementActions();
     const [insertIndicator, setInsertIndicator] = useState(null);
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
@@ -156,9 +155,6 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
 
     const isAggregatorRow = Boolean(categoryColorMap);
     const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}`;
-    const swarmStartRank = isAggregatorRow && requirementRankMap
-        ? requirementRankMap[requirement.id]
-        : undefined;
 
     return (
         <Box className={rowClassName}
@@ -180,8 +176,8 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                  ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
              }}
         >
-            {/* Col 1: Category color bar (when categoryColorMap is provided, e.g. SwarmStartCard) or row number */}
-            {isAggregatorRow ? (
+            {/* Col 1 (aggregator only): Category color bar */}
+            {isAggregatorRow && (
                 <Box
                     data-testid={requirement.id !== '' ? `category-color-bar-${requirement.id}` : undefined}
                     sx={{
@@ -201,41 +197,28 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                         }} />
                     )}
                 </Box>
-            ) : (
-                <Typography
-                    variant="body2"
-                    sx={{ color: 'text.secondary', textAlign: 'center', minWidth: 24, userSelect: 'none' }}
-                >
-                    {requirement.id !== '' ? requirementIndex + 1 : ''}
-                </Typography>
             )}
 
-            {/* Col 1b (aggregator only): 1-based swarm-start position within origin category */}
-            {isAggregatorRow && (
-                <Tooltip
-                    title={swarmStartRank
-                        ? `Swarm-start position #${swarmStartRank} in origin category`
-                        : 'Not in the swarm-start queue'}
-                    enterDelay={400}
-                    enterNextDelay={200}
-                >
-                    <Typography
-                        variant="body2"
-                        data-testid={requirement.id !== '' ? `swarm-start-rank-${requirement.id}` : undefined}
-                        sx={{
-                            color: 'text.secondary',
-                            textAlign: 'center',
-                            minWidth: 24,
-                            userSelect: 'none',
-                            fontVariantNumeric: 'tabular-nums',
-                        }}
-                    >
-                        {swarmStartRank ?? ''}
-                    </Typography>
-                </Tooltip>
-            )}
+            {/* Col "chip": Requirement # chip — clickable, navigates to detail (replaces numerical ordering + settings button) */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 44, pr: '2px' }}>
+                {requirement.id !== '' ? (
+                    // testid deliberately does NOT start with `requirement-` to avoid colliding with the
+                    // E2E prefix selector `[data-testid^="requirement-"]` used in swarm.spec.ts.
+                    <Tooltip title="Open requirement details" enterDelay={400} enterNextDelay={200}>
+                        <Chip
+                            label={requirement.id}
+                            size="small"
+                            variant="outlined"
+                            clickable
+                            onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}
+                            aria-label={`Open requirement ${requirement.id}`}
+                            data-testid={`req-id-chip-${requirement.id}`}
+                        />
+                    </Tooltip>
+                ) : null}
+            </Box>
 
-            {/* Col 2: Status icon — clickable cycle for authoring/approved/swarm_ready */}
+            {/* Status icon — clickable cycle for authoring/approved/swarm_ready */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {requirement.id !== '' ? (
                     canCycleStatus ? (
@@ -256,7 +239,7 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 ) : null}
             </Box>
 
-            {/* Col 3: Coordination type icon — visible only for swarm_ready and development; editable only for swarm_ready */}
+            {/* Coordination type icon — visible only for swarm_ready and development; editable only for swarm_ready */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
                 {requirement.id !== '' ? (() => {
                     const showCoord = ['swarm_ready', 'development'].includes(status);
@@ -282,23 +265,7 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                 })() : null}
             </Box>
 
-            {/* Col 4: Details link */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {requirement.id !== '' ? (
-                    <Tooltip title="Details" enterDelay={400} enterNextDelay={200}>
-                        <IconButton onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}
-                                    key={`navigate-${requirement.id}`}
-                                    sx={{ maxWidth: 25, maxHeight: 25 }}
-                        >
-                            <SettingsIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                    </Tooltip>
-                ) : (
-                    <Box sx={{ width: 25 }} />
-                )}
-            </Box>
-
-            {/* Col 5: Title */}
+            {/* Title */}
             <TextField variant="outlined"
                         value={requirement.title || ''}
                         name='title'
@@ -316,8 +283,9 @@ const RequirementRow = ({ supportDrag, requirement, requirementIndex, categoryId
                         key={`title-${requirement.id}`}
              />
 
-            {/* Col 6: Delete / Savings */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Col 6: Delete / Savings — padded so the icon sits between the title editor edge and the card edge,
+                biased slightly toward the title editor. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', pl: 1, pr: 1.25 }}>
             { requirement.id === '' ?
                     <IconButton key={`savings-${requirement.id}`}
                                 disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
