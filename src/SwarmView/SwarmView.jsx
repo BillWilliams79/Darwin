@@ -16,6 +16,7 @@ import CategoryTabPanel from './CategoryTabPanel';
 import RequirementDragLayer from './RequirementDragLayer';
 import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableView';
 import SwarmVisualizerView from './SwarmVisualizerView';
+import VisualizerToolbar from './VisualizerToolbar';
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -275,6 +276,9 @@ const SwarmView = () => {
                                 </ToggleButton>
                             </Tooltip>
                         </ToggleButtonGroup>
+                        {/* Visualizer controls — inline in the same header row (req #2407):
+                            [view toggle] [viz buttons + date nav] [spacer] [settings]. */}
+                        {view === 'visualizer' && <VisualizerToolbar />}
                         {/* Status-filter chips — Cards/Table only. Visualizer shows
                             completed requirements (met status) exclusively, so these
                             chips don't apply. */}

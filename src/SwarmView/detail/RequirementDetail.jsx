@@ -33,6 +33,10 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
 
+// Soft limit for requirement titles — the swarm terminal, status line, and iTerm tab title
+// all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
+const TITLE_SOFT_LIMIT = 35;
+
 const swarmStatusChipProps = (status) => {
     switch (status) {
         case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
@@ -144,8 +148,9 @@ const RequirementDetail = () => {
                     setSiblings(siblingsResult.data);
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
-                    // Mirror CategoryCard coercion: anything other than 'hand' is treated as 'process'.
-                    setSibSortMode(categoryResult.data[0].sort_mode === 'hand' ? 'hand' : 'process');
+                    // Mirror CategoryCard coercion: 'hand' / 'reverse' pass through, anything else → 'process'.
+                    const raw = categoryResult.data[0].sort_mode;
+                    setSibSortMode(raw === 'hand' ? 'hand' : raw === 'reverse' ? 'reverse' : 'process');
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -262,7 +267,7 @@ const RequirementDetail = () => {
             : `&requirement_status=(${siblingStatuses.join(',')})`;
         try {
             const [siblingsResult, categoryResult] = await Promise.all([
-                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,sort_order,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                 call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
             ]);
             if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);
@@ -286,6 +291,8 @@ const RequirementDetail = () => {
     const nextId = currentIndex >= 0 && currentIndex < sortedSiblings.length - 1 ? sortedSiblings[currentIndex + 1]?.id : null;
     const displayIndex = currentIndex >= 0 ? currentIndex + 1 : null;
 
+    const titleOverflow = Math.max(0, (requirement?.title || '').length - TITLE_SOFT_LIMIT);
+
     if (loading) return <CircularProgress />;
     if (!requirement) return <Typography>Requirement not found.</Typography>;
 
@@ -299,7 +306,7 @@ const RequirementDetail = () => {
                 </Button>
             </Box>
 
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                 <TextField
                     variant="standard"
                     value={requirement.title || ''}
@@ -314,6 +321,17 @@ const RequirementDetail = () => {
                     }}
                     data-testid="requirement-title"
                 />
+                {titleOverflow > 0 && (
+                    <Tooltip title={`${titleOverflow} over the ${TITLE_SOFT_LIMIT}-char soft limit (status line / tab title truncate past ${TITLE_SOFT_LIMIT})`} enterDelay={400}>
+                        <Chip
+                            label={`+${titleOverflow}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ borderColor: '#fbc02d', color: '#b38600', fontWeight: 500, flexShrink: 0 }}
+                            data-testid="title-overflow-chip"
+                        />
+                    </Tooltip>
+                )}
             </Box>
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
