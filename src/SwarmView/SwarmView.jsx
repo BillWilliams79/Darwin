@@ -37,6 +37,11 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import BubbleChartIcon from '@mui/icons-material/BubbleChart';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
+/* UI-OPTION: req #2409 — remove these imports when variant is chosen */
+import RequirementJumpInput from '../NavBar/RequirementJumpInput';
+import RequirementJumpOptionBar from '../NavBar/RequirementJumpOptionBar';
+import { useReqJumpVariantStore } from '../stores/useReqJumpVariantStore';
+/* UI-OPTION: end */
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
@@ -63,6 +68,9 @@ const SwarmView = () => {
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
     const showClosed = false;
+    /* UI-OPTION: req #2409 — subscribe to variant store so jump input re-renders on chip toggle */
+    const reqJumpVariant = useReqJumpVariantStore(s => s.variant);
+    /* UI-OPTION: end */
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
@@ -220,7 +228,7 @@ const SwarmView = () => {
                                   onChange={changeActiveTab}
                                   variant="scrollable"
                                   scrollButtons="auto"
-                                  sx={{ flex: 1, minWidth: 0 }} >
+                                  sx={{ flexShrink: 1, minWidth: 0 }} >
                                 {projectsArray.map( (project, projectIndex) =>
                                     <Tab key={project.id}
                                          icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
@@ -235,6 +243,14 @@ const SwarmView = () => {
                                 />
                             </Tabs>
                         )}
+                        {/* UI-OPTION: req #2409 — jump input right of project tabs + button (cards view), followed by flex spacer */}
+                        {view === 'cards' && (
+                            <>
+                                <RequirementJumpInput variant={reqJumpVariant} />
+                                <Box sx={{ flexGrow: 1 }} />
+                            </>
+                        )}
+                        {/* UI-OPTION: end */}
                         <ToggleButtonGroup
                             value={view}
                             exclusive
@@ -305,11 +321,22 @@ const SwarmView = () => {
                             Cards view doesn't need it — the Tabs' flex:1 already consumes the free space.
                             Visualizer view also needs a flex spacer since it has no left-side Tabs. */}
                         {(view === 'table' || view === 'visualizer') && <Box sx={{ flexGrow: 1 }} />}
+                        {/* UI-OPTION: req #2409 — jump input fallback for non-cards views (no project tabs to anchor to) */}
+                        {view !== 'cards' && (
+                            <RequirementJumpInput variant={reqJumpVariant} />
+                        )}
+                        {/* UI-OPTION: end */}
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
                             links={settingsLinks}
                         />
                     </Box>
+
+                    {/* UI-OPTION: req #2409 — variant option bar (below header row) */}
+                    <Box sx={{ px: 3, pb: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                        <RequirementJumpOptionBar />
+                    </Box>
+                    {/* UI-OPTION: end */}
 
                     {/* Content — table view */}
                     {view === 'table' && (
