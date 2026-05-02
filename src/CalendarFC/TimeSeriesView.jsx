@@ -425,9 +425,13 @@ const BeadRow = ({
             const xPct = xPctFn(r.completed_at, timezone, selectedDate);
             if (xPct === null) continue;
             const cat = categoryList.find(c => c.id === r.category_fk);
-            const color = dataKey === 'coordination'
+            // Bubble fill is always the category color (req #2423). The coordination
+            // toggle now layers an outer ring on top instead of replacing the fill,
+            // so both encodings remain visible simultaneously.
+            const color = cat?.color || null;
+            const ringColor = dataKey === 'coordination'
                 ? getCoordinationColor(r.coordination_type)
-                : (cat?.color || null);
+                : null;
             out.push({
                 id: r.id,
                 title: r.title || '',
@@ -437,6 +441,7 @@ const BeadRow = ({
                 coordination_type: r.coordination_type || null,
                 categoryName: cat?.category_name || null,
                 color,
+                ringColor,
                 timeHHMM: formatHM12(r.completed_at, timezone),
                 leftPct: xPct,
                 timezone,
@@ -808,12 +813,13 @@ const BeadRow = ({
                         onClick={() => onChipClick && onChipClick(chip.id)}
                     >
                         <span
-                            className="ts-bead-dot"
+                            className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}`}
                             data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
                             style={{
                                 backgroundColor: chip.color || '#90a4ae',
                                 width:  `${circleDiameter}px`,
                                 height: `${circleDiameter}px`,
+                                ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
                             }}
                         />
                     </Box>
