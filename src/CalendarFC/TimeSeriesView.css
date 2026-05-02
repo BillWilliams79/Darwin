@@ -355,6 +355,23 @@ body.darwin-dark .ts-bead-day-count-inline {
     transform: scale(1.4);
     box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.4);
 }
+/* Outer autonomy ring (req #2423) — coordination color layered outside the
+   white halo. Active when the toolbar's Coordination toggle is on; the chip
+   then carries the .ts-bead-dot-ringed class plus a per-chip --ts-ring-color
+   CSS variable. Box-shadow extension keeps the dot's box dimensions intact
+   (no layout shift) while the ring still scales with the hover transform. */
+.ts-bead-dot-ringed {
+    box-shadow:
+        0 0 0 2px #fff,
+        0 0 0 6px var(--ts-ring-color, transparent),
+        0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.ts-bead-group:hover .ts-bead-dot-ringed {
+    box-shadow:
+        0 0 0 2px #fff,
+        0 0 0 6px var(--ts-ring-color, transparent),
+        0 2px 6px rgba(0, 0, 0, 0.4);
+}
 
 /* Swarm Visualizer — SVG overlay for session-start → bubble lines */
 .ts-swarm-lines {
@@ -442,6 +459,18 @@ body.darwin-dark .ts-bead-dot {
 }
 body.darwin-dark .ts-bead-group:hover .ts-bead-dot {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+body.darwin-dark .ts-bead-dot-ringed {
+    box-shadow:
+        0 0 0 2px rgba(220, 220, 220, 0.85),
+        0 0 0 6px var(--ts-ring-color, transparent),
+        0 1px 3px rgba(0, 0, 0, 0.6);
+}
+body.darwin-dark .ts-bead-group:hover .ts-bead-dot-ringed {
+    box-shadow:
+        0 0 0 2px rgba(255, 255, 255, 0.95),
+        0 0 0 6px var(--ts-ring-color, transparent),
+        0 2px 6px rgba(0, 0, 0, 0.7);
 }
 body.darwin-dark .ts-bead-nav {
     background: rgba(40, 40, 40, 0.9) !important;
