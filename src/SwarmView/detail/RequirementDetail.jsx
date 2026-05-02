@@ -76,17 +76,33 @@ const RequirementDetail = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const fromCalendar = location.state?.from === 'calendar';
+    // "new" mode (req #2414): the user came from the aggregator template row.
+    // No DB record exists yet — the requirement is POSTed only when the user
+    // picks a category. Until then this page edits a purely local draft.
+    const isNew = id === 'new';
     const handleBack = () => navigate(fromCalendar ? '/calview' : '/swarm');
     const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
 
-    const [requirement, setRequirement] = useState(null);
+    const [requirement, setRequirement] = useState(isNew ? {
+        id: null,
+        title: location.state?.title || '',
+        description: '',
+        category_fk: null,
+        requirement_status: 'authoring',
+        coordination_type: null,
+        started_at: null,
+        completed_at: null,
+        deferred_at: null,
+        create_ts: null,
+        update_ts: null,
+    } : null);
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(!isNew);
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
@@ -117,6 +133,7 @@ const RequirementDetail = () => {
     });
 
     useEffect(() => {
+        if (isNew) return;  // no fetch — local draft only
         const fetchData = async () => {
             try {
                 const requirementUri = `${darwinUri}/requirements?id=${id}`;
@@ -163,6 +180,7 @@ const RequirementDetail = () => {
     }, [id, idToken, darwinUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
+        if (isNew) return;  // draft — nothing is saved until category is picked
         let uri = `${darwinUri}/requirements`;
         call_rest_api(uri, 'PUT', [{ id: parseInt(id), [field]: value }], idToken)
             .then(result => {
@@ -250,7 +268,34 @@ const RequirementDetail = () => {
 
     const handleCategoryChange = async (event) => {
         const newCategoryFk = parseInt(event.target.value, 10);
+        if (!Number.isFinite(newCategoryFk)) return;  // ignore the placeholder value
         setRequirement(prev => ({ ...prev, category_fk: newCategoryFk }));
+
+        // New-mode (req #2414): picking a category is the first save. POST creates
+        // the requirement, then we navigate to the canonical detail URL.
+        if (isNew) {
+            const draft = {
+                title: requirement?.title || '',
+                description: requirement?.description || '',
+                requirement_status: requirement?.requirement_status || 'authoring',
+                category_fk: newCategoryFk,
+                project_fk: null,
+            };
+            const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
+                .catch(() => null);
+            if (!postResult || !postResult.httpStatus || postResult.httpStatus.httpStatus !== 200 ||
+                !postResult.data || !postResult.data[0]) {
+                setRequirement(prev => ({ ...prev, category_fk: null }));
+                const err = postResult && postResult.httpStatus
+                    ? postResult
+                    : { httpStatus: { httpStatus: 'network error' } };
+                showError(err, 'Unable to create requirement');
+                return;
+            }
+            queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+            navigate(`/swarm/requirement/${postResult.data[0].id}`, { replace: true });
+            return;
+        }
 
         // Await the PUT so siblings refetch sees the committed category_fk
         const putResult = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id: parseInt(id), category_fk: newCategoryFk }], idToken)
@@ -296,6 +341,8 @@ const RequirementDetail = () => {
     if (loading) return <CircularProgress />;
     if (!requirement) return <Typography>Requirement not found.</Typography>;
 
+    const categoryUnset = !requirement.category_fk;
+
     return (
         <Box sx={{ p: 3, maxWidth: 800 }} data-testid="requirement-detail">
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
@@ -334,6 +381,7 @@ const RequirementDetail = () => {
                 )}
             </Box>
 
+            {!isNew && (
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
                     {[
@@ -394,9 +442,10 @@ const RequirementDetail = () => {
                     </IconButton>
                 </Tooltip>
             </Box>
+            )}
 
             {/* Swarm-Start Coordination — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise */}
-            {(() => {
+            {!isNew && (() => {
                 const isReady = currentStatus === 'swarm_ready';
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isReady;
@@ -432,19 +481,29 @@ const RequirementDetail = () => {
                 );
             })()}
 
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', color: 'text.secondary', fontWeight: 'bold', fontSize: '1.25rem' }}>
+            <Box sx={{
+                mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap',
+                color: categoryUnset ? 'error.main' : 'text.secondary',
+                fontWeight: 'bold', fontSize: '1.25rem',
+            }}>
                 <Box component="span">Category -&nbsp;</Box>
                 {allCategories ? (
                     <Select
                         value={requirement.category_fk || ''}
                         onChange={handleCategoryChange}
+                        displayEmpty
+                        renderValue={(selected) => {
+                            if (!selected) return 'Must Select';
+                            const cat = allCategories.find(c => c.id === selected);
+                            return cat ? cat.category_name : '';
+                        }}
                         variant="standard"
                         IconComponent={() => null}
                         data-testid="requirement-category-select"
                         sx={{
                             fontSize: '1.25rem',
                             fontWeight: 'bold',
-                            color: 'text.secondary',
+                            color: categoryUnset ? 'error.main' : 'text.secondary',
                             '& .MuiSelect-select': { py: 0, pr: '0 !important' },
                             '&:before': { borderBottomColor: 'transparent' },
                             '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
@@ -459,12 +518,22 @@ const RequirementDetail = () => {
                 ) : (
                     <Box component="span">—</Box>
                 )}
-                <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
-                <Box component="span">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span></Box>
+                {!isNew && (
+                    <>
+                        <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
+                        <Box component="span">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span></Box>
+                    </>
+                )}
             </Box>
 
             <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Description</Typography>
+                <Typography
+                    variant="subtitle2"
+                    color={categoryUnset ? 'error.main' : 'text.secondary'}
+                    sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}
+                >
+                    Description
+                </Typography>
                 <TextField
                     variant="outlined"
                     value={requirement.description || ''}
@@ -477,9 +546,11 @@ const RequirementDetail = () => {
                     autoFocus
                     size="small"
                     data-testid="requirement-description"
+                    sx={categoryUnset ? { '& .MuiInputBase-input': { color: 'error.main' } } : undefined}
                 />
             </Box>
 
+            {!isNew && (
             <Box sx={{ display: 'flex', gap: 4, mb: 3 }}>
                 {/* Requirement timings — left column */}
                 <Box sx={{ flex: 1 }}>
@@ -518,24 +589,29 @@ const RequirementDetail = () => {
                     </Box>
                 </Box>
             </Box>
+            )}
 
-            <Typography variant="h6" gutterBottom>Linked Sessions</Typography>
-            {sessions.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" data-testid="no-linked-sessions">
-                    No sessions linked to this requirement.
-                </Typography>
-            ) : (
-                <Box data-testid="linked-sessions-grid">
-                    <DataGrid
-                        autoHeight
-                        rows={sessions}
-                        columns={getSessionColumns(navigate, timezone)}
-                        density="compact"
-                        disableRowSelectionOnClick
-                        onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}
-                        sx={{ cursor: 'pointer' }}
-                    />
-                </Box>
+            {!isNew && (
+                <>
+                    <Typography variant="h6" gutterBottom>Linked Sessions</Typography>
+                    {sessions.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary" data-testid="no-linked-sessions">
+                            No sessions linked to this requirement.
+                        </Typography>
+                    ) : (
+                        <Box data-testid="linked-sessions-grid">
+                            <DataGrid
+                                autoHeight
+                                rows={sessions}
+                                columns={getSessionColumns(navigate, timezone)}
+                                density="compact"
+                                disableRowSelectionOnClick
+                                onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}
+                                sx={{ cursor: 'pointer' }}
+                            />
+                        </Box>
+                    )}
+                </>
             )}
 
             <RequirementDeleteDialog
