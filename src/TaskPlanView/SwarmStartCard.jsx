@@ -2,10 +2,13 @@
 //   • Header is a row of status chips (same styling as the Roadmap filter chips).
 //   • Single-select: exactly one status is active at a time.
 //   • Card shows all requirements with the selected status across all categories.
-//   • No template row — "add new" is not supported on this card.
+//   • Template row at the bottom (req #2414): typing a title + Enter/blur navigates
+//     the user to the requirement editor in "new" mode — nothing is saved until the
+//     user picks a category in the editor (the aggregator has no default category).
 //   • Other interactions (status cycle, coord cycle, title edit, delete) mirror CategoryCard.
 
 import React, { useState, useEffect, useContext, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import RequirementRow from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
@@ -47,6 +50,7 @@ const SwarmStartCard = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
 
     const selectedStatus = useSwarmStartCardStore(s => s.selectedStatus);
     const setSelectedStatus = useSwarmStartCardStore(s => s.setSelectedStatus);
@@ -85,7 +89,13 @@ const SwarmStartCard = () => {
         [allRequirementsForRanking]
     );
 
-    const createdSort = (a, b) => a.id - b.id;
+    // Template rows (id === '') always sort last so they stay anchored at the
+    // bottom of the card on every re-sort.
+    const createdSort = (a, b) => {
+        if (a.id === '') return 1;
+        if (b.id === '') return -1;
+        return a.id - b.id;
+    };
 
     // Seed local state from server data (re-runs on every fetch — including chip switch).
     // After req #2405 removed requirements.sort_order, 'hand' and 'created' sort modes
@@ -98,6 +108,9 @@ const SwarmStartCard = () => {
         }
         const sorted = [...serverRequirements];
         sorted.sort((a, b) => createdSort(a, b));
+        // Template row (req #2414) — title-only entry; saving is deferred to the
+        // requirement editor where the user must pick a category before any POST.
+        sorted.push({ id: '', title: '', requirement_status: 'authoring', category_fk: null });
         setRequirementsArray(sorted);
     }, [serverRequirements]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -252,11 +265,19 @@ const SwarmStartCard = () => {
             i === requirementIndex ? { ...r, coordination_type: next } : r) : prev);
     };
 
-    // Title editing — mirrors CategoryCard (PUT only, no POST/template)
+    // Title editing — mirrors CategoryCard for existing rows (PUT). For the template
+    // row (req #2414) the typed title is handed off to the requirement editor in
+    // "new" mode, which forces the user to pick a category before any POST.
     const updateRequirement = (event, requirementIndex, requirementId) => {
-        if (!requirementId || requirementId === '' || !requirementsArray) return;
+        if (!requirementsArray) return;
+        const title = requirementsArray[requirementIndex]?.title;
+        if (!requirementId || requirementId === '') {
+            if (!title || title.trim() === '') return;
+            navigate('/swarm/requirement/new', { state: { title } });
+            return;
+        }
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, title: requirementsArray[requirementIndex].title }], idToken)
+            [{ id: requirementId, title }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus > 204) {
                     showError(result, 'Requirement title not updated');
@@ -344,10 +365,6 @@ const SwarmStartCard = () => {
 
                 {requirementsArray === undefined ? (
                     <CircularProgress size={24} />
-                ) : requirementsArray.length === 0 ? (
-                    <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
-                        No {requirementStatusLabel(selectedStatus).toLowerCase()} requirements
-                    </Typography>
                 ) : (
                     <RequirementActionsContext.Provider value={{
                         statusClick, coordinationClick,
@@ -361,14 +378,19 @@ const SwarmStartCard = () => {
                         categoryColorMap,
                         requirementRankMap,
                     }}>
+                        {requirementsArray.filter(r => r.id !== '').length === 0 && (
+                            <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
+                                No {requirementStatusLabel(selectedStatus).toLowerCase()} requirements
+                            </Typography>
+                        )}
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow
                                 key={requirement.id}
                                 supportDrag={false}
                                 requirement={requirement}
                                 requirementIndex={requirementIndex}
-                                categoryId={String(requirement.category_fk)}
-                                categoryName=""
+                                categoryId={requirement.id === '' ? '' : String(requirement.category_fk)}
+                                categoryName={requirement.id === '' ? 'aggregator' : ''}
                             />
                         ))}
                     </RequirementActionsContext.Provider>
