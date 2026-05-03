@@ -63,6 +63,24 @@ export const processSortReverse = (a, b) => {
     return secondarySort(a, b);
 };
 
+// Hand-sort comparator (req #2417 — restores in-card drag-reorder).
+// Sorts by `sort_order` ASC, treating NULL/undefined as +Infinity so
+// unranked rows fall to the end of the visible list. Ties (or both NULL)
+// fall through to id ASC. The template row (id === '') always sorts last.
+//
+// Persistence: CategoryCard.jsx writes new sort_order values via bulk PUT
+// when the user drops a row in `sortMode === 'hand'`. Newly created rows
+// arrive with sort_order=NULL and stay in id-position until explicitly
+// dragged.
+export const requirementHandSort = (a, b) => {
+    if (a.id === '') return 1;
+    if (b.id === '') return -1;
+    const aSort = (a.sort_order ?? null) === null ? Number.POSITIVE_INFINITY : a.sort_order;
+    const bSort = (b.sort_order ?? null) === null ? Number.POSITIVE_INFINITY : b.sort_order;
+    if (aSort !== bSort) return aSort - bSort;
+    return a.id - b.id;
+};
+
 // Statuses that /swarm-start considers when picking a requirement by position.
 // Matches the MCP darwin://requirements/open resource (excludes deferred + met).
 export const OPEN_STATUSES_FOR_RANK = new Set([

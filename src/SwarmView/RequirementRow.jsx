@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 
+import { useDrag, useDrop } from 'react-dnd';
 import { useRequirementActions } from '../hooks/useRequirementActions';
 
 import Box from '@mui/material/Box';
@@ -29,7 +30,116 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const navigate = useNavigate();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, sessionStatusMap,
-        categoryColorMap } = useRequirementActions();
+        categoryColorMap, sortMode, setCrossCardInsertIndex,
+        requirementsArray, setRequirementsArray } = useRequirementActions();
+
+    // Drag rules (req #2417):
+    //   - Drag source is enabled for every non-template row, regardless of
+    //     sortMode. Cross-card moves are valid in process / reverse modes too;
+    //     in those modes the target card simply appends + persists category_fk
+    //     without touching sort_order.
+    //   - Same-card reorder still requires the target card's sortMode === 'hand'
+    //     (gated in CategoryCard.addRequirementToCategory).
+    //   - The aggregator card (SwarmStartCard) provides sortMode === 'created'
+    //     and a no-op setCrossCardInsertIndex; aggregator rows can still be
+    //     drag sources because the underlying requirement lives in some real
+    //     CategoryCard, which is what gets re-categorized on drop.
+    const isTemplate = requirement.id === '';
+    const handSortActive = sortMode === 'hand';
+    const [insertIndicator, setInsertIndicator] = useState(null);
+
+    const [{ isDragging }, drag] = useDrag(() => ({
+        type: 'requirementRow',
+        item: () => {
+            // Spread the full requirement so cross-card moves carry every
+            // field the target needs to render the row consistently
+            // (coordination_type, started_at, deferred_at, completed_at, etc.)
+            // until the next server refetch. Without this, the moved row
+            // visually loses chips and tooltips for a few frames mid-drop.
+            const rect = rowRef.current?.getBoundingClientRect();
+            return {
+                ...requirement,
+                requirementIndex,
+                sourceWidth: rect?.width || 300,
+                sourceHeight: rect?.height || 40,
+            };
+        },
+        canDrag: () => !isTemplate,
+        end: (item, monitor) => {
+            // Always release the cross-card insert index — same-card splice
+            // already cleared it in addRequirementToCategory; this covers the
+            // no-drop / cancelled-drop / aggregator-drop / cross-card paths.
+            if (setCrossCardInsertIndex) setCrossCardInsertIndex(null);
+
+            const dropResult = monitor.getDropResult();
+            if (!dropResult) return;
+            if (!dropResult.crossCard) return;
+            if (dropResult.requirement !== item.id) return;
+            // Cross-card success: filter the moved row out of the source card's
+            // local state — UNLESS the source is the aggregator. The aggregator
+            // is filtered by status (e.g. swarm_ready), and the moved row still
+            // matches that status, so it should remain visible. The cache
+            // write-through in addRequirementToCategory keeps the byStatus
+            // slice in sync; an explicit filter here would just cause a flicker
+            // before the aggregator's useEffect re-seeds from cache.
+            if (sortMode === 'created') return;
+            if (setRequirementsArray) {
+                setRequirementsArray(prev => prev ? prev.filter(p => p.id !== item.id) : prev);
+            }
+        },
+        collect: (monitor) => ({
+            isDragging: !!monitor.isDragging(),
+        }),
+    }), [requirement.id, requirement.title, requirement.requirement_status,
+         requirement.category_fk, requirement.sort_order, requirementIndex,
+         isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
+
+    // Hover-only drop target — sets the insert indicator above/below this row
+    // and writes the splice target into the parent CategoryCard via
+    // setCrossCardInsertIndex. canDrop returns false so the actual drop bubbles
+    // to the card-level useDrop. The indicator only renders when THIS card is
+    // in hand mode — in process / reverse the target card appends to the end,
+    // so a positional indicator would lie.
+    const [{ isRequirementOver }, requirementDrop] = useDrop(() => ({
+        accept: 'requirementRow',
+        canDrop: () => false,
+        hover: (dragItem, monitor) => {
+            if (!handSortActive) return;
+            if (isTemplate) return;
+            // Hovering over the same row → no indicator.
+            if (dragItem.id === requirement.id) return;
+
+            const hoverRect = rowRef.current?.getBoundingClientRect();
+            if (!hoverRect) return;
+            const clientOffset = monitor.getClientOffset();
+            if (!clientOffset) return;
+            const hoverClientY = clientOffset.y - hoverRect.top;
+            const hoverMiddleY = (hoverRect.bottom - hoverRect.top) / 2;
+
+            if (hoverClientY < hoverMiddleY) {
+                setInsertIndicator('above');
+                if (setCrossCardInsertIndex) setCrossCardInsertIndex(requirementIndex);
+            } else {
+                setInsertIndicator('below');
+                if (setCrossCardInsertIndex) setCrossCardInsertIndex(requirementIndex + 1);
+            }
+        },
+        collect: (monitor) => ({
+            isRequirementOver: monitor.isOver(),
+        }),
+    }), [handSortActive, isTemplate, requirement.id, requirementIndex,
+         setCrossCardInsertIndex]);
+
+    useEffect(() => {
+        if (!isRequirementOver) setInsertIndicator(null);
+    }, [isRequirementOver]);
+
+    const rowRef = useRef(null);
+    const mergedRef = useCallback((node) => {
+        rowRef.current = node;
+        drag(node);
+        requirementDrop(node);
+    }, [drag, requirementDrop]);
 
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
@@ -76,6 +186,22 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         <Box className={rowClassName}
              data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
              key={`box-${requirement.id}`}
+             ref={isTemplate ? null : mergedRef}
+             sx={{
+                 // While dragging, collapse the source row in hand mode (so
+                 // the splice preview at the insert indicator is uncluttered).
+                 // In process / reverse modes the row instead fades — there's
+                 // no in-card splice preview to make room for, but feedback
+                 // that THIS row is the one being dragged is still useful.
+                 ...(isDragging && handSortActive && {
+                     height: 0, minHeight: 0, overflow: 'hidden',
+                     padding: 0, margin: 0, opacity: 0,
+                 }),
+                 ...(isDragging && !handSortActive && { opacity: 0.2 }),
+                 ...(!isTemplate && { cursor: 'grab' }),
+                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
+                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
+             }}
         >
             {/* Col 1 (aggregator only): Category color bar */}
             {isAggregatorRow && (
