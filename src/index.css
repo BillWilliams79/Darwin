@@ -89,20 +89,20 @@
 }
 
 .task.requirement-row {
-    grid-template-columns: auto auto auto 1fr auto;
+    grid-template-columns: 56px 28px 28px 1fr auto;
 }
 
 .task.requirement-row.aggregator-row {
-    grid-template-columns: 24px auto auto auto 1fr auto;
+    grid-template-columns: 24px 56px 28px 28px 1fr auto;
 }
 
 @media screen and (max-width: 899px) {
     .task.requirement-row {
-        grid-template-columns: auto auto auto 1fr auto;
+        grid-template-columns: 56px 28px 28px 1fr auto;
     }
 
     .task.requirement-row.aggregator-row {
-        grid-template-columns: 24px auto auto auto 1fr auto;
+        grid-template-columns: 24px 56px 28px 28px 1fr auto;
     }
 }
 
