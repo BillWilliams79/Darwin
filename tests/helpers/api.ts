@@ -141,10 +141,16 @@ export async function findProjectIndex(page: Page, projectName: string): Promise
   }, projectName);
 }
 
-/** Click a sort mode option via the card's three-dot menu. */
+/** Click a sort mode option via the card's three-dot menu (TaskPlanView areas). */
 export async function clickSortMode(page: Page, areaId: string, mode: 'priority' | 'hand'): Promise<void> {
   await page.getByTestId(`card-menu-${areaId}`).click();
   await page.getByTestId(`sort-${mode}-${areaId}`).click();
+}
+
+/** Click a sort mode option via the category card's three-dot menu (SwarmView categories). */
+export async function clickCategorySortMode(page: Page, categoryId: string, mode: 'process' | 'hand'): Promise<void> {
+  await page.getByTestId(`card-menu-${categoryId}`).click();
+  await page.getByTestId(`sort-${mode}-${categoryId}`).click();
 }
 
 /**
