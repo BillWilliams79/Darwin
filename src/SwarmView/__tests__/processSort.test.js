@@ -3,6 +3,7 @@ import {
     computeCategoryRankMap,
     processSort,
     processSortReverse,
+    requirementHandSort,
     OPEN_STATUSES_FOR_RANK,
     STATUS_SORT_PROCESS_REVERSE,
 } from '../processSort';
@@ -136,6 +137,60 @@ describe('STATUS_SORT_PROCESS_REVERSE', () => {
             approved: 4,
             authoring: 5,
         });
+    });
+});
+
+describe('requirementHandSort (req #2417 — restored)', () => {
+    it('orders by sort_order ASC when both rows have a value', () => {
+        const a = req(10, { sort_order: 5 });
+        const b = req(20, { sort_order: 2 });
+        expect(requirementHandSort(a, b)).toBeGreaterThan(0);
+        expect(requirementHandSort(b, a)).toBeLessThan(0);
+    });
+
+    it('puts NULL/undefined sort_order at the end (treats NULL as +Infinity)', () => {
+        const ranked = req(10, { sort_order: 0 });
+        const unrankedNull = req(20, { sort_order: null });
+        const unrankedUndef = req(30); // sort_order omitted
+
+        expect(requirementHandSort(ranked, unrankedNull)).toBeLessThan(0);
+        expect(requirementHandSort(unrankedNull, ranked)).toBeGreaterThan(0);
+        expect(requirementHandSort(ranked, unrankedUndef)).toBeLessThan(0);
+    });
+
+    it('falls back to id ASC when both rows are unranked (NULL == NULL)', () => {
+        const a = req(20, { sort_order: null });
+        const b = req(10, { sort_order: null });
+        // both NULL → tiebreak by id
+        expect(requirementHandSort(a, b)).toBeGreaterThan(0);
+        expect(requirementHandSort(b, a)).toBeLessThan(0);
+    });
+
+    it('falls back to id ASC when sort_order is equal', () => {
+        const a = req(20, { sort_order: 3 });
+        const b = req(10, { sort_order: 3 });
+        expect(requirementHandSort(a, b)).toBeGreaterThan(0);
+        expect(requirementHandSort(b, a)).toBeLessThan(0);
+    });
+
+    it('always sorts the template row (id === "") last', () => {
+        const template = { id: '', sort_order: 0 };
+        const real = req(50, { sort_order: 99 });
+        expect(requirementHandSort(template, real)).toBeGreaterThan(0);
+        expect(requirementHandSort(real, template)).toBeLessThan(0);
+    });
+
+    it('produces a stable sort when applied to a typical mixed array', () => {
+        const requirements = [
+            req(30, { sort_order: 2 }),
+            req(10, { sort_order: 0 }),
+            req(40, { sort_order: null }),  // unranked → end
+            req(20, { sort_order: 1 }),
+            { id: '' },                      // template → very end
+            req(50, { sort_order: null }),   // unranked, larger id → after 40
+        ];
+        const sorted = [...requirements].sort(requirementHandSort);
+        expect(sorted.map(r => r.id)).toEqual([10, 20, 30, 40, 50, '']);
     });
 });
 
