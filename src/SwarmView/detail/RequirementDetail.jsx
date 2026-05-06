@@ -381,8 +381,13 @@ const RequirementDetail = () => {
                 )}
             </Box>
 
-            {!isNew && (
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* New-mode (req #2424): keep this row in the layout but invisible so
+                Category/Description below don't shift when the requirement is saved
+                and the row becomes visible. */}
+            <Box sx={{
+                display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap',
+                ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+            }}>
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
                     {[
                         { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
@@ -442,16 +447,20 @@ const RequirementDetail = () => {
                     </IconButton>
                 </Tooltip>
             </Box>
-            )}
 
-            {/* Swarm-Start Coordination — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise */}
-            {!isNew && (() => {
+            {/* Swarm-Start Coordination — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise.
+                New-mode (req #2424): kept in layout but invisible so Category/Description below don't shift when the requirement is saved. */}
+            {(() => {
                 const isReady = currentStatus === 'swarm_ready';
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isReady;
 
                 return (
-                    <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center', opacity: isFaded ? 0.4 : 1 }}>
+                    <Box sx={{
+                        display: 'flex', gap: 1, mb: 2, alignItems: 'center',
+                        opacity: isFaded ? 0.4 : 1,
+                        ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                    }}>
                         <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
                             Swarm-Start Coordination
                         </Typography>

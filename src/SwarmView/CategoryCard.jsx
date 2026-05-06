@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { STATUS_SORT_PROCESS, processSort, processSortReverse } from './processSort';
+import { STATUS_SORT_PROCESS, processSort, processSortReverse, requirementHandSort } from './processSort';
 import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
@@ -37,12 +37,6 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
-
-const createdSort = (a, b) => {
-    if (a.id === '') return 1;
-    if (b.id === '') return -1;
-    return a.id - b.id;
-};
 
 const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed }) => {
 
@@ -115,8 +109,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         setSortMode(newMode);
 
         if (requirementsArray) {
+            // Hand mode honors persisted sort_order (req #2417). Newly empty
+            // sort_order rows fall to id-order via requirementHandSort's NULL→+∞
+            // tiebreak — same visual default as pre-#2417 createdSort.
             const sortFn = newMode === 'hand'
-                ? createdSort
+                ? requirementHandSort
                 : newMode === 'reverse' ? processSortReverse : processSort;
             const sorted = [...requirementsArray];
             sorted.sort((a, b) => sortFn(a, b));
@@ -182,6 +179,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
     const handleMenuClose = () => setMenuAnchorEl(null);
 
+    // Hand-sort drop coordination (req #2417). RequirementRow's hover handler
+    // writes the splice target (above-this-row, below-this-row) into this ref;
+    // the card-level useDrop reads it on drop and recomputes sort_order.
+    const crossCardInsertIndexRef = useRef(null);
+    const setCrossCardInsertIndex = useCallback((index) => {
+        crossCardInsertIndexRef.current = index;
+    }, []);
+
     // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
     const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
         enabled: category.id !== '',
@@ -241,11 +246,186 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     }, [category.id]);
 
+    // Drop handler for `requirementRow` items landing on THIS category card
+    // (req #2417). Two branches:
+    //
+    //   Same-card  — dragItem.id is already in this card's requirementsArray.
+    //                Splices to the hovered insert position and bulk-PUTs new
+    //                sort_order values. Gated on sortMode === 'hand' (process /
+    //                reverse never reorders within a card).
+    //
+    //   Cross-card — dragItem.id is NOT in this card's requirementsArray. The
+    //                requirement is moved here (PUT category_fk). If THIS card
+    //                is in hand mode AND the user hovered a target row (giving
+    //                us an insertIndex), the target sort_order map is rebuilt
+    //                so the moved row lands at that position; otherwise the
+    //                row is appended (no sort_order shuffle).
+    //
+    // On any PUT failure we restore both local state AND the TanStack cache
+    // snapshots (mirrors statusClick / coordinationClick).
+    const addRequirementToCategory = (dragItem) => {
+        const insertIndex = crossCardInsertIndexRef.current;
+        crossCardInsertIndexRef.current = null;
+
+        const draggedIdx = requirementsArray.findIndex(t => t.id === dragItem.id);
+        const isSameCard = draggedIdx !== -1;
+
+        const prefix = requirementKeys.all(profile.userName);
+        queryClient.cancelQueries({ queryKey: prefix });
+        const snapshots = queryClient.getQueriesData({ queryKey: prefix });
+        const revertCaches = () => {
+            for (const [key, data] of snapshots) {
+                queryClient.setQueryData(key, data);
+            }
+        };
+        const previousArray = requirementsArray;
+        const failPut = (errOrResult, message) => {
+            revertCaches();
+            setRequirementsArray(previousArray);
+            showError(errOrResult, message);
+        };
+
+        // ---------- Same-card branch ----------
+        if (isSameCard) {
+            if (sortMode !== 'hand') return { requirement: null, crossCard: false };
+            if (insertIndex === null) return { requirement: null, crossCard: false };
+
+            const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
+            if (adjustedIndex === draggedIdx) return { requirement: null, crossCard: false };
+
+            const updated = [...requirementsArray];
+            const [moved] = updated.splice(draggedIdx, 1);
+            updated.splice(adjustedIndex, 0, moved);
+
+            const bulkUpdate = [];
+            const reordered = updated.map((t, idx) => {
+                if (t.id === '') return t;
+                bulkUpdate.push({ id: t.id, sort_order: idx });
+                return { ...t, sort_order: idx };
+            });
+
+            const updatesById = {};
+            bulkUpdate.forEach(u => { updatesById[u.id] = u.sort_order; });
+            queryClient.setQueriesData({ queryKey: prefix }, (old) => {
+                if (!Array.isArray(old)) return old;
+                if (!old.some(r => r.id in updatesById)) return old;
+                return old.map(r => r.id in updatesById ? { ...r, sort_order: updatesById[r.id] } : r);
+            });
+
+            setRequirementsArray(reordered);
+
+            if (bulkUpdate.length > 0) {
+                call_rest_api(`${darwinUri}/requirements`, 'PUT', bulkUpdate, idToken)
+                    .then(result => {
+                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                            failPut(result, 'Unable to save requirement sort order');
+                        }
+                    }).catch(error => failPut(error, 'Unable to save requirement sort order'));
+            }
+            return { requirement: dragItem.id, crossCard: false };
+        }
+
+        // ---------- Cross-card branch ----------
+        const targetCategoryId = parseInt(category.id);
+        // Strip drag-transport-only fields so the cache slice stays
+        // shape-identical to server-sourced rows.
+        const { requirementIndex: _ridx, sourceWidth: _sw, sourceHeight: _sh,
+                ...requirementFields } = dragItem;
+        const movedRow = {
+            ...requirementFields,
+            category_fk: targetCategoryId,
+        };
+
+        let bulkUpdate;
+        let updatedTargetArray;
+
+        if (sortMode === 'hand') {
+            // Insert at the hovered position, or append when no row hover.
+            const realRows = requirementsArray.filter(t => t.id !== '');
+            const template = requirementsArray.find(t => t.id === '');
+            const clampedIndex = insertIndex === null
+                ? realRows.length
+                : Math.min(Math.max(insertIndex, 0), realRows.length);
+            const inserted = [...realRows];
+            inserted.splice(clampedIndex, 0, movedRow);
+
+            bulkUpdate = inserted.map((t, idx) => {
+                const update = { id: t.id, sort_order: idx };
+                if (t.id === movedRow.id) update.category_fk = targetCategoryId;
+                return update;
+            });
+            const reorderedReal = inserted.map((t, idx) => ({ ...t, sort_order: idx }));
+            updatedTargetArray = template ? [...reorderedReal, template] : reorderedReal;
+        } else {
+            // Process / reverse: append, do not touch sort_order.
+            bulkUpdate = [{ id: movedRow.id, category_fk: targetCategoryId }];
+            const realRows = requirementsArray.filter(t => t.id !== '');
+            const template = requirementsArray.find(t => t.id === '');
+            const appended = [...realRows, movedRow];
+            updatedTargetArray = template ? [...appended, template] : appended;
+        }
+
+        // Cache write-through: route each slice deliberately based on its key.
+        //
+        //   byCategory(source)          → filter out (row moved away)
+        //   byCategory(target)          → add (with new category_fk)
+        //   byStatus / useAllRequirements / done → if the slice already had the
+        //                                  row, REPLACE it in place so the row's
+        //                                  category_fk updates without changing
+        //                                  the caller's local sort. (This is
+        //                                  what the aggregator's swarm_ready
+        //                                  cache needs — the row should stay
+        //                                  visible after a cross-category move.)
+        //   any other category slice    → leave alone (row was never there).
+        //
+        // TanStack Query v5's setQueriesData updater receives only `oldData`
+        // (no query / queryKey arg), so we iterate the cache manually to keep
+        // per-slice key inspection.
+        const sourceCategoryId = parseInt(dragItem.category_fk);
+        const queries = queryClient.getQueryCache().findAll({ queryKey: prefix });
+        for (const q of queries) {
+            const old = q.state.data;
+            if (!Array.isArray(old)) continue;
+            const filterObj = q.queryKey.find(k => typeof k === 'object' && k !== null);
+            const sliceCategoryId = filterObj && 'categoryId' in filterObj
+                ? parseInt(filterObj.categoryId)
+                : undefined;
+            const hadRow = old.some(r => r.id === movedRow.id);
+
+            let next = old;
+            if (sliceCategoryId !== undefined) {
+                if (sliceCategoryId === sourceCategoryId) {
+                    next = hadRow ? old.filter(r => r.id !== movedRow.id) : old;
+                } else if (sliceCategoryId === targetCategoryId) {
+                    next = [...old.filter(r => r.id !== movedRow.id), movedRow];
+                }
+                // else: leave alone (row was never in this category's slice)
+            } else if (hadRow) {
+                next = old.map(r => r.id === movedRow.id ? movedRow : r);
+            }
+            if (next !== old) queryClient.setQueryData(q.queryKey, next);
+        }
+
+        setRequirementsArray(updatedTargetArray);
+
+        call_rest_api(`${darwinUri}/requirements`, 'PUT', bulkUpdate, idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    failPut(result, 'Unable to move requirement to category');
+                }
+            }).catch(error => failPut(error, 'Unable to move requirement to category'));
+
+        return { requirement: dragItem.id, crossCard: true };
+    };
+
     const [{ isOver }, drop] = useDrop(() => ({
 
-        accept: "categoryCard",
+        accept: ["requirementRow", "categoryCard"],
 
-        drop: (item) => {
+        drop: (item, monitor) => {
+            if (monitor.getItemType() === "requirementRow") {
+                return addRequirementToCategory(item);
+            }
             if (item.sourceDomainId && item.sourceDomainId !== projectId) {
                 return { crossDomain: true };
             }
@@ -279,7 +459,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             isOver: monitor.isOver() && monitor.getItemType() === "categoryCard",
         }),
 
-    }), [categoryIndex, projectId, isTemplate, moveCard]);
+    }), [requirementsArray, sortMode, category.id, categoryIndex, projectId, isTemplate, moveCard, darwinUri, idToken]);
 
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "categoryCard",
@@ -507,7 +687,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
-        return a.id - b.id;  // hand / default: natural id order (req #2405)
+        // Hand mode (req #2417): sort_order ASC within the active group, NULL last,
+        // id tiebreak. Default (no sortMode change yet) also lands here and degrades
+        // gracefully — sort_order=NULL on every row → pure id ASC, unchanged from #2405.
+        return requirementHandSort(a, b);
     }
 
     return (
@@ -616,7 +799,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 { (requirementsArray) ?
                     <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-                        sessionStatusMap }}>
+                        sessionStatusMap, sortMode, setCrossCardInsertIndex }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow {...{key: requirement.id, requirement, requirementIndex,
                                 categoryId: category.id, categoryName: category.category_name }}
