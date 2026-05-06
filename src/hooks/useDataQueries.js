@@ -286,7 +286,7 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
     });
 }
 
-export function useDevServers(creatorFk, { enabled = true } = {}) {
+export function useDevServers(creatorFk, { enabled = true, staleTime } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -297,6 +297,7 @@ export function useDevServers(creatorFk, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+        ...(staleTime !== undefined ? { staleTime } : {}),
     });
 }
 
