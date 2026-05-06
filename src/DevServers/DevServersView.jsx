@@ -35,22 +35,40 @@ const getDevServerColumns = (navigate, timezone) => [
         ),
     },
     {
+        field: 'terminal_number',
+        headerName: 'Terminal',
+        width: 100,
+        renderCell: (params) => params.value != null
+            ? `Term ${params.value}`
+            : '—',
+    },
+    {
         field: 'requirement_id',
         headerName: 'Roadmap ID',
         width: 110,
         renderCell: (params) => params.value
-            ? <Link component="button" variant="body2"
-                    onClick={() => navigate(`/swarm/requirement/${params.value}`)}
-                    data-testid="dev-server-requirement-id-link">
+            ? <a href={`/swarm/requirement/${params.value}`}
+                 target="_blank" rel="noopener noreferrer"
+                 data-testid="dev-server-requirement-id-link">
                 #{params.value}
-              </Link>
+              </a>
             : '—',
     },
     {
         field: 'requirement_title',
         headerName: 'Roadmap Requirement',
         width: 300,
-        renderCell: (params) => params.value ?? '—',
+        renderCell: (params) => {
+            if (!params.value) return '—';
+            const reqId = params.row.requirement_id;
+            return reqId ? (
+                <a href={`/swarm/requirement/${reqId}`}
+                   target="_blank" rel="noopener noreferrer"
+                   data-testid="dev-server-requirement-link">
+                    {params.value}
+                </a>
+            ) : params.value;
+        },
     },
     {
         field: 'session_fk',
@@ -89,12 +107,31 @@ const DevServerCard = ({ server, navigate, timezone }) => {
                         <Typography variant="caption" color="text.secondary">No session</Typography>
                     )}
                 </Box>
-                {server.requirement_id && server.requirement_title ? (
-                    <Link component="button" variant="body2" sx={{ mb: 0.5, display: 'block', textAlign: 'left' }}
-                          onClick={() => navigate(`/swarm/requirement/${server.requirement_id}`)}
-                          data-testid="dev-server-requirement-link">
-                        {server.requirement_title}
-                    </Link>
+                {server.terminal_number != null ? (
+                    <Typography variant="caption" color="text.secondary"
+                                sx={{ mb: 0.5, display: 'block' }}
+                                data-testid="dev-server-terminal-number">
+                        Term {server.terminal_number}
+                    </Typography>
+                ) : null}
+                {server.requirement_id ? (
+                    <Box sx={{ mb: 0.5 }}>
+                        <Link href={`/swarm/requirement/${server.requirement_id}`}
+                              target="_blank" rel="noopener noreferrer"
+                              variant="body2"
+                              data-testid="dev-server-requirement-id-link">
+                            #{server.requirement_id}
+                        </Link>
+                        {server.requirement_title ? (
+                            <Link href={`/swarm/requirement/${server.requirement_id}`}
+                                  target="_blank" rel="noopener noreferrer"
+                                  variant="body2"
+                                  sx={{ ml: 1 }}
+                                  data-testid="dev-server-requirement-link">
+                                {server.requirement_title}
+                            </Link>
+                        ) : null}
+                    </Box>
                 ) : null}
                 <Typography variant="body2" sx={{ mb: 0.5, wordBreak: 'break-all' }}>
                     {workspaceName}
