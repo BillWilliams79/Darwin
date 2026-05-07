@@ -210,7 +210,7 @@ export default function SwarmStartsPage() {
     );
 }
 
-const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Coordination', 'Terminal', 'PRs'];
+const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs'];
 
 export function parseSummary(summary) {
     if (!summary) return [];

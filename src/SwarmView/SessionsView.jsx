@@ -30,6 +30,27 @@ const swarmStatusChipProps = (status) => {
     }
 };
 
+// Render a chip for source_ref values matching `requirement:N` (clickable,
+// primary-color, navigates to the requirement detail). For other shapes
+// (GitHub issue refs, plain strings) fall back to renderSourceRef.
+const renderRequirementCell = (sourceRef, navigate) => {
+    if (!sourceRef) return '—';
+    const m = String(sourceRef).match(/^(?:priority|requirement):(\d+)$/);
+    if (m) {
+        const reqId = m[1];
+        return (
+            <Chip label={`#${reqId}`} size="small" color="primary"
+                  onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/swarm/requirement/${reqId}`);
+                  }}
+                  sx={{ cursor: 'pointer' }}
+                  data-testid={`session-requirement-${reqId}`} />
+        );
+    }
+    return renderSourceRef(sourceRef, navigate);
+};
+
 const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',          width: 70 },
     {
@@ -43,14 +64,19 @@ const getSessionColumns = (navigate, timezone) => [
         ),
     },
     { field: 'title',        headerName: 'Title',       width: 250 },
-    { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
+    {
+        field: 'source_ref',
+        headerName: 'Requirement',
+        width: 120,
+        renderCell: (params) => renderRequirementCell(params.value, navigate),
+    },
     {
         // Req #2422 — reverse junction lookup. Value populated client-side from
         // useAllSwarmStartSessions; pre-#2422 sessions and primary-closeout
         // sessions have no link (cell shows "—").
         field: 'swarm_start_fk',
-        headerName: 'Launch',
-        width: 90,
+        headerName: 'Swarm-Start',
+        width: 110,
         renderCell: (params) => params.value
             ? <Chip label={`#${params.value}`} size="small" variant="outlined"
                     onClick={(e) => {
@@ -61,12 +87,7 @@ const getSessionColumns = (navigate, timezone) => [
                     data-testid={`session-launch-${params.row.id}`} />
             : '—',
     },
-    {
-        field: 'source_ref',
-        headerName: 'Source',
-        width: 140,
-        renderCell: (params) => renderSourceRef(params.value, navigate),
-    },
+    { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
     {
         field: 'dev_server_port',
         headerName: 'Dev Server',
