@@ -228,11 +228,17 @@ const NavBarSidebar = () => {
                                     }}>
                                         Dev Server
                                     </Typography>
+                                    {currentDevTerminal != null && (
+                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
+                                                    data-testid="navbar-dev-terminal">
+                                            Terminal - {currentDevTerminal}
+                                        </Typography>
+                                    )}
                                     {DEV_REQ_ID && (
                                         <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
                                             <a href={`/swarm/requirement/${DEV_REQ_ID}`}
                                                target="_blank" rel="noopener noreferrer"
-                                               style={{ color: '#90CAF9', textDecoration: 'underline' }}
+                                               style={{ color: '#90CAF9', textDecoration: 'none' }}
                                                data-testid="navbar-dev-req-link">
                                                 Req - {DEV_REQ_ID}
                                             </a>
@@ -245,7 +251,9 @@ const NavBarSidebar = () => {
                                             lineHeight: 1.4,
                                             whiteSpace: 'normal',
                                             wordBreak: 'break-word',
-                                            mb: 1,
+                                            mt: 1.4,
+                                            mb: 1.4,
+                                            px: 0.5,
                                         }}>
                                             {DEV_REQ_TITLE.slice(0, 35)}
                                         </Typography>
@@ -253,12 +261,6 @@ const NavBarSidebar = () => {
                                     <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}>
                                         Port - {window.location.port || '3000'}
                                     </Typography>
-                                    {currentDevTerminal != null && (
-                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
-                                                    data-testid="navbar-dev-terminal">
-                                            Terminal - {currentDevTerminal}
-                                        </Typography>
-                                    )}
                                 </Box>
                             )}
                     </Box>
