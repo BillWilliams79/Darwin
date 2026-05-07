@@ -21,7 +21,7 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useAllRequirements, useAllCategories } from '../hooks/useDataQueries';
+import { useAllRequirements, useAllCategories, useSessions } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
@@ -31,8 +31,8 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 // + checkbox column). Exported so SwarmView.jsx can align the header row (toggle + chips +
 // settings) to the same width — keeps the settings icon flush with the table's right edge.
 // Columns: checkbox(50) + id(70) + category(150) + title(220) + status(140)
-//          + autonomy(110) + created(105) + completed(105) = 950
-export const SWARM_TABLE_WIDTH = 1000;
+//          + autonomy(110) + sessions(200) + created(105) + completed(105) = 1150
+export const SWARM_TABLE_WIDTH = 1200;
 
 const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,completed_at,create_ts';
 
@@ -53,6 +53,25 @@ const STATUS_SORT_ORDER = {
 const AUTONOMY_OPTIONS = ['planned', 'implemented', 'deployed'];
 
 const NO_CHANGE = '__no_change__';
+
+// Local copy — same color map used in SessionsView, RequirementDetail,
+// CategoryCard, SwarmSessionDeleteDialog. Refactor to a shared module is out
+// of scope for req #2240.
+const swarmStatusChipProps = (status) => {
+    switch (status) {
+        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
+        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
+        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
+        case 'starting':   return { color: 'info' };
+        case 'completing': return { color: 'info' };
+        case 'completed':  return { color: 'success' };
+        default:           return { color: 'default' };
+    }
+};
+
+// Same matcher used by CategoryCard — handles the legacy `priority:` prefix as
+// well as the current `requirement:` prefix.
+const SOURCE_REF_RE = /^(priority|requirement):(\d+)$/;
 
 const statusComparator = (v1, v2) => (STATUS_SORT_ORDER[v1] ?? 99) - (STATUS_SORT_ORDER[v2] ?? 99);
 
@@ -76,12 +95,28 @@ const RequirementsTableView = () => {
         fields: 'id,category_name',
         closed: 0,
     });
+    const { data: sessions = [] } = useSessions(creatorFk);
 
     const categoryMap = useMemo(() => {
         const m = new Map();
         for (const c of categories) m.set(c.id, c.category_name);
         return m;
     }, [categories]);
+
+    // requirement_id -> sessions linked via source_ref, newest first.
+    const sessionsByRequirementId = useMemo(() => {
+        const m = new Map();
+        for (const s of sessions) {
+            const match = s.source_ref && s.source_ref.match(SOURCE_REF_RE);
+            if (!match) continue;
+            const reqId = parseInt(match[2], 10);
+            const list = m.get(reqId) || [];
+            list.push({ id: s.id, swarm_status: s.swarm_status });
+            m.set(reqId, list);
+        }
+        for (const list of m.values()) list.sort((a, b) => b.id - a.id);
+        return m;
+    }, [sessions]);
 
     const sortedCategories = useMemo(() => {
         return [...categories].sort((a, b) => (a.category_name || '').localeCompare(b.category_name || ''));
@@ -217,6 +252,53 @@ const RequirementsTableView = () => {
             },
         },
         { field: 'coordination_type', headerName: 'Autonomy', width: 110 },
+        {
+            field: 'sessions',
+            headerName: 'Sessions',
+            width: 200,
+            filterable: false,
+            disableExport: true,
+            valueGetter: (value, row) => sessionsByRequirementId.get(row.id) || [],
+            // Sort by newest linked session id (first chip in the row). Buckets
+            // are pre-sorted desc, so list[0].id is the max. Empty buckets sort
+            // last in ascending order via -Infinity.
+            sortComparator: (a, b) => {
+                const aId = a && a.length ? a[0].id : -Infinity;
+                const bId = b && b.length ? b[0].id : -Infinity;
+                return aId - bId;
+            },
+            renderCell: (params) => {
+                const list = params.value || [];
+                if (list.length === 0) {
+                    return <Box sx={{ ...WRAP_CELL_SX, color: 'text.secondary' }}>—</Box>;
+                }
+                return (
+                    <Box sx={{
+                        ...WRAP_CELL_SX,
+                        flexWrap: 'wrap',
+                        gap: 0.5,
+                    }}>
+                        {list.map(s => {
+                            const chipProps = swarmStatusChipProps(s.swarm_status);
+                            return (
+                                <Chip
+                                    key={s.id}
+                                    label={`#${s.id}`}
+                                    size="small"
+                                    {...chipProps}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/swarm/session/${s.id}`);
+                                    }}
+                                    sx={{ ...chipProps.sx, cursor: 'pointer' }}
+                                    data-testid={`requirement-session-chip-${s.id}`}
+                                />
+                            );
+                        })}
+                    </Box>
+                );
+            },
+        },
         { field: 'create_ts', headerName: 'Created', width: 105, valueFormatter: formatDate },
         { field: 'completed_at', headerName: 'Completed', width: 105, valueFormatter: formatDate },
     ];
