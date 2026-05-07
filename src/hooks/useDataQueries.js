@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -231,6 +231,70 @@ export function useSession(sessionId, { enabled = true } = {}) {
             return data.length > 0 ? data[0] : null;
         },
         enabled: enabled && !!sessionId && !!idToken,
+    });
+}
+
+// Req #2422 — swarm_starts: list every /swarm-start invocation, newest first.
+// Default fields include the captured invocation metadata + finalize-time
+// summary/telemetry/token rollups. `fields` is in the cache key (req #2213) so
+// callers requesting different projections don't collide on a shared cache entry.
+// TEXT columns (start_summary, telemetry) are <3KB each at typical scale, so
+// including them in the list query is acceptable; the detail dialog reads them
+// without a separate fetch.
+const SWARM_START_DEFAULT_FIELDS =
+    'id,arguments,autonomy_filter,auto_start,session_count,' +
+    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
+    'wall_seconds,turn_count,start_summary,telemetry,started_at,creator_fk';
+
+export function useAllSwarmStarts(creatorFk, { fields = SWARM_START_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_starts?fields=${fields}&sort=started_at:desc`;
+    const queryKey = [...swarmStartKeys.all(creatorFk), { fields }];
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// Req #2422 — single swarm_start by id. Used by the SwarmStartDetail page so
+// landing on /swarm/swarm-starts/:id directly (not via the list) still works.
+export function useSwarmStartById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_starts?id=${id}`;
+    const queryKey = swarmStartKeys.byId(creatorFk, id);
+
+    return useQuery({
+        queryKey,
+        queryFn: async () => {
+            const data = await fetchEntity(uri, idToken);
+            return data.length > 0 ? data[0] : null;
+        },
+        enabled: enabled && !!creatorFk && !!id && !!idToken,
+    });
+}
+
+// Req #2422 — junction rows linking swarm_starts to swarm_sessions.
+// The junction has no creator_fk; this returns ALL rows globally. Consumers
+// build a session_fk -> swarm_start_fk map and filter against the user's
+// own swarm_starts to scope. Acceptable at single-user Darwin scale; same
+// shape as requirement_sessions.
+export function useAllSwarmStartSessions(creatorFk, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_start_sessions?fields=swarm_start_fk,session_fk`;
+    const queryKey = swarmStartSessionKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
     });
 }
 
