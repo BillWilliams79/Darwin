@@ -54,8 +54,8 @@ test.describe('Swarm Table View', () => {
     await page.getByTestId('view-toggle-table').click();
     await expect(page.getByTestId('requirements-datagrid')).toBeVisible({ timeout: 10000 });
 
-    // All expected columns visible, in order: ID, Category, Title, Status, Autonomy, Created, Completed
-    const expectedColumns = ['ID', 'Category', 'Title', 'Status', 'Autonomy', 'Created', 'Completed'];
+    // All expected columns visible, in order: ID, Category, Title, Status, Autonomy, Sessions, Created, Completed
+    const expectedColumns = ['ID', 'Category', 'Title', 'Status', 'Autonomy', 'Sessions', 'Created', 'Completed'];
     for (const colName of expectedColumns) {
       await expect(page.getByRole('columnheader', { name: colName })).toBeVisible();
     }
@@ -253,6 +253,32 @@ test.describe('Swarm Table View', () => {
     // Full cleanup — close the edit dialog too
     await page.getByTestId('bulk-edit-dialog').getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByTestId('bulk-edit-dialog')).not.toBeVisible();
+  });
+
+  // Req #2240 — Sessions column lists linked sessions as clickable chips.
+  test('CTB-15: Session chips are visible and navigate to /swarm/session/:id', async ({ page }) => {
+    await page.getByTestId('view-toggle-table').click();
+    await expect(page.getByTestId('requirements-datagrid')).toBeVisible({ timeout: 10000 });
+
+    // Find any rendered session chip. Tests run against shared dev data —
+    // at least one requirement is expected to have a linked session, but
+    // skip if the dataset has none rather than fail spuriously.
+    const anyChip = page.locator('[data-testid^="requirement-session-chip-"]').first();
+    const chipCount = await page.locator('[data-testid^="requirement-session-chip-"]').count();
+    test.skip(chipCount === 0, 'No linked sessions in current dataset');
+
+    await expect(anyChip).toBeVisible();
+
+    // Extract the session id from the testid attribute.
+    const testId = await anyChip.getAttribute('data-testid');
+    const sessionId = testId?.split('-').pop();
+    expect(sessionId).toMatch(/^\d+$/);
+
+    // Clicking the chip navigates to the session detail — must NOT land on
+    // /swarm/requirement/* (would mean stopPropagation regressed and the
+    // row click fired first).
+    await anyChip.click();
+    await expect(page).toHaveURL(new RegExp(`/swarm/session/${sessionId}$`), { timeout: 10000 });
   });
 
 });
