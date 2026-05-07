@@ -203,7 +203,7 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
     });
 
-    test('TS-10: Coordination toggle — recolors chips by coordination_type (req #2382)', async ({ page }) => {
+    test('TS-10: Autonomy toggle — recolors chips by coordination_type (req #2382)', async ({ page }) => {
         await page.goto('/swarm');
         await seedVisualizerState(page, testDate);
         await page.reload();
