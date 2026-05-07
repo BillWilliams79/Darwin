@@ -252,13 +252,13 @@ const SwarmStartCard = () => {
                     revert();
                     setRequirementsArray(prev => prev ? prev.map(r =>
                         r.id === requirementId ? { ...r, coordination_type: current } : r) : prev);
-                    showError(result, 'Unable to change coordination type');
+                    showError(result, 'Unable to change autonomy');
                 }
             }).catch(error => {
                 revert();
                 setRequirementsArray(prev => prev ? prev.map(r =>
                     r.id === requirementId ? { ...r, coordination_type: current } : r) : prev);
-                showError(error, 'Unable to change coordination type');
+                showError(error, 'Unable to change autonomy');
             });
 
         setRequirementsArray(prev => prev ? prev.map((r, i) =>
