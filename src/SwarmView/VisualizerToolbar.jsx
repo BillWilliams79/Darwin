@@ -166,7 +166,7 @@ const VisualizerToolbar = () => {
                               selected={dataKey === 'coordination'}
                               onChange={handleCoordinationClick}
                               data-testid="timeseries-data-coordination">
-                    Coordination
+                    Autonomy
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
