@@ -34,7 +34,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { DataGrid } from '@mui/x-data-grid';
 
-const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Coordination', 'Terminal', 'PRs'];
+const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs'];
 
 const autonomyChipProps = (filter) => {
     if (!filter) return null;
