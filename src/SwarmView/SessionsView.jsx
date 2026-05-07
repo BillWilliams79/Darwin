@@ -63,12 +63,24 @@ const getSessionColumns = (navigate, timezone) => [
                   data-testid="chip-swarm-status" />
         ),
     },
-    { field: 'title',        headerName: 'Title',       width: 250 },
     {
         field: 'source_ref',
         headerName: 'Requirement',
         width: 120,
         renderCell: (params) => renderRequirementCell(params.value, navigate),
+    },
+    { field: 'title',        headerName: 'Title',       width: 250 },
+    {
+        field: 'dev_server_port',
+        headerName: 'Dev Server',
+        width: 100,
+        renderCell: (params) => params.value
+            ? <Chip label={params.value} size="small" color="primary"
+                    component="a" href={`https://localhost:${params.value}`}
+                    target="_blank" rel="noopener" clickable
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid="chip-dev-server-port" />
+            : '—',
     },
     {
         // Req #2422 — reverse junction lookup. Value populated client-side from
@@ -88,29 +100,7 @@ const getSessionColumns = (navigate, timezone) => [
             : '—',
     },
     { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
-    {
-        field: 'dev_server_port',
-        headerName: 'Dev Server',
-        width: 100,
-        renderCell: (params) => params.value
-            ? <Chip label={params.value} size="small" color="primary"
-                    component="a" href={`https://localhost:${params.value}`}
-                    target="_blank" rel="noopener" clickable
-                    onClick={(e) => e.stopPropagation()}
-                    data-testid="chip-dev-server-port" />
-            : '—',
-    },
     { field: 'branch',       headerName: 'Branch',      width: 200 },
-    {
-        field: 'pr_url',
-        headerName: 'Pull Request',
-        width: 80,
-        renderCell: (params) => params.value
-            ? <a href={params.value} target="_blank" rel="noopener noreferrer"
-                 onClick={(e) => e.stopPropagation()}
-                 data-testid="session-pr-url">PR</a>
-            : '—',
-    },
     {
         field: 'started_at',
         headerName: 'Started',
