@@ -57,6 +57,19 @@ export const sessionKeys = {
     byId: (sessionId) => ['swarm_sessions', { id: sessionId }],
 };
 
+// Req #2422 — swarm_starts: one row per /swarm-start invocation.
+export const swarmStartKeys = {
+    all: (creatorFk) => ['swarm_starts', creatorFk],
+    byId: (creatorFk, id) => ['swarm_starts', creatorFk, { id }],
+};
+
+// Req #2422 — swarm_start_sessions junction: rows are global (no creator_fk).
+// We still scope the cache key by creatorFk so the map a consumer builds is
+// derived from the user's own swarm_starts, not someone else's.
+export const swarmStartSessionKeys = {
+    all: (creatorFk) => ['swarm_start_sessions', creatorFk],
+};
+
 export const devServerKeys = {
     all: (creatorFk) => ['dev_servers', creatorFk],
     bySession: (sessionId) => ['dev_servers', { sessionId }],

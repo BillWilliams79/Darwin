@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -47,6 +47,20 @@ const SwarmSessionDetail = () => {
 
     const { data: session, isLoading } = useSession(id);
     const { data: devServers = [] } = useDevServersBySession(id);
+    // Req #2422 — reverse junction lookup for the parent swarm_start.
+    // Multi-parent policy: pick the most-recent swarm_start (highest fk).
+    // Matches SessionsView's last-most-recent-wins map and the MCP resource's
+    // ORDER BY id DESC — all three paths converge on the same parent.
+    const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
+    const { data: swarmStarts } = useAllSwarmStarts(profile?.userName);
+    const swarmStart = React.useMemo(() => {
+        if (!swarmStartSessions || !swarmStarts) return null;
+        const links = swarmStartSessions
+            .filter(j => String(j.session_fk) === String(id))
+            .sort((a, b) => b.swarm_start_fk - a.swarm_start_fk);
+        if (links.length === 0) return null;
+        return swarmStarts.find(s => s.id === links[0].swarm_start_fk) || null;
+    }, [swarmStartSessions, swarmStarts, id]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -109,6 +123,28 @@ const SwarmSessionDetail = () => {
                         <Box sx={{ mb: 1 }}>
                             <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Title</Typography>
                             <Typography variant="body2" data-testid="session-title">{session.title}</Typography>
+                        </Box>
+                    }
+
+                    {swarmStart &&
+                        <Box sx={{ mb: 1 }} data-testid="session-launched-by">
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Launched by</Typography>
+                            <Typography variant="body2" component="div">
+                                <Chip label={`Swarm Start #${swarmStart.id}`} size="small" variant="outlined"
+                                      onClick={() => navigate(`/swarm/swarm-starts/${swarmStart.id}`)}
+                                      sx={{ cursor: 'pointer', mr: 1 }}
+                                      data-testid="session-launched-by-chip" />
+                                {swarmStart.arguments
+                                    ? <Typography component="span" variant="body2"
+                                                  sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                          /swarm-start {swarmStart.arguments}
+                                      </Typography>
+                                    : <Typography component="span" variant="body2"
+                                                  sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                                          /swarm-start (empty — all swarm-ready)
+                                      </Typography>
+                                }
+                            </Typography>
                         </Box>
                     }
 
