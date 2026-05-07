@@ -45,6 +45,8 @@ import FeaturesPage from './Features/FeaturesPage';
 import TestCasesPage from './Features/TestCasesPage';
 import TestPlansPage from './Features/TestPlansPage';
 import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
+import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
+import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -92,6 +94,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/sessions" element= {<AuthenticatedRoute>
                                                              <SessionsView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-starts" element= {<AuthenticatedRoute>
+                                                             <SwarmStartsPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmStartDetail />
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
