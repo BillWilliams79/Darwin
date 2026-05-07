@@ -99,8 +99,6 @@ const getSessionColumns = (navigate, timezone) => [
                     data-testid={`session-launch-${params.row.id}`} />
             : '—',
     },
-    { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
-    { field: 'branch',       headerName: 'Branch',      width: 200 },
     {
         field: 'started_at',
         headerName: 'Started',
