@@ -12,6 +12,6 @@ export const getCoordLabel = (coordType) => {
         case 'planned':     return 'Planned';
         case 'implemented': return 'Implemented';
         case 'deployed':    return 'Deployed';
-        default:            return 'No coordination';
+        default:            return 'No autonomy';
     }
 };
