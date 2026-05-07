@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
@@ -44,6 +44,23 @@ const getSessionColumns = (navigate, timezone) => [
     },
     { field: 'title',        headerName: 'Title',       width: 250 },
     { field: 'task_name',    headerName: 'Task',        width: 200, flex: 1 },
+    {
+        // Req #2422 — reverse junction lookup. Value populated client-side from
+        // useAllSwarmStartSessions; pre-#2422 sessions and primary-closeout
+        // sessions have no link (cell shows "—").
+        field: 'swarm_start_fk',
+        headerName: 'Launch',
+        width: 90,
+        renderCell: (params) => params.value
+            ? <Chip label={`#${params.value}`} size="small" variant="outlined"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/swarm/swarm-starts/${params.value}`);
+                    }}
+                    sx={{ cursor: 'pointer' }}
+                    data-testid={`session-launch-${params.row.id}`} />
+            : '—',
+    },
     {
         field: 'source_ref',
         headerName: 'Source',
@@ -138,6 +155,7 @@ const SessionsView = () => {
 
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: devServersData } = useDevServers(profile?.userName);
+    const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
     const sessionStatusFilter = useShowClosedStore(s => s.sessionStatusFilter);
     const toggleSessionStatus = useShowClosedStore(s => s.toggleSessionStatus);
 
@@ -148,8 +166,30 @@ const SessionsView = () => {
         return map;
     }, [devServersData]);
 
+    // Req #2422 — session_fk -> swarm_start_fk lookup from the junction.
+    // Multi-parent policy: a session linked to multiple swarm_starts resolves
+    // to the MOST RECENT one (highest swarm_start_fk). Junction is sorted by
+    // swarm_start_fk DESC so the first-write wins per session_fk. This matches
+    // the MCP `darwin://swarm-starts-for-session/{id}` ORDER BY id DESC and
+    // SwarmSessionDetail's `.find()` on the same sorted list — all three code
+    // paths agree on the same parent for any given session.
+    const swarmStartBySession = useMemo(() => {
+        if (!swarmStartSessions) return {};
+        const sorted = [...swarmStartSessions]
+            .sort((a, b) => b.swarm_start_fk - a.swarm_start_fk);
+        const map = {};
+        sorted.forEach(j => {
+            if (!(j.session_fk in map)) map[j.session_fk] = j.swarm_start_fk;
+        });
+        return map;
+    }, [swarmStartSessions]);
+
     const enrichedSessions = sessionsArray
-        ? sessionsArray.map(s => ({ ...s, dev_server_port: devServerMap[s.id] || null }))
+        ? sessionsArray.map(s => ({
+            ...s,
+            dev_server_port: devServerMap[s.id] || null,
+            swarm_start_fk: swarmStartBySession[s.id] || null,
+          }))
         : null;
 
     const filteredSessions = enrichedSessions
