@@ -567,13 +567,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         revert();
                         setRequirementsArray(prev => prev.map(r =>
                             r.id === requirementId ? { ...r, coordination_type: current } : r));
-                        showError(result, "Unable to change coordination type");
+                        showError(result, "Unable to change autonomy");
                     }
                 }).catch(error => {
                     revert();
                     setRequirementsArray(prev => prev.map(r =>
                         r.id === requirementId ? { ...r, coordination_type: current } : r));
-                    showError(error, "Unable to change coordination type");
+                    showError(error, "Unable to change autonomy");
                 });
         } else if (savingRef.current) {
             pendingMutationsRef.current.coordination_type = next === null ? 'NULL' : next;

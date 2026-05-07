@@ -53,15 +53,15 @@ describe('getCoordLabel', () => {
         expect(getCoordLabel('deployed')).toBe('Deployed');
     });
 
-    it('returns No coordination for null', () => {
-        expect(getCoordLabel(null)).toBe('No coordination');
+    it('returns No autonomy for null', () => {
+        expect(getCoordLabel(null)).toBe('No autonomy');
     });
 
-    it('returns No coordination for undefined', () => {
-        expect(getCoordLabel(undefined)).toBe('No coordination');
+    it('returns No autonomy for undefined', () => {
+        expect(getCoordLabel(undefined)).toBe('No autonomy');
     });
 
-    it('returns No coordination for unknown value', () => {
-        expect(getCoordLabel('unknown')).toBe('No coordination');
+    it('returns No autonomy for unknown value', () => {
+        expect(getCoordLabel('unknown')).toBe('No autonomy');
     });
 });
