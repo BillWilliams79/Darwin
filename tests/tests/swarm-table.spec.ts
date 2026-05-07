@@ -65,6 +65,7 @@ test.describe('Swarm Table View', () => {
     await expect(page.getByRole('columnheader', { name: 'Started' })).not.toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Deferred' })).not.toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Coordination' })).not.toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Description' })).not.toBeVisible();
   });
 
   test('CTB-06: Clicking a requirement row navigates to /swarm/requirement/:id', async ({ page }) => {

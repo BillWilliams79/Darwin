@@ -1,6 +1,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
+import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY,
@@ -44,6 +45,23 @@ const NavBarSidebar = () => {
 
     const [collapsed, setCollapsed] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+    // Dev-only: surface this dev server's terminal_number in the sidebar InfoBlock.
+    // Match by current browser port; works in both worker and primary dev sessions.
+    // staleTime: terminal_number is effectively immutable for the lifetime of a
+    // dev server claim, so a 60s staleTime trades immediate freshness for one
+    // refetch per minute instead of one per render (req #2419 W2 polish).
+    const { data: devServersArray } = useDevServers(profile?.userName, {
+        enabled: isDev,
+        staleTime: 60_000,
+    });
+    const currentDevTerminal = useMemo(() => {
+        if (!isDev || !devServersArray) return null;
+        const port = parseInt(window.location.port || '0', 10);
+        if (!port) return null;
+        const row = devServersArray.find(s => s.port === port);
+        return row?.terminal_number ?? null;
+    }, [devServersArray]);
 
     // Filter nav groups/links based on profile app toggle settings
     const visibleGroups = useMemo(() =>
@@ -201,7 +219,7 @@ const NavBarSidebar = () => {
                                     flexShrink: 0,
                                 }}>
                                     <Typography sx={{
-                                        fontSize: 12,
+                                        fontSize: 15,
                                         fontWeight: 700,
                                         color: DEV_ORANGE,
                                         letterSpacing: 0.5,
@@ -211,24 +229,36 @@ const NavBarSidebar = () => {
                                         Dev Server
                                     </Typography>
                                     {DEV_REQ_ID && (
-                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
-                                            Req - {DEV_REQ_ID}
+                                        <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
+                                            <a href={`/swarm/requirement/${DEV_REQ_ID}`}
+                                               target="_blank" rel="noopener noreferrer"
+                                               style={{ color: '#90CAF9', textDecoration: 'underline' }}
+                                               data-testid="navbar-dev-req-link">
+                                                Req - {DEV_REQ_ID}
+                                            </a>
                                         </Typography>
                                     )}
                                     {DEV_REQ_TITLE && (
                                         <Typography sx={{
                                             fontSize: 12,
-                                            color: 'rgba(255,255,255,0.55)',
+                                            color: 'rgba(255,255,255,0.9)',
                                             lineHeight: 1.4,
                                             whiteSpace: 'normal',
                                             wordBreak: 'break-word',
+                                            mb: 1,
                                         }}>
                                             {DEV_REQ_TITLE.slice(0, 35)}
                                         </Typography>
                                     )}
-                                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.4 }}>
+                                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}>
                                         Port - {window.location.port || '3000'}
                                     </Typography>
+                                    {currentDevTerminal != null && (
+                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
+                                                    data-testid="navbar-dev-terminal">
+                                            Terminal - {currentDevTerminal}
+                                        </Typography>
+                                    )}
                                 </Box>
                             )}
                     </Box>
