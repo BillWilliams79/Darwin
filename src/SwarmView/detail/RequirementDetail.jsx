@@ -448,7 +448,7 @@ const RequirementDetail = () => {
                 </Tooltip>
             </Box>
 
-            {/* Swarm-Start Coordination — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise.
+            {/* Autonomy — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise.
                 New-mode (req #2424): kept in layout but invisible so Category/Description below don't shift when the requirement is saved. */}
             {(() => {
                 const isReady = currentStatus === 'swarm_ready';
@@ -462,7 +462,7 @@ const RequirementDetail = () => {
                         ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
                     }}>
                         <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
-                            Swarm-Start Coordination
+                            Autonomy
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
                             {[
