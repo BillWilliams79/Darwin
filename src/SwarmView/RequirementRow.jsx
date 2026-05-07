@@ -273,7 +273,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     if (!showCoord) return null;
                     const isCoordEditable = status === 'swarm_ready';
                     const tooltip = isCoordEditable
-                        ? (coordTooltip[coordType] || 'No coordination — click to set')
+                        ? (coordTooltip[coordType] || 'No autonomy — click to set')
                         : 'Locked — not editable';
                     return (
                         <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>

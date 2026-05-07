@@ -20,7 +20,7 @@ describe('parseSummary (req #2422)', () => {
         expect(blocks).toHaveLength(2);
         expect(blocks[0]).toMatchObject({ kind: 'text', text: '4-session batch launch (auto-start via req-keyword)' });
         expect(blocks[1].kind).toBe('table');
-        expect(blocks[1].headers).toEqual(['Session', 'Branch', 'Coordination', 'Terminal', 'PRs']);
+        expect(blocks[1].headers).toEqual(['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs']);
         expect(blocks[1].rows).toHaveLength(2);
         expect(blocks[1].rows[0][0]).toBe('Req #2419 — Dev Server encode terminal #');
         expect(blocks[1].rows[0][2]).toBe('implemented');
