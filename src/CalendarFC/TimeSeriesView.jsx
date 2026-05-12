@@ -10,7 +10,9 @@ import {
     DEFAULT_SPACE, getSpaceMultiplier,
     DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
     indexSessionsByRequirement,
+    parseSessionRequirementId,
     clusterSessionsByStartTime,
+    clusterSessionsBySwarmStart,
 } from './timeSeriesSizes';
 import './TimeSeriesView.css';
 
@@ -90,26 +92,29 @@ export const assignRows = (chips, minGapPct, topDown = false) => {
 // that marks when a session started.
 //
 // Rules:
-//   • 'clamped'                 → null (tick skipped; horizontal dashed line conveys it).
-//   • 'left'                    → one gap left of bubble center (no duration line
-//                                  is drawn in this mode — the bar IS the visual).
-//   • 'normal', startPct valid  → at startPct (left edge of the horizontal line;
-//                                  aligns vertically with cluster-mates per req
-//                                  #2341). The bar must coincide with the line's
-//                                  left end — reqs #2398/#2399 fixed the old
-//                                  gap-shift branch that bubble-hugged the tick
-//                                  when aligned-cluster gap was < 1.5%, leaving
-//                                  the duration line dangling past the bar. The
-//                                  non-aligned close-start case is handled
-//                                  upstream in drawChips (markerMode='left'), so
-//                                  this branch never needs a bubble-hug fallback.
-//   • 'normal', startPct null   → null (no session start to mark).
-//   • unknown markerMode        → null.
+//   • 'clamped'                  → null (tick skipped; horizontal dashed line conveys it).
+//   • 'left'                     → one gap left of bubble center (no duration line
+//                                   is drawn in this mode — the bar IS the visual).
+//   • 'normal', startPct valid   → at startPct (left edge of the horizontal line;
+//                                   aligns vertically with cluster-mates per req
+//                                   #2341). The bar must coincide with the line's
+//                                   left end — reqs #2398/#2399 fixed the old
+//                                   gap-shift branch that bubble-hugged the tick
+//                                   when aligned-cluster gap was < 1.5%, leaving
+//                                   the duration line dangling past the bar. The
+//                                   non-aligned close-start case is handled
+//                                   upstream in drawChips (markerMode='left'), so
+//                                   this branch never needs a bubble-hug fallback.
+//   • 'normal', startPct null    → null (no session start to mark).
+//   • 'inprogress' (req #2504)   → at startPct, same placement as 'normal'. Used
+//                                   by phantom chips for in-progress swarm-starts.
+//   • unknown markerMode         → null.
 // Exported for unit-test coverage.
 export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     if (markerMode === 'clamped') return null;
     if (markerMode === 'left') return `calc(${leftPct}% - ${gapPx}px)`;
-    if (markerMode === 'normal' && startPct !== null && startPct !== undefined) {
+    if ((markerMode === 'normal' || markerMode === 'inprogress')
+        && startPct !== null && startPct !== undefined) {
         return `${startPct}%`;
     }
     return null;
@@ -117,18 +122,36 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
 
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
-// its own row. Sorted by completed_at so row 0 is the chip rendered closest to
-// the wire:
-//   topDown=false (Day / Week) — ascending: row 0 = earliest (wire is at bottom).
-//   topDown=true  (Sidewalk)   — descending: row 0 = latest   (wire is at top).
-// Long-running swarms bubble away from the wire regardless of direction.
+// its own row. Sort order (req #2504 swarm-start grouping):
+//   1. `groupKey` — canonical cluster start (real swarm_start.started_at or
+//      the time-window cluster's earliest started_at). Chips that launched
+//      together share one groupKey, so they sit in contiguous rows ("clumps"
+//      of parallel autonomy) rather than scattered through the lane stack.
+//   2. Within a group, `completed_at` — requirement closure time.
+//   3. `chipKey` tiebreak for deterministic ordering.
+// Direction:
+//   topDown=false (Day / Week) — ascending: row 0 = earliest group + earliest
+//                                            completion (wire is at bottom).
+//   topDown=true  (Sidewalk)   — descending: row 0 = latest group + latest
+//                                            completion (wire is at top).
+// Chips missing a groupKey (singletons with no canonical attached) sort to
+// one end of the stack — away from the grouped clusters.
 // Exported for unit-test coverage.
 export const assignSwarmLanes = (chips, topDown = false) => {
     const sorted = [...chips].sort((a, b) => {
+        // Primary: groupKey (canonical cluster start) — keeps co-launched
+        // sessions contiguous in the lane stack.
+        const aG = a.groupKey || '';
+        const bG = b.groupKey || '';
+        if (aG !== bG) {
+            const cmp = aG.localeCompare(bG);
+            return topDown ? -cmp : cmp;
+        }
+        // Secondary: completion time within the group.
         const aT = a.completed_at ? new Date(a.completed_at).getTime() : 0;
         const bT = b.completed_at ? new Date(b.completed_at).getTime() : 0;
         if (aT !== bT) return topDown ? bT - aT : aT - bT;
-        // tiebreak: stable by chipKey / id for deterministic ordering, mirroring
+        // Tiebreak: stable by chipKey / id for deterministic ordering, mirroring
         // the primary sort direction so ties flow the same way as the time sort.
         const key = String(a.chipKey || a.id).localeCompare(String(b.chipKey || b.id));
         return topDown ? -key : key;
@@ -383,6 +406,11 @@ const BeadRow = ({
     sidewalkHeight,
     canonicalStartById,      // Map<string sessionId, ISO started_at> — swarm alignment
     clusterSizeById,         // Map<string sessionId, n members in its cluster>
+    swarmStartIdById,        // Map<string sessionId, swarm_start_id | null> — req #2504
+    swarmStartById,          // Map<string sessionId, swarm_start_row | null> — req #2504
+    swarmStarts = [],        // req #2504 — for in-progress phantom chip rendering
+    swarmStartSessions = [], // req #2504 — junction for in-progress detection
+    requirementById,         // req #2504 — Map<string reqId, requirement> for phantom tooltips
 }) => {
     const window36h = beadWindow === '36h';
     // Sidewalk panels: each panel shows exactly the 24h day, no hidden outer
@@ -484,15 +512,18 @@ const BeadRow = ({
                 continue;
             }
             for (const s of sess) {
-                // Swarm alignment (req #2341): if this session is part of a
-                // multi-member cluster, every member uses the cluster's canonical
-                // earliest started_at so vertical start-bars line up. Singletons
+                // Swarm alignment (req #2341 + req #2504): if this session is part
+                // of a multi-member cluster — real (swarm_start junction) or
+                // estimated (3-min time window) — every member uses the cluster's
+                // canonical started_at so vertical start-bars line up. Singletons
                 // keep their own started_at and the existing 'left' heuristic.
                 const sKey = String(s.id);
                 const canonicalStartedAt =
                     canonicalStartById?.get(sKey) ?? s.started_at;
                 const clusterN = clusterSizeById?.get(sKey) ?? 1;
                 const isAligned = clusterN > 1;
+                const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
+                const swarmStartRow = swarmStartById?.get(sKey) ?? null;
 
                 const rawStart = xPctFn(canonicalStartedAt, timezone, selectedDate);
                 let startPct = rawStart;
@@ -516,12 +547,109 @@ const BeadRow = ({
                     startClamped,
                     markerMode,
                     session: s,
+                    swarmStartId,
+                    swarmStart: swarmStartRow,
+                    // groupKey = canonical cluster start (req #2504 grouping).
+                    // All chips that launched together share one key so
+                    // assignSwarmLanes stacks them in contiguous rows.
+                    groupKey: canonicalStartedAt || '',
                 });
             }
         }
         return out;
     }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate,
-        canonicalStartById, clusterSizeById]);
+        canonicalStartById, clusterSizeById, swarmStartIdById, swarmStartById]);
+
+    // "Now" position — used for in-progress phantom rendering AND the live-time
+    // marker line below. Computed once per render (nowPct moves continuously by
+    // wall clock, but the inputs that determine its existence are stable).
+    const nowPct = useMemo(() => {
+        const now = new Date().toISOString();
+        return xPctFn(now, timezone, selectedDate);
+    }, [timezone, selectedDate, xPctFn]);
+
+    // In-progress phantom chips (req #2504). One phantom per (in-progress
+    // session, its requirement) pair where:
+    //   • the session is linked to a swarm_start via the junction
+    //   • the swarm_start has a started_at that falls in this panel's window
+    //   • the session's swarm_status is not 'completed'
+    //
+    // Each phantom carries the FULL requirement datacard payload (title,
+    // category, coordination, etc.) so its hover tooltip is identical in shape
+    // to a completed chip's tooltip — only the trailing rows differ
+    // (Status: in progress instead of Closed).
+    //
+    // Phantoms participate in the swarm-lane stack via assignSwarmLanes — they
+    // sort by the swarm_start.started_at (used as the surrogate completed_at)
+    // so they interleave with completed chips in time order.
+    const phantomChips = useMemo(() => {
+        if (vizKey !== 'swarm') return [];
+        if (!Array.isArray(swarmStarts) || swarmStarts.length === 0) return [];
+        if (!Array.isArray(sessions)) return [];
+
+        // Junction: swarm_start_id → [session_fk]
+        const sessionsByStartFk = new Map();
+        for (const j of (swarmStartSessions || [])) {
+            if (!j || j.swarm_start_fk == null || j.session_fk == null) continue;
+            const k = String(j.swarm_start_fk);
+            if (!sessionsByStartFk.has(k)) sessionsByStartFk.set(k, []);
+            sessionsByStartFk.get(k).push(String(j.session_fk));
+        }
+        // sessions by id
+        const sessionById = new Map();
+        for (const s of sessions) {
+            if (s && s.id != null) sessionById.set(String(s.id), s);
+        }
+
+        const headPct = nowPct !== null ? nowPct : 100;
+        const out = [];
+        for (const ss of swarmStarts) {
+            if (!ss || ss.id == null || !ss.started_at) continue;
+            const startPct = xPctFn(ss.started_at, timezone, selectedDate);
+            if (startPct === null) continue;            // not in window
+            const linked = sessionsByStartFk.get(String(ss.id)) || [];
+            for (const sid of linked) {
+                const s = sessionById.get(sid);
+                if (!s) continue;
+                if (!s.swarm_status || s.swarm_status === 'completed') continue;
+                const reqId = parseSessionRequirementId(s.source_ref);
+                const r = reqId && requirementById ? requirementById.get(reqId) : null;
+                // If the session's requirement has already completed_at set
+                // and is in the visible-window completed set, the regular
+                // chip path will render it — skip the phantom to avoid a
+                // double bubble.
+                if (r && r.completed_at) continue;
+                const cat = r ? categoryList.find(c => c.id === r.category_fk) : null;
+                out.push({
+                    id: r ? r.id : (reqId ? Number(reqId) : null),
+                    chipKey: `phantom-${reqId || 's'+s.id}-s${s.id}`,
+                    isPhantom: true,
+                    title: r?.title || ss.arguments || '(in progress)',
+                    completed_at: s.started_at || ss.started_at, // within-group sort
+                    category_fk: r?.category_fk ?? null,
+                    requirement_status: r?.requirement_status ?? null,
+                    coordination_type: r?.coordination_type ?? null,
+                    categoryName: cat?.category_name || null,
+                    color: cat?.color || '#43A047',
+                    ringColor: null,
+                    timeHHMM: null,
+                    leftPct: headPct,
+                    timezone,
+                    session: s,
+                    startPct,
+                    startClamped: false,
+                    markerMode: 'inprogress',
+                    swarmStartId: ss.id,
+                    swarmStart: ss,
+                    // Group with all other (in-progress + completed) chips
+                    // launched by the same swarm-start (req #2504).
+                    groupKey: ss.started_at,
+                });
+            }
+        }
+        return out;
+    }, [vizKey, swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
+        selectedDate, nowPct, requirementById, categoryList]);
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
     //
@@ -530,8 +658,9 @@ const BeadRow = ({
     // `topDown = sidewalkPanel` through both assigners so they emit rows in
     // the direction the layout below wants.
     const topDown = sidewalkPanel;
+    const allSwarmChips = phantomChips.length ? [...drawChips, ...phantomChips] : drawChips;
     const placed = vizKey === 'swarm'
-        ? assignSwarmLanes(drawChips, topDown)
+        ? assignSwarmLanes(allSwarmChips, topDown)
         : assignRows(drawChips, 1.2, topDown);
     const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
 
@@ -564,11 +693,6 @@ const BeadRow = ({
     const bubbleCenterCss = sidewalkPanel
         ? (row) => `${chromeOffset + row * rowSpacing + circleDiameter / 2}px`
         : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
-
-    const nowPct = useMemo(() => {
-        const now = new Date().toISOString();
-        return xPctFn(now, timezone, selectedDate);
-    }, [timezone, selectedDate, xPctFn]);
 
     return (
         <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''}`}
@@ -661,6 +785,22 @@ const BeadRow = ({
                                                 <span className="ts-datacard-key">Closed</span>
                                                 <span>{formatCardDateTime(card.completed_at, card.timezone)}</span>
                                             </div>
+                                            {card.swarmStart && (
+                                                <div className="ts-datacard-row">
+                                                    <span className="ts-datacard-key">Swarm-Start</span>
+                                                    <span>
+                                                        #{card.swarmStart.id}
+                                                        {card.swarmStart.session_count != null
+                                                            ? ` · ${card.swarmStart.session_count} session${card.swarmStart.session_count === 1 ? '' : 's'}`
+                                                            : ''}
+                                                        {card.swarmStart.wall_seconds != null
+                                                            ? ` · ${card.swarmStart.wall_seconds < 60
+                                                                ? `${card.swarmStart.wall_seconds}s`
+                                                                : `${Math.floor(card.swarmStart.wall_seconds / 60)}m ${card.swarmStart.wall_seconds % 60}s`}`
+                                                            : ''}
+                                                    </span>
+                                                </div>
+                                            )}
                                             {card.session && (
                                                 <div className="ts-datacard-row">
                                                     <span className="ts-datacard-key">Session</span>
@@ -670,15 +810,25 @@ const BeadRow = ({
                                         </Box>
                                     ) : ''}
                                 >
-                                    <g data-testid={`ts-swarm-start-xd-${cd.sessionId}`}>
+                                    <g data-testid={`ts-swarm-start-xd-${cd.sessionId}`}
+                                       data-real={card?.swarmStartId ? '1' : '0'}>
                                         {/* dashed horizontal tail from start to right edge */}
                                         <line {...hLine} x1={`${cd.pct}%`} x2="100%" />
-                                        {/* solid vertical start bar at startPct */}
+                                        {/* solid vertical start bar at startPct.
+                                            Color contract (req #2504): real → green,
+                                            estimated → red. Anchor dot on both. */}
                                         <line
-                                            className="ts-swarm-start-tick ts-swarm-start-tick-xstart"
-                                            stroke="rgba(96,125,139,0.85)" strokeWidth="2" strokeLinecap="round"
+                                            className={`ts-swarm-start-tick ts-swarm-start-tick-xstart ${card?.swarmStartId ? 'ts-swarm-start-tick-real' : 'ts-swarm-start-tick-estimated'}`}
+                                            stroke={card?.swarmStartId ? '#43A047' : '#E53935'}
+                                            strokeWidth={2.5}
+                                            strokeLinecap="round"
                                             x1={`${cd.pct}%`} x2={`${cd.pct}%`}
                                             y1={yTop} y2={yBot}
+                                        />
+                                        <circle
+                                            className={`ts-swarm-start-anchor ${card?.swarmStartId ? 'ts-swarm-start-anchor-real' : 'ts-swarm-start-anchor-estimated'}`}
+                                            cx={`${cd.pct}%`} cy={yTop} r="3"
+                                            fill={card?.swarmStartId ? '#43A047' : '#E53935'}
                                         />
                                         {/* invisible wider hit zone for tooltip reliability */}
                                         <rect
@@ -693,28 +843,45 @@ const BeadRow = ({
                         return null;
                     })}
 
-                    {/* Horizontal line — only for 'normal' and 'clamped'. Line y is the
-                        bubble CENTER (bubbleBottom + radius) so the arrowhead lands
-                        on the middle of the circle, not its bottom. */}
+                    {/* Horizontal line — for 'normal', 'clamped', and (req #2504)
+                        'inprogress'. Line y is the bubble CENTER (bubbleBottom +
+                        radius) so the arrowhead lands on the middle of the circle
+                        for completed chips. Phantom 'inprogress' lines are solid
+                        green and end with a small ring (no arrow) at "now". */}
                     {placed.map(chip => {
-                        if (chip.markerMode !== 'normal' && chip.markerMode !== 'clamped') return null;
+                        if (chip.markerMode !== 'normal'
+                            && chip.markerMode !== 'clamped'
+                            && chip.markerMode !== 'inprogress') return null;
                         const yCenter = bubbleCenterCss(chip.row);
+                        const isInProgress = chip.markerMode === 'inprogress';
+                        const isClamped    = chip.markerMode === 'clamped';
                         // Omit the arrowhead when the line would be shorter than
                         // the arrow itself — happens for cluster-aligned chips
                         // whose canonical start sits close to the met bubble.
+                        // Phantom in-progress lines never carry an arrow (the
+                        // ring at the now-end is the terminator).
                         const gapPct = chip.leftPct - chip.startPct;
-                        const showArrow = gapPct >= ARROW_OMIT_THRESHOLD_PCT;
+                        const showArrow = !isInProgress && gapPct >= ARROW_OMIT_THRESHOLD_PCT;
+                        // Phantom lines back off by the same bubble-radius as
+                        // completed chips — the phantom now renders an open
+                        // ring at leftPct (same diameter as a regular bubble),
+                        // so the line should stop at the ring's left edge.
+                        const x2 = `calc(${chip.leftPct}% - ${circleDiameter / 2 + 2}px)`;
+                        const stroke = isInProgress
+                            ? '#43A047'
+                            : 'rgba(96,125,139,0.85)';
+                        const strokeWidth = isInProgress ? 2 : 1.5;
                         return (
                             <line
                                 key={`line-${chip.chipKey}`}
                                 data-testid={`ts-swarm-line-${chip.chipKey}`}
-                                className={`ts-swarm-line ${chip.markerMode === 'clamped' ? 'ts-swarm-line-clamped' : ''}`}
+                                className={`ts-swarm-line ${isClamped ? 'ts-swarm-line-clamped' : ''} ${isInProgress ? 'ts-swarm-line-inprogress' : ''}`}
                                 x1={`${chip.startPct}%`}
                                 y1={yCenter}
-                                x2={`calc(${chip.leftPct}% - ${circleDiameter / 2 + 2}px)`}
+                                x2={x2}
                                 y2={yCenter}
-                                stroke="rgba(96,125,139,0.85)"
-                                strokeWidth="1.5"
+                                stroke={stroke}
+                                strokeWidth={strokeWidth}
                                 markerEnd={showArrow ? `url(#ts-swarm-arrow-${selectedDate})` : undefined}
                             />
                         );
@@ -724,7 +891,10 @@ const BeadRow = ({
                                     aligns cluster-mates vertically, req #2341/#2398/#2399)
                         'left'    → immediately left of bubble (no session OR start ≈ met
                                     on a non-aligned chip — no duration line drawn)
-                        'clamped' → skipped (horizontal dashed line already conveys it) */}
+                        'clamped' → skipped (horizontal dashed line already conveys it)
+                        Real swarm-starts (req #2504) — distinct deep-purple stroke +
+                        a small anchor dot at the start so the user can tell real-data
+                        clusters apart from estimated time-window clusters. */}
                     {placed.map(chip => {
                         const halfBar = Math.max(6, circleDiameter / 2);
                         // Bar endpoints are bubble-center ± halfBar. The center
@@ -742,21 +912,150 @@ const BeadRow = ({
                         const gap = circleDiameter / 2 + 3;
                         const x = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
                         if (x === null) return null;
+                        // Color contract (req #2504): real swarm-start data → green
+                        // (#43A047), estimated/legacy clusters with no real data → red
+                        // (#E53935). Both get the same anchor-dot treatment so the only
+                        // visual difference is hue — a stable cue that survives data
+                        // refetches and cluster recomputations.
+                        const isReal = !!chip.swarmStartId;
+                        const stroke = isReal ? '#43A047' : '#E53935';
+                        const strokeWidth = 2.5;
+                        // Anchor dot — outboard end (away from bubble).
+                        // 'normal' → top end; 'left' → wire-side end.
+                        const anchorY = chip.markerMode === 'left' ? y2 : y1;
                         return (
-                            <line
-                                key={`tick-${chip.chipKey}`}
-                                data-testid={`ts-swarm-start-${chip.chipKey}`}
-                                className={`ts-swarm-start-tick ts-swarm-start-tick-${chip.markerMode}`}
-                                x1={x} y1={y1}
-                                x2={x} y2={y2}
-                                stroke="rgba(96,125,139,0.85)"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                            />
+                            <g key={`tick-${chip.chipKey}`}
+                               data-marker-mode={chip.markerMode}
+                               data-real={isReal ? '1' : '0'}>
+                                <line
+                                    data-testid={`ts-swarm-start-${chip.chipKey}`}
+                                    className={`ts-swarm-start-tick ts-swarm-start-tick-${chip.markerMode} ${isReal ? 'ts-swarm-start-tick-real' : 'ts-swarm-start-tick-estimated'}`}
+                                    x1={x} y1={y1}
+                                    x2={x} y2={y2}
+                                    stroke={stroke}
+                                    strokeWidth={strokeWidth}
+                                    strokeLinecap="round"
+                                />
+                                <circle
+                                    data-testid={`ts-swarm-start-anchor-${chip.chipKey}`}
+                                    className={`ts-swarm-start-anchor ${isReal ? 'ts-swarm-start-anchor-real' : 'ts-swarm-start-anchor-estimated'}`}
+                                    cx={x} cy={anchorY} r="3"
+                                    fill={stroke}
+                                />
+                            </g>
                         );
                     })}
                 </svg>
             )}
+
+            {/* Swarm-start anchor hover targets — invisible HTML boxes overlay
+                each SVG anchor circle. Hover shows a "Swarm-Start #N" datacard:
+                started_at, sessions, wall, turns, autonomy, auto-start, args.
+                Real (green) anchors get the full swarm_starts data; estimated
+                (red) anchors get a brief "no swarm-start data" note instead.
+                The hover is needed because the SVG layer has pointer-events:
+                none (lines and circles are decorative); this overlay restores
+                hover affordance for the anchor specifically. Req #2504. */}
+            {vizKey === 'swarm' && placed.map(chip => {
+                const halfBar = Math.max(6, circleDiameter / 2);
+                const yStride = chip.row * rowSpacing + circleDiameter / 2;
+                const gap = circleDiameter / 2 + 3;
+                const xCss = swarmStartBarX(chip.markerMode, chip.leftPct, chip.startPct, gap);
+                if (xCss === null) return null;   // clamped — no anchor to hover
+                const hitPx = 18;
+                const halfHit = hitPx / 2;
+                // anchor y mirrors the SVG circle's anchorY: 'left' mode → y2
+                // (wire-side end), other modes → y1 (outboard end).
+                const anchorAtWire = chip.markerMode === 'left';
+                const anchorYpx = sidewalkPanel
+                    ? chromeOffset + yStride + (anchorAtWire ? halfBar : -halfBar)
+                    : bubbleOffset + yStride + (anchorAtWire ? halfBar : -halfBar);
+                const yStyle = sidewalkPanel
+                    ? { top:    `${anchorYpx - halfHit}px` }
+                    : { bottom: `${anchorYpx - halfHit}px` };
+                const isReal = !!chip.swarmStartId;
+                const ss = chip.swarmStart;
+                const wall = ss && ss.wall_seconds != null
+                    ? (ss.wall_seconds < 60
+                        ? `${ss.wall_seconds}s`
+                        : `${Math.floor(ss.wall_seconds / 60)}m ${ss.wall_seconds % 60}s`)
+                    : null;
+                const title = isReal && ss ? (
+                    <Box className="ts-datacard" data-testid={`ts-datacard-swarm-start-hit-${chip.chipKey}`}>
+                        <div className="ts-datacard-title">Swarm-Start #{ss.id}</div>
+                        <div className="ts-datacard-row">
+                            <span className="ts-datacard-key">Started</span>
+                            <span>{formatCardDateTime(ss.started_at, timezone)}</span>
+                        </div>
+                        {ss.session_count != null && (
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Sessions</span>
+                                <span>{ss.session_count}</span>
+                            </div>
+                        )}
+                        {wall && (
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Wall</span>
+                                <span>{wall}</span>
+                            </div>
+                        )}
+                        {ss.turn_count != null && (
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Turns</span>
+                                <span>{ss.turn_count}</span>
+                            </div>
+                        )}
+                        {ss.autonomy_filter && (
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Autonomy</span>
+                                <span>{ss.autonomy_filter}</span>
+                            </div>
+                        )}
+                        {ss.auto_start ? (
+                            <div className="ts-datacard-row">
+                                <span className="ts-datacard-key">Auto-Start</span>
+                                <span>yes</span>
+                            </div>
+                        ) : null}
+                        <div className="ts-datacard-row">
+                            <span className="ts-datacard-key">Command</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                /swarm-start{ss.arguments ? ` ${ss.arguments}` : ''}
+                            </span>
+                        </div>
+                    </Box>
+                ) : (
+                    <Box className="ts-datacard">
+                        <div className="ts-datacard-title">Estimated swarm-start</div>
+                        <div className="ts-datacard-row">
+                            <span className="ts-datacard-key">Started</span>
+                            <span>{formatCardDateTime(chip.groupKey || chip.session?.started_at, timezone)}</span>
+                        </div>
+                    </Box>
+                );
+                return (
+                    <Tooltip
+                        key={`anchor-hit-${chip.chipKey}`}
+                        arrow
+                        slotProps={{ tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } } }}
+                        title={title}
+                    >
+                        <Box
+                            data-testid={`ts-swarm-start-hit-${chip.chipKey}`}
+                            data-real={isReal ? '1' : '0'}
+                            style={{
+                                position: 'absolute',
+                                left: `calc(${xCss} - ${halfHit}px)`,
+                                width:  `${hitPx}px`,
+                                height: `${hitPx}px`,
+                                cursor: 'pointer',     // match bubble cursor (req #2504 follow-up)
+                                zIndex: 1,             // below bubble (z:2), above SVG (z:1 visually)
+                                ...yStyle,
+                            }}
+                        />
+                    </Tooltip>
+                );
+            })}
 
             {placed.map(chip => (
                 <Tooltip
@@ -767,7 +1066,9 @@ const BeadRow = ({
                     }}
                     title={
                         <Box className="ts-datacard" data-testid={`ts-datacard-${chip.chipKey || chip.id}`}>
-                            <div className="ts-datacard-title">#{chip.id} {chip.title}</div>
+                            <div className="ts-datacard-title">
+                                {chip.id != null ? `#${chip.id} ` : ''}{chip.title}
+                            </div>
                             <div className="ts-datacard-row">
                                 <span className="ts-datacard-key">Category</span>
                                 <span>{chip.categoryName || '—'}</span>
@@ -778,6 +1079,14 @@ const BeadRow = ({
                                     {formatCoordination(chip.coordination_type)}
                                 </span>
                             </div>
+                            {chip.isPhantom && (
+                                <div className="ts-datacard-row" data-testid={`ts-datacard-status-${chip.chipKey}`}>
+                                    <span className="ts-datacard-key">Status</span>
+                                    <span style={{ color: '#43A047', fontWeight: 600 }}>
+                                        in progress{chip.requirement_status ? ` · ${chip.requirement_status}` : ''}
+                                    </span>
+                                </div>
+                            )}
                             {chip.session && (
                                 <div className="ts-datacard-row">
                                     <span className="ts-datacard-key">Started</span>
@@ -789,10 +1098,28 @@ const BeadRow = ({
                                     </span>
                                 </div>
                             )}
-                            <div className="ts-datacard-row">
-                                <span className="ts-datacard-key">Closed</span>
-                                <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
-                            </div>
+                            {!chip.isPhantom && (
+                                <div className="ts-datacard-row">
+                                    <span className="ts-datacard-key">Closed</span>
+                                    <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
+                                </div>
+                            )}
+                            {chip.swarmStart && (
+                                <div className="ts-datacard-row" data-testid={`ts-datacard-swarm-start-${chip.chipKey || chip.id}`}>
+                                    <span className="ts-datacard-key">Swarm-Start</span>
+                                    <span>
+                                        #{chip.swarmStart.id}
+                                        {chip.swarmStart.session_count != null
+                                            ? ` · ${chip.swarmStart.session_count} session${chip.swarmStart.session_count === 1 ? '' : 's'}`
+                                            : ''}
+                                        {chip.swarmStart.wall_seconds != null
+                                            ? ` · ${chip.swarmStart.wall_seconds < 60
+                                                ? `${chip.swarmStart.wall_seconds}s`
+                                                : `${Math.floor(chip.swarmStart.wall_seconds / 60)}m ${chip.swarmStart.wall_seconds % 60}s`}`
+                                            : ''}
+                                    </span>
+                                </div>
+                            )}
                             {chip.session && (
                                 <div className="ts-datacard-row">
                                     <span className="ts-datacard-key">Session</span>
@@ -803,19 +1130,37 @@ const BeadRow = ({
                     }
                 >
                     <Box
-                        className="ts-bead-group"
+                        className={`ts-bead-group${chip.isPhantom ? ' ts-bead-group-phantom' : ''}`}
                         data-testid={`ts-chip-${chip.chipKey || chip.id}`}
-                        data-reqid={chip.id}
+                        data-reqid={chip.id ?? undefined}
+                        data-phantom={chip.isPhantom ? '1' : undefined}
                         style={{
-                            left: `${chip.leftPct}%`,
+                            // Clamp the X position so chips at panel edges (00:00 /
+                            // 23:59 day boundaries) never half-clip into the chrome
+                            // (req #2504 follow-up — May 6 midnight clipping report).
+                            // Margin = halfBubble + 2px halo on each side.
+                            left: `clamp(${(circleDiameter / 2) + 2}px, ${chip.leftPct}%, calc(100% - ${(circleDiameter / 2) + 2}px))`,
                             ...bubbleYCss(chip.row),
                         }}
-                        onClick={() => onChipClick && onChipClick(chip.id)}
+                        onClick={() => {
+                            if (chip.isPhantom || chip.id == null) return;
+                            onChipClick && onChipClick(chip.id);
+                        }}
                     >
                         <span
-                            className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}`}
+                            className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
                             data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
-                            style={{
+                            style={chip.isPhantom ? {
+                                // Phantom: hollow green ring at the line's "now" end.
+                                // Same diameter as a regular bubble so layout is stable.
+                                backgroundColor: '#ffffff',
+                                border: '2px solid #43A047',
+                                boxSizing: 'border-box',
+                                borderRadius: '50%',
+                                width:  `${circleDiameter}px`,
+                                height: `${circleDiameter}px`,
+                                boxShadow: '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
+                            } : {
                                 backgroundColor: chip.color || '#90a4ae',
                                 width:  `${circleDiameter}px`,
                                 height: `${circleDiameter}px`,
@@ -1490,7 +1835,10 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 // ─────────── Top-level TimeSeriesView ──────────────────────────────────────────
 const TimeSeriesView = ({
     requirements = [],
+    allRequirements = [],      // req #2504 — all reqs (any status) for in-progress phantom rendering
     sessions = [],
+    swarmStarts = [],          // req #2504 — real swarm-start rows for the user
+    swarmStartSessions = [],   // req #2504 — junction (session_fk → swarm_start_fk)
     selectedDate,
     timezone,
     beadWindow = '24h',
@@ -1522,13 +1870,33 @@ const TimeSeriesView = ({
         return weekDates(selectedDate); // Mon..Sun ascending
     }, [isWeekView, selectedDate]);
 
-    // Swarm start-time clustering (req #2341) — computed once per session-array
-    // change and threaded to every BeadRow / cross-day calculation so all members
-    // of a 3-minute launch cluster share one canonical start X.
-    const { canonicalStartById, clusterSizeById } = useMemo(() => {
-        const { canonical, clusterSize } = clusterSessionsByStartTime(sessions);
-        return { canonicalStartById: canonical, clusterSizeById: clusterSize };
-    }, [sessions]);
+    // Map<string reqId, requirement> — used by BeadRow to populate phantom
+    // datacards for in-progress sessions whose requirement isn't in the
+    // completed-only `requirements` list (req #2504). Key is String(id) to
+    // match the source_ref parser output.
+    const requirementById = useMemo(() => {
+        const m = new Map();
+        for (const r of allRequirements || []) {
+            if (r && r.id != null) m.set(String(r.id), r);
+        }
+        return m;
+    }, [allRequirements]);
+
+    // Swarm start-time clustering (req #2341 + req #2504). Real swarm_start
+    // data wins when present (junction row + swarm_start.started_at); the
+    // 3-minute time-window heuristic falls through for legacy/orphan sessions.
+    // The result is threaded to every BeadRow / cross-day calculation so every
+    // member of a launch shares one canonical start X.
+    const { canonicalStartById, clusterSizeById, swarmStartIdById, swarmStartById } = useMemo(() => {
+        const { canonical, clusterSize, swarmStartIdById: idMap, swarmStartById: rowMap } =
+            clusterSessionsBySwarmStart(sessions, swarmStartSessions, swarmStarts);
+        return {
+            canonicalStartById: canonical,
+            clusterSizeById: clusterSize,
+            swarmStartIdById: idMap,
+            swarmStartById: rowMap,
+        };
+    }, [sessions, swarmStartSessions, swarmStarts]);
 
     // Cross-day session lines — only matters in Week + Swarm mode. For each
     // session whose started_at and linked requirement's completed_at fall on
@@ -1564,7 +1932,10 @@ const TimeSeriesView = ({
                     continue;
                 }
                 for (const s of linked) {
-                    chips.push({ chipKey: `${r.id}-s${s.id}`, id: r.id, completed_at: r.completed_at });
+                    // groupKey mirrors BeadRow.drawChips so cross-day lane
+                    // positions match in-row positions (req #2504 grouping).
+                    const groupKey = canonicalStartById?.get(String(s.id)) || '';
+                    chips.push({ chipKey: `${r.id}-s${s.id}`, id: r.id, completed_at: r.completed_at, groupKey });
                 }
             }
             const placed = assignSwarmLanes(chips);
@@ -1590,6 +1961,9 @@ const TimeSeriesView = ({
 
                 // Datacard payload — shared by the vertical start bar's tooltip
                 // and the end-day bubble's tooltip.
+                const sKey = String(s.id);
+                const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
+                const swarmStartRow = swarmStartById?.get(sKey) ?? null;
                 const card = {
                     id: r.id,
                     title: r.title || '',
@@ -1600,6 +1974,8 @@ const TimeSeriesView = ({
                     completed_at: r.completed_at,
                     timezone,
                     session: s,
+                    swarmStartId,
+                    swarmStart: swarmStartRow,
                 };
 
                 // Start day entry — partial dashed line from startPct → 100%,
@@ -1630,7 +2006,7 @@ const TimeSeriesView = ({
         }
         return map;
     }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone,
-        categoryList, canonicalStartById]);
+        categoryList, canonicalStartById, swarmStartIdById, swarmStartById]);
 
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
@@ -1655,6 +2031,11 @@ const TimeSeriesView = ({
                     onChipClick={onChipClick}
                     canonicalStartById={canonicalStartById}
                     clusterSizeById={clusterSizeById}
+                    swarmStartIdById={swarmStartIdById}
+                    swarmStartById={swarmStartById}
+                    swarmStarts={swarmStarts}
+                    swarmStartSessions={swarmStartSessions}
+                    requirementById={requirementById}
                 />
             ) : sidewalkOn && !isWeekView ? (
                 <Sidewalk
@@ -1675,6 +2056,11 @@ const TimeSeriesView = ({
                     onChipClick={onChipClick}
                     canonicalStartById={canonicalStartById}
                     clusterSizeById={clusterSizeById}
+                    swarmStartIdById={swarmStartIdById}
+                    swarmStartById={swarmStartById}
+                    swarmStarts={swarmStarts}
+                    swarmStartSessions={swarmStartSessions}
+                    requirementById={requirementById}
                 />
             ) : (
                 <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
@@ -1698,6 +2084,11 @@ const TimeSeriesView = ({
                             onChipClick={onChipClick}
                             canonicalStartById={canonicalStartById}
                             clusterSizeById={clusterSizeById}
+                            swarmStartIdById={swarmStartIdById}
+                            swarmStartById={swarmStartById}
+                            swarmStarts={swarmStarts}
+                            swarmStartSessions={swarmStartSessions}
+                            requirementById={requirementById}
                         />
                     ))}
                 </Box>
