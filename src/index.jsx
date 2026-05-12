@@ -47,6 +47,7 @@ import TestPlansPage from './Features/TestPlansPage';
 import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
+import SystemsPage from './Systems/SystemsPage';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -149,6 +150,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="systems" element= {<AuthenticatedRoute>
+                                                             <SystemsPage />
                                                          </AuthenticatedRoute>} />
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
