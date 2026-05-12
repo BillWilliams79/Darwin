@@ -183,8 +183,9 @@ test.describe('Swarm View', () => {
   test('SWM-20: /swarm/sessions DataGrid renders with test session', async ({ page }) => {
     await page.goto('/swarm/sessions');
     await expect(page.getByTestId('sessions-datagrid')).toBeVisible({ timeout: 10000 });
-    // The DataGrid should contain our test session's task_name (.first() for prior-run orphans)
-    await expect(page.getByText('e2e-test-task').first()).toBeVisible({ timeout: 10000 });
+    // The DataGrid should contain our test session's title (.first() for prior-run orphans)
+    // Req #2507 removed the Task and Branch columns; title is the surviving label column.
+    await expect(page.getByText('E2E Test Session').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('SWM-22: SessionsView Source column shows issue link', async ({ page }) => {
