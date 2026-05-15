@@ -1,0 +1,107 @@
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; margin: 0; padding: 24px; background: #0a1929; color: #e8f4ff; }
+  .container { max-width: 1400px; margin: 0 auto; }
+  /* Controls — outer wrapper of the (now tabbed) button bar. */
+  .controls {
+    margin-top: 16px; padding: 18px 18px 22px; border-top: 1px solid #1c3a5f;
+  }
+  .ctrl-col { display: flex; flex-direction: column; gap: 8px; }
+  .controls .label { font-weight: bold; color: #cfe4f7; margin-right: 6px; }
+
+  /* Category tabs — top row above the button panels. Only one panel visible at a time. */
+  .category-tabs {
+    display: flex; justify-content: center; gap: 4px;
+    margin-bottom: 14px; padding-bottom: 10px;
+    border-bottom: 1px solid #1c3a5f;
+  }
+  .cat-tab {
+    padding: 8px 22px; font-size: 13px; font-weight: 600; letter-spacing: 0.4px;
+    background: transparent; color: #9bbcd6; border: 1px solid transparent;
+    border-bottom: 2px solid transparent; border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    /* Override the diagram-button fixed widths above; category tabs size to content. */
+    width: auto; min-width: 110px; max-width: none;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .cat-tab:hover { color: #cfe4f7; background: rgba(31, 142, 214, 0.08); }
+  .cat-tab.active {
+    color: #ffffff; background: rgba(31, 142, 214, 0.14);
+    border-color: #5fa3d4; border-bottom-color: #1f8ed6;
+  }
+
+  /* Category panel — flex row of family-grouped button columns. Hidden when not active.
+     Fixed min-height matches the tallest panel (Scale-Up has 2-button columns at
+     ~96px; Compute has 1-button columns at ~52px). Without this, switching tabs
+     changes the panel height which can cause a vertical scrollbar to appear/disappear,
+     visibly shifting the horizontally-centered diagram and button bar by ~8 px. */
+  .category-panel {
+    display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; align-items: flex-start;
+    min-height: 100px;
+  }
+  .category-panel.hidden { display: none; }
+
+  /* Family group — one column per GPU family, with a small caption above the buttons.
+     Fixed width matches the button width so column positions stay locked across tab
+     switches (no random reflow). */
+  .family-group {
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    width: 150px; min-width: 150px; max-width: 150px;
+  }
+
+  /* Double-wide column — used in the Scale-Up tab for "Blackwell + Blackwell Ultra".
+     Width = 2 × normal column + 1 inner gap = 2×150 + 18 = 318 px. The two family
+     labels sit side-by-side at the SAME x-positions they'd occupy in the Compute
+     tab's separate columns; shared buttons (NVL72, NVL36×2) sit centered under the
+     boundary between them. Result: family-label x-positions and overall panel width
+     are identical to Compute's 5-column layout — zero reflow when toggling tabs. */
+  .family-group.double-wide {
+    width: 318px; min-width: 318px; max-width: 318px;
+  }
+  .family-group.double-wide .family-labels-row {
+    display: flex; gap: 18px; justify-content: space-between;
+  }
+  .family-group.double-wide .family-labels-row .family-label {
+    width: 150px;
+  }
+  .family-group.double-wide .shared-buttons {
+    display: flex; flex-direction: column; gap: 8px; align-items: center;
+  }
+  .family-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #7bb8de; text-align: center; padding-bottom: 4px;
+    border-bottom: 1px solid rgba(95, 163, 212, 0.25);
+  }
+  button {
+    padding: 8px 10px; font-size: 13px; cursor: pointer; line-height: 1.2;
+    border: 1px solid #5fa3d4; background: #0e2440; color: #cfe4f7;
+    border-radius: 4px; font-weight: 600; transition: background 0.15s, color 0.15s;
+    text-align: center;
+    /* Fixed width so the bar doesn't reflow when switching between category tabs. */
+    width: 150px; min-width: 150px; max-width: 150px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  button .sub {
+    display: block; font-size: 11px; font-weight: 500; margin-top: 3px; letter-spacing: 0.5px;
+  }
+  button:hover { background: #19324e; }
+  button.selected { background: #1f8ed6; color: #ffffff; border-color: #7bb8de; }
+  svg { width: 100%; height: auto; max-width: 1300px; display: block; margin: 0 auto; }
+
+  /* GPU package + die quadrants. Filled order: TL → TR → BR → BL (clockwise from upper-left). */
+  .gpu-pkg     { fill: url(#panel); stroke: #5fa3d4; stroke-width: 1; }
+  .die-cell    { fill: #2a4060; stroke: none; }
+  /* Blackwell Ultra (opt-C): 2 dies */
+  body.opt-C .die-tl,
+  body.opt-C .die-tr { fill: #7bb8de; }
+  /* Rubin (opt-A): 2 dies */
+  body.opt-A .die-tl,
+  body.opt-A .die-tr { fill: #7bb8de; }
+  /* Rubin Ultra (opt-B): 4 dies */
+  body.opt-B .die-cell { fill: #7bb8de; }
+  /* Hopper (opt-E): 1 die — only TL quadrant filled */
+  body.opt-E .die-tl { fill: #7bb8de; }
+  /* Blackwell NVL36×2 (opt-K): same 2-die fill pattern as opt-C */
+  body.opt-K .die-tl,
+  body.opt-K .die-tr { fill: #7bb8de; }
+  /* Rubin Ultra Compute (opt-J): all 4 die quadrants of every Rubin GPU filled */
+  .rubin-bottom-die { fill: #2a4060; }
+  body.opt-J .rubin-bottom-die { fill: #7bb8de; }
