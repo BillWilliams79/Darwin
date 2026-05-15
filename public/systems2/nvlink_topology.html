@@ -1,0 +1,1597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rubin / Rubin Ultra NVL Scale Up Network</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="opt-A">
+<div class="container">
+  <svg viewBox="0 0 1400 720" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif">
+    <defs>
+      <!-- Dark-theme gradient panels (used by GPU packages, switch boxes, callouts) -->
+      <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stop-color="#2f5b8e"/>
+        <stop offset="100%" stop-color="#15355c"/>
+      </linearGradient>
+      <linearGradient id="panel-sw" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stop-color="#1c3a5f"/>
+        <stop offset="100%" stop-color="#0a1d36"/>
+      </linearGradient>
+      <linearGradient id="panel-callout" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stop-color="#19324e"/>
+        <stop offset="100%" stop-color="#0c1d34"/>
+      </linearGradient>
+      <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <polygon points="0 0, 8 4, 0 8" fill="#5fa3d4"/>
+      </marker>
+      <!-- Larger arrowhead for the NVLink C2C bus connector arrows.
+           markerUnits="userSpaceOnUse" keeps the arrow at a fixed 14x14 user units
+           regardless of line stroke-width — otherwise it scales up and overlaps the text. -->
+      <marker id="fatarrow" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+        <polygon points="0 0, 14 7, 0 14" fill="#5fa3d4"/>
+      </marker>
+    </defs>
+
+    <!-- Title -->
+    <text id="main-title" x="700" y="35" text-anchor="middle" font-size="26" font-weight="bold" fill="#ffffff">Rubin NVL72 Scale Up Network</text>
+
+    <!-- Top subtitle -->
+   <text id="platform" x="700" y="62" text-anchor="middle" font-size="20" font-weight="bold" fill="#ffffff">Oberon Platform</text>
+    <!-- Top subtitle (cleared for Rubin NVL72; setOption rehydrates for other views) -->
+    <text id="top-sub" x="700" y="90" text-anchor="middle" font-size="16" font-weight="bold" fill="#7bb8de"></text>
+    <!-- Second subtitle (cleared for Rubin NVL72; setOption rehydrates for other views) -->
+    <text id="top-sub2" x="700" y="108" text-anchor="middle" font-size="14" font-weight="600" fill="#7bb8de"></text>
+
+    <!-- Default 6-GPU layout (used by A, B, C, D). Hidden for Hopper (E). -->
+    <g id="default-top">
+    <!-- Top curly bracket — wrapped so it can be hidden on opt-A (Rubin NVL72 view drops the brackets) -->
+    <g id="default-top-curly">
+    <path d="M 370,142 C 378,142 380,132 388,132 L 695,132 C 698,132 698,122 700,114 C 702,122 702,132 705,132 L 1012,132 C 1020,132 1022,142 1030,142"
+          stroke="#5fa3d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- "1× Compute Tray" small label -->
+    <text x="535" y="159" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× Compute Tray</text>
+
+    <!-- Compute tray dotted box -->
+    <rect x="350" y="164" width="390" height="60" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+    <!-- GPU packages: 80x40 box with a 36x36 die-quadrant square on the left and a label on the right. -->
+    <!-- G1 -->
+    <rect class="gpu-pkg" x="370" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="374" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="393" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="374" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="393" y="195" width="17" height="17" rx="1.5"/>
+    <text x="430" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G1</text>
+    <!-- G2 -->
+    <rect class="gpu-pkg" x="460" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="464" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="483" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="464" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="483" y="195" width="17" height="17" rx="1.5"/>
+    <text x="520" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G2</text>
+    <!-- G3 -->
+    <rect class="gpu-pkg" x="550" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="554" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="573" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="554" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="573" y="195" width="17" height="17" rx="1.5"/>
+    <text x="610" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G3</text>
+    <!-- G4 -->
+    <rect class="gpu-pkg" x="640" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="644" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="663" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="644" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="663" y="195" width="17" height="17" rx="1.5"/>
+    <text x="700" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G4</text>
+    <text x="790" y="199" text-anchor="middle" font-size="22">. . .</text>
+    <!-- G71 -->
+    <rect class="gpu-pkg" x="860" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="864" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="883" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="864" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="883" y="195" width="17" height="17" rx="1.5"/>
+    <text id="gpu-71" x="920" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G71</text>
+    <!-- G72 -->
+    <rect class="gpu-pkg" x="950" y="174" width="80" height="40" rx="2"/>
+    <rect class="die-cell die-tl" x="954" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-tr" x="973" y="176" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-bl" x="954" y="195" width="17" height="17" rx="1.5"/>
+    <rect class="die-cell die-br" x="973" y="195" width="17" height="17" rx="1.5"/>
+    <text id="gpu-72" x="1010" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G72</text>
+    </g>
+
+    <!-- Hopper 8-GPU layout (E). Visible only when Hopper is selected. -->
+    <g id="hopper-top" style="display:none;">
+      <!-- Top curly bracket spanning the full HGX sled (G1 left edge to G8 right edge) -->
+      <path d="M 310,142 C 318,142 320,132 328,132 L 695,132 C 698,132 698,122 700,114 C 702,122 702,132 705,132 L 1072,132 C 1080,132 1082,142 1090,142"
+            stroke="#5fa3d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+      <!-- "1× HGX Sled" small label -->
+      <text x="700" y="159" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× HGX Sled</text>
+
+      <!-- HGX dotted box: encloses GPUs AND the four NVSwitches — everything is on the same sled. -->
+      <rect x="300" y="164" width="800" height="416" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <!-- 8 GPU packages, each shown with the 4-quadrant die display.
+           Hopper (opt-E) CSS fills only the TL quadrant — the H100 is monolithic (1 die). -->
+      <!-- G1 -->
+      <rect class="gpu-pkg" x="310" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="314" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="333" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="314" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="333" y="195" width="17" height="17" rx="1.5"/>
+      <text x="370" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G1</text>
+      <!-- G2 -->
+      <rect class="gpu-pkg" x="410" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="414" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="433" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="414" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="433" y="195" width="17" height="17" rx="1.5"/>
+      <text x="470" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G2</text>
+      <!-- G3 -->
+      <rect class="gpu-pkg" x="510" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="514" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="533" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="514" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="533" y="195" width="17" height="17" rx="1.5"/>
+      <text x="570" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G3</text>
+      <!-- G4 -->
+      <rect class="gpu-pkg" x="610" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="614" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="633" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="614" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="633" y="195" width="17" height="17" rx="1.5"/>
+      <text x="670" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G4</text>
+      <!-- G5 -->
+      <rect class="gpu-pkg" x="710" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="714" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="733" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="714" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="733" y="195" width="17" height="17" rx="1.5"/>
+      <text x="770" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G5</text>
+      <!-- G6 -->
+      <rect class="gpu-pkg" x="810" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="814" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="833" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="814" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="833" y="195" width="17" height="17" rx="1.5"/>
+      <text x="870" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G6</text>
+      <!-- G7 -->
+      <rect class="gpu-pkg" x="910" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="914" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="933" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="914" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="933" y="195" width="17" height="17" rx="1.5"/>
+      <text x="970" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G7</text>
+      <!-- G8 -->
+      <rect class="gpu-pkg" x="1010" y="174" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="1014" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="1033" y="176" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="1014" y="195" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="1033" y="195" width="17" height="17" rx="1.5"/>
+      <text x="1070" y="194" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G8</text>
+    </g>
+
+    <!-- Top compute-tray callout: NVLink generation header + lane count + SerDes + aggregate throughput.
+         Mirrors the NVSwitch callout pattern (gen header, then lane count below the separator). -->
+    <g id="top-callout">
+      <!-- Body (rect+labels). For A/B/C/D the rect sits 10px lower so the leader can exit
+           the bottom-right edge just BELOW the dashed compute-tray box. Hopper restores
+           the original (y=120) position via setOption since its sled enclosure differs. -->
+      <g id="top-callout-body">
+        <rect x="90" y="130" width="185" height="100" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2" rx="4"/>
+        <text id="top-gen"    x="182" y="154" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">NVLink 6</text>
+        <line x1="105" y1="164" x2="260" y2="164" stroke="#4a8fc7" stroke-width="0.8" opacity="0.6"/>
+        <text id="top-lane"   x="182" y="184" text-anchor="middle" font-size="12" fill="#cfe4f7">36× NVLink</text>
+        <text id="top-serdes" x="182" y="200" text-anchor="middle" font-size="12" fill="#cfe4f7">72× PAM4 200G BiDi SerDes</text>
+        <text id="top-thru"   x="182" y="220" text-anchor="middle" font-size="12" font-weight="700" fill="#cfe4f7">28.8 Tb · 3.6 TB/s</text>
+      </g>
+      <!-- Leader (y set per-view in setOption) into oval encircling G1's emerging NVLinks. -->
+      <line id="top-leader-line" x1="275" y1="230" x2="392" y2="230" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="5 3"/>
+      <ellipse id="top-leader-oval" cx="410" cy="230" rx="18" ry="8" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+    </g>
+
+    <!-- ============================================ Option A — Rubin ============================================ -->
+    <g id="option-A">
+      <!-- NVL72 dashed outline: surrounds the 1× Compute Tray (x=350-740, y=164-224) and
+           the (reduced) 1× NVSwitch Tray (x=350-550, y=534-584). Sized to fit the wider
+           compute tray with margin, while keeping clear gaps from:
+             - top curly bracket (bottom edge y≈142)
+             - bottom curly bracket (top edge y≈626)
+             - G71/G72 (start at x=860)
+             - NVS-35/NVS-36 (start at x=860) -->
+      <rect x="340" y="130" width="720" height="500" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="5 3" fill="none" rx="6" opacity="0.7"/>
+      <!-- "NVL72" identifier text, sized small, placed just inside the dashed box's bottom-left corner -->
+      <text x="350" y="623" font-size="11" font-weight="600" letter-spacing="1" fill="#5fa3d4" opacity="0.75">NVL72</text>
+
+      <!-- Mesh: 6 GPUs (x=280,370,460,550,770,860) to 6 SWs (same x's) -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="410" y1="214" x2="410" y2="544"/>
+        <line x1="410" y1="214" x2="500" y2="544"/>
+        <line x1="410" y1="214" x2="590" y2="544"/>
+        <line x1="410" y1="214" x2="680" y2="544"/>
+        <line x1="410" y1="214" x2="900" y2="544"/>
+        <line x1="410" y1="214" x2="990" y2="544"/>
+        <line x1="500" y1="214" x2="410" y2="544"/>
+        <line x1="500" y1="214" x2="500" y2="544"/>
+        <line x1="500" y1="214" x2="590" y2="544"/>
+        <line x1="500" y1="214" x2="680" y2="544"/>
+        <line x1="500" y1="214" x2="900" y2="544"/>
+        <line x1="500" y1="214" x2="990" y2="544"/>
+        <line x1="590" y1="214" x2="410" y2="544"/>
+        <line x1="590" y1="214" x2="500" y2="544"/>
+        <line x1="590" y1="214" x2="590" y2="544"/>
+        <line x1="590" y1="214" x2="680" y2="544"/>
+        <line x1="590" y1="214" x2="900" y2="544"/>
+        <line x1="590" y1="214" x2="990" y2="544"/>
+        <line x1="680" y1="214" x2="410" y2="544"/>
+        <line x1="680" y1="214" x2="500" y2="544"/>
+        <line x1="680" y1="214" x2="590" y2="544"/>
+        <line x1="680" y1="214" x2="680" y2="544"/>
+        <line x1="680" y1="214" x2="900" y2="544"/>
+        <line x1="680" y1="214" x2="990" y2="544"/>
+        <line x1="900" y1="214" x2="410" y2="544"/>
+        <line x1="900" y1="214" x2="500" y2="544"/>
+        <line x1="900" y1="214" x2="590" y2="544"/>
+        <line x1="900" y1="214" x2="680" y2="544"/>
+        <line x1="900" y1="214" x2="900" y2="544"/>
+        <line x1="900" y1="214" x2="990" y2="544"/>
+        <line x1="990" y1="214" x2="410" y2="544"/>
+        <line x1="990" y1="214" x2="500" y2="544"/>
+        <line x1="990" y1="214" x2="590" y2="544"/>
+        <line x1="990" y1="214" x2="680" y2="544"/>
+        <line x1="990" y1="214" x2="900" y2="544"/>
+        <line x1="990" y1="214" x2="990" y2="544"/>
+      </g>
+
+      <!-- 1× NVSwitch tray dashed box — Rubin NVSwitch6 tray houses 4 chips (9 trays × 4 = 36 silicon).
+           Wraps NVS6-1 through NVS6-4 (the four chips of one tray). -->
+      <rect x="350" y="534" width="390" height="50" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <!-- Switch boxes -->
+      <rect x="370" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="410" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-1</text>
+      <rect x="460" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-2</text>
+      <rect x="550" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="590" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-3</text>
+      <rect x="640" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="680" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-4</text>
+      <text x="790" y="566" text-anchor="middle" font-size="22">. . .</text>
+      <rect x="860" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-35</text>
+      <rect x="950" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="990" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS6-36</text>
+
+      <!-- "1× NVSwitch Tray" small label — centered under the 4-chip dashed box -->
+      <text x="545" y="604" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× NVSwitch Tray</text>
+
+    </g>
+
+    <!-- ============================================ Option B — Rubin Ultra ============================================ -->
+    <g id="option-B" style="display:none;">
+      <!-- Mesh: 6 GPUs (x=280,370,460,550,770,860) to 8 SWs (x=280,370,460,550,640,730,910,1000) -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="410" y1="214" x2="410" y2="544"/>
+        <line x1="410" y1="214" x2="500" y2="544"/>
+        <line x1="410" y1="214" x2="590" y2="544"/>
+        <line x1="410" y1="214" x2="680" y2="544"/>
+        <line x1="410" y1="214" x2="770" y2="544"/>
+        <line x1="410" y1="214" x2="860" y2="544"/>
+        <line x1="410" y1="214" x2="1040" y2="544"/>
+        <line x1="410" y1="214" x2="1130" y2="544"/>
+        <line x1="500" y1="214" x2="410" y2="544"/>
+        <line x1="500" y1="214" x2="500" y2="544"/>
+        <line x1="500" y1="214" x2="590" y2="544"/>
+        <line x1="500" y1="214" x2="680" y2="544"/>
+        <line x1="500" y1="214" x2="770" y2="544"/>
+        <line x1="500" y1="214" x2="860" y2="544"/>
+        <line x1="500" y1="214" x2="1040" y2="544"/>
+        <line x1="500" y1="214" x2="1130" y2="544"/>
+        <line x1="590" y1="214" x2="410" y2="544"/>
+        <line x1="590" y1="214" x2="500" y2="544"/>
+        <line x1="590" y1="214" x2="590" y2="544"/>
+        <line x1="590" y1="214" x2="680" y2="544"/>
+        <line x1="590" y1="214" x2="770" y2="544"/>
+        <line x1="590" y1="214" x2="860" y2="544"/>
+        <line x1="590" y1="214" x2="1040" y2="544"/>
+        <line x1="590" y1="214" x2="1130" y2="544"/>
+        <line x1="680" y1="214" x2="410" y2="544"/>
+        <line x1="680" y1="214" x2="500" y2="544"/>
+        <line x1="680" y1="214" x2="590" y2="544"/>
+        <line x1="680" y1="214" x2="680" y2="544"/>
+        <line x1="680" y1="214" x2="770" y2="544"/>
+        <line x1="680" y1="214" x2="860" y2="544"/>
+        <line x1="680" y1="214" x2="1040" y2="544"/>
+        <line x1="680" y1="214" x2="1130" y2="544"/>
+        <line x1="900" y1="214" x2="410" y2="544"/>
+        <line x1="900" y1="214" x2="500" y2="544"/>
+        <line x1="900" y1="214" x2="590" y2="544"/>
+        <line x1="900" y1="214" x2="680" y2="544"/>
+        <line x1="900" y1="214" x2="770" y2="544"/>
+        <line x1="900" y1="214" x2="860" y2="544"/>
+        <line x1="900" y1="214" x2="1040" y2="544"/>
+        <line x1="900" y1="214" x2="1130" y2="544"/>
+        <line x1="990" y1="214" x2="410" y2="544"/>
+        <line x1="990" y1="214" x2="500" y2="544"/>
+        <line x1="990" y1="214" x2="590" y2="544"/>
+        <line x1="990" y1="214" x2="680" y2="544"/>
+        <line x1="990" y1="214" x2="770" y2="544"/>
+        <line x1="990" y1="214" x2="860" y2="544"/>
+        <line x1="990" y1="214" x2="1040" y2="544"/>
+        <line x1="990" y1="214" x2="1130" y2="544"/>
+      </g>
+
+      <!-- NVSwitch tray dotted box (wider for 6 chips) -->
+      <rect x="350" y="534" width="570" height="50" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <!-- Switch boxes: 6 in tray + 2 at end -->
+      <rect x="370" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="410" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-1</text>
+      <rect x="460" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-2</text>
+      <rect x="550" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="590" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-3</text>
+      <rect x="640" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="680" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-4</text>
+      <rect x="730" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="770" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-5</text>
+      <rect x="820" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="860" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-6</text>
+      <text x="950" y="566" text-anchor="middle" font-size="22">. . .</text>
+      <rect x="1000" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text id="nvs-last1-B" x="1040" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-71</text>
+      <rect x="1090" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text id="nvs-last2-B" x="1130" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS7-72</text>
+
+      <!-- "1× NVSwitch Tray" small label, centered on wider tray box -->
+      <text x="625" y="604" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× NVSwitch Tray</text>
+
+      <!-- Bottom curly bracket: spans 240 - 1040 -->
+      <path d="M 370,626 C 378,626 380,636 388,636 L 765,636 C 768,636 768,646 770,654 C 772,646 772,636 775,636 L 1152,636 C 1160,636 1162,626 1170,626"
+            stroke="#5fa3d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+      <!-- Bottom subtitle, centered on wider switch row -->
+      <text id="bottom-sub-B" x="770" y="684" text-anchor="middle" font-size="18" font-weight="bold" fill="#7bb8de">12 Rubin Ultra NVSwitch Trays</text>
+    </g>
+
+    <!-- ============================================ Option C — Blackwell Ultra ============================================ -->
+    <g id="option-C" style="display:none;">
+      <!-- Mesh: 6 GPUs (x=280,370,460,550,770,860) to 4 SWs (x=280,370,770,860) -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="410" y1="214" x2="410" y2="544"/>
+        <line x1="410" y1="214" x2="500" y2="544"/>
+        <line x1="410" y1="214" x2="900" y2="544"/>
+        <line x1="410" y1="214" x2="990" y2="544"/>
+        <line x1="500" y1="214" x2="410" y2="544"/>
+        <line x1="500" y1="214" x2="500" y2="544"/>
+        <line x1="500" y1="214" x2="900" y2="544"/>
+        <line x1="500" y1="214" x2="990" y2="544"/>
+        <line x1="590" y1="214" x2="410" y2="544"/>
+        <line x1="590" y1="214" x2="500" y2="544"/>
+        <line x1="590" y1="214" x2="900" y2="544"/>
+        <line x1="590" y1="214" x2="990" y2="544"/>
+        <line x1="680" y1="214" x2="410" y2="544"/>
+        <line x1="680" y1="214" x2="500" y2="544"/>
+        <line x1="680" y1="214" x2="900" y2="544"/>
+        <line x1="680" y1="214" x2="990" y2="544"/>
+        <line x1="900" y1="214" x2="410" y2="544"/>
+        <line x1="900" y1="214" x2="500" y2="544"/>
+        <line x1="900" y1="214" x2="900" y2="544"/>
+        <line x1="900" y1="214" x2="990" y2="544"/>
+        <line x1="990" y1="214" x2="410" y2="544"/>
+        <line x1="990" y1="214" x2="500" y2="544"/>
+        <line x1="990" y1="214" x2="900" y2="544"/>
+        <line x1="990" y1="214" x2="990" y2="544"/>
+      </g>
+
+      <!-- NVSwitch tray dotted box (narrower for 2 chips) -->
+      <rect x="350" y="534" width="200" height="50" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <!-- Switch boxes: 2 in tray + 2 at end -->
+      <rect x="370" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="410" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-1</text>
+      <rect x="460" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-2</text>
+      <text x="690" y="566" text-anchor="middle" font-size="22">. . .</text>
+      <rect x="860" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-17</text>
+      <rect x="950" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="990" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-18</text>
+
+      <!-- "1× NVSwitch Tray" small label, centered on narrow tray box -->
+      <text x="450" y="604" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× NVSwitch Tray</text>
+
+      <!-- Bottom curly bracket: spans 240 - 900 -->
+      <path d="M 370,626 C 378,626 380,636 388,636 L 695,636 C 698,636 698,646 700,654 C 702,646 702,636 705,636 L 1012,636 C 1020,636 1022,626 1030,626"
+            stroke="#5fa3d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+      <!-- Bottom subtitle -->
+      <text x="700" y="684" text-anchor="middle" font-size="18" font-weight="bold" fill="#7bb8de">9 Blackwell Ultra NVSwitch Trays</text>
+    </g>
+
+    <!-- ============================================ Option E — Hopper DGX H100 ============================================ -->
+    <g id="option-E" style="display:none;">
+      <!-- Mesh: 8 GPUs (centers 350,450,550,650,750,850,950,1050) to 4 NVSwitches (centers 400,600,800,1000) -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="350" y1="214" x2="400" y2="544"/>
+        <line x1="350" y1="214" x2="600" y2="544"/>
+        <line x1="350" y1="214" x2="800" y2="544"/>
+        <line x1="350" y1="214" x2="1000" y2="544"/>
+        <line x1="450" y1="214" x2="400" y2="544"/>
+        <line x1="450" y1="214" x2="600" y2="544"/>
+        <line x1="450" y1="214" x2="800" y2="544"/>
+        <line x1="450" y1="214" x2="1000" y2="544"/>
+        <line x1="550" y1="214" x2="400" y2="544"/>
+        <line x1="550" y1="214" x2="600" y2="544"/>
+        <line x1="550" y1="214" x2="800" y2="544"/>
+        <line x1="550" y1="214" x2="1000" y2="544"/>
+        <line x1="650" y1="214" x2="400" y2="544"/>
+        <line x1="650" y1="214" x2="600" y2="544"/>
+        <line x1="650" y1="214" x2="800" y2="544"/>
+        <line x1="650" y1="214" x2="1000" y2="544"/>
+        <line x1="750" y1="214" x2="400" y2="544"/>
+        <line x1="750" y1="214" x2="600" y2="544"/>
+        <line x1="750" y1="214" x2="800" y2="544"/>
+        <line x1="750" y1="214" x2="1000" y2="544"/>
+        <line x1="850" y1="214" x2="400" y2="544"/>
+        <line x1="850" y1="214" x2="600" y2="544"/>
+        <line x1="850" y1="214" x2="800" y2="544"/>
+        <line x1="850" y1="214" x2="1000" y2="544"/>
+        <line x1="950" y1="214" x2="400" y2="544"/>
+        <line x1="950" y1="214" x2="600" y2="544"/>
+        <line x1="950" y1="214" x2="800" y2="544"/>
+        <line x1="950" y1="214" x2="1000" y2="544"/>
+        <line x1="1050" y1="214" x2="400" y2="544"/>
+        <line x1="1050" y1="214" x2="600" y2="544"/>
+        <line x1="1050" y1="214" x2="800" y2="544"/>
+        <line x1="1050" y1="214" x2="1000" y2="544"/>
+      </g>
+
+      <!-- 4 NVSwitches inside the DGX (no tray dotted box, no bottom curly bracket, no aggregate subtitle) -->
+      <rect x="360" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="400" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS4-1</text>
+      <rect x="560" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="600" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS4-2</text>
+      <rect x="760" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="800" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS4-3</text>
+      <rect x="960" y="544" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1000" y="560" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS4-4</text>
+    </g>
+
+    <!-- ============================================ Option K — Blackwell NVL36 × 2 ============================================
+         Two racks stacked vertically. Each rack has 9 compute trays (36 GPUs) and 9 NVSwitch trays (18 switches).
+         All-to-all NVLink mesh between Rack#1 switches and Rack#2 switches sits between the two racks.
+         Math: each NVSwitch5 has 72 ports. 36 local GPUs use 36 ports → 36 ports free per switch for inter-rack.
+               18 switches × 36 free ports = 648 NVLinks/direction available for inter-rack.
+               18×18 all-to-all = 324 switch-pairs. 648 / 324 = 2 NVLinks per cross-rack pair. -->
+    <g id="option-K" style="display:none;">
+      <!-- ============ RACK #1 LABEL ============ -->
+      <text x="700" y="124" text-anchor="middle" font-size="14" font-weight="bold" fill="#e8f4ff">Rack #1 — 18 Compute Trays, 36 GPUs</text>
+
+      <!-- "9× Compute Trays" small label -->
+      <text x="535" y="142" text-anchor="middle" font-size="13" fill="#7bb8de" font-weight="600">9× Compute Trays · G1 – G36</text>
+
+      <!-- Rack 1 compute tray dotted box -->
+      <rect x="350" y="146" width="390" height="56" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <!-- Rack 1 GPUs: G1, G2, G3, G4 ... G35, G36 -->
+      <rect class="gpu-pkg" x="370" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="374" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="393" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="374" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="393" y="175" width="17" height="17" rx="1.5"/>
+      <text x="430" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G1</text>
+
+      <rect class="gpu-pkg" x="460" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="464" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="483" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="464" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="483" y="175" width="17" height="17" rx="1.5"/>
+      <text x="520" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G2</text>
+
+      <rect class="gpu-pkg" x="550" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="554" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="573" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="554" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="573" y="175" width="17" height="17" rx="1.5"/>
+      <text x="610" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G3</text>
+
+      <rect class="gpu-pkg" x="640" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="644" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="663" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="644" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="663" y="175" width="17" height="17" rx="1.5"/>
+      <text x="700" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G4</text>
+
+      <text x="790" y="179" text-anchor="middle" font-size="22">. . .</text>
+
+      <rect class="gpu-pkg" x="860" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="864" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="883" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="864" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="883" y="175" width="17" height="17" rx="1.5"/>
+      <text x="920" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G35</text>
+
+      <rect class="gpu-pkg" x="950" y="154" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="954" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="973" y="156" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="954" y="175" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="973" y="175" width="17" height="17" rx="1.5"/>
+      <text x="1010" y="174" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G36</text>
+
+      <!-- ============ TOP MESH (Rack 1 GPUs → Rack 1 NVSwitches) ============ -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="410" y1="194" x2="410" y2="286"/>
+        <line x1="410" y1="194" x2="500" y2="286"/>
+        <line x1="410" y1="194" x2="900" y2="286"/>
+        <line x1="410" y1="194" x2="990" y2="286"/>
+        <line x1="500" y1="194" x2="410" y2="286"/>
+        <line x1="500" y1="194" x2="500" y2="286"/>
+        <line x1="500" y1="194" x2="900" y2="286"/>
+        <line x1="500" y1="194" x2="990" y2="286"/>
+        <line x1="590" y1="194" x2="410" y2="286"/>
+        <line x1="590" y1="194" x2="500" y2="286"/>
+        <line x1="590" y1="194" x2="900" y2="286"/>
+        <line x1="590" y1="194" x2="990" y2="286"/>
+        <line x1="680" y1="194" x2="410" y2="286"/>
+        <line x1="680" y1="194" x2="500" y2="286"/>
+        <line x1="680" y1="194" x2="900" y2="286"/>
+        <line x1="680" y1="194" x2="990" y2="286"/>
+        <line x1="920" y1="194" x2="410" y2="286"/>
+        <line x1="920" y1="194" x2="500" y2="286"/>
+        <line x1="920" y1="194" x2="900" y2="286"/>
+        <line x1="920" y1="194" x2="990" y2="286"/>
+        <line x1="1010" y1="194" x2="410" y2="286"/>
+        <line x1="1010" y1="194" x2="500" y2="286"/>
+        <line x1="1010" y1="194" x2="900" y2="286"/>
+        <line x1="1010" y1="194" x2="990" y2="286"/>
+        <!-- Mesh lines into added NVS5-3 (center x=590) for visual flow -->
+        <line x1="410"  y1="194" x2="590" y2="286"/>
+        <line x1="500"  y1="194" x2="590" y2="286"/>
+        <line x1="590"  y1="194" x2="590" y2="286"/>
+        <line x1="680"  y1="194" x2="590" y2="286"/>
+        <line x1="920"  y1="194" x2="590" y2="286"/>
+        <line x1="1010" y1="194" x2="590" y2="286"/>
+      </g>
+
+      <!-- ============ RACK 1 NVSWITCH ROW ============ -->
+      <!-- Reduced dashed box to wrap only NVS5-1 and NVS5-2 with proper whitespace -->
+      <rect x="350" y="282" width="200" height="44" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <rect x="370" y="288" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="410" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-1</text>
+      <rect x="460" y="288" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-2</text>
+      <!-- NVS5-3 — added for visual flow (sits OUTSIDE the dashed 1× NVSwitch Tray box) -->
+      <rect x="550" y="288" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="590" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-3</text>
+      <text x="745" y="310" text-anchor="middle" font-size="22">. . .</text>
+      <rect x="860" y="288" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-17</text>
+      <rect x="950" y="288" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="990" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-18</text>
+
+      <!-- ============ INTER-RACK ALL-TO-ALL MESH ============ -->
+      <!-- 4×4 visible lines (NVS5-1, NVS5-2, NVS5-17, NVS5-18 in each rack) — represents 18×18 all-to-all -->
+      <g stroke="#5fa3d4" stroke-width="0.9" opacity="0.7" fill="none">
+        <line x1="410" y1="320" x2="410" y2="430"/>
+        <line x1="410" y1="320" x2="500" y2="430"/>
+        <line x1="410" y1="320" x2="900" y2="430"/>
+        <line x1="410" y1="320" x2="990" y2="430"/>
+        <line x1="500" y1="320" x2="410" y2="430"/>
+        <line x1="500" y1="320" x2="500" y2="430"/>
+        <line x1="500" y1="320" x2="900" y2="430"/>
+        <line x1="500" y1="320" x2="990" y2="430"/>
+        <line x1="900" y1="320" x2="410" y2="430"/>
+        <line x1="900" y1="320" x2="500" y2="430"/>
+        <line x1="900" y1="320" x2="900" y2="430"/>
+        <line x1="900" y1="320" x2="990" y2="430"/>
+        <line x1="990" y1="320" x2="410" y2="430"/>
+        <line x1="990" y1="320" x2="500" y2="430"/>
+        <line x1="990" y1="320" x2="900" y2="430"/>
+        <line x1="990" y1="320" x2="990" y2="430"/>
+        <!-- Inter-rack mesh involving the newly added NVS5-3 (rack 1) / NVS5-21 (rack 2).
+             NVS5-3 → all visible rack-2 NVSwitches: -->
+        <line x1="590" y1="320" x2="410" y2="430"/>
+        <line x1="590" y1="320" x2="500" y2="430"/>
+        <line x1="590" y1="320" x2="590" y2="430"/>
+        <line x1="590" y1="320" x2="900" y2="430"/>
+        <line x1="590" y1="320" x2="990" y2="430"/>
+        <!-- All visible rack-1 NVSwitches → NVS5-21: -->
+        <line x1="410" y1="320" x2="590" y2="430"/>
+        <line x1="500" y1="320" x2="590" y2="430"/>
+        <line x1="900" y1="320" x2="590" y2="430"/>
+        <line x1="990" y1="320" x2="590" y2="430"/>
+      </g>
+
+      <!-- Inter-rack mesh annotation callout (LEFT side; doesn't bisect the mesh) -->
+      <rect x="20" y="335" width="320" height="80" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2" rx="4"/>
+      <text x="180" y="354" text-anchor="middle" font-size="13" font-weight="bold" fill="#7bb8de">Inter-Rack All to All</text>
+      <line x1="35" y1="361" x2="325" y2="361" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="180" y="378" text-anchor="middle" font-size="12" fill="#e8f4ff">18 NVswitches per Rack</text>
+      <text x="180" y="394" text-anchor="middle" font-size="12" fill="#e8f4ff">36 NVLinks to Compute Trays per NVswitch</text>
+      <text x="180" y="408" text-anchor="middle" font-size="12" fill="#e8f4ff">36 NVLinks for Inter-rack switching per NVSwitch</text>
+
+      <!-- ============ RACK 2 NVSWITCH ROW ============ -->
+      <!-- Reduced dashed box to wrap only NVS5-19 and NVS5-20 with proper whitespace -->
+      <rect x="350" y="424" width="200" height="44" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <rect x="370" y="430" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="410" y="446" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-19</text>
+      <rect x="460" y="430" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="446" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-20</text>
+      <!-- NVS5-21 — added for visual flow (sits OUTSIDE the dashed 1× NVSwitch Tray box) -->
+      <rect x="550" y="430" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="590" y="446" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-21</text>
+      <text x="745" y="452" text-anchor="middle" font-size="22">. . .</text>
+      <rect x="860" y="430" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="446" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-35</text>
+      <rect x="950" y="430" width="80" height="32" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="990" y="446" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#7bb8de">NVS5-36</text>
+
+      <!-- ============ BOTTOM MESH (Rack 2 NVSwitches → Rack 2 GPUs) ============ -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="410" y1="462" x2="410" y2="552"/>
+        <line x1="410" y1="462" x2="500" y2="552"/>
+        <line x1="410" y1="462" x2="590" y2="552"/>
+        <line x1="410" y1="462" x2="680" y2="552"/>
+        <line x1="410" y1="462" x2="920" y2="552"/>
+        <line x1="410" y1="462" x2="1010" y2="552"/>
+        <line x1="500" y1="462" x2="410" y2="552"/>
+        <line x1="500" y1="462" x2="500" y2="552"/>
+        <line x1="500" y1="462" x2="590" y2="552"/>
+        <line x1="500" y1="462" x2="680" y2="552"/>
+        <line x1="500" y1="462" x2="920" y2="552"/>
+        <line x1="500" y1="462" x2="1010" y2="552"/>
+        <line x1="900" y1="462" x2="410" y2="552"/>
+        <line x1="900" y1="462" x2="500" y2="552"/>
+        <line x1="900" y1="462" x2="590" y2="552"/>
+        <line x1="900" y1="462" x2="680" y2="552"/>
+        <line x1="900" y1="462" x2="920" y2="552"/>
+        <line x1="900" y1="462" x2="1010" y2="552"/>
+        <line x1="990" y1="462" x2="410" y2="552"/>
+        <line x1="990" y1="462" x2="500" y2="552"/>
+        <line x1="990" y1="462" x2="590" y2="552"/>
+        <line x1="990" y1="462" x2="680" y2="552"/>
+        <line x1="990" y1="462" x2="920" y2="552"/>
+        <line x1="990" y1="462" x2="1010" y2="552"/>
+        <!-- Mesh lines from added NVS5-21 (center x=590) to each rack-2 GPU for visual flow -->
+        <line x1="590" y1="462" x2="410"  y2="552"/>
+        <line x1="590" y1="462" x2="500"  y2="552"/>
+        <line x1="590" y1="462" x2="590"  y2="552"/>
+        <line x1="590" y1="462" x2="680"  y2="552"/>
+        <line x1="590" y1="462" x2="920"  y2="552"/>
+        <line x1="590" y1="462" x2="1010" y2="552"/>
+      </g>
+
+      <!-- ============ RACK 2 GPU ROW ============ -->
+      <rect x="350" y="546" width="390" height="56" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="3"/>
+
+      <rect class="gpu-pkg" x="370" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="374" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="393" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="374" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="393" y="575" width="17" height="17" rx="1.5"/>
+      <text x="430" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G37</text>
+
+      <rect class="gpu-pkg" x="460" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="464" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="483" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="464" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="483" y="575" width="17" height="17" rx="1.5"/>
+      <text x="520" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G38</text>
+
+      <rect class="gpu-pkg" x="550" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="554" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="573" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="554" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="573" y="575" width="17" height="17" rx="1.5"/>
+      <text x="610" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G39</text>
+
+      <rect class="gpu-pkg" x="640" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="644" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="663" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="644" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="663" y="575" width="17" height="17" rx="1.5"/>
+      <text x="700" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G40</text>
+
+      <text x="790" y="579" text-anchor="middle" font-size="22">. . .</text>
+
+      <rect class="gpu-pkg" x="860" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="864" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="883" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="864" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="883" y="575" width="17" height="17" rx="1.5"/>
+      <text x="920" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G71</text>
+
+      <rect class="gpu-pkg" x="950" y="554" width="80" height="40" rx="2"/>
+      <rect class="die-cell die-tl" x="954" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-tr" x="973" y="556" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-bl" x="954" y="575" width="17" height="17" rx="1.5"/>
+      <rect class="die-cell die-br" x="973" y="575" width="17" height="17" rx="1.5"/>
+      <text x="1010" y="574" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#ffffff">G72</text>
+
+      <text x="535" y="618" text-anchor="middle" font-size="13" fill="#7bb8de" font-weight="600">9× Compute Trays · G37 – G72</text>
+      <text x="700" y="645" text-anchor="middle" font-size="14" font-weight="bold" fill="#e8f4ff">Rack #2 — 18 Compute Trays, 36 GPUs</text>
+    </g>
+
+    <!-- ============================================ Spec callout (single link) ============================================
+         Restyled to match the other callouts: title + separator + body lines (no orange).
+         For A/B/C/D the box is centered vertically on the mesh midpoint (y=379); Hopper
+         restores the original position (rect y=289) via setOption + body-group transform. -->
+    <g id="phy-callout">
+      <g id="phy-callout-body">
+        <rect id="phy-rect" x="145" y="340" width="185" height="78" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2" rx="4"/>
+        <text id="box-line1" x="237" y="364" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">1× NVLink</text>
+        <line x1="160" y1="374" x2="315" y2="374" stroke="#4a8fc7" stroke-width="0.8" opacity="0.6"/>
+        <text id="box-line2" x="237" y="394" text-anchor="middle" font-size="12" fill="#cfe4f7">2× PAM4 200G BiDi</text>
+        <text id="box-line3" x="237" y="410" text-anchor="middle" font-size="12" fill="#cfe4f7">800Gb - 100GB/s</text>
+      </g>
+      <!-- Hopper addendum: descriptive sentence appended BELOW the standard spec when Hopper
+           is active. Positions are absolute (y=378 onwards); they line up correctly once the
+           Hopper-only body transform shifts the rest of the callout back up by 51px. -->
+      <g id="hopper-phy-extra" style="display:none;">
+        <text x="237" y="378" text-anchor="middle" font-size="11" fill="#e8f4ff">
+          <tspan x="237">Hopper asymmetrically</tspan>
+          <tspan x="237" dy="14">fans out NVLinks in</tspan>
+          <tspan x="237" dy="14">4 5 5 4 pattern.</tspan>
+        </text>
+      </g>
+      <line id="phy-leader-line" x1="330" y1="379" x2="410" y2="379" stroke="#5fa3d4" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    </g>
+
+    <!-- ============================================ Switch-tray callout ============================================
+         Box is positioned so the leader at y=544 exits from the TOP edge of the box (4px below top),
+         keeping the line strictly horizontal across to the first NVSwitch at y=544. -->
+    <g id="switch-callout">
+      <!-- Body (rect+labels). For A/B/C/D the rect sits 24px higher so its top edge aligns
+           ABOVE the dashed NVSwitch-tray box, letting the oval encircle NVLinks entering
+           NVS-1 from above. Hopper restores the original (y=540) position via setOption. -->
+      <g id="switch-callout-body">
+        <rect x="90" y="516" width="185" height="132" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2" rx="4"/>
+        <text id="sw-title"  x="182" y="542" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">NVSwitch 6</text>
+        <line x1="105" y1="552" x2="260" y2="552" stroke="#4a8fc7" stroke-width="0.8" opacity="0.6"/>
+        <text id="sw-lane"   x="182" y="574" text-anchor="middle" font-size="12" fill="#cfe4f7">72× NVLink</text>
+        <text id="sw-serdes" x="182" y="592" text-anchor="middle" font-size="12" fill="#cfe4f7">144× PAM4 200G BiDi SerDes</text>
+        <text id="sw-thru"   x="182" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="#cfe4f7">57.6 Tb NVLink</text>
+      </g>
+      <!-- Horizontal leader (y set per-view in setOption) into oval encircling NVS-1's incoming NVLinks -->
+      <line id="switch-leader-line" x1="275" y1="520" x2="392" y2="520" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="5 3"/>
+      <ellipse id="switch-leader-oval" cx="410" cy="520" rx="18" ry="8" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+    </g>
+
+        <!-- ============================================ Option L — Rubin NVL8 HGX InfiniBand Scale-Out =================================== -->
+        <!-- ============================================ Option M — VR NVL72 InfiniBand Scale-Out ======================================== -->
+        <!-- ============================================ Option F — Blackwell Compute Tray (block diagram) ============================================
+         Two NODES side-by-side make one TRAY. Each node is a vertical-rectangle module with:
+         2x Blackwell ↔ NVLink C2C bus ↔ Grace → (CX8 | BMC | CX8), each CX8 has one SSD attached, BMC → BF4.
+         The right node has its BMC removed per the platform spec. -->
+    <g id="compute-blackwell" style="display:none;">
+      <!-- "1× Compute Tray (2 Nodes)" small label above the sled -->
+      <text x="700" y="118" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× Compute Tray (2 Nodes)</text>
+      <!-- Outer tray dotted box -->
+      <rect x="180" y="125" width="1040" height="540" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="6"/>
+      <!-- Subtle node-boundary divider down the middle of the tray -->
+      <line x1="700" y1="135" x2="700" y2="655" stroke="#5fa3d4" stroke-width="0.6" stroke-dasharray="2 4" opacity="0.45"/>
+      <!-- ============================================ LEFT NODE ============================================ -->
+
+      <!-- Blackwell GPU 1 (dies sized 24x24 to fit cleanly within the 65-tall GPU rect) -->
+      <rect x="220" y="155" width="160" height="106" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="232" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="258" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="232" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="258" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="335" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Blackwell</text>
+      <!-- HBM sub-block under Blackwell label (font 9 matching SOCAMM style) -->
+      <rect x="305" y="222" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="335" y="232" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM3e</text>
+      <text x="335" y="243" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text x="335" y="252" text-anchor="middle" font-size="9" fill="#7bb8de">8.8TB/s</text>
+
+      <!-- Blackwell GPU 2 -->
+      <rect x="500" y="155" width="160" height="106" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="512" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="538" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="512" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="538" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="615" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Blackwell</text>
+      <rect x="585" y="222" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="615" y="232" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM3e</text>
+      <text x="615" y="243" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text x="615" y="252" text-anchor="middle" font-size="9" fill="#7bb8de">8.8TB/s</text>
+
+      <!-- NVLink C2C trident — shifted down to accommodate extended GPU rects with HBM -->
+      <line x1="293" y1="275" x2="587" y2="275" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="300" y1="275" x2="300" y2="261" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="580" y1="275" x2="580" y2="261" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="440" y1="275" x2="440" y2="290" stroke="#5fa3d4" stroke-width="14"/>
+      <text x="440" y="275" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#ffffff" font-weight="bold">NVLink C2C 900GB/s</text>
+
+      <!-- Grace CPU (shifted +8) -->
+      <rect x="380" y="290" width="120" height="55" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="440" y="322" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#7bb8de">Grace</text>
+      <!-- Grace memory: 960GB LPDDR5 attached to the right side of Grace -->
+      <line x1="500" y1="318" x2="510" y2="318" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="510" y="306" width="80" height="24" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="550" y="318" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="600" fill="#7bb8de">960GB LPDDR5</text>
+
+      <!-- L-shape connections from each CX8 (shifted +8 to follow Grace) -->
+      <polyline points="380,298 255,298 255,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <polyline points="500,298 625,298 625,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="395" y1="345" x2="395" y2="400" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="485" y1="345" x2="485" y2="480" stroke="#7bb8de" stroke-width="1.2"/>
+
+      <!-- Row 1: CX8-L | BMC (shifted left) | CX8-R -->
+      <rect x="215" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text class="cx-label" x="255" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-8</text>
+      <rect x="355" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="395" y="426" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BMC</text>
+      <rect x="585" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text class="cx-label" x="625" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-8</text>
+
+      <!-- One SSD attached to each CX8 (vertically + horizontally centered text in the SSD box) -->
+      <rect x="305" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="332" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 320,392 L 320,415 L 295,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <rect x="525" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="552" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 565,392 L 565,415 L 585,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+
+      <!-- BF3 (Blackwell platform DPU) — connects directly to Grace via the vertical line at x=485 on the right of BMC -->
+      <rect x="380" y="480" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="440" y="509" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BlueField 3</text>
+
+      <!-- Output arrows extend OUTSIDE the dotted tray box; labels sit below the tray -->
+      <line x1="255" y1="445" x2="255" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="415" y1="530" x2="415" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="465" y1="530" x2="465" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="625" y1="445" x2="625" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text class="cx-bw-label" x="255" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">800Gb IB / 400GbE</text>
+      <text x="415" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">200 GbE</text>
+      <text x="465" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">200 GbE</text>
+      <text class="cx-bw-label" x="625" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">800Gb IB / 400GbE</text>
+
+      <!-- ============================================ RIGHT NODE (no BMC) ============================================ -->
+
+      <!-- Blackwell GPU 1 -->
+      <rect x="740" y="155" width="160" height="106" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="752" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="778" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="752" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="778" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="855" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Blackwell</text>
+      <rect x="825" y="222" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="855" y="232" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM3e</text>
+      <text x="855" y="243" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text x="855" y="252" text-anchor="middle" font-size="9" fill="#7bb8de">8.8TB/s</text>
+
+      <!-- Blackwell GPU 2 -->
+      <rect x="1020" y="155" width="160" height="106" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1032" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="1058" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="1032" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="1058" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="1135" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Blackwell</text>
+      <rect x="1105" y="222" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="1135" y="232" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM3e</text>
+      <text x="1135" y="243" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text x="1135" y="252" text-anchor="middle" font-size="9" fill="#7bb8de">8.8TB/s</text>
+
+      <!-- NVLink C2C trident — shifted down to accommodate extended GPU rects with HBM -->
+      <line x1="813" y1="275" x2="1107" y2="275" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="820" y1="275" x2="820" y2="261" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="1100" y1="275" x2="1100" y2="261" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="960" y1="275" x2="960" y2="290" stroke="#5fa3d4" stroke-width="14"/>
+      <text x="960" y="275" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#ffffff" font-weight="bold">NVLink C2C 900GB/s</text>
+
+      <!-- Grace CPU (shifted +8) -->
+      <rect x="900" y="290" width="120" height="55" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="960" y="322" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#7bb8de">Grace</text>
+      <!-- Grace memory: 960GB LPDDR5 attached to the right side of Grace -->
+      <line x1="1020" y1="318" x2="1030" y2="318" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="1030" y="306" width="80" height="24" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1070" y="318" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="600" fill="#7bb8de">960GB LPDDR5</text>
+
+      <!-- L-shape connections from each CX8 to Grace (shifted +8); center vertical to BF4 (no BMC in this node) -->
+      <polyline points="900,298 775,298 775,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <polyline points="1020,298 1145,298 1145,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="960" y1="345" x2="960" y2="480" stroke="#7bb8de" stroke-width="1.2"/>
+
+      <!-- Row 1: CX8-L | (no BMC) | CX8-R -->
+      <rect x="735" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text class="cx-label" x="775" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-8</text>
+      <rect x="1105" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text class="cx-label" x="1145" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-8</text>
+
+      <!-- SSDs attached to each CX8 -->
+      <rect x="825" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="852" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 840,392 L 840,415 L 815,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <rect x="1045" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1072" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 1085,392 L 1085,415 L 1105,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+
+      <!-- BF3 (Blackwell platform DPU) -->
+      <rect x="900" y="480" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="960" y="509" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BlueField 3</text>
+
+      <!-- Output arrows extend OUTSIDE the dotted tray box; labels sit below the tray -->
+      <line x1="775" y1="445" x2="775" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="935" y1="530" x2="935" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="985" y1="530" x2="985" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="1145" y1="445" x2="1145" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text class="cx-bw-label" x="775" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">800Gb IB / 400GbE</text>
+      <text x="935" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">200 GbE</text>
+      <text x="985" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">200 GbE</text>
+      <text class="cx-bw-label" x="1145" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">800Gb IB / 400GbE</text>
+    </g>
+
+    <!-- ============================================ Option G — Vera Rubin Compute Tray (block diagram) ============================================
+         Same topology as Blackwell Compute but with Rubin GPUs, Vera CPU, and ConnectX-9 NICs.
+         Adds a PCB Midplane horizontal bar between the compute (CPU/GPU) section and the I/O section. -->
+    <g id="compute-rubin" style="display:none;">
+      <text x="700" y="118" text-anchor="middle" font-size="14" fill="#7bb8de" font-weight="bold">1× Compute Tray (2 Nodes)</text>
+      <rect x="180" y="125" width="1040" height="540" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="6"/>
+      <line x1="700" y1="135" x2="700" y2="655" stroke="#5fa3d4" stroke-width="0.6" stroke-dasharray="2 4" opacity="0.45"/>
+
+      <!-- PCB Midplane bar drawn early so connection lines pass over it -->
+      <rect x="200" y="350" width="1000" height="22" rx="2" fill="#e8f4fb" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="6 3"/>
+
+      <!-- ===== LEFT NODE ===== -->
+      <!-- Rubin GPU 1 -->
+      <rect x="220" y="155" width="160" height="100" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="232" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="258" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="232" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="258" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="335" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Rubin</text>
+      <!-- Rubin GPU 2 -->
+      <rect x="500" y="155" width="160" height="100" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="512" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="538" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="512" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="538" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="615" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Rubin</text>
+      <!-- NVLink C2C: single interconnected trident -->
+      <line x1="293" y1="246" x2="587" y2="246" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="300" y1="246" x2="300" y2="220" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="580" y1="246" x2="580" y2="220" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="440" y1="246" x2="440" y2="282" stroke="#5fa3d4" stroke-width="14"/>
+      <text x="440" y="246" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#ffffff" font-weight="bold">NVLink C2C 900GB/s</text>
+      <!-- Vera CPU -->
+      <rect x="380" y="282" width="120" height="55" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="440" y="314" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#7bb8de">Vera</text>
+      <!-- Vera → I/O lines (cross through the PCB Midplane) -->
+      <polyline points="380,290 255,290 255,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <polyline points="500,290 625,290 625,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="395" y1="337" x2="395" y2="400" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="485" y1="337" x2="485" y2="480" stroke="#7bb8de" stroke-width="1.2"/>
+      <!-- Row 1: CX-9 | BMC | CX-9 -->
+      <rect x="215" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="255" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-9</text>
+      <rect x="355" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="395" y="426" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BMC</text>
+      <rect x="585" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="625" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-9</text>
+      <!-- SSDs attached to each CX-9 -->
+      <rect x="305" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="332" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 320,392 L 320,415 L 295,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <rect x="525" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="552" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 565,392 L 565,415 L 585,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <!-- BF4 -->
+      <rect x="380" y="480" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="440" y="509" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BlueField 4</text>
+      <!-- Output arrows from Node 1 -->
+      <line x1="255" y1="445" x2="255" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="415" y1="530" x2="415" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="465" y1="530" x2="465" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="625" y1="445" x2="625" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="255" y="638" text-anchor="middle" font-size="11" fill="#cfe4f7" font-weight="600">800 GbE</text>
+      <text x="415" y="638" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+      <text x="465" y="638" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+      <text x="625" y="638" text-anchor="middle" font-size="11" fill="#cfe4f7" font-weight="600">800 GbE</text>
+
+      <!-- ===== RIGHT NODE (no BMC) ===== -->
+      <rect x="740" y="155" width="160" height="100" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="752" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="778" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="752" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="778" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="855" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Rubin</text>
+      <rect x="1020" y="155" width="160" height="100" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1032" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="1058" y="162" width="24" height="24" rx="2" fill="#7bb8de"/>
+      <rect x="1032" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <rect x="1058" y="190" width="24" height="24" rx="2" fill="#2a4060"/>
+      <text x="1135" y="190" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600">Rubin</text>
+      <line x1="813" y1="246" x2="1107" y2="246" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="820" y1="246" x2="820" y2="220" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="1100" y1="246" x2="1100" y2="220" stroke="#5fa3d4" stroke-width="14"/>
+      <line x1="960" y1="246" x2="960" y2="282" stroke="#5fa3d4" stroke-width="14"/>
+      <text x="960" y="246" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#ffffff" font-weight="bold">NVLink C2C 900GB/s</text>
+      <rect x="900" y="282" width="120" height="55" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="960" y="314" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#7bb8de">Vera</text>
+      <polyline points="900,290 775,290 775,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <polyline points="1020,290 1145,290 1145,400" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="960" y1="337" x2="960" y2="480" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="735" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="775" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-9</text>
+      <rect x="1105" y="400" width="80" height="45" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1145" y="426" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">ConnectX-9</text>
+      <rect x="825" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="852" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 840,392 L 840,415 L 815,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <rect x="1045" y="370" width="55" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1072" y="381" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">SSD</text>
+      <path d="M 1085,392 L 1085,415 L 1105,415" stroke="#7bb8de" stroke-width="1.2" fill="none"/>
+      <rect x="900" y="480" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="960" y="509" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="#7bb8de">BlueField 4</text>
+      <line x1="775" y1="445" x2="775" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="935" y1="530" x2="935" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="985" y1="530" x2="985" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="1145" y1="445" x2="1145" y2="615" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="775" y="638" text-anchor="middle" font-size="11" fill="#cfe4f7" font-weight="600">800 GbE</text>
+      <text x="935" y="638" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+      <text x="985" y="638" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+      <text x="1145" y="638" text-anchor="middle" font-size="11" fill="#cfe4f7" font-weight="600">800 GbE</text>
+
+      <!-- PCB Midplane label drawn LAST so it sits on top of any crossing lines -->
+      <rect x="640" y="354" width="120" height="20" fill="#0a1929" stroke="none"/>
+      <text x="700" y="368" text-anchor="middle" font-size="11" fill="#7bb8de" font-weight="bold">PCB Midplane</text>
+    </g>
+
+    <!-- ============================================ Option H — Vera Rubin 2 Compute Tray ============================================
+         Updated Vera Rubin compute tray: 2 Strata modules at top (each = 2 Rubin GPUs + Vera CPU + NVLink C2C),
+         PCIe Gen 6 Mid-Plane in the middle, and 5 modules at the bottom: 4 Orchid (each with 2x CX-9 + 1x E1.S
+         cabled together as 1.6Tb OSFP) + 1 BlueField (BF4 + Memory + BMC + 2x 400Gb ports).
+         Each of the 8 modules is outlined and labeled. -->
+    <g id="compute-rubin2" style="display:none;">
+      <rect x="180" y="125" width="1040" height="540" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="6"/>
+
+      <!-- ===== TOP: Left Strata module ===== -->
+      <rect x="200" y="140" width="480" height="205" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="440" y="156" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Strata</text>
+      <!-- Rubin GPU 1 -->
+      <rect x="245" y="170" width="130" height="96" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="255" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="279" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="255" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <rect x="279" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <text x="345" y="200" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600">Rubin</text>
+      <!-- HBM sub-block inside GPU 1 (only under "Rubin" label, font 9 matching SOCAMM) -->
+      <rect x="315" y="226" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="345" y="236" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM 4e</text>
+      <text class="hbm-line2" x="345" y="247" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text class="hbm-line3" x="345" y="256" text-anchor="middle" font-size="9" fill="#7bb8de">22TB/s</text>
+      <!-- Rubin GPU 2 -->
+      <rect x="505" y="170" width="130" height="96" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="515" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="539" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="515" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <rect x="539" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <text x="605" y="200" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600">Rubin</text>
+      <!-- HBM sub-block inside GPU 2 (only under "Rubin" label, font 9 matching SOCAMM) -->
+      <rect x="575" y="226" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="605" y="236" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM 4e</text>
+      <text class="hbm-line2" x="605" y="247" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text class="hbm-line3" x="605" y="256" text-anchor="middle" font-size="9" fill="#7bb8de">22TB/s</text>
+      <!-- C2C trident (smaller, fits inside Strata) -->
+      <line x1="304" y1="275" x2="576" y2="275" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="310" y1="275" x2="310" y2="266" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="570" y1="275" x2="570" y2="266" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="440" y1="275" x2="440" y2="290" stroke="#5fa3d4" stroke-width="12"/>
+      <text x="440" y="275" text-anchor="middle" dominant-baseline="central" font-size="9" fill="#ffffff" font-weight="bold">NVLink C2C 1.8TB/s</text>
+      <!-- Vera CPU -->
+      <rect x="380" y="290" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="440" y="318" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="600" fill="#7bb8de">Vera</text>
+      <!-- LPDDR5x block attached to the right side of Vera (smaller than Vera, label split into 2 lines) -->
+      <line x1="500" y1="315" x2="510" y2="315" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="510" y="299" width="100" height="32" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="560" y="312" text-anchor="middle" font-size="9" font-weight="700" fill="#7bb8de">
+        <tspan x="560">1.5TB SOCAMM</tspan>
+        <tspan x="560" dy="11">LPDDR5x</tspan>
+      </text>
+
+      <!-- ===== TOP: Right Strata module ===== -->
+      <rect x="720" y="140" width="480" height="205" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="960" y="156" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Strata</text>
+      <!-- Rubin GPU 3 -->
+      <rect x="765" y="170" width="130" height="96" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="775" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="799" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="775" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <rect x="799" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <text x="865" y="200" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600">Rubin</text>
+      <!-- HBM sub-block inside GPU 3 (only under "Rubin" label, font 9) -->
+      <rect x="835" y="226" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="865" y="236" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM 4e</text>
+      <text class="hbm-line2" x="865" y="247" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text class="hbm-line3" x="865" y="256" text-anchor="middle" font-size="9" fill="#7bb8de">22TB/s</text>
+      <!-- Rubin GPU 4 -->
+      <rect x="1025" y="170" width="130" height="96" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1035" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="1059" y="178" width="22" height="22" rx="2" fill="#7bb8de"/>
+      <rect x="1035" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <rect x="1059" y="201" width="22" height="22" rx="2" class="rubin-bottom-die"/>
+      <text x="1125" y="200" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600">Rubin</text>
+      <!-- HBM sub-block inside GPU 4 (only under "Rubin" label, font 9) -->
+      <rect x="1095" y="226" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="0.8"/>
+      <text x="1125" y="236" text-anchor="middle" font-size="9" font-weight="bold" fill="#7bb8de">HBM 4e</text>
+      <text class="hbm-line2" x="1125" y="247" text-anchor="middle" font-size="9" fill="#7bb8de">288GB</text>
+      <text class="hbm-line3" x="1125" y="256" text-anchor="middle" font-size="9" fill="#7bb8de">22TB/s</text>
+      <!-- C2C trident -->
+      <line x1="824" y1="275" x2="1096" y2="275" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="830" y1="275" x2="830" y2="266" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="1090" y1="275" x2="1090" y2="266" stroke="#5fa3d4" stroke-width="12"/>
+      <line x1="960" y1="275" x2="960" y2="290" stroke="#5fa3d4" stroke-width="12"/>
+      <text x="960" y="275" text-anchor="middle" dominant-baseline="central" font-size="9" fill="#ffffff" font-weight="bold">NVLink C2C 1.8TB/s</text>
+      <!-- Vera CPU -->
+      <rect x="900" y="290" width="120" height="50" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="960" y="318" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="600" fill="#7bb8de">Vera</text>
+      <!-- LPDDR5x block attached to the right side of Vera (label split into 2 lines) -->
+      <line x1="1020" y1="315" x2="1030" y2="315" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="1030" y="299" width="100" height="32" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1080" y="312" text-anchor="middle" font-size="9" font-weight="700" fill="#7bb8de">
+        <tspan x="1080">1.5TB SOCAMM</tspan>
+        <tspan x="1080" dy="11">LPDDR5x</tspan>
+      </text>
+
+      <!-- Vera → Mid-Plane connection lines -->
+      <line x1="440" y1="340" x2="440" y2="358" stroke="#7bb8de" stroke-width="1.5"/>
+      <line x1="960" y1="340" x2="960" y2="358" stroke="#7bb8de" stroke-width="1.5"/>
+
+      <!-- ===== MIDDLE: PCIe Gen 6 Mid-Plane ===== -->
+      <rect x="200" y="358" width="1000" height="22" rx="2" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="700" y="372" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="bold" fill="#7bb8de">PCIe Gen 6 Mid-Plane</text>
+
+      <!-- Mid-Plane → modules: 2 PCIe lines per Orchid (one to each CX-9), 1 line to BlueField -->
+      <line x1="250" y1="380" x2="250" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="350" y1="380" x2="350" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="450" y1="380" x2="450" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="550" y1="380" x2="550" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="700" y1="380" x2="700" y2="455" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="850" y1="380" x2="850" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="950" y1="380" x2="950" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="1050" y1="380" x2="1050" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="1150" y1="380" x2="1150" y2="460" stroke="#7bb8de" stroke-width="1.2"/>
+
+      <!-- ===== BOTTOM: Module 1 — Orchid ===== -->
+      <rect x="210" y="395" width="180" height="240" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="300" y="411" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Orchid</text>
+      <!-- E1.S SSD attached to CX-9 -->
+      <rect x="270" y="425" width="60" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="300" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">E1.S</text>
+      <path d="M 285,447 L 285,475 L 282,475" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <!-- 2x CX-9 chips -->
+      <rect x="217" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="249" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <rect x="318" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="350" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <!-- CX-9 → OSFP (cabled together) -->
+      <line x1="249" y1="502" x2="249" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="350" y1="502" x2="350" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <!-- OSFP connector (combines both CX-9 outputs) -->
+      <rect x="220" y="555" width="160" height="32" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="300" y="571" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">OSFP</text>
+      <!-- OSFP output -->
+      <line x1="300" y1="587" x2="300" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="300" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">1.6 TbE</text>
+
+      <!-- ===== BOTTOM: Module 2 — Orchid ===== -->
+      <rect x="410" y="395" width="180" height="240" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="500" y="411" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Orchid</text>
+      <rect x="470" y="425" width="60" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">E1.S</text>
+      <path d="M 485,447 L 485,475 L 482,475" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="417" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="449" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <rect x="518" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="550" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <line x1="449" y1="502" x2="449" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="550" y1="502" x2="550" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="420" y="555" width="160" height="32" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="500" y="571" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">OSFP</text>
+      <line x1="500" y1="587" x2="500" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="500" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">1.6 TbE</text>
+
+      <!-- ===== BOTTOM: Module 3 — BlueField (center) ===== -->
+      <rect x="610" y="395" width="180" height="240" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="618" y="409" text-anchor="start" font-size="11" font-weight="bold" fill="#7bb8de">BlueField</text>
+      <!-- Memory bar (top-left) -->
+      <rect x="625" y="425" width="70" height="20" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="660" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">Memory</text>
+      <!-- BMC (top-right) -->
+      <rect x="705" y="425" width="70" height="20" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="740" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">BMC</text>
+      <!-- BF4 chip (large, central) -->
+      <rect x="625" y="455" width="150" height="65" rx="3" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1.2"/>
+      <text x="700" y="490" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="600" fill="#7bb8de">BF4</text>
+      <!-- BF4 → Memory and BMC short connectors -->
+      <line x1="660" y1="445" x2="660" y2="455" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="740" y1="445" x2="740" y2="455" stroke="#7bb8de" stroke-width="1.2"/>
+      <!-- 2x 400Gb ports -->
+      <rect x="625" y="540" width="65" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="657" y="551" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">Port</text>
+      <rect x="710" y="540" width="65" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="742" y="551" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">Port</text>
+      <!-- BF4 → ports -->
+      <line x1="657" y1="520" x2="657" y2="540" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="742" y1="520" x2="742" y2="540" stroke="#7bb8de" stroke-width="1.2"/>
+      <!-- Port outputs extend OUTSIDE the dotted tray box -->
+      <line x1="657" y1="562" x2="657" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <line x1="742" y1="562" x2="742" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="657" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+      <text x="742" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">400 GbE</text>
+
+      <!-- ===== BOTTOM: Module 4 — Orchid ===== -->
+      <rect x="810" y="395" width="180" height="240" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="900" y="411" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Orchid</text>
+      <rect x="870" y="425" width="60" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">E1.S</text>
+      <path d="M 885,447 L 885,475 L 882,475" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="817" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="849" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <rect x="918" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="950" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <line x1="849" y1="502" x2="849" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="950" y1="502" x2="950" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="820" y="555" width="160" height="32" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="900" y="571" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">OSFP</text>
+      <line x1="900" y1="587" x2="900" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="900" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">1.6 TbE</text>
+
+      <!-- ===== BOTTOM: Module 5 — Orchid ===== -->
+      <rect x="1010" y="395" width="180" height="240" rx="6" fill="none" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="1100" y="411" text-anchor="middle" font-size="12" font-weight="bold" fill="#7bb8de">Orchid</text>
+      <rect x="1070" y="425" width="60" height="22" rx="2" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1100" y="436" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">E1.S</text>
+      <path d="M 1085,447 L 1085,475 L 1082,475" fill="none" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="1017" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1049" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <rect x="1118" y="460" width="65" height="42" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1150" y="481" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="600" fill="#7bb8de">CX-9</text>
+      <line x1="1049" y1="502" x2="1049" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <line x1="1150" y1="502" x2="1150" y2="555" stroke="#7bb8de" stroke-width="1.2"/>
+      <rect x="1020" y="555" width="160" height="32" rx="3" fill="url(#panel-sw)" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1100" y="571" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="600" fill="#7bb8de">OSFP</text>
+      <line x1="1100" y1="587" x2="1100" y2="685" stroke="#7bb8de" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+      <text x="1100" y="703" text-anchor="middle" font-size="10" fill="#cfe4f7" font-weight="600">1.6 TbE</text>
+    </g>
+
+    <!-- ============================================ Option I — Hopper DGX H100 Server (block diagram) ============================================
+         Server-level diagram of a DGX H100: 2 Intel x86 CPUs each driving a PCIe Gen5 Switch hub
+         that connects to NVMe boot drives and a ConnectX-7 NIC; 8 ConnectX-7 Network Modules in two grouped trays;
+         8 H100 GPUs; 4 NVSwitches; bottom PCIe Gen5 Switch. -->
+    <g id="compute-hopper" style="display:none;">
+      <!-- Tray outline -->
+      <rect x="180" y="125" width="1040" height="540" stroke="#5fa3d4" stroke-width="1.2" stroke-dasharray="4 3" fill="none" rx="6"/>
+
+      <!-- ===== TOP ROW LEFT: NVMe x4 + PCIe Gen5 Switch (hub above CPU 0) + ConnectX-7 ===== -->
+      <!-- Left NVMe stack -->
+      <rect x="220" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="237" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="254" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="271" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="252" y="184" text-anchor="middle" font-size="8" fill="#cfe4f7">NVMe SSD x4</text>
+      <!-- NVMe → PCIe Gen5 Switch (PCIe line) -->
+      <line x1="290" y1="155" x2="395" y2="155" stroke="#7e57c2" stroke-width="1"/>
+      <!-- Left PCIe Gen5 Switch (hub) — sits above CPU 0 -->
+      <rect x="395" y="142" width="105" height="30" rx="3" fill="url(#panel)" stroke="#9575cd" stroke-width="1.2"/>
+      <text x="447" y="157" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#b39ddb" font-weight="600">PCIe Gen5 Switch</text>
+      <!-- ConnectX-7 → PCIe Gen5 Switch (PCIe line) -->
+      <line x1="510" y1="155" x2="500" y2="155" stroke="#7e57c2" stroke-width="1"/>
+      <!-- Left ConnectX-7 NIC (orange to match the 8 CX7 modules below) -->
+      <rect x="510" y="138" width="80" height="38" rx="3" fill="url(#panel)" stroke="#f5a623" stroke-width="1.2"/>
+      <text x="550" y="157" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="#f5a623" font-weight="600">ConnectX-7</text>
+      <!-- PCIe Gen5 Switch → CPU 0 (PCIe line going down) -->
+      <line x1="447" y1="172" x2="447" y2="200" stroke="#7e57c2" stroke-width="1"/>
+
+      <!-- ===== TOP ROW RIGHT: ConnectX-7 + PCIe Gen5 Switch (hub above CPU 1) + NVMe x4 (mirror) ===== -->
+      <!-- Right ConnectX-7 NIC (orange) -->
+      <rect x="810" y="138" width="80" height="38" rx="3" fill="url(#panel)" stroke="#f5a623" stroke-width="1.2"/>
+      <text x="850" y="157" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="#f5a623" font-weight="600">ConnectX-7</text>
+      <!-- ConnectX-7 → PCIe Gen5 Switch -->
+      <line x1="890" y1="155" x2="900" y2="155" stroke="#7e57c2" stroke-width="1"/>
+      <!-- Right PCIe Gen5 Switch (hub) -->
+      <rect x="900" y="142" width="105" height="30" rx="3" fill="url(#panel)" stroke="#9575cd" stroke-width="1.2"/>
+      <text x="952" y="157" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#b39ddb" font-weight="600">PCIe Gen5 Switch</text>
+      <!-- NVMe → PCIe Gen5 Switch -->
+      <line x1="1005" y1="155" x2="1110" y2="155" stroke="#7e57c2" stroke-width="1"/>
+      <!-- Right NVMe stack -->
+      <rect x="1110" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1127" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1144" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <rect x="1161" y="138" width="14" height="34" rx="1" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="1142" y="184" text-anchor="middle" font-size="8" fill="#cfe4f7">NVMe SSD x4</text>
+      <!-- PCIe Gen5 Switch → CPU 1 -->
+      <line x1="952" y1="172" x2="952" y2="200" stroke="#7e57c2" stroke-width="1"/>
+
+      <!-- ===== CPU ROW ===== -->
+      <!-- CPU 0 (Intel x86) — label inside the box -->
+      <rect x="395" y="200" width="100" height="65" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="445" y="232" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="bold" fill="#7bb8de">Intel x86</text>
+
+      <!-- Center Boot NVMe SSD + 50 GbE cluster — single attach point per Intel x86 -->
+      <rect x="585" y="215" width="90" height="35" rx="2" fill="#0e2440" stroke="#5fa3d4" stroke-width="1"/>
+      <text x="630" y="234" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#7cc46d" font-weight="600">Boot NVMe SSD</text>
+      <!-- 50 GbE NIC (with gap from Boot NVMe SSD) -->
+      <rect x="690" y="215" width="70" height="35" rx="3" fill="url(#panel)" stroke="#f48fb1" stroke-width="1.2"/>
+      <text x="725" y="234" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#f48fb1" font-weight="600">50 GbE</text>
+
+      <!-- CPU 1 (Intel x86) — label inside the box -->
+      <rect x="905" y="200" width="100" height="65" rx="3" fill="url(#panel)" stroke="#5fa3d4" stroke-width="1.5"/>
+      <text x="955" y="232" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="bold" fill="#7bb8de">Intel x86</text>
+
+      <!-- CPU communication line between CPU 0 and CPU 1 -->
+      <line x1="495" y1="232" x2="595" y2="232" stroke="#7fc8e3" stroke-width="2"/>
+      <line x1="775" y1="232" x2="905" y2="232" stroke="#7fc8e3" stroke-width="2"/>
+
+      <!-- CPU → Boot NVMe SSD + 50 GbE cluster (single attach point per Intel x86) -->
+      <line x1="495" y1="232" x2="585" y2="232" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="760" y1="232" x2="905" y2="232" stroke="#7e57c2" stroke-width="1"/>
+
+      <!-- ===== ConnectX-7 Network Module groups (8 CX7 boxes in 2 grouped trays) ===== -->
+      <!-- Left group -->
+      <rect x="290" y="295" width="380" height="42" rx="8" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="3 2"/>
+      <rect x="305" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="345" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="395" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="435" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="485" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="525" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="575" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="615" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <!-- Right group -->
+      <rect x="730" y="295" width="380" height="42" rx="8" fill="url(#panel-callout)" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="3 2"/>
+      <rect x="745" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="785" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="835" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="875" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="925" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="965" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+      <rect x="1015" y="302" width="80" height="28" rx="3" fill="url(#panel-sw)" stroke="#f5a623" stroke-width="1"/>
+      <text x="1055" y="316" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#f5a623" font-weight="700">CX7</text>
+
+      <!-- CPU 0 → left network module group (PCIe lines, fan-out) -->
+      <line x1="425" y1="265" x2="345" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="440" y1="265" x2="435" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="455" y1="265" x2="525" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="470" y1="265" x2="615" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <!-- CPU 1 → right network module group -->
+      <line x1="935" y1="265" x2="785" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="950" y1="265" x2="875" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="965" y1="265" x2="965" y2="295" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="980" y1="265" x2="1055" y2="295" stroke="#7e57c2" stroke-width="1"/>
+
+      <!-- ===== 8 GPUs ===== -->
+      <rect x="230" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="280" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 0</text>
+      <rect x="250" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="280" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="280" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="280" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="350" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="400" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 1</text>
+      <rect x="370" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="400" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="400" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="400" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="470" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="520" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 2</text>
+      <rect x="490" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="520" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="520" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="520" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="590" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="640" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 3</text>
+      <rect x="610" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="640" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="640" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="640" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="710" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="760" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 4</text>
+      <rect x="730" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="760" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="760" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="760" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="830" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="880" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 5</text>
+
+      <rect x="850" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="880" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="880" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="880" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="950" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="1000" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 6</text>
+      <rect x="970" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="1000" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="1000" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="1000" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+      <rect x="1070" y="375" width="100" height="90" rx="3" fill="url(#panel)" stroke="#5cb83e" stroke-width="1.2"/>
+      <text x="1120" y="395" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7cc46d" font-weight="bold">GPU 7</text>
+      <rect x="1090" y="415" width="60" height="32" rx="2" fill="url(#panel-callout)" stroke="#5cb83e" stroke-width="0.8"/>
+      <text x="1120" y="425" text-anchor="middle" font-size="9" font-weight="bold" fill="#7cc46d">HBM 3e</text>
+      <text x="1120" y="436" text-anchor="middle" font-size="9" fill="#7cc46d">141GB</text>
+      <text x="1120" y="445" text-anchor="middle" font-size="9" fill="#7cc46d">4.8TB/s</text>
+
+      <!-- Network Modules → GPUs (one PCIe line per GPU, from corresponding NM) -->
+      <line x1="345" y1="330" x2="280" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="435" y1="330" x2="400" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="525" y1="330" x2="520" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="615" y1="330" x2="640" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="785" y1="330" x2="760" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="875" y1="330" x2="880" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="965" y1="330" x2="1000" y2="375" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="1055" y1="330" x2="1120" y2="375" stroke="#7e57c2" stroke-width="1"/>
+
+      <!-- ===== NVLink mesh (all 8 GPUs to all 4 NVSwitches, faint) ===== -->
+      <g stroke="#a8d0ed" stroke-width="0.6" opacity="0.7" fill="none">
+        <line x1="280" y1="465" x2="400" y2="490"/>
+        <line x1="280" y1="465" x2="580" y2="490"/>
+        <line x1="280" y1="465" x2="800" y2="490"/>
+        <line x1="280" y1="465" x2="980" y2="490"/>
+        <line x1="400" y1="465" x2="400" y2="490"/>
+        <line x1="400" y1="465" x2="580" y2="490"/>
+        <line x1="400" y1="465" x2="800" y2="490"/>
+        <line x1="400" y1="465" x2="980" y2="490"/>
+        <line x1="520" y1="465" x2="400" y2="490"/>
+        <line x1="520" y1="465" x2="580" y2="490"/>
+        <line x1="520" y1="465" x2="800" y2="490"/>
+        <line x1="520" y1="465" x2="980" y2="490"/>
+        <line x1="640" y1="465" x2="400" y2="490"/>
+        <line x1="640" y1="465" x2="580" y2="490"/>
+        <line x1="640" y1="465" x2="800" y2="490"/>
+        <line x1="640" y1="465" x2="980" y2="490"/>
+        <line x1="760" y1="465" x2="400" y2="490"/>
+        <line x1="760" y1="465" x2="580" y2="490"/>
+        <line x1="760" y1="465" x2="800" y2="490"/>
+        <line x1="760" y1="465" x2="980" y2="490"/>
+        <line x1="880" y1="465" x2="400" y2="490"/>
+        <line x1="880" y1="465" x2="580" y2="490"/>
+        <line x1="880" y1="465" x2="800" y2="490"/>
+        <line x1="880" y1="465" x2="980" y2="490"/>
+        <line x1="1000" y1="465" x2="400" y2="490"/>
+        <line x1="1000" y1="465" x2="580" y2="490"/>
+        <line x1="1000" y1="465" x2="800" y2="490"/>
+        <line x1="1000" y1="465" x2="980" y2="490"/>
+        <line x1="1120" y1="465" x2="400" y2="490"/>
+        <line x1="1120" y1="465" x2="580" y2="490"/>
+        <line x1="1120" y1="465" x2="800" y2="490"/>
+        <line x1="1120" y1="465" x2="980" y2="490"/>
+      </g>
+
+      <!-- ===== 4 NVSwitches ===== -->
+      <rect x="320" y="490" width="160" height="48" rx="3" fill="#a4d6cf" stroke="#1d7e7e" stroke-width="1.5"/>
+      <text x="400" y="516" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#0d4d5e" font-weight="bold">NVSwitch</text>
+      <rect x="500" y="490" width="160" height="48" rx="3" fill="#a4d6cf" stroke="#1d7e7e" stroke-width="1.5"/>
+      <text x="580" y="516" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#0d4d5e" font-weight="bold">NVSwitch</text>
+      <rect x="720" y="490" width="160" height="48" rx="3" fill="#a4d6cf" stroke="#1d7e7e" stroke-width="1.5"/>
+      <text x="800" y="516" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#0d4d5e" font-weight="bold">NVSwitch</text>
+      <rect x="900" y="490" width="160" height="48" rx="3" fill="#a4d6cf" stroke="#1d7e7e" stroke-width="1.5"/>
+      <text x="980" y="516" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#0d4d5e" font-weight="bold">NVSwitch</text>
+
+      <!-- ===== Bottom PCIe Gen5 Switch ===== -->
+      <rect x="630" y="585" width="140" height="35" rx="3" fill="url(#panel)" stroke="#9575cd" stroke-width="1.2"/>
+      <text x="700" y="603" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="#b39ddb" font-weight="600">PCIe Gen5 Switch</text>
+
+      <!-- Bottom PCIe Sw → NVSwitches (PCIe lines) -->
+      <line x1="660" y1="585" x2="400" y2="538" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="680" y1="585" x2="580" y2="538" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="720" y1="585" x2="800" y2="538" stroke="#7e57c2" stroke-width="1"/>
+      <line x1="740" y1="585" x2="980" y2="538" stroke="#7e57c2" stroke-width="1"/>
+      <!-- Bottom PCIe Sw → CPUs (long PCIe lines) -->
+      <line x1="700" y1="585" x2="700" y2="480" stroke="#7e57c2" stroke-width="0.8" opacity="0.5"/>
+
+      <!-- ===== Outer dotted boxes for Network Interposer and HGX H100 (added last so labels render on top) ===== -->
+      <!-- Network Interposer (around the 8 CX7 Network Modules) -->
+      <rect x="280" y="290" width="840" height="50" rx="6" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="5 3" fill="none"/>
+      <text x="700" y="284" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7bb8de" font-weight="bold">Network Interposer</text>
+
+      <!-- HGX H100 (around the GPUs + NVSwitches + NVLink mesh). Box bottom sits roughly midway between NVSwitches and the bottom PCIe Switch. -->
+      <rect x="210" y="350" width="980" height="210" rx="6" stroke="#5fa3d4" stroke-width="1" stroke-dasharray="5 3" fill="none"/>
+      <!-- Label sits INSIDE the box (no longer overlapping the dotted border or the GPUs) -->
+      <text x="700" y="362" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#7bb8de" font-weight="bold">HGX H100</text>
+    </g>
+  
+      <!-- Right-side compute & switch summary callouts (generated by topology.js from CALLOUTS data) -->
+      <g id="right-callouts"></g>
+      <!-- Factory-rendered diagram container (first migrated diagram: option A / Rubin NVL72).
+           Populated by renderFromFactory(opt) when the data path is used; hidden otherwise. -->
+      <g id="factory-canvas" style="display:none;"></g>
+    </svg>
+
+  <!-- Category-tabbed button bar. Top row is the category tabs (Scale-Up / Compute / future).
+       Below each tab sits a panel of family-grouped buttons (Hopper → Blackwell → Rubin → Rubin Ultra).
+       See memory/topology-architecture.md § 5 (Button taxonomy) for the design. -->
+  <div class="controls">
+    <div class="category-tabs">
+      <button class="cat-tab active" data-cat="scale-up" onclick="setCategory('scale-up')">Scale-Up</button>
+      <button class="cat-tab"        data-cat="compute"  onclick="setCategory('compute')">Compute</button>
+      <!-- Reserved future tabs (hidden until a TOPOLOGIES record uses the category):
+      <button class="cat-tab" data-cat="scale-out" onclick="setCategory('scale-out')">Scale-Out</button>
+      <button class="cat-tab" data-cat="system"    onclick="setCategory('system')">System</button>
+      <button class="cat-tab" data-cat="component" onclick="setCategory('component')">Components</button>
+      -->
+    </div>
+
+    <!-- Scale-Up panel — visually matches Compute's 5-column layout (same family
+         label x-positions, no layout shift when toggling tabs). The Blackwell and
+         Blackwell Ultra family labels sit at their normal x-positions (same as in
+         Compute), but the NVL72 + NVL36×2 buttons (shared topology) are centered
+         between the two labels via a double-wide combined column. -->
+    <div class="category-panel" data-cat="scale-up">
+      <div class="family-group">
+        <div class="family-label">Hopper</div>
+        <button data-opt="E" onclick="setOption('E')">NVL8</button>
+      </div>
+      <div class="family-group double-wide">
+        <div class="family-labels-row">
+          <div class="family-label">Blackwell</div>
+          <div class="family-label">Blackwell Ultra</div>
+        </div>
+        <div class="shared-buttons">
+          <button data-opt="C" onclick="setOption('C')">NVL72</button>
+          <button data-opt="K" onclick="setOption('K')">NVL36×2</button>
+        </div>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Rubin</div>
+        <button data-opt="A" onclick="setOption('A')" class="selected">NVL72</button>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Rubin Ultra</div>
+        <button data-opt="B" onclick="setOption('B')">NVL72</button>
+        <button data-opt="D" onclick="setOption('D')">NVL144</button>
+      </div>
+    </div>
+
+    <!-- Compute panel — separate columns for Blackwell (GB200) and Blackwell Ultra
+         (GB300). Both use the same compute-blackwell static SVG; the NIC label and
+         output-bandwidth text swap at click-time via setOptionLegacy. -->
+    <div class="category-panel hidden" data-cat="compute">
+      <div class="family-group">
+        <div class="family-label">Hopper</div>
+        <button data-opt="I" onclick="setOption('I')">DGX H100</button>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Blackwell</div>
+        <button data-opt="L" onclick="setOption('L')">GB200</button>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Blackwell Ultra</div>
+        <button data-opt="F" onclick="setOption('F')">GB300</button>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Rubin</div>
+        <button data-opt="H" onclick="setOption('H')">Vera Rubin</button>
+      </div>
+      <div class="family-group">
+        <div class="family-label">Rubin Ultra</div>
+        <button data-opt="J" onclick="setOption('J')">Vera Rubin Ultra</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Category tab switching. Buttons in the inactive panel are hidden via CSS;
+    // clicking a tab simply reveals the corresponding panel. The currently-selected
+    // diagram button (.selected) keeps its highlight regardless of which tab is shown.
+    function setCategory(catId) {
+      document.querySelectorAll('.cat-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.cat === catId);
+      });
+      document.querySelectorAll('.category-panel').forEach(p => {
+        p.classList.toggle('hidden', p.dataset.cat !== catId);
+      });
+    }
+  </script>
+</div>
+<script src="topology.js"></script>
+</body>
+</html>
