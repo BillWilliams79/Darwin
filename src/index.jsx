@@ -152,12 +152,14 @@ root.render(
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
                                                          </AuthenticatedRoute>} />
-                    <Route path="systems" element= {<AuthenticatedRoute>
+                    {import.meta.env.DEV && <>
+                      <Route path="systems" element= {<AuthenticatedRoute>
                                                              <SystemsPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path="systems2" element= {<AuthenticatedRoute>
+                      <Route path="systems2" element= {<AuthenticatedRoute>
                                                              <SystemsPage2 />
                                                          </AuthenticatedRoute>} />
+                    </>}
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
               </Routes>
