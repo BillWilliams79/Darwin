@@ -48,6 +48,7 @@ import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SystemsPage from './Systems/SystemsPage';
+import SystemsPage2 from './Systems/SystemsPage2';
 import AgentsPage from './Agents/AgentsPage';
 import AgentDetail from './Agents/AgentDetail';
 
@@ -159,9 +160,14 @@ root.render(
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
                                                          </AuthenticatedRoute>} />
-                    <Route path="systems" element= {<AuthenticatedRoute>
+                    {import.meta.env.DEV && <>
+                      <Route path="systems" element= {<AuthenticatedRoute>
                                                              <SystemsPage />
                                                          </AuthenticatedRoute>} />
+                      <Route path="systems2" element= {<AuthenticatedRoute>
+                                                             <SystemsPage2 />
+                                                         </AuthenticatedRoute>} />
+                    </>}
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
               </Routes>
