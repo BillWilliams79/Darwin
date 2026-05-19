@@ -105,6 +105,15 @@ export const mapRunPartnerKeys = {
     all: (creatorFk) => ['map_run_partners', creatorFk],
 };
 
+// Req #2496 — Agents 2.0. body_markdown + frontmatter_json are huge, so the
+// list query never fetches them; the detail page hits an id-keyed query.
+// `fields` is included in the list-key so a future caller asking for a
+// different projection doesn't collide on the same cache entry (req #2213).
+export const agentKeys = {
+    all: (creatorFk) => ['agents', creatorFk],
+    byId: (creatorFk, id) => ['agents', creatorFk, { id }],
+};
+
 // Req #2380 — Swarm Features & Test Cases registry. `fields` must appear in the
 // extended key (req #2213) so two callers with different projections don't collide.
 
