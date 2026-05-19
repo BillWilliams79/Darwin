@@ -50,7 +50,11 @@
 .ts-sidewalk-panel {
     flex: 0 0 auto;
     min-width: 0;
-    overflow: hidden;
+    /* req #2504 follow-up: visible so chips at panel edges (00:00 / 23:59
+       boundaries) can render past the panel box. The .ts-sidewalk parent
+       still has overflow:hidden so the strip itself doesn't bleed onto the
+       page. */
+    overflow: visible;
 }
 .ts-sidewalk-panel .ts-bead {
     min-width: 0;              /* override BeadRow's 720px so it shrinks into the panel */
@@ -81,7 +85,8 @@
 .ts-elevator-panel {
     flex: 0 0 auto;
     min-height: 0;
-    overflow: hidden;
+    /* req #2504 follow-up: visible (matches .ts-sidewalk-panel rationale). */
+    overflow: visible;
 }
 .ts-elevator-panel .ts-bead {
     min-width: 0;              /* override BeadRow's 720px so it shrinks into the panel */
@@ -103,7 +108,12 @@
     min-width: 720px;
     padding: 0 16px;
     border-radius: 8px;
-    overflow: hidden;
+    /* req #2504 follow-up: visible so chips and SVG strokes/circles at the
+       day-boundary edges (00:00 / 23:59) render fully instead of half-clipping
+       into the panel chrome. Parent containers (.ts-rows / .ts-sidewalk-panel /
+       .ts-elevator-panel) all have overflow:visible too; the OUTER scrollers
+       (.ts-sidewalk / .ts-elevator) still clip the strip as a whole. */
+    overflow: visible;
 }
 .ts-bead-36h {
     background: linear-gradient(to right,

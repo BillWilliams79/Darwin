@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
 import { useSwarmVisualizerStore } from '../stores/useSwarmVisualizerStore';
-import { useRequirementsDone, useSessions, useAllCategories } from '../hooks/useDataQueries';
+import {
+    useRequirementsDone, useSessions, useAllCategories,
+    useAllSwarmStarts, useAllSwarmStartSessions,
+    useAllRequirements,
+} from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
 
@@ -65,6 +69,23 @@ const SwarmVisualizerView = () => {
     const { data: categoryList = [] } = useAllCategories(
         profile?.userName, { fields: 'id,category_name,color,sort_order' }
     );
+    // Real swarm-start data (req #2504). The list query is small (bounded TEXT
+    // blobs) and globally scoped per user; junction rows are tiny FK pairs.
+    // Small projection for the visualizer — we only need id, started_at,
+    // session_count, wall_seconds, arguments for cluster + tooltip display.
+    const { data: swarmStarts = [] } = useAllSwarmStarts(
+        profile?.userName,
+        { fields: 'id,started_at,session_count,wall_seconds,turn_count,auto_start,arguments,autonomy_filter' },
+    );
+    const { data: swarmStartSessions = [] } = useAllSwarmStartSessions(profile?.userName);
+    // All requirements (any status) — needed so in-progress phantoms can render
+    // the same datacard shape as completed bubbles (req #2504). Small projection
+    // keeps the payload tight; the visualizer only consumes id/title/category/
+    // coordination/status.
+    const { data: allRequirements = [] } = useAllRequirements(
+        profile?.userName,
+        { fields: 'id,title,category_fk,coordination_type,requirement_status,completed_at,started_at' },
+    );
 
     // Scroll restore — visualizer-specific key so the saved position never
     // leaks into /calview (which has its own `calview_scrollY`).
@@ -92,7 +113,10 @@ const SwarmVisualizerView = () => {
         <div>
             <TimeSeriesView
                 requirements={requirements}
+                allRequirements={allRequirements}
                 sessions={sessions}
+                swarmStarts={swarmStarts}
+                swarmStartSessions={swarmStartSessions}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 beadWindow={beadWindow}

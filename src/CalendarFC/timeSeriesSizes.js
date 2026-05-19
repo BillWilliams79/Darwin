@@ -175,3 +175,102 @@ export function clusterSessionsByStartTime(sessions, thresholdMs = SWARM_CLUSTER
     return { canonical, clusterSize };
 }
 
+// ── Swarm-start-aware clustering (req #2504) ──────────────────────────────────
+// Prefer real `swarm_starts` data: when a session is linked to a swarm_start row
+// via the swarm_start_sessions junction, group by swarm_start_id (authoritative)
+// and use swarm_starts.started_at as the canonical alignment X. Fall back to the
+// time-window heuristic from clusterSessionsByStartTime() only for sessions
+// without a junction row, or whose junction row points at a missing swarm_start.
+//
+// Returns:
+//   canonical          — Map<sessionId, ISO started_at> (swarm_start.started_at when real,
+//                         else the cluster's earliest session start).
+//   clusterSize        — Map<sessionId, count>.
+//   swarmStartIdById   — Map<sessionId, swarm_start_id | null>. null = estimated.
+//   swarmStartById     — Map<sessionId, swarm_start_row | null>. The full row, for
+//                         tooltip rendering (id, session_count, wall_seconds, args, …).
+//
+// Rationale: req #2504 — the visualizer must use real swarm_start data when
+// available. Old sessions without a junction row continue to render via the
+// time-window heuristic so historical data still produces aligned clusters.
+export function clusterSessionsBySwarmStart(
+    sessions,
+    swarmStartSessions,
+    swarmStarts,
+    thresholdMs = SWARM_CLUSTER_WINDOW_MS,
+) {
+    const canonical = new Map();
+    const clusterSize = new Map();
+    const swarmStartIdById = new Map();
+    const swarmStartById = new Map();
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        return { canonical, clusterSize, swarmStartIdById, swarmStartById };
+    }
+
+    // Junction lookup: sessionId → swarm_start_fk.
+    const sessionToStartFk = new Map();
+    if (Array.isArray(swarmStartSessions)) {
+        for (const j of swarmStartSessions) {
+            if (j == null) continue;
+            const sid = j.session_fk;
+            const fk  = j.swarm_start_fk;
+            if (sid == null || fk == null) continue;
+            sessionToStartFk.set(String(sid), String(fk));
+        }
+    }
+
+    // swarm_start_id → swarm_start row.
+    const startById = new Map();
+    if (Array.isArray(swarmStarts)) {
+        for (const ss of swarmStarts) {
+            if (ss == null || ss.id == null) continue;
+            startById.set(String(ss.id), ss);
+        }
+    }
+
+    // Partition sessions: those that have a usable swarm_start (junction + row +
+    // started_at) cluster by swarm_start_fk; everything else falls through to
+    // the legacy time-window estimator.
+    const realByFk = new Map();          // swarm_start_fk → [session]
+    const fallbackSessions = [];
+    for (const s of sessions) {
+        if (!s || s.id == null) continue;
+        const sid = String(s.id);
+        const fk  = sessionToStartFk.get(sid);
+        if (fk != null) {
+            const row = startById.get(fk);
+            if (row && row.started_at) {
+                if (!realByFk.has(fk)) realByFk.set(fk, []);
+                realByFk.get(fk).push(s);
+                continue;
+            }
+        }
+        fallbackSessions.push(s);
+    }
+
+    // Real clusters — canonical is the swarm_start row's started_at.
+    for (const [fk, members] of realByFk.entries()) {
+        const row = startById.get(fk);
+        const startedAt = row.started_at;
+        for (const s of members) {
+            const sid = String(s.id);
+            canonical.set(sid, startedAt);
+            clusterSize.set(sid, members.length);
+            swarmStartIdById.set(sid, row.id);
+            swarmStartById.set(sid, row);
+        }
+    }
+
+    // Fallback — legacy time-window clustering on the un-linked remainder.
+    const { canonical: estCanonical, clusterSize: estSize } =
+        clusterSessionsByStartTime(fallbackSessions, thresholdMs);
+    for (const [sid, t] of estCanonical) {
+        canonical.set(sid, t);
+        clusterSize.set(sid, estSize.get(sid) || 1);
+        swarmStartIdById.set(sid, null);
+        swarmStartById.set(sid, null);
+    }
+
+    return { canonical, clusterSize, swarmStartIdById, swarmStartById };
+}
+

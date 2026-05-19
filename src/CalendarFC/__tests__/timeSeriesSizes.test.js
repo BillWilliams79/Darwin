@@ -8,7 +8,7 @@ import {
     VIZ_KEYS, DEFAULT_VIZ,
     SPACE_KEYS, DEFAULT_SPACE, SPACE_MULTIPLIERS, getSpaceMultiplier,
     ZOOM_KEYS, DEFAULT_ZOOM, ZOOM_HOURS, getZoomHours,
-    SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime,
+    SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime, clusterSessionsBySwarmStart,
     DATA_KEYS, DEFAULT_DATA_KEY, COORDINATION_COLORS,
     COORDINATION_FALLBACK_COLOR, getCoordinationColor,
 } from '../timeSeriesSizes';
@@ -562,6 +562,17 @@ describe('swarmStartBarX (vertical start-tick positioning)', () => {
         });
     });
 
+    describe('markerMode=inprogress (req #2504 phantom chips)', () => {
+        it('renders at startPct just like normal mode', () => {
+            expect(swarmStartBarX('inprogress', 75, 30, GAP)).toBe('30%');
+            expect(swarmStartBarX('inprogress', 50, 0, GAP)).toBe('0%');
+        });
+        it('returns null when startPct is missing', () => {
+            expect(swarmStartBarX('inprogress', 50, null, GAP)).toBeNull();
+            expect(swarmStartBarX('inprogress', 50, undefined, GAP)).toBeNull();
+        });
+    });
+
     describe('markerMode=normal', () => {
         it('renders at startPct for a distant start (cluster alignment, req #2341)', () => {
             // Gap = 50 - 40 = 10% — obviously well clear of the bubble.
@@ -726,6 +737,65 @@ describe('assignSwarmLanes (Swarm Visualizer lane order)', () => {
             ];
             expect(assignSwarmLanes(input).map(c => c.chipKey)).toEqual(['a', 'c']);
             expect(assignSwarmLanes(input, false).map(c => c.chipKey)).toEqual(['a', 'c']);
+        });
+    });
+
+    // groupKey-based clustering — req #2504. Chips sharing a groupKey (canonical
+    // swarm-start time / cluster start) sit in contiguous rows. Within a group,
+    // sort by completed_at. Between groups, sort by groupKey.
+    describe('groupKey clustering (req #2504)', () => {
+        const mk = (id, t, groupKey) => ({ chipKey: id, completed_at: t, groupKey });
+
+        it('chips with the same groupKey are contiguous, sorted by completed_at within', () => {
+            // Two swarm-starts: GA at 09:00 and GB at 12:00. Each has 3 chips
+            // completed at different times scattered across the day.
+            const input = [
+                mk('a1', '2026-04-17 11:00:00', '2026-04-17 09:00:00'),
+                mk('b1', '2026-04-17 13:00:00', '2026-04-17 12:00:00'),
+                mk('a2', '2026-04-17 09:30:00', '2026-04-17 09:00:00'),
+                mk('b2', '2026-04-17 18:00:00', '2026-04-17 12:00:00'),
+                mk('a3', '2026-04-17 15:00:00', '2026-04-17 09:00:00'),
+                mk('b3', '2026-04-17 12:30:00', '2026-04-17 12:00:00'),
+            ];
+            const out = assignSwarmLanes(input);
+            // GA chips contiguous (rows 0-2) sorted by completed_at, then GB (rows 3-5).
+            expect(out.map(c => c.chipKey)).toEqual(['a2', 'a1', 'a3', 'b3', 'b1', 'b2']);
+        });
+
+        it('topDown reverses both group order AND within-group order', () => {
+            const input = [
+                mk('a1', '2026-04-17 11:00:00', '2026-04-17 09:00:00'),
+                mk('b1', '2026-04-17 13:00:00', '2026-04-17 12:00:00'),
+                mk('a2', '2026-04-17 09:30:00', '2026-04-17 09:00:00'),
+                mk('b2', '2026-04-17 18:00:00', '2026-04-17 12:00:00'),
+            ];
+            const out = assignSwarmLanes(input, true);
+            // GB first (later groupKey), with b2 first (later completion), then GA.
+            expect(out.map(c => c.chipKey)).toEqual(['b2', 'b1', 'a1', 'a2']);
+        });
+
+        it('chips without groupKey fall through to completed_at sort (backward compat)', () => {
+            // No groupKey on any chip → same behavior as before req #2504.
+            const input = [
+                { chipKey: 'c', completed_at: '2026-04-17 18:00:00' },
+                { chipKey: 'a', completed_at: '2026-04-17 09:00:00' },
+                { chipKey: 'b', completed_at: '2026-04-17 12:00:00' },
+            ];
+            expect(assignSwarmLanes(input).map(c => c.chipKey)).toEqual(['a', 'b', 'c']);
+        });
+
+        it('mixed: chips with groupKey cluster, ungrouped chips sort to one end', () => {
+            // Empty groupKey ('') sorts BEFORE any real ISO timestamp ASCII-wise,
+            // so ungrouped chips land at rows 0..N first (top of the stack in
+            // Day/Week, closest to the wire).
+            const input = [
+                mk('a1', '2026-04-17 11:00:00', '2026-04-17 09:00:00'),
+                { chipKey: 'lone1', completed_at: '2026-04-17 14:00:00' },
+                mk('a2', '2026-04-17 09:30:00', '2026-04-17 09:00:00'),
+                { chipKey: 'lone2', completed_at: '2026-04-17 10:00:00' },
+            ];
+            const out = assignSwarmLanes(input);
+            expect(out.map(c => c.chipKey)).toEqual(['lone2', 'lone1', 'a2', 'a1']);
         });
     });
 });
@@ -929,5 +999,145 @@ describe('Data selection — Coordination palette (req #2382)', () => {
         expect(getCoordinationColor(undefined)).toBe('#E53935');
         expect(getCoordinationColor('')).toBe('#E53935');
         expect(getCoordinationColor('unknown')).toBe('#E53935');
+    });
+});
+
+// ─── clusterSessionsBySwarmStart (req #2504 — real swarm_start data wins) ──────
+describe('clusterSessionsBySwarmStart', () => {
+    const mkS = (id, startedAt) => ({ id, started_at: startedAt });
+    const mkJ = (sessionFk, swarmStartFk) => ({ session_fk: sessionFk, swarm_start_fk: swarmStartFk });
+    const mkSS = (id, startedAt, extras = {}) => ({ id, started_at: startedAt, ...extras });
+
+    it('returns empty maps for null / empty session input', () => {
+        for (const v of [null, undefined, []]) {
+            const r = clusterSessionsBySwarmStart(v, [], []);
+            expect(r.canonical.size).toBe(0);
+            expect(r.clusterSize.size).toBe(0);
+            expect(r.swarmStartIdById.size).toBe(0);
+            expect(r.swarmStartById.size).toBe(0);
+        }
+    });
+
+    it('three sessions linked to one swarm_start cluster on the swarm_start.started_at, regardless of session times', () => {
+        const sessions = [
+            mkS(1, '2026-05-01T09:01:00Z'),
+            mkS(2, '2026-05-01T09:02:30Z'),
+            mkS(3, '2026-05-01T09:00:30Z'),
+        ];
+        const junction = [mkJ(1, 100), mkJ(2, 100), mkJ(3, 100)];
+        const starts = [mkSS(100, '2026-05-01T09:00:00Z', { session_count: 3 })];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+        // canonical = swarm_start.started_at, NOT the earliest session.
+        expect(r.canonical.get('1')).toBe('2026-05-01T09:00:00Z');
+        expect(r.canonical.get('2')).toBe('2026-05-01T09:00:00Z');
+        expect(r.canonical.get('3')).toBe('2026-05-01T09:00:00Z');
+        expect(r.clusterSize.get('1')).toBe(3);
+        expect(r.swarmStartIdById.get('1')).toBe(100);
+        expect(r.swarmStartById.get('2').session_count).toBe(3);
+    });
+
+    it('mixes real-data sessions and unlinked sessions correctly', () => {
+        const sessions = [
+            mkS(1, '2026-05-01T09:00:00Z'),
+            mkS(2, '2026-05-01T09:01:00Z'),
+            mkS(3, '2026-05-01T15:00:00Z'),  // unlinked, far from real cluster
+        ];
+        const junction = [mkJ(1, 100), mkJ(2, 100)];
+        const starts = [mkSS(100, '2026-05-01T08:59:00Z')];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+
+        // Real cluster — canonical from swarm_start.
+        expect(r.canonical.get('1')).toBe('2026-05-01T08:59:00Z');
+        expect(r.canonical.get('2')).toBe('2026-05-01T08:59:00Z');
+        expect(r.swarmStartIdById.get('1')).toBe(100);
+        expect(r.swarmStartIdById.get('2')).toBe(100);
+        expect(r.clusterSize.get('1')).toBe(2);
+
+        // Unlinked — falls through to legacy time-window clustering as a singleton.
+        expect(r.canonical.get('3')).toBe('2026-05-01T15:00:00Z');
+        expect(r.swarmStartIdById.get('3')).toBe(null);
+        expect(r.swarmStartById.get('3')).toBe(null);
+        expect(r.clusterSize.get('3')).toBe(1);
+    });
+
+    it('junction row pointing at a missing swarm_start falls through to time clustering', () => {
+        const sessions = [
+            mkS(1, '2026-05-01T09:00:00Z'),
+            mkS(2, '2026-05-01T09:01:00Z'),
+        ];
+        const junction = [mkJ(1, 999), mkJ(2, 999)];   // FK 999 has no row
+        const starts = [];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+        // Both sessions are <3 min apart → time-window clusters them with canonical = earliest.
+        expect(r.canonical.get('1')).toBe('2026-05-01T09:00:00Z');
+        expect(r.canonical.get('2')).toBe('2026-05-01T09:00:00Z');
+        expect(r.clusterSize.get('1')).toBe(2);
+        expect(r.swarmStartIdById.get('1')).toBe(null);
+        expect(r.swarmStartIdById.get('2')).toBe(null);
+    });
+
+    it('swarm_start row with null started_at is treated as missing — falls through to time clustering', () => {
+        const sessions = [
+            mkS(1, '2026-05-01T09:00:00Z'),
+            mkS(2, '2026-05-01T09:01:00Z'),
+        ];
+        const junction = [mkJ(1, 100), mkJ(2, 100)];
+        const starts = [mkSS(100, null)];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+        expect(r.swarmStartIdById.get('1')).toBe(null);
+        expect(r.swarmStartIdById.get('2')).toBe(null);
+        expect(r.canonical.get('1')).toBe('2026-05-01T09:00:00Z');
+        expect(r.clusterSize.get('1')).toBe(2);
+    });
+
+    it('with no swarm_starts at all, behaves identically to clusterSessionsByStartTime for canonical/size', () => {
+        const sessions = [
+            mkS(1, '2026-05-01T09:00:00Z'),
+            mkS(2, '2026-05-01T09:02:00Z'),
+            mkS(3, '2026-05-01T10:00:00Z'),
+        ];
+        const r = clusterSessionsBySwarmStart(sessions, [], []);
+        const legacy = clusterSessionsByStartTime(sessions);
+        for (const sid of ['1', '2', '3']) {
+            expect(r.canonical.get(sid)).toBe(legacy.canonical.get(sid));
+            expect(r.clusterSize.get(sid)).toBe(legacy.clusterSize.get(sid));
+            expect(r.swarmStartIdById.get(sid)).toBe(null);
+            expect(r.swarmStartById.get(sid)).toBe(null);
+        }
+    });
+
+    it('two distinct swarm_starts produce two distinct clusters even when session times overlap', () => {
+        // Two real swarm-starts whose member sessions have interleaved started_at —
+        // the junction is authoritative and must not merge them.
+        const sessions = [
+            mkS(1, '2026-05-01T09:00:00Z'),
+            mkS(2, '2026-05-01T09:00:30Z'),
+            mkS(3, '2026-05-01T09:01:00Z'),
+            mkS(4, '2026-05-01T09:01:30Z'),
+        ];
+        const junction = [mkJ(1, 100), mkJ(3, 100), mkJ(2, 200), mkJ(4, 200)];
+        const starts = [
+            mkSS(100, '2026-05-01T08:55:00Z'),
+            mkSS(200, '2026-05-01T08:50:00Z'),
+        ];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+        expect(r.canonical.get('1')).toBe('2026-05-01T08:55:00Z');
+        expect(r.canonical.get('3')).toBe('2026-05-01T08:55:00Z');
+        expect(r.canonical.get('2')).toBe('2026-05-01T08:50:00Z');
+        expect(r.canonical.get('4')).toBe('2026-05-01T08:50:00Z');
+        expect(r.clusterSize.get('1')).toBe(2);
+        expect(r.clusterSize.get('2')).toBe(2);
+        expect(r.swarmStartIdById.get('1')).toBe(100);
+        expect(r.swarmStartIdById.get('2')).toBe(200);
+    });
+
+    it('handles malformed junction rows (null fields) gracefully', () => {
+        const sessions = [mkS(1, '2026-05-01T09:00:00Z')];
+        const junction = [{ session_fk: null, swarm_start_fk: 100 }, { session_fk: 1, swarm_start_fk: null }, null];
+        const starts = [mkSS(100, '2026-05-01T08:59:00Z')];
+        const r = clusterSessionsBySwarmStart(sessions, junction, starts);
+        // Session 1 has no usable junction → falls through to time clustering.
+        expect(r.canonical.get('1')).toBe('2026-05-01T09:00:00Z');
+        expect(r.swarmStartIdById.get('1')).toBe(null);
     });
 });
