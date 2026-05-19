@@ -12,6 +12,7 @@ import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -41,6 +42,7 @@ export const NAV_LINKS = [
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm' },
     { path: '/swarm/testruns', label: 'Test Runs', icon: PlayCircleIcon, group: 'swarm' },
+    { path: '/swarm/agents', label: 'Agents', icon: SmartToyIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
 ];
 
