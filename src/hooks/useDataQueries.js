@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, agentKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -295,6 +295,42 @@ export function useAllSwarmStartSessions(creatorFk, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// Req #2496 — Agents 2.0. body_markdown/frontmatter_json deliberately excluded
+// from the list query (10s of KB each). Detail page hits useAgent(id) for full.
+const AGENT_LIST_FIELDS =
+    'id,darwin_id,name,description,model,tools_csv,file_path,closed,sort_order,update_ts';
+
+export function useAllAgents(creatorFk, { fields = AGENT_LIST_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/agents?closed=0&fields=${fields}&sort=name:asc`;
+    const queryKey = [...agentKeys.all(creatorFk), { fields }];
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAgent(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/agents?id=${id}`;
+    const queryKey = agentKeys.byId(creatorFk, id);
+
+    return useQuery({
+        queryKey,
+        queryFn: async () => {
+            const data = await fetchEntity(uri, idToken);
+            return data.length > 0 ? data[0] : null;
+        },
+        enabled: enabled && !!creatorFk && !!id && !!idToken,
     });
 }
 
