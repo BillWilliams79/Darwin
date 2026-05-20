@@ -39,8 +39,16 @@ function topologyDevAssets() {
     path.resolve(darwinRoot, '..', 'Topology'),
     path.resolve(darwinRoot, '..', '..', 'Topology'),
   ].filter(Boolean)
+  // Require the candidate to be a directory AND contain the systems2 entrypoint.
+  // An empty/uninitialized submodule directory satisfies isDirectory() but lacks
+  // the asset payload, causing every /systems* request to silently 404. Probing
+  // the actual entrypoint file lets the loop fall through to the next candidate
+  // (typically the canonical $HOME/Projects/DarwinAI/Topology clone). Req #2519.
   const topologyPath = candidates.find(p => {
-    try { return fs.statSync(p).isDirectory() } catch { return false }
+    try {
+      if (!fs.statSync(p).isDirectory()) return false
+      return fs.statSync(path.join(p, 'systems2', 'nvlink_topology.html')).isFile()
+    } catch { return false }
   })
 
   const MIME = {
