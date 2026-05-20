@@ -34,8 +34,7 @@ export const NAV_LINKS = [
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'calendar' },
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     ...(import.meta.env.DEV ? [
-        { path: '/systems', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
-        { path: '/systems2', label: 'NVLink2', icon: AccountTreeIcon, group: 'systems' },
+        { path: '/systems2', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
     ] : []),
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
