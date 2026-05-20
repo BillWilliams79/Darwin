@@ -28,10 +28,10 @@ function devserverMarker() {
   }
 }
 
-// Dev-only: mount the private Topology repo's systems/ and systems2/ subdirs
-// on /systems/* and /systems2/* URLs. `apply: 'serve'` excludes this plugin
-// (and therefore the asset payload) from `vite build`, so production bundles
-// have zero topology content. See req #2521.
+// Dev-only: mount the private Topology repo's systems2/ subdir on /systems2/*.
+// `apply: 'serve'` excludes this plugin (and therefore the asset payload) from
+// `vite build`, so production bundles have zero topology content. See req #2521.
+// V1 (systems/ subdir, /systems route) was retired in req #2525.
 function topologyDevAssets() {
   const darwinRoot = import.meta.dirname
   const candidates = [
@@ -41,7 +41,7 @@ function topologyDevAssets() {
   ].filter(Boolean)
   // Require the candidate to be a directory AND contain the systems2 entrypoint.
   // An empty/uninitialized submodule directory satisfies isDirectory() but lacks
-  // the asset payload, causing every /systems* request to silently 404. Probing
+  // the asset payload, causing every /systems2 request to silently 404. Probing
   // the actual entrypoint file lets the loop fall through to the next candidate
   // (typically the canonical $HOME/Projects/DarwinAI/Topology clone). Req #2519.
   const topologyPath = candidates.find(p => {
@@ -68,16 +68,16 @@ function topologyDevAssets() {
     configureServer(server) {
       if (!topologyPath) {
         server.config.logger.warn(
-          '[topology-dev-assets] no Topology clone found; /systems* routes will 404. ' +
+          '[topology-dev-assets] no Topology clone found; /systems2 routes will 404. ' +
           'Set TOPOLOGY_PATH or clone https://github.com/BillWilliams79/Topology to ~/Projects/DarwinAI/Topology/.'
         )
         return
       }
-      server.config.logger.info(`[topology-dev-assets] serving /systems and /systems2 from ${topologyPath}`)
+      server.config.logger.info(`[topology-dev-assets] serving /systems2 from ${topologyPath}`)
 
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
-        const match = url.match(/^\/(systems2?)(?:\/(.*?))?(?:\?.*)?$/)
+        const match = url.match(/^\/(systems2)(?:\/(.*?))?(?:\?.*)?$/)
         if (!match) return next()
         const subdir = match[1]
         const rest = match[2] || 'nvlink_topology.html'
