@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
 
@@ -38,6 +39,12 @@ function topologyDevAssets() {
     process.env.TOPOLOGY_PATH,
     path.resolve(darwinRoot, '..', 'Topology'),
     path.resolve(darwinRoot, '..', '..', 'Topology'),
+    // Canonical clone location. Needed by the primary Claude session, whose
+    // Darwin/ is a symlink to /Users/billw/Desktop/darwin — `darwinRoot` resolves
+    // through the symlink, so the relative candidates land in Desktop/ and miss
+    // the real clone at ~/Projects/DarwinAI/Topology/. Workers don't need this
+    // (their Darwin/ is a real worktree dir → two-up already resolves correctly).
+    path.resolve(os.homedir(), 'Projects', 'DarwinAI', 'Topology'),
   ].filter(Boolean)
   // Require the candidate to be a directory AND contain the systems2 entrypoint.
   // An empty/uninitialized submodule directory satisfies isDirectory() but lacks
