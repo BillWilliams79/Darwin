@@ -80,7 +80,16 @@ function topologyDevAssets() {
         const match = url.match(/^\/(systems2)(?:\/(.*?))?(?:\?.*)?$/)
         if (!match) return next()
         const subdir = match[1]
-        const rest = match[2] || 'nvlink_topology.html'
+        const rest = match[2]
+        // Bare /systems2 (or /systems2/) must fall through to the SPA router so
+        // React's SystemsPage2 mounts the topology inside the Darwin app shell
+        // (navbar + auth). Without this guard, hitting /systems2 directly or
+        // hard-refreshing the React route bypassed React entirely and served the
+        // raw topology HTML, making the Darwin navbar disappear (req #2524). The
+        // middleware now only serves explicit /systems2/<filename> asset paths;
+        // SystemsPage2.jsx's iframe targets /systems2/nvlink_topology.html so the
+        // topology still loads via this middleware.
+        if (!rest) return next()
         // Path-traversal guard: reject any segment that resolves to ".."
         if (rest.split('/').some(seg => seg === '..' || seg === '')) return next()
 
@@ -100,6 +109,13 @@ function topologyDevAssets() {
         const ext = path.extname(filePath).toLowerCase()
         res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream')
         res.setHeader('Content-Length', stat.size)
+        // Disable browser caching for Topology assets in dev (req #2524). Without this,
+        // edits to nvlink_topology.html / styles.css / topology.js are masked by the
+        // browser's stale cache on plain Cmd+R reloads — the symptom was an unstyled
+        // navbar (stale styles.css) requiring tab close+reopen. The middleware doesn't
+        // participate in Vite's HMR (the Topology repo lives outside Vite's module
+        // graph), so manual reload is the iteration loop and it must serve fresh files.
+        res.setHeader('Cache-Control', 'no-store')
         fs.createReadStream(filePath).pipe(res)
       })
     },
