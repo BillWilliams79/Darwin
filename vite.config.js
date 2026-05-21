@@ -74,9 +74,17 @@ function topologyDevAssets() {
     apply: 'serve',
     configureServer(server) {
       if (!topologyPath) {
-        server.config.logger.warn(
+        // Error (not warn) so the message renders in red and survives runs
+        // configured with `logLevel: 'warn'` or stricter — a silent warn
+        // previously hid the failure until users hit a broken iframe. Options:
+        // `clear: false` skips clearing the current screen on emit; `timestamp:
+        // true` adds a time prefix that anchors the failure in time. Neither
+        // option immunizes against future log lines, but error-level + red is
+        // visually loud enough to catch on next glance. See req #2540.
+        server.config.logger.error(
           '[topology-dev-assets] no Topology clone found; /systems2 routes will 404. ' +
-          'Set TOPOLOGY_PATH or clone https://github.com/BillWilliams79/Topology to ~/Projects/DarwinAI/Topology/.'
+          'Set TOPOLOGY_PATH or clone https://github.com/BillWilliams79/Topology to ~/Projects/DarwinAI/Topology/.',
+          { clear: false, timestamp: true }
         )
         return
       }
