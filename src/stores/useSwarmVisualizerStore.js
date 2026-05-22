@@ -12,6 +12,7 @@ export const useSwarmVisualizerStore = create(
             sidewalkOn: false,           // horizontal 21-day strip (day view)
             elevatorOn: false,           // vertical 21-day strip (week view) — req #2383
             dataKey: 'category',         // 'category' | 'coordination' — req #2382
+            titlesOn: false,             // show requirement title to right of bubble — req #2556
 
             setViewType: (viewType) => set({ viewType }),
             setCurrentDate: (currentDate) => set({ currentDate }),
@@ -21,15 +22,18 @@ export const useSwarmVisualizerStore = create(
             setElevatorOn: (on) => set({ elevatorOn: !!on }),
             setDataKey: (key) =>
                 set({ dataKey: key === 'coordination' ? 'coordination' : 'category' }),
+            setTitlesOn: (on) => set({ titlesOn: !!on }),
         }),
         {
             name: 'darwin_swarm_visualizer',
-            version: 2,
+            version: 3,
             migrate: (persisted, version) => ({
                 ...persisted,
                 // v1 → v2: req #2383 elevatorOn, req #2382 dataKey.
                 elevatorOn: persisted.elevatorOn ?? false,
                 dataKey: persisted.dataKey === 'coordination' ? 'coordination' : 'category',
+                // v2 → v3: req #2556 titlesOn.
+                titlesOn: persisted.titlesOn ?? false,
             }),
         }
     )
