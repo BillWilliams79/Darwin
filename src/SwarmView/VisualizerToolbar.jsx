@@ -46,6 +46,7 @@ const VisualizerToolbar = () => {
     const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
+    const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setVizKey      = useSwarmVisualizerStore(s => s.setVizKey);
@@ -53,6 +54,7 @@ const VisualizerToolbar = () => {
     const setSidewalkOn  = useSwarmVisualizerStore(s => s.setSidewalkOn);
     const setElevatorOn  = useSwarmVisualizerStore(s => s.setElevatorOn);
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
+    const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
 
     const isWeekView = viewType === 'week';
     const todayStr = useMemo(() => localDateStr(), []);
@@ -99,6 +101,10 @@ const VisualizerToolbar = () => {
     const handleCoordinationClick = useCallback(() => {
         setDataKey(dataKey === 'coordination' ? 'category' : 'coordination');
     }, [dataKey, setDataKey]);
+
+    const handleTitlesClick = useCallback(() => {
+        setTitlesOn(!titlesOn);
+    }, [titlesOn, setTitlesOn]);
 
     // Auto-off sidewalk/elevator when the active layout stops applying.
     React.useEffect(() => {
@@ -167,6 +173,12 @@ const VisualizerToolbar = () => {
                               onChange={handleCoordinationClick}
                               data-testid="timeseries-data-coordination">
                     Autonomy
+                </ToggleButton>
+                <ToggleButton value="titles" className="cal-toggle-btn"
+                              selected={titlesOn}
+                              onChange={handleTitlesClick}
+                              data-testid="timeseries-titles">
+                    Title
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>

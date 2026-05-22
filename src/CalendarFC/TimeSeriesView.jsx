@@ -401,6 +401,7 @@ const BeadRow = ({
     beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
+    titlesOn = false,             // req #2556 — render req title to right of bubble
     crossDays = [], onChipClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     sidewalkHeight,
@@ -1167,6 +1168,15 @@ const BeadRow = ({
                                 ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
                             }}
                         />
+                        {/* req #2556 — title to right of bubble when toolbar Title toggle on. */}
+                        {titlesOn && chip.title && (
+                            <span
+                                className="ts-bead-label"
+                                data-testid={`ts-bead-label-${chip.chipKey || chip.id}`}
+                            >
+                                {chip.title}
+                            </span>
+                        )}
                     </Box>
                 </Tooltip>
             ))}
@@ -1846,6 +1856,7 @@ const TimeSeriesView = ({
     sidewalkOn = false,
     elevatorOn = false,
     dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
+    titlesOn = false,                // req #2556 — render req title to right of bubble
     isWeekView = false,
     categoryList = [],
     onChipClick,
@@ -2022,6 +2033,7 @@ const TimeSeriesView = ({
                     timezone={timezone}
                     beadWindow={beadWindow}
                     vizKey={vizKey}
+                    titlesOn={titlesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -2047,6 +2059,7 @@ const TimeSeriesView = ({
                     beadWindow={beadWindow}
                     vizKey={vizKey}
                     dataKey={dataKey}
+                    titlesOn={titlesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -2074,6 +2087,7 @@ const TimeSeriesView = ({
                             beadWindow={beadWindow}
                             vizKey={vizKey}
                             dataKey={dataKey}
+                            titlesOn={titlesOn}
                             tooltipFontSize={tooltipFontSize}
                             circleDiameter={circleDiameter}
                             spaceKey={spaceKey}
