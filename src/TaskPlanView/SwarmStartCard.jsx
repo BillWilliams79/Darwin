@@ -26,6 +26,27 @@ import { computeCategoryRankMap } from '../SwarmView/processSort';
 // Chip statuses shown on this card — same order as the Roadmap filter chips,
 // minus 'met' (completed work lives elsewhere — this card aggregates active work).
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred'];
+
+// --- BEGIN req #2557 Badge Theme constants (temporary dev tool — remove with comment block) ---
+// MUI Badge variant from req #2549 was selected; the bar below picks the badge color theme.
+// null = MUI primary (blue) default; other keys override .MuiBadge-badge bgcolor + color.
+const BADGE_THEMES = {
+    mono:    { bgcolor: '#000000', color: '#ffffff' },
+    ravens:  { bgcolor: '#241773', color: '#ffffff' },
+    nvidia:  { bgcolor: '#76B900', color: '#000000' },
+    crimson: { bgcolor: '#DC143C', color: '#ffffff' },
+    gold:    { bgcolor: '#FFD700', color: '#000000' },
+};
+const BADGE_THEME_OPTIONS = [
+    { key: null,      label: 'Default', description: 'MUI primary blue badge — original variant from req #2549.' },
+    { key: 'mono',    label: 'Mono',    description: 'White count on solid black — high contrast, monochrome.' },
+    { key: 'ravens',  label: 'Ravens',  description: 'White count on Ravens purple (#241773) — high contrast, NFL Ravens colors.' },
+    { key: 'nvidia',  label: 'NVIDIA',  description: 'Black count on NVIDIA green (#76B900).' },
+    { key: 'crimson', label: 'Crimson', description: 'White count on crimson red (#DC143C).' },
+    { key: 'gold',    label: 'Gold',    description: 'Black count on gold (#FFD700).' },
+];
+// --- END req #2557 Badge Theme constants ---
+
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 
@@ -105,22 +126,9 @@ const SwarmStartCard = () => {
         return counts;
     }, [allRequirementsForRanking]);
 
-    // --- BEGIN req #2549 UI Options (temporary dev tool — remove with comment block) ---
-    // Variants for surfacing the requirement-count alongside the status chips.
-    // null = default (count appended only to the active chip).
-    // 'A' = all chips show inline count.
-    // 'B' = subtle outlined "N reqs" pill after the chip stack (selected status only).
-    // 'C' = MUI Badge with count overlay on every chip.
-    // 'D' = subtle right-aligned caption text ("N authoring") after the chip stack.
-    const [uiOption, setUiOption] = useState(null);
-    const UI_OPTIONS = [
-        { key: null, label: 'Default', description: 'Active chip label includes the count, e.g. "Authoring (5)". Quiet, in-place.' },
-        { key: 'A',  label: 'A',       description: 'Every chip shows its count inline — see the whole distribution at a glance.' },
-        { key: 'B',  label: 'B',       description: 'Trailing subtle outlined pill ("5 reqs") for the selected status only.' },
-        { key: 'C',  label: 'C',       description: 'MUI Badge with count overlaid on every chip (numeric top-right).' },
-        { key: 'D',  label: 'D',       description: 'Right-aligned caption text ("5 authoring") in muted color.' },
-    ];
-    // --- END req #2549 UI Options ---
+    // Badge theme selector (req #2557). Constants live at module scope above; this
+    // is just the per-instance selection state.
+    const [badgeTheme, setBadgeTheme] = useState(null);
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -343,9 +351,9 @@ const SwarmStartCard = () => {
               data-testid="swarm-start-card"
               sx={{ border: '2px solid transparent' }}>
             <CardContent>
-                {/* --- BEGIN req #2549 UI Options bar (temporary dev tool — remove with comment block) --- */}
+                {/* --- BEGIN req #2557 Badge Theme bar (temporary dev tool — remove with comment block) --- */}
                 <Box
-                    data-testid="swarm-start-card-ui-options"
+                    data-testid="swarm-start-card-badge-theme"
                     sx={{
                         mb: 1.5,
                         px: 1,
@@ -360,16 +368,16 @@ const SwarmStartCard = () => {
                     }}
                 >
                     <Typography variant="caption" sx={{ color: 'text.secondary', mr: 0.5 }}>
-                        Count display:
+                        Badge theme:
                     </Typography>
-                    {UI_OPTIONS.map(opt => {
-                        const active = uiOption === opt.key;
+                    {BADGE_THEME_OPTIONS.map(opt => {
+                        const active = badgeTheme === opt.key;
                         return (
                             <Tooltip key={opt.label} title={opt.description} arrow>
                                 <Chip
                                     label={opt.label}
                                     size="small"
-                                    onClick={() => setUiOption(active ? null : opt.key)}
+                                    onClick={() => setBadgeTheme(active ? null : opt.key)}
                                     sx={{
                                         cursor: 'pointer',
                                         bgcolor: active ? '#fbc02d' : 'transparent',
@@ -377,97 +385,65 @@ const SwarmStartCard = () => {
                                         border: active ? 'none' : '1px solid rgba(0,0,0,0.23)',
                                         height: 22,
                                     }}
-                                    data-testid={`swarm-start-ui-option-${opt.key === null ? 'default' : opt.key}`}
+                                    data-testid={`swarm-start-badge-theme-${opt.key === null ? 'default' : opt.key}`}
                                 />
                             </Tooltip>
                         );
                     })}
                 </Box>
-                {/* --- END req #2549 UI Options bar --- */}
+                {/* --- END req #2557 Badge Theme bar --- */}
                 <Box className="card-header"
                      sx={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                      data-testid="swarm-start-card-status-filter">
-                    <Stack direction="row" spacing={0.5} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
+                    <Stack direction="row" spacing={1.75} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
                             const selected = status === selectedStatus;
                             const chipProps = requirementStatusChipProps(status);
                             const count = statusCountMap[status] ?? 0;
-                            // Per-chip count text for default + Option A.
-                            const showInline =
-                                (uiOption === null && selected) ||
-                                uiOption === 'A';
-                            const inlineLabel = showInline
-                                ? `${requirementStatusLabel(status)} (${count})`
-                                : requirementStatusLabel(status);
-                            const chipNode = (
-                                <Chip
+                            // Mono and Ravens are dark-background themes; the SELECTED chip's
+                            // badge uses Gold colors instead for high-contrast emphasis.
+                            const themeKey = badgeTheme;
+                            const useGoldForSelected = selected && (themeKey === 'mono' || themeKey === 'ravens');
+                            const effectiveTheme = useGoldForSelected
+                                ? BADGE_THEMES.gold
+                                : (themeKey ? BADGE_THEMES[themeKey] : null);
+                            return (
+                                <Badge
                                     key={status}
-                                    label={inlineLabel}
-                                    size="small"
-                                    onClick={() => handleChipClick(status)}
-                                    {...(selected ? chipProps : { variant: 'outlined' })}
+                                    badgeContent={count}
+                                    {...(effectiveTheme ? {} : { color: selected ? 'primary' : 'default' })}
+                                    overlap="rectangular"
+                                    showZero={false}
+                                    data-testid={`swarm-start-chip-badge-${status}`}
                                     sx={{
-                                        ...(selected ? chipProps.sx : {}),
-                                        ...(!selected && { opacity: 0.5 }),
-                                        cursor: 'pointer',
-                                        textTransform: 'capitalize',
+                                        '& .MuiBadge-badge': {
+                                            fontSize: 10,
+                                            height: 16,
+                                            minWidth: 16,
+                                            padding: '0 4px',
+                                            ...(effectiveTheme && {
+                                                bgcolor: effectiveTheme.bgcolor,
+                                                color: effectiveTheme.color,
+                                            }),
+                                        },
                                     }}
-                                    data-testid={`swarm-start-chip-${status}`}
-                                    {...(selected && (uiOption === null || uiOption === 'A')
-                                        ? { 'data-count-display': `inline:${count}` }
-                                        : {})}
-                                />
-                            );
-                            if (uiOption === 'C') {
-                                return (
-                                    <Badge
-                                        key={status}
-                                        badgeContent={count}
-                                        color={selected ? 'primary' : 'default'}
-                                        overlap="rectangular"
-                                        showZero={false}
-                                        data-testid={`swarm-start-chip-badge-${status}`}
-                                        {...(selected ? { 'data-count-display': `badge:${count}` } : {})}
+                                >
+                                    <Chip
+                                        label={requirementStatusLabel(status)}
+                                        size="small"
+                                        onClick={() => handleChipClick(status)}
+                                        {...(selected ? chipProps : { variant: 'outlined' })}
                                         sx={{
-                                            '& .MuiBadge-badge': {
-                                                fontSize: 10,
-                                                height: 16,
-                                                minWidth: 16,
-                                                padding: '0 4px',
-                                            },
+                                            ...(selected ? chipProps.sx : {}),
+                                            ...(!selected && { opacity: 0.5 }),
+                                            cursor: 'pointer',
+                                            textTransform: 'capitalize',
                                         }}
-                                    >
-                                        {chipNode}
-                                    </Badge>
-                                );
-                            }
-                            return chipNode;
+                                        data-testid={`swarm-start-chip-${status}`}
+                                    />
+                                </Badge>
+                            );
                         })}
-                        {uiOption === 'B' && (statusCountMap[selectedStatus] ?? 0) > 0 && (
-                            <Chip
-                                label={`${statusCountMap[selectedStatus]} reqs`}
-                                size="small"
-                                variant="outlined"
-                                data-testid="swarm-start-count-display"
-                                data-count-display={`trailing-chip:${statusCountMap[selectedStatus]}`}
-                                sx={{
-                                    ml: 0.5,
-                                    color: 'text.secondary',
-                                    borderColor: 'rgba(0,0,0,0.18)',
-                                    cursor: 'default',
-                                }}
-                            />
-                        )}
-                        {uiOption === 'D' && (statusCountMap[selectedStatus] ?? 0) > 0 && (
-                            <Typography
-                                variant="caption"
-                                sx={{ ml: 0.75, color: 'text.secondary', alignSelf: 'center' }}
-                                data-testid="swarm-start-count-display"
-                                data-count-display={`subtle-text:${statusCountMap[selectedStatus]}`}
-                            >
-                                {statusCountMap[selectedStatus]} {requirementStatusLabel(selectedStatus).toLowerCase()}
-                            </Typography>
-                        )}
                     </Stack>
                     <IconButton
                         onClick={handleMenuOpen}
