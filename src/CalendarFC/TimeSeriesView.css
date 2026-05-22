@@ -383,6 +383,32 @@ body.darwin-dark .ts-bead-day-count-inline {
         0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
+/* req #2556 — requirement title rendered to right of bubble when the toolbar
+   "Title" toggle is on. Absolutely positioned at the parent group's right edge
+   so the bubble itself stays centered on leftPct regardless of label length.
+   pointer-events: none keeps the bubble's click/hover responsive when the
+   label overflows the dot's hit area. */
+.ts-bead-label {
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 6px;
+    max-width: 440px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.78);
+    font-family: 'Roboto', sans-serif;
+    pointer-events: none;
+    z-index: 2;
+}
+body.darwin-dark .ts-bead-label {
+    color: rgba(255, 255, 255, 0.85);
+}
+
 /* Swarm Visualizer — SVG overlay for session-start → bubble lines */
 .ts-swarm-lines {
     position: absolute;

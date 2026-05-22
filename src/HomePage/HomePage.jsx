@@ -11,6 +11,9 @@ const HomePage = () => {
     const { idToken, authLoading, profile } = useContext(AuthContext);
 
     const homePath = useMemo(() => {
+        if (import.meta.env.DEV) {
+            return '/systems2';
+        }
         // Find first link of first enabled group
         const firstEnabledGroup = NAV_GROUPS.find(g => {
             const key = GROUP_PROFILE_KEY[g.id];
