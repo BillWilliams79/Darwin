@@ -36,6 +36,8 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Badge from '@mui/material/Badge';
 import Check from '@mui/icons-material/Check';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -88,6 +90,37 @@ const SwarmStartCard = () => {
         () => computeCategoryRankMap(allRequirementsForRanking),
         [allRequirementsForRanking]
     );
+
+    // Count requirements per status across all categories (req #2549). Reuses the
+    // same useAllRequirements query that powers requirementRankMap — no extra fetch.
+    // Returns { authoring: N, approved: N, swarm_ready: N, development: N, deferred: N }.
+    const statusCountMap = React.useMemo(() => {
+        const counts = {};
+        SWARM_START_STATUSES.forEach(s => { counts[s] = 0; });
+        if (!Array.isArray(allRequirementsForRanking)) return counts;
+        for (const r of allRequirementsForRanking) {
+            if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
+            if (counts[r.requirement_status] !== undefined) counts[r.requirement_status] += 1;
+        }
+        return counts;
+    }, [allRequirementsForRanking]);
+
+    // --- BEGIN req #2549 UI Options (temporary dev tool — remove with comment block) ---
+    // Variants for surfacing the requirement-count alongside the status chips.
+    // null = default (count appended only to the active chip).
+    // 'A' = all chips show inline count.
+    // 'B' = subtle outlined "N reqs" pill after the chip stack (selected status only).
+    // 'C' = MUI Badge with count overlay on every chip.
+    // 'D' = subtle right-aligned caption text ("N authoring") after the chip stack.
+    const [uiOption, setUiOption] = useState(null);
+    const UI_OPTIONS = [
+        { key: null, label: 'Default', description: 'Active chip label includes the count, e.g. "Authoring (5)". Quiet, in-place.' },
+        { key: 'A',  label: 'A',       description: 'Every chip shows its count inline — see the whole distribution at a glance.' },
+        { key: 'B',  label: 'B',       description: 'Trailing subtle outlined pill ("5 reqs") for the selected status only.' },
+        { key: 'C',  label: 'C',       description: 'MUI Badge with count overlaid on every chip (numeric top-right).' },
+        { key: 'D',  label: 'D',       description: 'Right-aligned caption text ("5 authoring") in muted color.' },
+    ];
+    // --- END req #2549 UI Options ---
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -310,17 +343,66 @@ const SwarmStartCard = () => {
               data-testid="swarm-start-card"
               sx={{ border: '2px solid transparent' }}>
             <CardContent>
+                {/* --- BEGIN req #2549 UI Options bar (temporary dev tool — remove with comment block) --- */}
+                <Box
+                    data-testid="swarm-start-card-ui-options"
+                    sx={{
+                        mb: 1.5,
+                        px: 1,
+                        py: 0.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        flexWrap: 'wrap',
+                        bgcolor: 'rgba(251,192,45,0.12)',
+                        border: '1px dashed rgba(251,192,45,0.55)',
+                        borderRadius: 1,
+                    }}
+                >
+                    <Typography variant="caption" sx={{ color: 'text.secondary', mr: 0.5 }}>
+                        Count display:
+                    </Typography>
+                    {UI_OPTIONS.map(opt => {
+                        const active = uiOption === opt.key;
+                        return (
+                            <Tooltip key={opt.label} title={opt.description} arrow>
+                                <Chip
+                                    label={opt.label}
+                                    size="small"
+                                    onClick={() => setUiOption(active ? null : opt.key)}
+                                    sx={{
+                                        cursor: 'pointer',
+                                        bgcolor: active ? '#fbc02d' : 'transparent',
+                                        color: active ? '#000' : 'text.secondary',
+                                        border: active ? 'none' : '1px solid rgba(0,0,0,0.23)',
+                                        height: 22,
+                                    }}
+                                    data-testid={`swarm-start-ui-option-${opt.key === null ? 'default' : opt.key}`}
+                                />
+                            </Tooltip>
+                        );
+                    })}
+                </Box>
+                {/* --- END req #2549 UI Options bar --- */}
                 <Box className="card-header"
                      sx={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                      data-testid="swarm-start-card-status-filter">
-                    <Stack direction="row" spacing={0.5} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
+                    <Stack direction="row" spacing={0.5} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
                             const selected = status === selectedStatus;
                             const chipProps = requirementStatusChipProps(status);
-                            return (
+                            const count = statusCountMap[status] ?? 0;
+                            // Per-chip count text for default + Option A.
+                            const showInline =
+                                (uiOption === null && selected) ||
+                                uiOption === 'A';
+                            const inlineLabel = showInline
+                                ? `${requirementStatusLabel(status)} (${count})`
+                                : requirementStatusLabel(status);
+                            const chipNode = (
                                 <Chip
                                     key={status}
-                                    label={requirementStatusLabel(status)}
+                                    label={inlineLabel}
                                     size="small"
                                     onClick={() => handleChipClick(status)}
                                     {...(selected ? chipProps : { variant: 'outlined' })}
@@ -331,9 +413,61 @@ const SwarmStartCard = () => {
                                         textTransform: 'capitalize',
                                     }}
                                     data-testid={`swarm-start-chip-${status}`}
+                                    {...(selected && (uiOption === null || uiOption === 'A')
+                                        ? { 'data-count-display': `inline:${count}` }
+                                        : {})}
                                 />
                             );
+                            if (uiOption === 'C') {
+                                return (
+                                    <Badge
+                                        key={status}
+                                        badgeContent={count}
+                                        color={selected ? 'primary' : 'default'}
+                                        overlap="rectangular"
+                                        showZero={false}
+                                        data-testid={`swarm-start-chip-badge-${status}`}
+                                        {...(selected ? { 'data-count-display': `badge:${count}` } : {})}
+                                        sx={{
+                                            '& .MuiBadge-badge': {
+                                                fontSize: 10,
+                                                height: 16,
+                                                minWidth: 16,
+                                                padding: '0 4px',
+                                            },
+                                        }}
+                                    >
+                                        {chipNode}
+                                    </Badge>
+                                );
+                            }
+                            return chipNode;
                         })}
+                        {uiOption === 'B' && (statusCountMap[selectedStatus] ?? 0) > 0 && (
+                            <Chip
+                                label={`${statusCountMap[selectedStatus]} reqs`}
+                                size="small"
+                                variant="outlined"
+                                data-testid="swarm-start-count-display"
+                                data-count-display={`trailing-chip:${statusCountMap[selectedStatus]}`}
+                                sx={{
+                                    ml: 0.5,
+                                    color: 'text.secondary',
+                                    borderColor: 'rgba(0,0,0,0.18)',
+                                    cursor: 'default',
+                                }}
+                            />
+                        )}
+                        {uiOption === 'D' && (statusCountMap[selectedStatus] ?? 0) > 0 && (
+                            <Typography
+                                variant="caption"
+                                sx={{ ml: 0.75, color: 'text.secondary', alignSelf: 'center' }}
+                                data-testid="swarm-start-count-display"
+                                data-count-display={`subtle-text:${statusCountMap[selectedStatus]}`}
+                            >
+                                {statusCountMap[selectedStatus]} {requirementStatusLabel(selectedStatus).toLowerCase()}
+                            </Typography>
+                        )}
                     </Stack>
                     <IconButton
                         onClick={handleMenuOpen}
