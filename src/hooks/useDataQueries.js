@@ -2,26 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
-
-// Extract .data from the REST envelope, handle 404 as empty array
-const fetchEntity = async (uri, idToken) => {
-    try {
-        const result = await call_rest_api(uri, 'GET', '', idToken);
-        // call_rest_api returns (not throws) on network errors (e.g. CORS) with httpStatus 503
-        // Treat non-2xx returns as errors so TanStack Query gets error state, not bad data
-        if (result.httpStatus.httpStatus < 200 || result.httpStatus.httpStatus >= 300) {
-            throw result;
-        }
-        return result.data;
-    } catch (error) {
-        if (error.httpStatus?.httpStatus === 404) {
-            return [];
-        }
-        throw error;
-    }
-};
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
+import { devServers, sessions, swarmStarts, swarmStartSessions } from './factory/devopsQueries';
+// `fetchEntity` is shared with the factory so both layers handle REST errors
+// identically (req #2593).
+import { fetchEntity } from './factory/createEntityQueries';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -203,36 +188,11 @@ export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requ
     });
 }
 
-export function useSessions(creatorFk, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_sessions`;
-    const queryKey = sessionKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-export function useSession(sessionId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_sessions?id=${sessionId}`;
-    const queryKey = sessionKeys.byId(sessionId);
-
-    return useQuery({
-        queryKey,
-        queryFn: async () => {
-            const data = await fetchEntity(uri, idToken);
-            return data.length > 0 ? data[0] : null;
-        },
-        enabled: enabled && !!sessionId && !!idToken,
-    });
-}
+// Req #2593 — devops query hooks produced by createEntityQueries.
+// See factory/devopsQueries.js. Public names + signatures preserved verbatim
+// for backwards compat (parity locked in __tests__/devopsQueriesParity.test.js).
+export const useSessions = sessions.useAll;
+export const useSession  = sessions.useById;
 
 // Req #2422 — swarm_starts: list every /swarm-start invocation, newest first.
 // Default fields include the captured invocation metadata + finalize-time
@@ -241,62 +201,11 @@ export function useSession(sessionId, { enabled = true } = {}) {
 // TEXT columns (start_summary, telemetry) are <3KB each at typical scale, so
 // including them in the list query is acceptable; the detail dialog reads them
 // without a separate fetch.
-const SWARM_START_DEFAULT_FIELDS =
-    'id,arguments,autonomy_filter,auto_start,session_count,' +
-    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
-    'wall_seconds,turn_count,start_summary,telemetry,started_at,creator_fk';
-
-export function useAllSwarmStarts(creatorFk, { fields = SWARM_START_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_starts?fields=${fields}&sort=started_at:desc`;
-    const queryKey = [...swarmStartKeys.all(creatorFk), { fields }];
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-// Req #2422 — single swarm_start by id. Used by the SwarmStartDetail page so
-// landing on /swarm/swarm-starts/:id directly (not via the list) still works.
-export function useSwarmStartById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_starts?id=${id}`;
-    const queryKey = swarmStartKeys.byId(creatorFk, id);
-
-    return useQuery({
-        queryKey,
-        queryFn: async () => {
-            const data = await fetchEntity(uri, idToken);
-            return data.length > 0 ? data[0] : null;
-        },
-        enabled: enabled && !!creatorFk && !!id && !!idToken,
-    });
-}
-
-// Req #2422 — junction rows linking swarm_starts to swarm_sessions.
-// The junction has no creator_fk; this returns ALL rows globally. Consumers
-// build a session_fk -> swarm_start_fk map and filter against the user's
-// own swarm_starts to scope. Acceptable at single-user Darwin scale; same
-// shape as requirement_sessions.
-export function useAllSwarmStartSessions(creatorFk, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_start_sessions?fields=swarm_start_fk,session_fk`;
-    const queryKey = swarmStartSessionKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
+//
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useAllSwarmStarts        = swarmStarts.useAll;
+export const useSwarmStartById        = swarmStarts.useById;
+export const useAllSwarmStartSessions = swarmStartSessions.useAll;
 
 export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -350,20 +259,8 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
     });
 }
 
-export function useDevServers(creatorFk, { enabled = true, staleTime } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/dev_servers`;
-    const queryKey = devServerKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-        ...(staleTime !== undefined ? { staleTime } : {}),
-    });
-}
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useDevServers = devServers.useAll;
 
 export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -393,19 +290,8 @@ export function usePriorityCardOrder(creatorFk, domainId, { enabled = true } = {
     });
 }
 
-export function useDevServersBySession(sessionId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/dev_servers?session_fk=${sessionId}`;
-    const queryKey = devServerKeys.bySession(sessionId);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!sessionId && !!idToken,
-    });
-}
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useDevServersBySession = devServers.useBySession;
 
 export function useRecurringTasks(creatorFk, {
     fields = 'id,description,recurrence,anchor_date,area_fk,priority,accumulate,insert_position,active,last_generated',
