@@ -48,6 +48,7 @@ import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
+import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -154,6 +155,9 @@ root.render(
                     {import.meta.env.DEV && <>
                       <Route path="systems2" element= {<AuthenticatedRoute>
                                                              <SystemsPage2 />
+                                                         </AuthenticatedRoute>} />
+                      <Route path="build-visualizer" element= {<AuthenticatedRoute>
+                                                             <BuildVisualizerPage />
                                                          </AuthenticatedRoute>} />
                     </>}
                 </Route >
