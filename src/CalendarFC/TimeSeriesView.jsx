@@ -2033,6 +2033,7 @@ const TimeSeriesView = ({
                     timezone={timezone}
                     beadWindow={beadWindow}
                     vizKey={vizKey}
+                    dataKey={dataKey}
                     titlesOn={titlesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
