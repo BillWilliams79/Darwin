@@ -31,7 +31,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
-        requirementsArray, setRequirementsArray } = useRequirementActions();
+        requirementsArray, setRequirementsArray,
+        strikethroughMet = true } = useRequirementActions();
 
     // Drag rules (req #2417):
     //   - Drag source is enabled for every non-template row, regardless of
@@ -304,7 +305,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(status === 'met' && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
+                        sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${requirement.id}`}
