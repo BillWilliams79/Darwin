@@ -22,7 +22,7 @@ import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
-const TABLE_WIDTH = 1400;
+const TABLE_WIDTH = 1140;
 
 // Closed whitelist matching the swarm-start skill (req #2339).
 const AUTONOMY_VALUES = ['planned', 'implemented', 'deployed'];
@@ -69,11 +69,20 @@ export default function SwarmStartsPage() {
 
     const columns = useMemo(() => [
         { field: 'id', headerName: 'ID', width: 70, type: 'number' },
+        { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
+        { field: 'wall_seconds', headerName: 'Wall', width: 90, type: 'number',
+            valueFormatter: formatWallSeconds },
+        {
+            field: 'auto_start',
+            headerName: 'Auto-Start',
+            width: 100,
+            type: 'boolean',
+            valueGetter: (_v, row) => Boolean(row.auto_start),
+        },
         {
             field: 'arguments',
             headerName: 'Arguments',
-            flex: 1,
-            minWidth: 220,
+            width: 390,
             renderCell: (params) => (
                 <Tooltip title={params.value || '(empty — all swarm-ready)'}>
                     <Typography variant="body2" component="span"
@@ -98,14 +107,6 @@ export default function SwarmStartsPage() {
                               ...(autonomyChipProps(params.value)?.sx || {}) }} />
                 : <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>,
         },
-        {
-            field: 'auto_start',
-            headerName: 'Auto-Start',
-            width: 100,
-            type: 'boolean',
-            valueGetter: (_v, row) => Boolean(row.auto_start),
-        },
-        { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
         // Token columns — hidden by default, revealable via column-visibility toolbar.
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
             valueFormatter: formatNum },
@@ -115,8 +116,6 @@ export default function SwarmStartsPage() {
             valueFormatter: formatNum },
         { field: 'tokens_output', headerName: 'Output', width: 100, type: 'number',
             valueFormatter: formatNum },
-        { field: 'wall_seconds', headerName: 'Wall', width: 90, type: 'number',
-            valueFormatter: formatWallSeconds },
         { field: 'turn_count', headerName: 'Turns', width: 80, type: 'number' },
         {
             field: 'started_at',
