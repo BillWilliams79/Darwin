@@ -212,4 +212,42 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         await page.getByTestId('timeseries-data-coordination').click();
         await expect(page.getByTestId('timeseries-data-coordination')).toHaveAttribute('aria-pressed', 'true');
     });
+
+    // req #2566 — when the toolbar "Title" toggle is on, the title label sits
+    // to the right of the bubble. The dashed swarm-duration line passes
+    // through the bubble's vertical center, which is the same Y as the label.
+    // The label must paint an opaque background so the dashed line is hidden
+    // beneath the text (z-index alone isn't enough — the SVG line draws
+    // through any element with a transparent background).
+    test('TS-11: Title labels paint an opaque background that hides the dashed duration line (req #2566)', async ({ page }) => {
+        await page.goto('/swarm');
+        await page.evaluate((d) => {
+            localStorage.setItem('darwin_swarm_visualizer', JSON.stringify({
+                state: {
+                    viewType: 'day',
+                    currentDate: d,
+                    vizKey: 'bead',
+                    beadWindow: '24h',
+                    sidewalkOn: false,
+                    elevatorOn: false,
+                    dataKey: 'category',
+                    titlesOn: true,
+                },
+                version: 3,
+            }));
+            localStorage.setItem('darwin-swarm-view', 'visualizer');
+        }, testDate);
+        await page.reload();
+        await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
+
+        const id = createdRequirementIds[0];
+        const label = page.getByTestId(`ts-bead-label-${id}`);
+        await expect(label).toBeVisible({ timeout: 5000 });
+
+        const bg = await label.evaluate((el) => getComputedStyle(el).backgroundColor);
+        // Must be a real color (not the default `rgba(0, 0, 0, 0)` / `transparent`)
+        // so the dashed line behind the bubble is fully occluded.
+        expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(bg).not.toBe('transparent');
+    });
 });
