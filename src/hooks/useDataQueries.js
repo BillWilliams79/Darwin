@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, swarmCompleteKeys, swarmCompleteSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
 
 // Extract .data from the REST envelope, handle 404 as empty array
 const fetchEntity = async (uri, idToken) => {
@@ -290,6 +290,69 @@ export function useAllSwarmStartSessions(creatorFk, { enabled = true } = {}) {
 
     const uri = `${darwinUri}/swarm_start_sessions?fields=swarm_start_fk,session_fk`;
     const queryKey = swarmStartSessionKeys.all(creatorFk);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// Req #2497 — swarm_completes: list every closeout invocation, newest first.
+// Default fields include the captured invocation metadata + finalize-time
+// summary/telemetry/token rollups. `fields` is in the cache key (req #2213)
+// so callers requesting different projections don't collide on a shared
+// cache entry. TEXT columns (complete_summary, telemetry) are <3KB each at
+// typical scale; including them in the list query avoids a per-row detail
+// fetch — matches the swarm_starts pattern above.
+const SWARM_COMPLETE_DEFAULT_FIELDS =
+    'id,skill_name,arguments,coordination_type,status,session_count,' +
+    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
+    'wall_seconds,turn_count,complete_summary,telemetry,' +
+    'started_at,completed_at,creator_fk';
+
+export function useAllSwarmCompletes(creatorFk, { fields = SWARM_COMPLETE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_completes?fields=${fields}&sort=started_at:desc`;
+    const queryKey = [...swarmCompleteKeys.all(creatorFk), { fields }];
+
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+// Req #2497 — single swarm_complete by id. Used by the SwarmCompleteDetail
+// page so landing on /swarm/swarm-completes/:id directly (not via the list)
+// still works.
+export function useSwarmCompleteById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_completes?id=${id}`;
+    const queryKey = swarmCompleteKeys.byId(creatorFk, id);
+
+    return useQuery({
+        queryKey,
+        queryFn: async () => {
+            const data = await fetchEntity(uri, idToken);
+            return data.length > 0 ? data[0] : null;
+        },
+        enabled: enabled && !!creatorFk && !!id && !!idToken,
+    });
+}
+
+// Req #2497 — junction rows linking swarm_completes to swarm_sessions.
+// Same global-rows shape as useAllSwarmStartSessions above.
+export function useAllSwarmCompleteSessions(creatorFk, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const uri = `${darwinUri}/swarm_complete_sessions?fields=swarm_complete_fk,session_fk`;
+    const queryKey = swarmCompleteSessionKeys.all(creatorFk);
 
     return useQuery({
         queryKey,

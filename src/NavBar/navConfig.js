@@ -11,6 +11,7 @@ import ChecklistIcon from '@mui/icons-material/Checklist';
 import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TimelineIcon from '@mui/icons-material/Timeline';
 
@@ -41,6 +42,7 @@ export const NAV_LINKS = [
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/swarm/swarm-starts', label: 'Swarm Starts', icon: RocketLaunchIcon, group: 'swarm' },
+    { path: '/swarm/swarm-completes', label: 'Swarm Completes', icon: TaskAltIcon, group: 'swarm' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm' },

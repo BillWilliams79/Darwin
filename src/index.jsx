@@ -47,6 +47,8 @@ import TestPlansPage from './Features/TestPlansPage';
 import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
+import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
+import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 
@@ -102,6 +104,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
                                                              <SwarmStartDetail />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-completes" element= {<AuthenticatedRoute>
+                                                             <SwarmCompletesPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-completes/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmCompleteDetail />
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />

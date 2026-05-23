@@ -70,6 +70,18 @@ export const swarmStartSessionKeys = {
     all: (creatorFk) => ['swarm_start_sessions', creatorFk],
 };
 
+// Req #2497 — swarm_completes: one row per /swarm-complete or /primary-ai-swarm-complete invocation.
+export const swarmCompleteKeys = {
+    all: (creatorFk) => ['swarm_completes', creatorFk],
+    byId: (creatorFk, id) => ['swarm_completes', creatorFk, { id }],
+};
+
+// Req #2497 — swarm_complete_sessions junction: rows are global (no creator_fk).
+// Same scoping rationale as swarmStartSessionKeys above.
+export const swarmCompleteSessionKeys = {
+    all: (creatorFk) => ['swarm_complete_sessions', creatorFk],
+};
+
 export const devServerKeys = {
     all: (creatorFk) => ['dev_servers', creatorFk],
     bySession: (sessionId) => ['dev_servers', { sessionId }],
