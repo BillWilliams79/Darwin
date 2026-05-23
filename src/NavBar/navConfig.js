@@ -12,6 +12,7 @@ import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import TimelineIcon from '@mui/icons-material/Timeline';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -35,6 +36,7 @@ export const NAV_LINKS = [
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     ...(import.meta.env.DEV ? [
         { path: '/systems2', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
+        { path: '/build-visualizer', label: 'Build Visualizer', icon: TimelineIcon, group: 'systems' },
     ] : []),
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
