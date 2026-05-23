@@ -387,7 +387,16 @@ body.darwin-dark .ts-bead-day-count-inline {
    "Title" toggle is on. Absolutely positioned at the parent group's right edge
    so the bubble itself stays centered on leftPct regardless of label length.
    pointer-events: none keeps the bubble's click/hover responsive when the
-   label overflows the dot's hit area. */
+   label overflows the dot's hit area.
+
+   req #2566 — opaque background + small inset padding + rounded corners so
+   the dashed/solid swarm-line that passes under the label (cross-day full-
+   width middle-role lines, plus other chips' duration lines on the same row)
+   is hidden behind the title text. The chip's OWN duration line stops at its
+   bubble's left edge, so the lines that show through come from neighbors,
+   not from this chip itself. Label sits at z-index 2 over the SVG layer
+   (z-index 1); the solid background is what does the occlusion, not the
+   stacking order alone. */
 .ts-bead-label {
     position: absolute;
     left: 100%;
@@ -395,18 +404,22 @@ body.darwin-dark .ts-bead-day-count-inline {
     transform: translateY(-50%);
     margin-left: 6px;
     max-width: 440px;
+    padding: 1px 6px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.74rem;
     font-weight: 500;
     color: rgba(0, 0, 0, 0.78);
+    background: #ffffff;
+    border-radius: 4px;
     font-family: 'Roboto', sans-serif;
     pointer-events: none;
     z-index: 2;
 }
 body.darwin-dark .ts-bead-label {
     color: rgba(255, 255, 255, 0.85);
+    background: #141210;
 }
 
 /* Swarm Visualizer — SVG overlay for session-start → bubble lines */
