@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
@@ -11,6 +11,12 @@ import Button from '@mui/material/Button';
 import BuildVisualizerControls from './BuildVisualizerControls';
 import { usePatternLibrary } from './usePatternLibrary';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
+import {
+    DEFAULT_DARK_VARIANT,
+    LIGHT_TRANSPORT_VARIANT,
+    isThemeVariant,
+} from './themeVariants';
+import ThemeContext from '../Theme/ThemeContext';
 
 const parseNonNegInt = (s, fallback) => {
     const n = parseInt(String(s).trim(), 10);
@@ -26,6 +32,12 @@ const parsePosInt = (s, fallback) => {
 // this key on standalone boot so dev workflow stays unchanged).
 const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
 
+// User's preferred DARK variant (req #2621). Independent of Darwin's app
+// mode — when the app is light we don't touch this key; when the app
+// flips back to dark we apply the stored choice. The picker only shows
+// when the app is in dark mode, and only lists dark variants.
+const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
+
 const readVersionLanes = () => {
     try {
         return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off';
@@ -37,6 +49,21 @@ const readVersionLanes = () => {
 const writeVersionLanes = (value) => {
     try {
         window.localStorage.setItem(VERSION_LANES_STORAGE_KEY, value ? 'on' : 'off');
+    } catch (_) { /* private mode — accept transient state */ }
+};
+
+const readStoredDarkVariant = () => {
+    try {
+        const v = window.localStorage.getItem(DARK_VARIANT_STORAGE_KEY);
+        return isThemeVariant(v) ? v : null;
+    } catch (_) {
+        return null;
+    }
+};
+
+const writeStoredDarkVariant = (variant) => {
+    try {
+        window.localStorage.setItem(DARK_VARIANT_STORAGE_KEY, variant);
     } catch (_) { /* private mode — accept transient state */ }
 };
 
@@ -70,6 +97,29 @@ const BuildVisualizerPage = () => {
     const [staggerOn, setStaggerOn] = useState(() => readVersionLanes());
     const staggerOnRef = useRef(staggerOn);
     useEffect(() => { staggerOnRef.current = staggerOn; }, [staggerOn]);
+
+    // Dark variant + transport-aware theme (req #2621).
+    //   • `darkVariant` is the user's chosen DARK theme. Default Charcoal.
+    //     Only changes when the user picks from the menu (which is hidden
+    //     unless the app is in dark mode).
+    //   • The value actually posted to the iframe is `effectiveMode === 'dark'
+    //     ? darkVariant : 'light'`. Switching Darwin's app mode automatically
+    //     re-themes the canvas without touching the stored dark preference.
+    const { effectiveMode } = useContext(ThemeContext);
+    const [darkVariant, setDarkVariant] = useState(
+        () => readStoredDarkVariant() || DEFAULT_DARK_VARIANT,
+    );
+    // Resolve once per render so both the postMessage effect and the ref
+    // mirror agree on a single value.
+    const iframeTheme = effectiveMode === 'dark' ? darkVariant : LIGHT_TRANSPORT_VARIANT;
+    const iframeThemeRef = useRef(iframeTheme);
+    useEffect(() => { iframeThemeRef.current = iframeTheme; }, [iframeTheme]);
+
+    const changeDarkVariant = useCallback((variant) => {
+        if (!isThemeVariant(variant)) return;
+        setDarkVariant(variant);
+        writeStoredDarkVariant(variant);
+    }, []);
 
     const toggleType = useCallback((type) => {
         setSelectedTypes(prev =>
@@ -109,6 +159,12 @@ const BuildVisualizerPage = () => {
         win.postMessage({ type: 'bv:set-version-lanes', value }, window.location.origin);
     }, []);
 
+    const postTheme = useCallback((variant) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win) return;
+        win.postMessage({ type: 'bv:set-theme', variant }, window.location.origin);
+    }, []);
+
     const toggleStagger = useCallback(() => {
         setStaggerOn(prev => !prev);
     }, []);
@@ -126,6 +182,7 @@ const BuildVisualizerPage = () => {
                 }
                 postFilter(selectedTypesRef.current);
                 postVersionLanes(staggerOnRef.current);
+                postTheme(iframeThemeRef.current);
             } else if (msg.type === 'bv:changed') {
                 if (msg.data && typeof msg.data === 'object') {
                     lib.saveActiveData(msg.data);
@@ -147,7 +204,7 @@ const BuildVisualizerPage = () => {
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
-    }, [lib, postLoad, postFilter, postVersionLanes]);
+    }, [lib, postLoad, postFilter, postVersionLanes, postTheme]);
 
     // Push filter to iframe on every chip toggle (no-op until iframe is ready —
     // the bv:ready handler covers the initial post once the iframe boots).
@@ -170,6 +227,15 @@ const BuildVisualizerPage = () => {
         if (!iframeReady.current) return;
         postVersionLanes(staggerOn);
     }, [staggerOn, postVersionLanes]);
+
+    // Push theme to iframe whenever the resolved value changes — either
+    // because the user picked a different dark variant OR Darwin's app
+    // theme flipped between light and dark (no-op until iframe is ready;
+    // bv:ready covers the initial post once the iframe boots).
+    useEffect(() => {
+        if (!iframeReady.current) return;
+        postTheme(iframeTheme);
+    }, [iframeTheme, postTheme]);
 
     const closeReleaseDialog = (confirmed) => {
         if (!releaseReq) return;
@@ -219,6 +285,9 @@ const BuildVisualizerPage = () => {
                 onToggleType={toggleType}
                 staggerOn={staggerOn}
                 onToggleStagger={toggleStagger}
+                appMode={effectiveMode}
+                darkVariant={darkVariant}
+                onChangeDarkVariant={changeDarkVariant}
             />
             {lib.isReady ? (
                 <iframe
