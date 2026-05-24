@@ -136,3 +136,11 @@ export const testRunKeys = {
 export const testResultKeys = {
     byRun: (creatorFk, runId) => ['test_results', creatorFk, { runId }],
 };
+
+// Req #2604 — Customer Release. Customers are recipients of build releases
+// (HP, NVIDIA, Cisco, Google, …). `fields` is appended to the extended key
+// per req #2213 to avoid cross-projection cache collisions.
+export const customerKeys = {
+    all: (creatorFk) => ['customers', creatorFk],
+    byId: (creatorFk, id) => ['customers', creatorFk, { id }],
+};

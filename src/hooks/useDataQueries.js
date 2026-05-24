@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys } from './useQueryKeys';
 import { devServers, sessions, swarmStarts, swarmStartSessions } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
@@ -593,5 +593,34 @@ export function useTestResultsByRun(creatorFk, runId, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!runId && !!idToken,
+    });
+}
+
+// ----- customers (req #2604) -----
+
+const CUSTOMER_DEFAULT_FIELDS = 'id,customer_name,description,closed,sort_order,create_ts';
+const CUSTOMER_FULL_FIELDS    = 'id,customer_name,description,creator_fk,closed,sort_order,create_ts,update_ts';
+
+export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customers?closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...customerKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customers?id=${id}&fields=${CUSTOMER_FULL_FIELDS}`;
+    const queryKey = customerKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
     });
 }
