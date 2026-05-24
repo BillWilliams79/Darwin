@@ -8,7 +8,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
-import BuildPatternToolbar from './BuildPatternToolbar';
+import BuildVisualizerControls from './BuildVisualizerControls';
 import { usePatternLibrary } from './usePatternLibrary';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 
@@ -19,6 +19,25 @@ const parseNonNegInt = (s, fallback) => {
 const parsePosInt = (s, fallback) => {
     const n = parseInt(String(s).trim(), 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+// localStorage key shared with Topology/build-visualizer/app.js (req #2598;
+// React shell owns the toggle UI since req #2616 but the iframe still reads
+// this key on standalone boot so dev workflow stays unchanged).
+const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
+
+const readVersionLanes = () => {
+    try {
+        return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off';
+    } catch (_) {
+        return true;
+    }
+};
+
+const writeVersionLanes = (value) => {
+    try {
+        window.localStorage.setItem(VERSION_LANES_STORAGE_KEY, value ? 'on' : 'off');
+    } catch (_) { /* private mode — accept transient state */ }
 };
 
 const BuildVisualizerPage = () => {
@@ -42,6 +61,15 @@ const BuildVisualizerPage = () => {
     // on every chip toggle.
     const selectedTypesRef = useRef(selectedTypes);
     useEffect(() => { selectedTypesRef.current = selectedTypes; }, [selectedTypes]);
+
+    // Stagger toggle (req #2616 — relocated from iframe #toolbar to the React
+    // shell). React owns the UI; iframe owns the renderer effect. Initialised
+    // from localStorage so reload survives, and an inbound
+    // bv:version-lanes-state from the iframe at boot adopts whatever value the
+    // iframe started with (covers the case where standalone mode flipped it).
+    const [staggerOn, setStaggerOn] = useState(() => readVersionLanes());
+    const staggerOnRef = useRef(staggerOn);
+    useEffect(() => { staggerOnRef.current = staggerOn; }, [staggerOn]);
 
     const toggleType = useCallback((type) => {
         setSelectedTypes(prev =>
@@ -75,6 +103,16 @@ const BuildVisualizerPage = () => {
         win.postMessage({ type: 'bv:filter', hidden }, window.location.origin);
     }, []);
 
+    const postVersionLanes = useCallback((value) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win) return;
+        win.postMessage({ type: 'bv:set-version-lanes', value }, window.location.origin);
+    }, []);
+
+    const toggleStagger = useCallback(() => {
+        setStaggerOn(prev => !prev);
+    }, []);
+
     useEffect(() => {
         const onMessage = (e) => {
             if (e.origin !== window.location.origin) return;
@@ -87,6 +125,7 @@ const BuildVisualizerPage = () => {
                     postLoad(lib.activePattern.data);
                 }
                 postFilter(selectedTypesRef.current);
+                postVersionLanes(staggerOnRef.current);
             } else if (msg.type === 'bv:changed') {
                 if (msg.data && typeof msg.data === 'object') {
                     lib.saveActiveData(msg.data);
@@ -98,11 +137,17 @@ const BuildVisualizerPage = () => {
                 setReleaseMinor(String(Number.isFinite(d.minor) ? d.minor : 0));
                 setReleaseInitialBuild(String(Number.isFinite(d.initialBuildNumber) ? d.initialBuildNumber : 1));
                 setReleaseReq({ requestId: msg.requestId });
+            } else if (msg.type === 'bv:version-lanes-state') {
+                // Iframe announced its boot value (e.g. standalone mode flipped
+                // localStorage from a different tab). Adopt it locally so the
+                // Chip matches the renderer; the staggerOn effect persists.
+                const next = !!msg.value;
+                if (next !== staggerOnRef.current) setStaggerOn(next);
             }
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
-    }, [lib, postLoad, postFilter]);
+    }, [lib, postLoad, postFilter, postVersionLanes]);
 
     // Push filter to iframe on every chip toggle (no-op until iframe is ready —
     // the bv:ready handler covers the initial post once the iframe boots).
@@ -110,6 +155,21 @@ const BuildVisualizerPage = () => {
         if (!iframeReady.current) return;
         postFilter(selectedTypes);
     }, [selectedTypes, postFilter]);
+
+    // Persist Stagger state to localStorage whenever it changes. The first
+    // run after mount re-writes the value we just READ from localStorage —
+    // harmless and keeps the side effect out of the toggle callback.
+    useEffect(() => {
+        writeVersionLanes(staggerOn);
+    }, [staggerOn]);
+
+    // Push Stagger state to iframe on every toggle (no-op until iframe is
+    // ready — the bv:ready handler covers the initial post once the iframe
+    // boots).
+    useEffect(() => {
+        if (!iframeReady.current) return;
+        postVersionLanes(staggerOn);
+    }, [staggerOn, postVersionLanes]);
 
     const closeReleaseDialog = (confirmed) => {
         if (!releaseReq) return;
@@ -153,10 +213,12 @@ const BuildVisualizerPage = () => {
                 overflow: 'hidden',
             }}
         >
-            <BuildPatternToolbar
+            <BuildVisualizerControls
                 lib={lib}
                 selectedTypes={selectedTypes}
                 onToggleType={toggleType}
+                staggerOn={staggerOn}
+                onToggleStagger={toggleStagger}
             />
             {lib.isReady ? (
                 <iframe
@@ -167,7 +229,7 @@ const BuildVisualizerPage = () => {
                     data-testid="build-visualizer-iframe"
                 />
             ) : (
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                     <CircularProgress />
                 </Box>
             )}
