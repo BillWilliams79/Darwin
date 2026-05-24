@@ -28,6 +28,9 @@ import { computeCategoryRankMap } from '../SwarmView/processSort';
 // the trailing-24h Met list — recent completions, not the full Met history.
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
 const MET_TRAILING_HOURS = 24;
+// Met window refresh cadence — also the quantum the window is rounded to so that
+// re-renders within a single quantum don't mint a new query key (req #2609).
+const MET_REFRESH_INTERVAL_MS = 60_000;
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -49,6 +52,18 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { CircularProgress } from '@mui/material';
+
+// Quantize `now` to the nearest prior MET_REFRESH_INTERVAL_MS boundary, then
+// derive the trailing-24h window from that. Two calls within the same quantum
+// return value-equal strings so the consumer can preserve referential equality.
+const computeMetWindow = () => {
+    const nowMs = Math.floor(Date.now() / MET_REFRESH_INTERVAL_MS) * MET_REFRESH_INTERVAL_MS;
+    const startMs = nowMs - MET_TRAILING_HOURS * 60 * 60 * 1000;
+    return {
+        startStr: new Date(startMs).toISOString().slice(0, 19),
+        endStr: new Date(nowMs).toISOString().slice(0, 19),
+    };
+};
 
 const SwarmStartCard = () => {
     const { idToken, profile } = useContext(AuthContext);
@@ -80,17 +95,31 @@ const SwarmStartCard = () => {
 
     const isMet = effectiveStatus === 'met';
 
-    // Trailing-24h Met window — frozen at mount so the query key is stable across
-    // re-renders (otherwise every render minted a new cache entry). Refresh the
-    // page to slide the window forward.
-    const [metWindow] = useState(() => {
-        const now = new Date();
-        const start = new Date(now.getTime() - MET_TRAILING_HOURS * 60 * 60 * 1000);
-        return {
-            startStr: start.toISOString().slice(0, 19),
-            endStr: now.toISOString().slice(0, 19),
+    // Trailing-24h Met window — quantized to MET_REFRESH_INTERVAL_MS boundaries and
+    // bumped on a timer + tab-visibility return (req #2609). Quantization keeps the
+    // query key stable across re-renders within a single quantum (the property that
+    // motivated the original mount-time freeze) while still sliding the window
+    // forward without a full page refresh once the quantum elapses.
+    const [metWindow, setMetWindow] = useState(computeMetWindow);
+    useEffect(() => {
+        const tick = () => {
+            setMetWindow(prev => {
+                const next = computeMetWindow();
+                return (next.startStr === prev.startStr && next.endStr === prev.endStr)
+                    ? prev
+                    : next;
+            });
         };
-    });
+        const intervalId = setInterval(tick, MET_REFRESH_INTERVAL_MS);
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') tick();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, []);
 
     // Active-status query — disabled when Met is selected (the done query below
     // is the row source in that case).
