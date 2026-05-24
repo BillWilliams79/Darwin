@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { BUILTIN_PATTERNS } from './builtinPatterns';
 
 export const STORAGE_KEY = 'darwin.buildPatterns.v1';
 export const SEED_URL = '/build-visualizer/builds.json';
+export const DEFAULT_PATTERN_NAME = 'Default';
 
 export function makeId() {
     const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -64,6 +66,52 @@ export function saveLibraryToStorage(library, storage = globalThis.localStorage)
 export function seedLibraryFrom(data, name = 'Default') {
     const pattern = makePattern({ name, data });
     return { version: 1, activeId: pattern.id, patterns: { [pattern.id]: pattern } };
+}
+
+// Merge every entry in `builtins` into `library` by stable id, additively.
+//
+// - A built-in NOT yet in the library is added (the user sees a new dropdown
+//   entry on next load — no localStorage manipulation required).
+// - A built-in ALREADY in the library is left untouched (the user may have
+//   customized it in place; we never overwrite). To ship updated content for
+//   an existing built-in, bump its id in `BUILTIN_PATTERNS` so the new content
+//   appears as a new entry.
+// - `activeId` is preserved when valid; if missing/dangling it falls back to
+//   the first built-in's id.
+//
+// Returns `{ library, changed }`. Callers persist when `changed` is true.
+export function ensureBuiltinsInLibrary(library, builtins = BUILTIN_PATTERNS) {
+    const patterns = { ...library.patterns };
+    let changed = false;
+    for (const builtin of builtins) {
+        if (patterns[builtin.id]) continue;
+        patterns[builtin.id] = makePattern({
+            id: builtin.id,
+            name: builtin.name,
+            data: builtin.generate(),
+        });
+        changed = true;
+    }
+    let activeId = library.activeId;
+    if (!activeId || !patterns[activeId]) {
+        activeId = builtins[0]?.id || Object.keys(patterns)[0] || null;
+        if (activeId !== library.activeId) changed = true;
+    }
+    return { library: { ...library, activeId, patterns }, changed };
+}
+
+// Build the first-ever library for a brand-new user. Merges in every built-in
+// and, when the Topology builds.json seed fetch succeeded, attaches it as a
+// separate non-builtin "Default" pattern so the exemplar stays one click away.
+// Active id is the first built-in.
+export function bootstrapLibrary(topologySeed, builtins = BUILTIN_PATTERNS) {
+    const base = emptyLibrary();
+    if (topologySeed) {
+        const topologyPattern = makePattern({ name: DEFAULT_PATTERN_NAME, data: topologySeed });
+        base.patterns[topologyPattern.id] = topologyPattern;
+    }
+    const { library } = ensureBuiltinsInLibrary(base, builtins);
+    return library;
 }
 
 export function listPatternsSorted(library) {
@@ -186,31 +234,38 @@ export function usePatternLibrary({ fetchSeed } = {}) {
         (async () => {
             const existing = loadLibraryFromStorage();
             if (existing) {
-                if (!cancelled) {
-                    setLibrary(existing);
-                    setIsReady(true);
+                // Merge built-ins into the existing library on every mount so
+                // new code-provided patterns appear in the dropdown without
+                // requiring the user to clear localStorage.
+                const { library: merged, changed } = ensureBuiltinsInLibrary(existing);
+                if (cancelled) return;
+                setLibrary(merged);
+                if (changed) {
+                    const result = saveLibraryToStorage(merged);
+                    if (!result.ok) setError(result.error);
                 }
+                setIsReady(true);
                 return;
             }
+            let topologySeed = null;
+            let fetchError = null;
             try {
-                const seedData = fetchSeed
+                topologySeed = fetchSeed
                     ? await fetchSeed()
                     : await fetch(SEED_URL, { cache: 'no-store' }).then(r => {
                         if (!r.ok) throw new Error(`seed fetch failed: ${r.status}`);
                         return r.json();
                     });
-                const seeded = seedLibraryFrom(seedData, 'Default');
-                const result = saveLibraryToStorage(seeded);
-                if (cancelled) return;
-                setLibrary(seeded);
-                if (!result.ok) setError(result.error);
-                setIsReady(true);
             } catch (e) {
-                if (!cancelled) {
-                    setError(e?.message || 'seed fetch failed');
-                    setIsReady(true);
-                }
+                fetchError = e?.message || 'seed fetch failed';
             }
+            if (cancelled) return;
+            const seeded = bootstrapLibrary(topologySeed);
+            const result = saveLibraryToStorage(seeded);
+            setLibrary(seeded);
+            if (!result.ok) setError(result.error);
+            else if (fetchError) setError(fetchError);
+            setIsReady(true);
         })();
         return () => { cancelled = true; };
     }, [fetchSeed]);
