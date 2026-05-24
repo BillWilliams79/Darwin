@@ -19,6 +19,7 @@ const PROFILE = {
     app_tasks: 1,
     app_maps: 1,
     app_swarm: 0,
+    app_swarm_validate: 0,
 };
 
 // Helper: configure mock responses by URL substring
@@ -65,6 +66,7 @@ describe('fetchExportData', () => {
             app_tasks: 1,
             app_maps: 1,
             app_swarm: 0,
+            app_swarm_validate: 0,
         });
     });
 

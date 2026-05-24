@@ -37,6 +37,7 @@ const ProfileContent = ({ onClose }) => {
     const [appTasks, setAppTasks] = useState(Number(profile?.app_tasks ?? 1));
     const [appMaps, setAppMaps] = useState(Number(profile?.app_maps ?? 1));
     const [appSwarm, setAppSwarm] = useState(Number(profile?.app_swarm ?? 0));
+    const [appSwarmValidate, setAppSwarmValidate] = useState(Number(profile?.app_swarm_validate ?? 0));
 
     const timezoneOptions = useMemo(() => getTimezoneList(), []);
     const selectedTimezone = timezoneOptions.find(tz => tz.value === timezone) || null;
@@ -47,6 +48,7 @@ const ProfileContent = ({ onClose }) => {
     const savedAppTasksRef = useRef(Number(profile?.app_tasks ?? 1));
     const savedAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
     const savedAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
+    const savedAppSwarmValidateRef = useRef(Number(profile?.app_swarm_validate ?? 0));
 
     // Live refs mirror current state so the app-toggle handler always reads
     // fresh values — React closures can lag one render cycle when two clicks
@@ -54,9 +56,11 @@ const ProfileContent = ({ onClose }) => {
     const currentAppTasksRef = useRef(Number(profile?.app_tasks ?? 1));
     const currentAppMapsRef = useRef(Number(profile?.app_maps ?? 1));
     const currentAppSwarmRef = useRef(Number(profile?.app_swarm ?? 0));
+    const currentAppSwarmValidateRef = useRef(Number(profile?.app_swarm_validate ?? 0));
     useEffect(() => { currentAppTasksRef.current = appTasks; }, [appTasks]);
     useEffect(() => { currentAppMapsRef.current = appMaps; }, [appMaps]);
     useEffect(() => { currentAppSwarmRef.current = appSwarm; }, [appSwarm]);
+    useEffect(() => { currentAppSwarmValidateRef.current = appSwarmValidate; }, [appSwarmValidate]);
 
     // Tracks whether the user has mutated any field locally. If so, the on-mount
     // profile GET must not overwrite the local state — otherwise a quick click
@@ -80,6 +84,7 @@ const ProfileContent = ({ onClose }) => {
                         savedAppTasksRef.current = Number(db.app_tasks ?? 1);
                         savedAppMapsRef.current = Number(db.app_maps ?? 1);
                         savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                        savedAppSwarmValidateRef.current = Number(db.app_swarm_validate ?? 0);
                         return;
                     }
                     setName(db.name || '');
@@ -87,15 +92,18 @@ const ProfileContent = ({ onClose }) => {
                     setAppTasks(Number(db.app_tasks ?? 1));
                     setAppMaps(Number(db.app_maps ?? 1));
                     setAppSwarm(Number(db.app_swarm ?? 0));
+                    setAppSwarmValidate(Number(db.app_swarm_validate ?? 0));
                     savedNameRef.current = db.name || '';
                     savedTimezoneRef.current = db.timezone || '';
                     savedThemeModeRef.current = db.theme_mode || 'light';
                     savedAppTasksRef.current = Number(db.app_tasks ?? 1);
                     savedAppMapsRef.current = Number(db.app_maps ?? 1);
                     savedAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                    savedAppSwarmValidateRef.current = Number(db.app_swarm_validate ?? 0);
                     currentAppTasksRef.current = Number(db.app_tasks ?? 1);
                     currentAppMapsRef.current = Number(db.app_maps ?? 1);
                     currentAppSwarmRef.current = Number(db.app_swarm ?? 0);
+                    currentAppSwarmValidateRef.current = Number(db.app_swarm_validate ?? 0);
                     const updated = { ...profile, ...db };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
@@ -105,16 +113,18 @@ const ProfileContent = ({ onClose }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [idToken]);
 
-    const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm) => {
+    const saveProfile = useCallback((newName, newTimezone, newThemeMode, newAppTasks, newAppMaps, newAppSwarm, newAppSwarmValidate) => {
         if (newName === savedNameRef.current && newTimezone === savedTimezoneRef.current
             && newThemeMode === savedThemeModeRef.current
             && newAppTasks === savedAppTasksRef.current && newAppMaps === savedAppMapsRef.current
-            && newAppSwarm === savedAppSwarmRef.current) return;
+            && newAppSwarm === savedAppSwarmRef.current
+            && newAppSwarmValidate === savedAppSwarmValidateRef.current) return;
 
         const uri = `${darwinUri}/profiles`;
         call_rest_api(uri, 'PUT', [{
             id: profile.id, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
             app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+            app_swarm_validate: newAppSwarmValidate,
         }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
@@ -124,9 +134,11 @@ const ProfileContent = ({ onClose }) => {
                     savedAppTasksRef.current = newAppTasks;
                     savedAppMapsRef.current = newAppMaps;
                     savedAppSwarmRef.current = newAppSwarm;
+                    savedAppSwarmValidateRef.current = newAppSwarmValidate;
                     const updated = {
                         ...profile, name: newName, timezone: newTimezone, theme_mode: newThemeMode,
                         app_tasks: newAppTasks, app_maps: newAppMaps, app_swarm: newAppSwarm,
+                        app_swarm_validate: newAppSwarmValidate,
                     };
                     setProfile(updated);
                     localStorage.setItem('darwin-profile', JSON.stringify(updated));
@@ -186,7 +198,7 @@ const ProfileContent = ({ onClose }) => {
             <TextField  label="Name"
                         value={name}
                         onChange={(e) => { userModifiedRef.current = true; setName(e.target.value); }}
-                        onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm)}
+                        onBlur={() => saveProfile(name, timezone, themeMode, appTasks, appMaps, appSwarm, appSwarmValidate)}
                         id="Name"
                         key="Name"
                         variant="outlined"
@@ -206,7 +218,7 @@ const ProfileContent = ({ onClose }) => {
                             const newTz = newValue?.value || '';
                             userModifiedRef.current = true;
                             setTimezone(newTz);
-                            saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm);
+                            saveProfile(name, newTz, themeMode, appTasks, appMaps, appSwarm, appSwarmValidate);
                         }}
                         isOptionEqualToValue={(option, value) => option.value === value.value}
                         renderInput={(params) => (
@@ -218,37 +230,43 @@ const ProfileContent = ({ onClose }) => {
             {/* Applications selector */}
             <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Applications</Typography>
-                <Box sx={{ display: 'flex', gap: 2 }} data-testid="profile-app-toggle">
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }} data-testid="profile-app-toggle">
                     {[
                         { key: 'tasks', label: 'Tasks', value: appTasks, setValue: setAppTasks },
                         { key: 'maps', label: 'Maps', value: appMaps, setValue: setAppMaps },
                         { key: 'swarm', label: 'Swarm', value: appSwarm, setValue: setAppSwarm },
+                        { key: 'swarm-validate', label: 'Validate', value: appSwarmValidate, setValue: setAppSwarmValidate },
                     ].map((app) => {
                         const enabled = app.value === 1;
-                        const enabledCount = [appTasks, appMaps, appSwarm].filter(v => v === 1).length;
+                        const enabledCount = [appTasks, appMaps, appSwarm, appSwarmValidate].filter(v => v === 1).length;
 
                         const handleToggle = () => {
                             // Read current values from refs to avoid stale closure between rapid clicks
                             const liveTasks = currentAppTasksRef.current;
                             const liveMaps = currentAppMapsRef.current;
                             const liveSwarm = currentAppSwarmRef.current;
+                            const liveSwarmValidate = currentAppSwarmValidateRef.current;
                             const liveVal = app.key === 'tasks' ? liveTasks
-                                : app.key === 'maps' ? liveMaps : liveSwarm;
+                                : app.key === 'maps' ? liveMaps
+                                : app.key === 'swarm' ? liveSwarm
+                                : liveSwarmValidate;
                             const liveEnabled = liveVal === 1;
-                            const liveCount = [liveTasks, liveMaps, liveSwarm].filter(v => v === 1).length;
+                            const liveCount = [liveTasks, liveMaps, liveSwarm, liveSwarmValidate].filter(v => v === 1).length;
                             if (liveEnabled && liveCount <= 1) return;
                             const newVal = liveEnabled ? 0 : 1;
                             // Update ref synchronously so a follow-up click that fires before
                             // React commits the next render still reads the fresh value.
                             if (app.key === 'tasks') currentAppTasksRef.current = newVal;
                             else if (app.key === 'maps') currentAppMapsRef.current = newVal;
-                            else currentAppSwarmRef.current = newVal;
+                            else if (app.key === 'swarm') currentAppSwarmRef.current = newVal;
+                            else currentAppSwarmValidateRef.current = newVal;
                             userModifiedRef.current = true;
                             app.setValue(newVal);
                             const newTasks = app.key === 'tasks' ? newVal : liveTasks;
                             const newMaps = app.key === 'maps' ? newVal : liveMaps;
                             const newSwarm = app.key === 'swarm' ? newVal : liveSwarm;
-                            saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm);
+                            const newSwarmValidate = app.key === 'swarm-validate' ? newVal : liveSwarmValidate;
+                            saveProfile(name, timezone, themeMode, newTasks, newMaps, newSwarm, newSwarmValidate);
                         };
 
                         const renderPreview = () => {
@@ -277,6 +295,25 @@ const ProfileContent = ({ onClose }) => {
                                             <circle cx="8" cy="32" r="3" fill={enabled ? '#e91e63' : '#ccc'} />
                                             <circle cx="52" cy="8" r="3" fill={enabled ? '#4caf50' : '#ccc'} />
                                         </svg>
+                                    </Box>
+                                );
+                            }
+                            if (app.key === 'swarm-validate') {
+                                // Three test-result rows: title bar + status dot (pass=green, fail=red, pending=amber)
+                                const dots = enabled
+                                    ? ['#4caf50', '#f44336', '#ff9800']
+                                    : ['#ccc', '#ccc', '#ccc'];
+                                return (
+                                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.4, p: 0.5 }}>
+                                        {dots.map((dotColor, i) => (
+                                            <Box key={i} sx={{
+                                                height: 12, borderRadius: 0.5, bgcolor: 'action.hover',
+                                                display: 'flex', alignItems: 'center', gap: '3px', px: 0.5,
+                                            }}>
+                                                <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: dotColor, flexShrink: 0 }} />
+                                                <Box sx={{ flex: 1, height: 3, borderRadius: 0.5, bgcolor: fg }} />
+                                            </Box>
+                                        ))}
                                     </Box>
                                 );
                             }
@@ -373,7 +410,7 @@ const ProfileContent = ({ onClose }) => {
 
                         return (
                             <Box key={m}
-                                onClick={() => { userModifiedRef.current = true; setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm); }}
+                                onClick={() => { userModifiedRef.current = true; setThemeMode(m); saveProfile(name, timezone, m, appTasks, appMaps, appSwarm, appSwarmValidate); }}
                                 sx={{
                                     cursor: 'pointer', textAlign: 'center',
                                     '&:hover .theme-thumb': { borderColor: 'primary.main' },

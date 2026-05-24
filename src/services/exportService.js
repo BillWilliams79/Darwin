@@ -33,6 +33,7 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
             app_tasks: profile.app_tasks,
             app_maps: profile.app_maps,
             app_swarm: profile.app_swarm,
+            app_swarm_validate: profile.app_swarm_validate,
         },
     };
 

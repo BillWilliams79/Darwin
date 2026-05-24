@@ -190,6 +190,18 @@ const SwarmStartCard = () => {
         return a.id - b.id;
     };
 
+    // Met chip sort (req #2613): most-recently-completed first. Rows missing
+    // completed_at sink to the end; id DESC tiebreaker so same-instant completions
+    // surface the higher (typically newer) id first.
+    const metSort = (a, b) => {
+        if (a.id === '') return 1;
+        if (b.id === '') return -1;
+        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : -Infinity;
+        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : -Infinity;
+        if (aTime !== bTime) return bTime - aTime;
+        return b.id - a.id;
+    };
+
     // Seed local state from server data (re-runs on every fetch — including chip switch).
     // After req #2405 removed requirements.sort_order, 'hand' and 'created' sort modes
     // both resolve to id-ascending order; the toggle is retained only for UI continuity
@@ -200,12 +212,12 @@ const SwarmStartCard = () => {
             return;
         }
         const sorted = [...currentRequirements];
-        sorted.sort((a, b) => createdSort(a, b));
+        sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
         // Template row (req #2414) — title-only entry; saving is deferred to the
         // requirement editor where the user must pick a category before any POST.
         sorted.push({ id: '', title: '', requirement_status: 'authoring', category_fk: null });
         setRequirementsArray(sorted);
-    }, [currentRequirements]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [currentRequirements, isMet]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Build session status map (same logic as CategoryCard)
     useEffect(() => {
@@ -235,7 +247,7 @@ const SwarmStartCard = () => {
         setSortMode(newMode);
         if (requirementsArray) {
             const sorted = [...requirementsArray];
-            sorted.sort((a, b) => createdSort(a, b));
+            sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
             setRequirementsArray(sorted);
         }
     };
