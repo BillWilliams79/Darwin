@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import Stack from '@mui/material/Stack';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -13,10 +15,11 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import { BRANCH_TYPES, branchTypeChipProps, branchTypeLabel } from './branchTypeChipStyles';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BuildPatternToolbar = ({ lib }) => {
+const BuildPatternToolbar = ({ lib, selectedTypes, onToggleType }) => {
     const fileInputRef = useRef(null);
     const [saveAsOpen, setSaveAsOpen] = useState(false);
     const [saveAsName, setSaveAsName] = useState('');
@@ -141,6 +144,36 @@ const BuildPatternToolbar = ({ lib }) => {
             >
                 Delete
             </Button>
+            <Box sx={{ flex: 1 }} />
+            {selectedTypes && onToggleType && (
+                <Stack
+                    direction="row"
+                    spacing={0.5}
+                    flexWrap="wrap"
+                    useFlexGap
+                    data-testid="branch-type-filter"
+                >
+                    {BRANCH_TYPES.map(type => {
+                        const selected = selectedTypes.includes(type);
+                        const chipProps = branchTypeChipProps(type);
+                        return (
+                            <Chip
+                                key={type}
+                                label={branchTypeLabel(type)}
+                                size="small"
+                                onClick={() => onToggleType(type)}
+                                {...(selected ? chipProps : { variant: 'outlined' })}
+                                sx={{
+                                    ...(selected ? chipProps.sx : {}),
+                                    ...(!selected && { opacity: 0.5 }),
+                                    cursor: 'pointer',
+                                }}
+                                data-testid={`branch-type-chip-${type}`}
+                            />
+                        );
+                    })}
+                </Stack>
+            )}
             <Box sx={{ flex: 1 }} />
             <Button size="small" onClick={handleExport} data-testid="bv-export">Export</Button>
             <Button size="small" onClick={handleImportClick} data-testid="bv-import">Import</Button>
