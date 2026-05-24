@@ -5,6 +5,9 @@ import {
     isValidLibrary,
     makePattern,
     seedLibraryFrom,
+    ensureBuiltinsInLibrary,
+    bootstrapLibrary,
+    DEFAULT_PATTERN_NAME,
     listPatternsSorted,
     setActive,
     updateActiveData,
@@ -93,6 +96,82 @@ describe('seedLibraryFrom + load/save round-trip', () => {
         const storage = fakeStorage();
         storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, patterns: {} }));
         expect(loadLibraryFromStorage(storage)).toBeNull();
+    });
+});
+
+describe('ensureBuiltinsInLibrary', () => {
+    const FAKE_BUILTINS = [
+        { id: 'builtin:test-a', name: 'Test A', generate: () => ({ ...sampleBuildsJson, _gen: 'a' }) },
+        { id: 'builtin:test-b', name: 'Test B', generate: () => ({ ...sampleBuildsJson, _gen: 'b' }) },
+    ];
+
+    it('adds every missing built-in to an empty library', () => {
+        const { library, changed } = ensureBuiltinsInLibrary(emptyLibrary(), FAKE_BUILTINS);
+        expect(changed).toBe(true);
+        expect(library.patterns['builtin:test-a']).toBeDefined();
+        expect(library.patterns['builtin:test-b']).toBeDefined();
+        expect(library.activeId).toBe('builtin:test-a');
+    });
+
+    it('is idempotent — running twice does not duplicate or rewrite', () => {
+        const first = ensureBuiltinsInLibrary(emptyLibrary(), FAKE_BUILTINS).library;
+        const firstA = first.patterns['builtin:test-a'];
+        const second = ensureBuiltinsInLibrary(first, FAKE_BUILTINS);
+        expect(second.changed).toBe(false);
+        expect(second.library.patterns['builtin:test-a']).toBe(firstA);
+        expect(Object.keys(second.library.patterns)).toHaveLength(2);
+    });
+
+    it('preserves an existing built-in entry verbatim — never overwrites user customizations', () => {
+        const lib = emptyLibrary();
+        const customized = makePattern({
+            id: 'builtin:test-a',
+            name: 'Test A',
+            data: { ...sampleBuildsJson, _gen: 'USER-EDITED' },
+        });
+        lib.patterns[customized.id] = customized;
+        lib.activeId = customized.id;
+        const { library, changed } = ensureBuiltinsInLibrary(lib, FAKE_BUILTINS);
+        // The user's edited Test A is untouched; Test B is added.
+        expect(library.patterns['builtin:test-a'].data._gen).toBe('USER-EDITED');
+        expect(library.patterns['builtin:test-b']).toBeDefined();
+        expect(changed).toBe(true); // Test B was added
+    });
+
+    it('preserves a user-saved (non-builtin) pattern alongside built-ins', () => {
+        const lib = emptyLibrary();
+        const userPattern = makePattern({ name: 'My Pattern', data: sampleBuildsJson });
+        lib.patterns[userPattern.id] = userPattern;
+        lib.activeId = userPattern.id;
+        const { library } = ensureBuiltinsInLibrary(lib, FAKE_BUILTINS);
+        expect(library.patterns[userPattern.id]).toBe(userPattern);
+        expect(library.activeId).toBe(userPattern.id); // active preserved
+        expect(library.patterns['builtin:test-a']).toBeDefined();
+        expect(library.patterns['builtin:test-b']).toBeDefined();
+    });
+
+    it('falls back to the first built-in id when activeId points at a deleted pattern', () => {
+        const lib = { version: 1, activeId: 'dangling-id', patterns: {} };
+        const { library, changed } = ensureBuiltinsInLibrary(lib, FAKE_BUILTINS);
+        expect(library.activeId).toBe('builtin:test-a');
+        expect(changed).toBe(true);
+    });
+});
+
+describe('bootstrapLibrary', () => {
+    it('includes built-ins AND the Topology Default when the seed is provided', () => {
+        const lib = bootstrapLibrary(sampleBuildsJson);
+        const names = Object.values(lib.patterns).map(p => p.name).sort();
+        expect(names).toContain(DEFAULT_PATTERN_NAME);
+        expect(names).toContain('Sprint Cycle');
+        expect(lib.patterns['builtin:sprint-cycle']).toBeDefined();
+    });
+
+    it('still seeds built-ins when the Topology seed is null', () => {
+        const lib = bootstrapLibrary(null);
+        expect(lib.patterns['builtin:sprint-cycle']).toBeDefined();
+        expect(Object.values(lib.patterns).some(p => p.name === DEFAULT_PATTERN_NAME)).toBe(false);
+        expect(lib.activeId).toBe('builtin:sprint-cycle');
     });
 });
 
