@@ -89,3 +89,83 @@ test.describe('Build Visualizer — save/load build patterns (req #2592)', () =>
         expect(download.suggestedFilename()).toMatch(/^darwin-build-patterns-\d{4}-\d{2}-\d{2}\.json$/);
     });
 });
+
+// req #2601 — clicking a non-main branch (label or connector) opens the
+// branch editor; saving with a new name + type writes through to the
+// pattern library and survives a reload.
+test.describe('Build Visualizer — branch editor (req #2601)', () => {
+    test.skip(!isDevHost, 'Build Visualizer is DEV-only — skipped against non-localhost target');
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/build-visualizer');
+        await clearLibrary(page);
+        await page.reload();
+        await expect(page.getByTestId('build-visualizer-iframe')).toBeVisible();
+    });
+
+    test.afterEach(async ({ page }) => {
+        await clearLibrary(page);
+    });
+
+    test('clicking a non-main branch label opens the editor and saves name + type', async ({ page }) => {
+        const iframe = page.frameLocator('[data-testid="build-visualizer-iframe"]');
+
+        // The first non-main branch in the seed pattern is `dev-a` (a
+        // `development` branch). Its label is the first `.branch-label` text
+        // node in the SVG. Click it to open the editor.
+        const label = iframe.locator('text.branch-label[data-branch-id]').first();
+        await expect(label).toBeVisible();
+        const branchId = await label.getAttribute('data-branch-id');
+        expect(branchId).toBeTruthy();
+        await label.click();
+
+        const nameInput = iframe.locator('[data-testid="branch-editor-name"]');
+        const typeSelect = iframe.locator('[data-testid="branch-editor-type"]');
+        await expect(nameInput).toBeVisible();
+        await expect(typeSelect).toBeVisible();
+
+        await nameInput.fill('Renamed Branch');
+        await typeSelect.selectOption('hotfix');
+        await iframe.locator('[data-testid="branch-editor-save"]').click();
+
+        // Editor closes after save.
+        await expect(nameInput).toBeHidden();
+
+        // The pattern library should reflect the new name and type for that branch.
+        await expect.poll(async () => {
+            const lib = await readLibrary(page);
+            const data = lib?.patterns?.[lib.activeId]?.data;
+            const br = data?.branches?.find((b: any) => b.id === branchId);
+            return br ? { name: br.name, type: br.type } : null;
+        }).toEqual({ name: 'Renamed Branch', type: 'hotfix' });
+    });
+
+    test('main trunk label opens the editor with type locked', async ({ page }) => {
+        const iframe = page.frameLocator('[data-testid="build-visualizer-iframe"]');
+
+        // Main's LEFT endpoint label is an `.endpoint-label` (not `.branch-label`)
+        // and carries data-branch-id="main".
+        const mainLabel = iframe.locator('text.endpoint-label[data-branch-id="main"]');
+        await expect(mainLabel).toBeVisible();
+        await mainLabel.click();
+
+        const nameInput = iframe.locator('[data-testid="branch-editor-name"]');
+        const typeSelect = iframe.locator('[data-testid="branch-editor-type"]');
+        await expect(nameInput).toBeVisible();
+        // Type select is disabled for main — engine requires exactly one
+        // branch with id='main' AND type='main'.
+        await expect(typeSelect).toBeDisabled();
+
+        // Rename the trunk and save.
+        await nameInput.fill('Trunk');
+        await iframe.locator('[data-testid="branch-editor-save"]').click();
+        await expect(nameInput).toBeHidden();
+
+        await expect.poll(async () => {
+            const lib = await readLibrary(page);
+            const data = lib?.patterns?.[lib.activeId]?.data;
+            const br = data?.branches?.find((b: any) => b.id === 'main');
+            return br ? { name: br.name, type: br.type } : null;
+        }).toEqual({ name: 'Trunk', type: 'main' });
+    });
+});
