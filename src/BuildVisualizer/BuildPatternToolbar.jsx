@@ -23,6 +23,11 @@ const BuildPatternToolbar = ({ lib }) => {
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [newOpen, setNewOpen] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newMajor, setNewMajor] = useState('1');
+    const [newMinor, setNewMinor] = useState('0');
+    const [newInitialBuild, setNewInitialBuild] = useState('1');
     const [snack, setSnack] = useState(null); // { severity, message }
 
     const showSnack = (severity, message) => setSnack({ severity, message });
@@ -31,6 +36,34 @@ const BuildPatternToolbar = ({ lib }) => {
 
     const handlePatternSelect = (event) => {
         lib.selectPattern(event.target.value);
+    };
+
+    const openNew = () => {
+        setNewName('');
+        setNewMajor('1');
+        setNewMinor('0');
+        setNewInitialBuild('1');
+        setNewOpen(true);
+    };
+
+    const parseNonNegInt = (s, fallback) => {
+        const n = parseInt(String(s).trim(), 10);
+        return Number.isFinite(n) && n >= 0 ? n : fallback;
+    };
+    const parsePosInt = (s, fallback) => {
+        const n = parseInt(String(s).trim(), 10);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+
+    const confirmNew = () => {
+        const name = newName.trim();
+        if (!name) return;
+        const major = parseNonNegInt(newMajor, 1);
+        const minor = parseNonNegInt(newMinor, 0);
+        const initialBuildNumber = parsePosInt(newInitialBuild, 1);
+        lib.createNew(name, { major, minor, initialBuildNumber });
+        setNewOpen(false);
+        showSnack('success', `Created "${name}"`);
     };
 
     const openSaveAs = () => {
@@ -126,6 +159,9 @@ const BuildPatternToolbar = ({ lib }) => {
                 </Select>
             </FormControl>
 
+            <Button size="small" variant="outlined" onClick={openNew} data-testid="bv-new">
+                New
+            </Button>
             <Button size="small" onClick={openSaveAs} disabled={!lib.activePattern} data-testid="bv-save-as">
                 Save As
             </Button>
@@ -152,6 +188,65 @@ const BuildPatternToolbar = ({ lib }) => {
                 style={{ display: 'none' }}
                 data-testid="bv-import-input"
             />
+
+            <Dialog open={newOpen} onClose={() => setNewOpen(false)}>
+                <DialogTitle>New build doc</DialogTitle>
+                <DialogContent>
+                    <DialogContentText sx={{ mb: 1 }}>
+                        Creates a fresh build pattern with one main branch and its first build.
+                    </DialogContentText>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        margin="dense"
+                        label="Project name"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim()) confirmNew(); }}
+                        inputProps={{ 'data-testid': 'bv-new-name' }}
+                    />
+                    <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                        <TextField
+                            label="Major"
+                            type="number"
+                            margin="dense"
+                            value={newMajor}
+                            onChange={(e) => setNewMajor(e.target.value)}
+                            inputProps={{ min: 0, step: 1, 'data-testid': 'bv-new-major' }}
+                            sx={{ flex: 1 }}
+                        />
+                        <TextField
+                            label="Minor"
+                            type="number"
+                            margin="dense"
+                            value={newMinor}
+                            onChange={(e) => setNewMinor(e.target.value)}
+                            inputProps={{ min: 0, step: 1, 'data-testid': 'bv-new-minor' }}
+                            sx={{ flex: 1 }}
+                        />
+                        <TextField
+                            label="First Build #"
+                            type="number"
+                            margin="dense"
+                            value={newInitialBuild}
+                            onChange={(e) => setNewInitialBuild(e.target.value)}
+                            inputProps={{ min: 1, step: 1, 'data-testid': 'bv-new-initial-build' }}
+                            sx={{ flex: 1 }}
+                            helperText="Defaults to 1"
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setNewOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={confirmNew}
+                        disabled={!newName.trim()}
+                        data-testid="bv-new-confirm"
+                    >
+                        Create
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Dialog open={saveAsOpen} onClose={() => setSaveAsOpen(false)}>
                 <DialogTitle>Save pattern as</DialogTitle>

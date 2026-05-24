@@ -15,6 +15,8 @@ import {
     importLibrary,
     loadLibraryFromStorage,
     saveLibraryToStorage,
+    makeEmptyBuildDoc,
+    addEmptyPattern,
 } from '../usePatternLibrary';
 
 function fakeStorage() {
@@ -186,6 +188,80 @@ describe('listPatternsSorted', () => {
         const lib = { version: 1, activeId: a.id, patterns: { [a.id]: a, [b.id]: b, [c.id]: c } };
         const sorted = listPatternsSorted(lib);
         expect(sorted.map(p => p.name)).toEqual(['B', 'A', 'C']);
+    });
+});
+
+describe('makeEmptyBuildDoc (req #2597)', () => {
+    it('produces a fresh doc with one main branch and one first build', () => {
+        const d = makeEmptyBuildDoc({ major: 5, minor: 2, initialBuildNumber: 1 });
+        expect(d.version).toBe(1);
+        expect(d.currentMajor).toBe(5);
+        expect(d.currentMinor).toBe(2);
+        expect(d.initialBuildNumber).toBe(1);
+        expect(d.nextBuildNumber).toBe(2);
+        expect(d.nextBranchNumber).toBe(2);
+        expect(d.branches).toHaveLength(1);
+        expect(d.branches[0]).toMatchObject({
+            id: 'main',
+            type: 'main',
+            name: 'Main',
+            parentBranchId: null,
+            parentBuildId: null,
+            side: 'center',
+            buildIds: ['m1'],
+        });
+        expect(d.builds.m1).toMatchObject({ id: 'm1', number: 1, branchId: 'main', dotColor: null });
+    });
+
+    it('seeds trunkSegments with one entry mirroring the dialog inputs', () => {
+        const d = makeEmptyBuildDoc({ major: 2, minor: 10, initialBuildNumber: 345 });
+        expect(d.trunkSegments).toEqual([
+            { startIdx: 0, major: 2, minor: 10, initialBuildNumber: 345 },
+        ]);
+    });
+
+    it('defaults when called with no args', () => {
+        const d = makeEmptyBuildDoc();
+        expect(d.currentMajor).toBe(1);
+        expect(d.currentMinor).toBe(0);
+        expect(d.initialBuildNumber).toBe(1);
+    });
+
+    it('clamps negative major/minor and non-positive initialBuildNumber to safe defaults', () => {
+        const d = makeEmptyBuildDoc({ major: -2, minor: -1, initialBuildNumber: 0 });
+        expect(d.currentMajor).toBe(1);
+        expect(d.currentMinor).toBe(0);
+        expect(d.initialBuildNumber).toBe(1);
+    });
+
+    it('floors non-integer numeric inputs', () => {
+        const d = makeEmptyBuildDoc({ major: 5.7, minor: 2.4, initialBuildNumber: 42.9 });
+        expect(d.currentMajor).toBe(5);
+        expect(d.currentMinor).toBe(2);
+        expect(d.initialBuildNumber).toBe(42);
+    });
+
+    it('round-trips the initialBuildNumber so the iframe BuildModel reads it back', () => {
+        const d = makeEmptyBuildDoc({ major: 5, minor: 2, initialBuildNumber: 42 });
+        const json = JSON.stringify(d);
+        const parsed = JSON.parse(json);
+        expect(parsed.initialBuildNumber).toBe(42);
+    });
+});
+
+describe('addEmptyPattern (req #2597)', () => {
+    it('adds a fresh pattern, switches active to it, preserves others', () => {
+        const lib = seedLibraryFrom(sampleBuildsJson, 'Default');
+        const originalId = lib.activeId;
+        const next = addEmptyPattern(lib, 'Project X', { major: 2, minor: 1, initialBuildNumber: 10 });
+        expect(Object.keys(next.patterns)).toHaveLength(2);
+        expect(next.activeId).not.toBe(originalId);
+        expect(next.patterns[next.activeId].name).toBe('Project X');
+        expect(next.patterns[next.activeId].data.currentMajor).toBe(2);
+        expect(next.patterns[next.activeId].data.currentMinor).toBe(1);
+        expect(next.patterns[next.activeId].data.initialBuildNumber).toBe(10);
+        // Old pattern still present unchanged
+        expect(next.patterns[originalId]).toBe(lib.patterns[originalId]);
     });
 });
 

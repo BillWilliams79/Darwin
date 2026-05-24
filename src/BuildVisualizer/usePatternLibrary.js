@@ -101,6 +101,60 @@ export function addPatternFromActive(library, name) {
     };
 }
 
+// Builds a fresh builds.json-shaped object representing a brand-new build doc with
+// a single main branch and its first build already run (req #2597). Inputs:
+//   - major / minor: open-segment Major.Minor (drives currentMajor/currentMinor)
+//   - initialBuildNumber: starting Build# of segment 1 — lets the team anchor the
+//     first build at e.g. 5.2.42.0 instead of 5.2.1.0. Defaults to 1.
+// Output mirrors what app.js's BuildModel.toJSON() produces, so it round-trips
+// through the iframe's BuildModel constructor without any normalization.
+export function makeEmptyBuildDoc({ major = 1, minor = 0, initialBuildNumber = 1 } = {}) {
+    const safeMajor = Number.isFinite(major) && major >= 0 ? Math.floor(major) : 1;
+    const safeMinor = Number.isFinite(minor) && minor >= 0 ? Math.floor(minor) : 0;
+    const safeInitial =
+        Number.isFinite(initialBuildNumber) && initialBuildNumber > 0
+            ? Math.floor(initialBuildNumber) : 1;
+    return {
+        version: 1,
+        currentMajor: safeMajor,
+        currentMinor: safeMinor,
+        nextBuildNumber: 2,
+        nextBranchNumber: 2,
+        initialBuildNumber: safeInitial,
+        // First trunk segment — captures the New-doc dialog's M.m + starting Build#.
+        // Subsequent segments are added by the iframe when a Release branch is created.
+        trunkSegments: [{
+            startIdx: 0,
+            major: safeMajor,
+            minor: safeMinor,
+            initialBuildNumber: safeInitial,
+        }],
+        branches: [
+            {
+                id: 'main',
+                type: 'main',
+                name: 'Main',
+                parentBranchId: null,
+                parentBuildId: null,
+                side: 'center',
+                buildIds: ['m1'],
+            },
+        ],
+        builds: {
+            m1: { id: 'm1', number: 1, branchId: 'main', dotColor: null },
+        },
+    };
+}
+
+export function addEmptyPattern(library, name, opts) {
+    const pattern = makePattern({ name, data: makeEmptyBuildDoc(opts) });
+    return {
+        ...library,
+        activeId: pattern.id,
+        patterns: { ...library.patterns, [pattern.id]: pattern },
+    };
+}
+
 export function renamePattern(library, id, name) {
     if (!library.patterns[id]) return library;
     return {
@@ -236,6 +290,7 @@ export function usePatternLibrary({ fetchSeed } = {}) {
         selectPattern: useCallback((id) => commit(setActive(library, id)), [library, commit]),
         saveActiveData: useCallback((data) => commit(updateActiveData(library, data)), [library, commit]),
         saveAs: useCallback((name) => commit(addPatternFromActive(library, name)), [library, commit]),
+        createNew: useCallback((name, opts) => commit(addEmptyPattern(library, name, opts)), [library, commit]),
         rename: useCallback((id, name) => commit(renamePattern(library, id, name)), [library, commit]),
         remove: useCallback((id) => {
             const { library: next, error: removeError } = removePattern(library, id);
