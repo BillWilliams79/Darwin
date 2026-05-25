@@ -188,3 +188,84 @@ test.describe('Build Visualizer — branch editor (req #2601)', () => {
         }).toEqual({ name: 'Trunk', type: 'main' });
     });
 });
+
+// req #2615 — natural spacing. Two dev branches whose horizontal x-extents would
+// overlap on the same row must land on DIFFERENT Y rows. The collision-aware row
+// assignment in BuildLayoutEngine bumps the second branch to the next dev row
+// instead of letting two lines run atop each other.
+test.describe('Build Visualizer — natural spacing (req #2615)', () => {
+    test.skip(!isDevHost, 'Build Visualizer is DEV-only — skipped against non-localhost target');
+
+    // Inject a synthetic pattern BEFORE the iframe boots so the engine renders our
+    // hand-rolled dev-overlap scenario. Two dev branches off different main builds:
+    //   - long-dev: parent m2, 25 builds → horizontal extends from m2.x past m27.
+    //   - short-dev: parent m15, 3 builds → horizontal at m15.x, would naturally
+    //     land on row 0 (mainY + 110 = 610) but row 0 is already occupied by
+    //     long-dev's horizontal at that x. Algorithm bumps short-dev to row 1
+    //     (mainY + 180 = 680).
+    test('two dev branches whose extents collide land on different Y rows', async ({ page }) => {
+        await page.goto('/build-visualizer');
+        await page.waitForLoadState('domcontentloaded');
+
+        const mainBuildIds = Array.from({ length: 30 }, (_, i) => `m${i + 1}`);
+        const longDevBuildIds = Array.from({ length: 25 }, (_, i) => `ld${i + 1}`);
+        const shortDevBuildIds = ['sd1', 'sd2', 'sd3'];
+        const builds: Record<string, any> = {};
+        mainBuildIds.forEach((id, i) => { builds[id] = { id, number: i + 1, branchId: 'main', dotColor: null }; });
+        longDevBuildIds.forEach((id) => { builds[id] = { id, number: 1, branchId: 'long-dev', dotColor: null }; });
+        shortDevBuildIds.forEach((id) => { builds[id] = { id, number: 1, branchId: 'short-dev', dotColor: null }; });
+
+        const data = {
+            version: 1,
+            currentMajor: 1,
+            currentMinor: 0,
+            nextBuildNumber: 100,
+            nextBranchNumber: 50,
+            initialBuildNumber: 1,
+            trunkSegments: [{ startIdx: 0, major: 1, minor: 0, initialBuildNumber: 1 }],
+            branches: [
+                { id: 'main', type: 'main', name: 'Main', parentBranchId: null, parentBuildId: null, side: 'center', buildIds: mainBuildIds },
+                { id: 'long-dev', type: 'development', name: 'long-dev', parentBranchId: 'main', parentBuildId: 'm2', side: 'below', buildIds: longDevBuildIds },
+                { id: 'short-dev', type: 'development', name: 'short-dev', parentBranchId: 'main', parentBuildId: 'm15', side: 'below', buildIds: shortDevBuildIds },
+            ],
+            builds,
+        };
+        const library = {
+            version: 1,
+            activeId: 'natural-spacing-test',
+            patterns: {
+                'natural-spacing-test': {
+                    id: 'natural-spacing-test',
+                    name: 'Natural Spacing Test',
+                    createdAt: '2026-05-24T00:00:00.000Z',
+                    updatedAt: '2026-05-24T00:00:00.000Z',
+                    data,
+                },
+            },
+        };
+        await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, JSON.stringify(library)]);
+        await page.reload();
+        await expect(page.getByTestId('build-visualizer-iframe')).toBeVisible();
+
+        const iframe = page.frameLocator('[data-testid="build-visualizer-iframe"]');
+        // Both dev labels render with data-branch-id; their y attribute is
+        // branchY - 16 (see _branchLabel). Read it and recover branchY.
+        const longLabel = iframe.locator('text.branch-label[data-branch-id="long-dev"]').first();
+        const shortLabel = iframe.locator('text.branch-label[data-branch-id="short-dev"]').first();
+        await expect(longLabel).toBeVisible();
+        await expect(shortLabel).toBeVisible();
+        const longY = Number(await longLabel.getAttribute('y')) + 16;
+        const shortY = Number(await shortLabel.getAttribute('y')) + 16;
+
+        // Both dev branches must NOT share a Y. Their extents overlap horizontally
+        // — m15.x ≈ 240 + 14·52 = 968, well within long-dev's extent which runs
+        // from 240+1·52=292 past 27·52 ≈ column-27 = 240+26·52 = 1592.
+        expect(longY).not.toBe(shortY);
+        // long-dev was created first → claims row 0 (mainY + 110 = 610).
+        expect(longY).toBe(610);
+        // short-dev gets bumped one row down (mainY + 110 + 70 = 680).
+        expect(shortY).toBe(680);
+
+        await clearLibrary(page);
+    });
+});
