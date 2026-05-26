@@ -410,4 +410,63 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm$/, { timeout: 10000 });
   });
 
+  // SWM-2651: per-tab view memory (req #2651).
+  //
+  // Locks down the bug: previously, setting the view in tab B updated
+  // localStorage and any later remount in tab A (e.g. after navigating to a
+  // detail page and back) silently picked up tab B's choice. The hook now
+  // stores view selection in sessionStorage (per-tab) with localStorage as
+  // the cross-tab default for newly opened tabs only.
+  //
+  // Playwright BrowserContexts isolate ALL storage (including localStorage),
+  // so we can't faithfully model "two real tabs in one browser" with two
+  // contexts. Instead, we directly seed sessionStorage and localStorage with
+  // mismatched values — the precise state two tabs would diverge into — and
+  // assert the hook prefers sessionStorage on every subsequent remount, while
+  // localStorage seeds the initial state when sessionStorage is empty.
+  test('SWM-2651: per-tab view memory — sessionStorage wins over localStorage', async ({ page }) => {
+    // 1) Empty sessionStorage + localStorage set to 'visualizer' = new tab
+    //    inherits last-set value globally.
+    await page.goto('/swarm');
+    await page.evaluate(() => {
+      sessionStorage.clear();
+      localStorage.setItem('darwin-swarm-view', 'visualizer');
+    });
+    await page.reload();
+    await expect(page.getByTestId('view-toggle-visualizer'))
+        .toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
+    // First-mount seeded sessionStorage from localStorage.
+    const seeded = await page.evaluate(() => sessionStorage.getItem('darwin-swarm-view'));
+    expect(seeded).toBe('visualizer');
+
+    // 2) Divergence: tab-local sessionStorage holds 'visualizer', but a
+    //    sibling tab has updated localStorage to 'table'. After navigation
+    //    away and back, sessionStorage must win (the regression we're
+    //    locking down — old code would read localStorage and switch to
+    //    'table').
+    await page.evaluate(() => {
+      localStorage.setItem('darwin-swarm-view', 'table');
+    });
+    await page.goto(`/swarm/requirement/${testRequirementId}`);
+    await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
+    await page.goto('/swarm');
+    await expect(page.getByTestId('view-toggle-visualizer'))
+        .toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
+
+    // 3) Hard reload also preserves the per-tab value.
+    await page.reload();
+    await expect(page.getByTestId('view-toggle-visualizer'))
+        .toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
+
+    // 4) Clicking a different view writes to BOTH stores.
+    await page.getByTestId('view-toggle-table').click();
+    await expect(page.getByTestId('view-toggle-table')).toHaveAttribute('aria-pressed', 'true');
+    const after = await page.evaluate(() => ({
+      session: sessionStorage.getItem('darwin-swarm-view'),
+      local: localStorage.getItem('darwin-swarm-view'),
+    }));
+    expect(after.session).toBe('table');
+    expect(after.local).toBe('table');
+  });
+
 });

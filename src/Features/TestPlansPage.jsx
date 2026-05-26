@@ -16,6 +16,7 @@ import {
     useTestRunsByPlan,
 } from '../hooks/useDataQueries';
 import { testPlanKeys, testPlanCaseKeys } from '../hooks/useQueryKeys';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
@@ -67,7 +68,7 @@ export default function TestPlansPage() {
     const showError = useSnackBarStore(s => s.showError);
     const navigate = useNavigate();
 
-    const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'cards');
+    const [view, setView] = useViewPreference(VIEW_KEY, 'cards');
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
     const [detailPlan, setDetailPlan] = useState(null);
@@ -133,12 +134,7 @@ export default function TestPlansPage() {
         }
     };
 
-    const handleViewChange = (_e, newView) => {
-        if (newView !== null) {
-            setView(newView);
-            localStorage.setItem(VIEW_KEY, newView);
-        }
-    };
+    const handleViewChange = (_e, newView) => setView(newView);
 
     const invalidatePlans = () => {
         queryClient.invalidateQueries({ queryKey: testPlanKeys.all(creatorFk) });
