@@ -389,7 +389,7 @@ describe('clusterSessionsByStartTime', () => {
 // Row 0 = earliest met = bottom; higher rows = later met = top.
 // topDown=true reverses the order so the latest gets row 0 (Sidewalk mode —
 // wire sits at the top of the panel, so row 0 renders closest to it). ──────────
-import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor, computePhantomPlacement } from '../TimeSeriesView';
+import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor, computePhantomPlacement, isHiddenSwarmStatus } from '../TimeSeriesView';
 
 // ─── clusterSessionsByStartTime — MySQL-format parsing (req #2398) ─────────────
 // Regression guard: before the fix, clusterSessionsByStartTime parsed
@@ -1192,5 +1192,47 @@ describe('computePhantomPlacement (in-progress phantom placement, req #2649)', (
         // still a Case A (start at startPct, head at 0).
         const p = computePhantomPlacement(30, 0);
         expect(p).toEqual({ phantomStartPct: 30, phantomLeftPct: 0, startClamped: false });
+    });
+});
+
+// ─── isHiddenSwarmStatus (req #2650) ─────────────────────────────────────────
+// The phantom-chip filter in SwarmVisualizer skips sessions whose status
+// indicates they are NOT actively in progress. Pre-#2650 the filter only
+// skipped 'completed', so a session a user explicitly paused continued to
+// surface as today's "unfinished business" — repro: req #2555 (deferred) +
+// session #1938 (paused) bleeding onto today's panel four days after pause.
+// The helper centralises the skip list so future statuses can be added in
+// one place.
+describe('isHiddenSwarmStatus (phantom-chip skip filter, req #2650)', () => {
+    it('hides null / undefined / empty status', () => {
+        expect(isHiddenSwarmStatus(null)).toBe(true);
+        expect(isHiddenSwarmStatus(undefined)).toBe(true);
+        expect(isHiddenSwarmStatus('')).toBe(true);
+    });
+
+    it("hides 'completed' (work is drawn as a real chip, not a phantom)", () => {
+        expect(isHiddenSwarmStatus('completed')).toBe(true);
+    });
+
+    it("hides 'paused' (req #2650 — user paused; not unfinished business today)", () => {
+        expect(isHiddenSwarmStatus('paused')).toBe(true);
+    });
+
+    it("shows 'active' (the canonical in-progress status)", () => {
+        expect(isHiddenSwarmStatus('active')).toBe(false);
+    });
+
+    it("shows other in-progress lifecycle statuses (starting, review, completing)", () => {
+        expect(isHiddenSwarmStatus('starting')).toBe(false);
+        expect(isHiddenSwarmStatus('review')).toBe(false);
+        expect(isHiddenSwarmStatus('completing')).toBe(false);
+    });
+
+    it('shows unknown / future statuses (blacklist semantics — safer to render)', () => {
+        // Forward-compatibility: a new status (e.g. 'queued') defaults to
+        // rendering, not hiding. Adding it to the blacklist is a deliberate
+        // act when a real "do not phantom this" case appears.
+        expect(isHiddenSwarmStatus('queued')).toBe(false);
+        expect(isHiddenSwarmStatus('blocked')).toBe(false);
     });
 });
