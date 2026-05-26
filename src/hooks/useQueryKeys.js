@@ -144,3 +144,26 @@ export const customerKeys = {
     all: (creatorFk) => ['customers', creatorFk],
     byId: (creatorFk, id) => ['customers', creatorFk, { id }],
 };
+
+// Req #2606 — Customer Release Events + SQL-backed Build Visualizer.
+export const buildProjectKeys = {
+    all: (creatorFk) => ['build_projects', creatorFk],
+    byId: (creatorFk, id) => ['build_projects', creatorFk, { id }],
+};
+
+export const branchKeys = {
+    all: (creatorFk) => ['branches', creatorFk],
+    byProject: (creatorFk, projectId) => ['branches', creatorFk, { projectId }],
+};
+
+export const buildKeys = {
+    all: (creatorFk) => ['builds', creatorFk],
+    byBranch: (creatorFk, branchId) => ['builds', creatorFk, { branchId }],
+    byId: (creatorFk, id) => ['builds', creatorFk, { id }],
+};
+
+export const customerReleaseKeys = {
+    all: (creatorFk) => ['customer_releases', creatorFk],
+    byBuild: (creatorFk, buildId) => ['customer_releases', creatorFk, { buildId }],
+    byCustomer: (creatorFk, customerId) => ['customer_releases', creatorFk, { customerId }],
+};
