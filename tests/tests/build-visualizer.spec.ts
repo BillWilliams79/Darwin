@@ -189,11 +189,13 @@ test.describe('Build Visualizer — branch editor (req #2601)', () => {
     });
 });
 
-// req #2615 — natural spacing. Two dev branches whose horizontal x-extents would
-// overlap on the same row must land on DIFFERENT Y rows. The collision-aware row
-// assignment in BuildLayoutEngine bumps the second branch to the next dev row
-// instead of letting two lines run atop each other.
-test.describe('Build Visualizer — natural spacing (req #2615)', () => {
+// req #2615 — natural spacing.  req #2618 — slot mode (every dev branch its own
+// row). Both tests in this block verify that two dev branches land on different
+// Y rows. Under req #2615 the rule only fired when extents overlapped; under
+// req #2618 it fires unconditionally — so the original collision test still
+// passes verbatim, and a new test below covers the non-overlapping case that
+// req #2618 specifically fixes.
+test.describe('Build Visualizer — dev branch slot mode (req #2615 / #2618)', () => {
     test.skip(!isDevHost, 'Build Visualizer is DEV-only — skipped against non-localhost target');
 
     // Inject a synthetic pattern BEFORE the iframe boots so the engine renders our
@@ -265,6 +267,79 @@ test.describe('Build Visualizer — natural spacing (req #2615)', () => {
         expect(longY).toBe(610);
         // short-dev gets bumped one row down (mainY + 110 + 70 = 680).
         expect(shortY).toBe(680);
+
+        await clearLibrary(page);
+    });
+
+    // req #2618 — slot mode. Two dev branches whose extents do NOT horizontally
+    // overlap must STILL land on different Y rows. Pre-#2618 the extent-overlap
+    // check returned false here and both branches stacked on row 0; this test
+    // is what req #2618 specifically fixes (Sprint Cycle scenario — many short
+    // dev branches off different parents all sharing row 0).
+    test('two dev branches with non-overlapping extents land on different Y rows', async ({ page }) => {
+        await page.goto('/build-visualizer');
+        await page.waitForLoadState('domcontentloaded');
+
+        // 30 main builds. Two dev branches with 1 build each — extents are
+        // tiny and DO NOT overlap horizontally.
+        //   - early-dev: parent m2  (x = 240 + 1·52 = 292), 1 build → extent ends near 292 + 52 + 36 ≈ 380.
+        //   - late-dev:  parent m20 (x = 240 + 19·52 = 1228), 1 build → extent starts at 1228, well past 380.
+        const mainBuildIds = Array.from({ length: 30 }, (_, i) => `m${i + 1}`);
+        const earlyDevBuildIds = ['ed1'];
+        const lateDevBuildIds = ['ld1'];
+        const builds: Record<string, any> = {};
+        mainBuildIds.forEach((id, i) => { builds[id] = { id, number: i + 1, branchId: 'main', dotColor: null }; });
+        earlyDevBuildIds.forEach((id) => { builds[id] = { id, number: 1, branchId: 'early-dev', dotColor: null }; });
+        lateDevBuildIds.forEach((id) => { builds[id] = { id, number: 1, branchId: 'late-dev', dotColor: null }; });
+
+        const data = {
+            version: 1,
+            currentMajor: 1,
+            currentMinor: 0,
+            nextBuildNumber: 100,
+            nextBranchNumber: 50,
+            initialBuildNumber: 1,
+            trunkSegments: [{ startIdx: 0, major: 1, minor: 0, initialBuildNumber: 1 }],
+            branches: [
+                { id: 'main', type: 'main', name: 'Main', parentBranchId: null, parentBuildId: null, side: 'center', buildIds: mainBuildIds },
+                { id: 'early-dev', type: 'development', name: 'early-dev', parentBranchId: 'main', parentBuildId: 'm2', side: 'below', buildIds: earlyDevBuildIds },
+                { id: 'late-dev', type: 'development', name: 'late-dev', parentBranchId: 'main', parentBuildId: 'm20', side: 'below', buildIds: lateDevBuildIds },
+            ],
+            builds,
+        };
+        const library = {
+            version: 1,
+            activeId: 'slot-mode-test',
+            patterns: {
+                'slot-mode-test': {
+                    id: 'slot-mode-test',
+                    name: 'Slot Mode Test',
+                    createdAt: '2026-05-25T00:00:00.000Z',
+                    updatedAt: '2026-05-25T00:00:00.000Z',
+                    data,
+                },
+            },
+        };
+        await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, JSON.stringify(library)]);
+        await page.reload();
+        await expect(page.getByTestId('build-visualizer-iframe')).toBeVisible();
+
+        const iframe = page.frameLocator('[data-testid="build-visualizer-iframe"]');
+        const earlyLabel = iframe.locator('text.branch-label[data-branch-id="early-dev"]').first();
+        const lateLabel = iframe.locator('text.branch-label[data-branch-id="late-dev"]').first();
+        await expect(earlyLabel).toBeVisible();
+        await expect(lateLabel).toBeVisible();
+        const earlyY = Number(await earlyLabel.getAttribute('y')) + 16;
+        const lateY = Number(await lateLabel.getAttribute('y')) + 16;
+
+        // Pre-#2618 both would have landed on row 0 (610) because their
+        // horizontal extents do not overlap. Slot mode forces unique rows.
+        expect(earlyY).not.toBe(lateY);
+        // early-dev created first → claims row 0 (mainY + 110 = 610).
+        expect(earlyY).toBe(610);
+        // late-dev gets the next slot (mainY + 110 + 70 = 680) even though
+        // its extent does not collide with early-dev's.
+        expect(lateY).toBe(680);
 
         await clearLibrary(page);
     });
