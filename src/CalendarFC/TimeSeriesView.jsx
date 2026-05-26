@@ -120,6 +120,46 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     return null;
 };
 
+// Phantom placement decision (req #2649). For each in-progress (swarm-start,
+// session) pair, decide where the phantom bubble sits on a given panel and
+// whether its trailing line should be dashed-clamped to the panel's left
+// edge. Returns null when neither the start nor "now" falls in the panel
+// window — phantom is not rendered on that panel.
+//
+//   startPct → x% of the swarm_start.started_at on this panel, or null when
+//              the start falls outside the visible window.
+//   nowPct   → x% of "now" on this panel, or null when "now" falls outside
+//              the visible window (panels in the past relative to the wall
+//              clock).
+//
+// | startPct | nowPct   | Behaviour                                       |
+// |----------|----------|-------------------------------------------------|
+// | in       | in       | start at startPct, head at nowPct (same day)    |
+// | in       | null     | start at startPct, head at 100% (open-day panel |
+// |          |          |   viewed retrospectively — session was still    |
+// |          |          |   active at end of that panel)                  |
+// | null     | in       | start at 0% (clamped), head at nowPct           |
+// |          |          |   (today's panel; session opened earlier and    |
+// |          |          |   is still in progress) — dashed line trails    |
+// |          |          |   off the left edge, no vertical start bar     |
+// | null     | null     | skip — neither end visible on this panel        |
+//
+// Exported for unit-test coverage.
+export const computePhantomPlacement = (startPct, nowPct) => {
+    const startIn = startPct !== null && startPct !== undefined;
+    const nowIn   = nowPct   !== null && nowPct   !== undefined;
+    if (startIn && nowIn) {
+        return { phantomStartPct: startPct, phantomLeftPct: nowPct, startClamped: false };
+    }
+    if (startIn && !nowIn) {
+        return { phantomStartPct: startPct, phantomLeftPct: 100, startClamped: false };
+    }
+    if (!startIn && nowIn) {
+        return { phantomStartPct: 0, phantomLeftPct: nowPct, startClamped: true };
+    }
+    return null;
+};
+
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
 // its own row. Sort order (req #2504 swarm-start grouping):
@@ -602,12 +642,17 @@ const BeadRow = ({
             if (s && s.id != null) sessionById.set(String(s.id), s);
         }
 
-        const headPct = nowPct !== null ? nowPct : 100;
         const out = [];
         for (const ss of swarmStarts) {
             if (!ss || ss.id == null || !ss.started_at) continue;
             const startPct = xPctFn(ss.started_at, timezone, selectedDate);
-            if (startPct === null) continue;            // not in window
+            // req #2649: replace the old "drop phantom when startPct is null"
+            // short-circuit with a four-case placement helper. The phantom
+            // appears on today's panel for sessions opened earlier — the line
+            // is dashed-clamped to the left edge in that case.
+            const placement = computePhantomPlacement(startPct, nowPct);
+            if (placement === null) continue;            // neither end in window
+            const { phantomStartPct, phantomLeftPct, startClamped } = placement;
             const linked = sessionsByStartFk.get(String(ss.id)) || [];
             for (const sid of linked) {
                 const s = sessionById.get(sid);
@@ -634,11 +679,11 @@ const BeadRow = ({
                     color: cat?.color || '#43A047',
                     ringColor: null,
                     timeHHMM: null,
-                    leftPct: headPct,
+                    leftPct: phantomLeftPct,
                     timezone,
                     session: s,
-                    startPct,
-                    startClamped: false,
+                    startPct: phantomStartPct,
+                    startClamped,
                     markerMode: 'inprogress',
                     swarmStartId: ss.id,
                     swarmStart: ss,
@@ -855,7 +900,12 @@ const BeadRow = ({
                             && chip.markerMode !== 'inprogress') return null;
                         const yCenter = bubbleCenterCss(chip.row);
                         const isInProgress = chip.markerMode === 'inprogress';
-                        const isClamped    = chip.markerMode === 'clamped';
+                        // Phantom-clamped (req #2649): when the real swarm-start
+                        // sits before the visible window, the phantom rides at
+                        // nowPct with startPct artificially pinned to 0. The
+                        // line gets the dashed `ts-swarm-line-clamped` styling
+                        // to convey "extends off the left edge."
+                        const isClamped    = chip.markerMode === 'clamped' || chip.startClamped === true;
                         // Omit the arrowhead when the line would be shorter than
                         // the arrow itself — happens for cluster-aligned chips
                         // whose canonical start sits close to the met bubble.
@@ -897,6 +947,13 @@ const BeadRow = ({
                         a small anchor dot at the start so the user can tell real-data
                         clusters apart from estimated time-window clusters. */}
                     {placed.map(chip => {
+                        // Phantom-clamped (req #2649): startPct is artificially
+                        // 0 because the real swarm-start sits before the visible
+                        // window. Drawing a bar at the panel's left edge would
+                        // misrepresent the start location — skip both the bar
+                        // and the anchor; the dashed line already conveys
+                        // "extends off the left edge."
+                        if (chip.startClamped === true) return null;
                         const halfBar = Math.max(6, circleDiameter / 2);
                         // Bar endpoints are bubble-center ± halfBar. The center
                         // is already expressed in the active anchoring by
@@ -958,6 +1015,9 @@ const BeadRow = ({
                 none (lines and circles are decorative); this overlay restores
                 hover affordance for the anchor specifically. Req #2504. */}
             {vizKey === 'swarm' && placed.map(chip => {
+                // Phantom-clamped (req #2649) — no SVG anchor was rendered for
+                // this chip, so there's nothing to overlay a hover target on.
+                if (chip.startClamped === true) return null;
                 const halfBar = Math.max(6, circleDiameter / 2);
                 const yStride = chip.row * rowSpacing + circleDiameter / 2;
                 const gap = circleDiameter / 2 + 3;
