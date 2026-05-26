@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
 import { devServers, sessions, swarmStarts, swarmStartSessions } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
@@ -622,5 +622,72 @@ export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// ----- build_projects / branches / builds / customer_releases (req #2606) -----
+
+const BUILD_PROJECT_DEFAULT_FIELDS = 'id,title,description,project_status,trunk_branch_fk,category_fk,creator_fk,create_ts';
+const BRANCH_DEFAULT_FIELDS        = 'id,project_fk,branch_type,name,major,minor,parent_build_fk,side,row_order,label_end,sort_order,creator_fk';
+const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_number,dot_color,approved_for_release,creator_fk';
+const CUSTOMER_RELEASE_DEFAULT_FIELDS = 'id,customer_fk,build_fk,release_notes,creator_fk,create_ts,update_ts';
+
+export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/build_projects?fields=${fields}`;
+    const queryKey = [...buildProjectKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/branches?fields=${fields}`;
+    const queryKey = [...branchKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/builds?fields=${fields}`;
+    const queryKey = [...buildKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customer_releases?fields=${fields}`;
+    const queryKey = [...customerReleaseKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useCustomerReleasesByBuild(creatorFk, buildId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customer_releases?build_fk=${buildId}&fields=${CUSTOMER_RELEASE_DEFAULT_FIELDS}`;
+    const queryKey = customerReleaseKeys.byBuild(creatorFk, buildId);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!buildId && !!idToken,
     });
 }

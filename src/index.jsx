@@ -50,6 +50,7 @@ import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
+import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -155,6 +156,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="customers" element= {<AuthenticatedRoute>
                                                              <CustomersPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="customer-releases" element= {<AuthenticatedRoute>
+                                                             <CustomerReleasesPage />
                                                          </AuthenticatedRoute>} />
                     {import.meta.env.DEV && <>
                       <Route path="systems2" element= {<AuthenticatedRoute>

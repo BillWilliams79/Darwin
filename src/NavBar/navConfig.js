@@ -55,6 +55,7 @@ export const NAV_LINKS = [
         { path: '/systems2', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
         { path: '/build-visualizer', label: 'Build Visualizer', icon: TimelineIcon, group: 'systems' },
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
+        { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
