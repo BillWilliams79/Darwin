@@ -389,7 +389,7 @@ describe('clusterSessionsByStartTime', () => {
 // Row 0 = earliest met = bottom; higher rows = later met = top.
 // topDown=true reverses the order so the latest gets row 0 (Sidewalk mode —
 // wire sits at the top of the panel, so row 0 renders closest to it). ──────────
-import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor } from '../TimeSeriesView';
+import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor, computePhantomPlacement, isHiddenSwarmStatus } from '../TimeSeriesView';
 
 // ─── clusterSessionsByStartTime — MySQL-format parsing (req #2398) ─────────────
 // Regression guard: before the fix, clusterSessionsByStartTime parsed
@@ -1139,5 +1139,100 @@ describe('clusterSessionsBySwarmStart', () => {
         // Session 1 has no usable junction → falls through to time clustering.
         expect(r.canonical.get('1')).toBe('2026-05-01T09:00:00Z');
         expect(r.swarmStartIdById.get('1')).toBe(null);
+    });
+});
+
+// ─── computePhantomPlacement (req #2649) ─────────────────────────────────────
+// Decides where an in-progress phantom bubble sits on a panel, and whether the
+// trailing line is dashed-clamped to the panel's left edge. Replaces the
+// pre-#2649 "drop phantom when startPct is null" short-circuit.
+describe('computePhantomPlacement (in-progress phantom placement, req #2649)', () => {
+    it('Case A — start and now both in window → solid line from startPct to nowPct', () => {
+        // Session opened earlier today, still running. Today's panel.
+        const p = computePhantomPlacement(20, 60);
+        expect(p).toEqual({ phantomStartPct: 20, phantomLeftPct: 60, startClamped: false });
+    });
+
+    it('Case A — start at 0 (panel left edge) is still in-window, treated as solid', () => {
+        // startPct=0 is a valid in-window position (midnight on a 24h panel).
+        // computePhantomPlacement must not confuse it with null.
+        const p = computePhantomPlacement(0, 50);
+        expect(p).toEqual({ phantomStartPct: 0, phantomLeftPct: 50, startClamped: false });
+    });
+
+    it('Case B — start in window, now null → line runs to right edge', () => {
+        // Looking at the day the session opened, but "now" is on a later
+        // panel (i.e. retrospective view). Session was still active at the
+        // end of this panel — line extends to 100%.
+        const p = computePhantomPlacement(45, null);
+        expect(p).toEqual({ phantomStartPct: 45, phantomLeftPct: 100, startClamped: false });
+    });
+
+    it('Case C — start null, now in window → dashed line from left edge to nowPct (req #2649 fix)', () => {
+        // Today's panel; session opened yesterday and is still in-progress.
+        // Pre-#2649 this returned null and the phantom never rendered.
+        const p = computePhantomPlacement(null, 35);
+        expect(p).toEqual({ phantomStartPct: 0, phantomLeftPct: 35, startClamped: true });
+    });
+
+    it('Case C — start undefined treated identically to null', () => {
+        const p = computePhantomPlacement(undefined, 35);
+        expect(p).toEqual({ phantomStartPct: 0, phantomLeftPct: 35, startClamped: true });
+    });
+
+    it('Case D — neither in window → null (phantom not rendered on this panel)', () => {
+        // Panel is unrelated to the session — e.g. a session that opened
+        // yesterday and is still running, viewed on a panel from last week.
+        expect(computePhantomPlacement(null, null)).toBeNull();
+        expect(computePhantomPlacement(undefined, undefined)).toBeNull();
+    });
+
+    it('nowPct=0 (now at the very left edge) is still treated as in-window', () => {
+        // The wall clock just ticked over midnight; nowPct == 0. Still valid,
+        // still a Case A (start at startPct, head at 0).
+        const p = computePhantomPlacement(30, 0);
+        expect(p).toEqual({ phantomStartPct: 30, phantomLeftPct: 0, startClamped: false });
+    });
+});
+
+// ─── isHiddenSwarmStatus (req #2650) ─────────────────────────────────────────
+// The phantom-chip filter in SwarmVisualizer skips sessions whose status
+// indicates they are NOT actively in progress. Pre-#2650 the filter only
+// skipped 'completed', so a session a user explicitly paused continued to
+// surface as today's "unfinished business" — repro: req #2555 (deferred) +
+// session #1938 (paused) bleeding onto today's panel four days after pause.
+// The helper centralises the skip list so future statuses can be added in
+// one place.
+describe('isHiddenSwarmStatus (phantom-chip skip filter, req #2650)', () => {
+    it('hides null / undefined / empty status', () => {
+        expect(isHiddenSwarmStatus(null)).toBe(true);
+        expect(isHiddenSwarmStatus(undefined)).toBe(true);
+        expect(isHiddenSwarmStatus('')).toBe(true);
+    });
+
+    it("hides 'completed' (work is drawn as a real chip, not a phantom)", () => {
+        expect(isHiddenSwarmStatus('completed')).toBe(true);
+    });
+
+    it("hides 'paused' (req #2650 — user paused; not unfinished business today)", () => {
+        expect(isHiddenSwarmStatus('paused')).toBe(true);
+    });
+
+    it("shows 'active' (the canonical in-progress status)", () => {
+        expect(isHiddenSwarmStatus('active')).toBe(false);
+    });
+
+    it("shows other in-progress lifecycle statuses (starting, review, completing)", () => {
+        expect(isHiddenSwarmStatus('starting')).toBe(false);
+        expect(isHiddenSwarmStatus('review')).toBe(false);
+        expect(isHiddenSwarmStatus('completing')).toBe(false);
+    });
+
+    it('shows unknown / future statuses (blacklist semantics — safer to render)', () => {
+        // Forward-compatibility: a new status (e.g. 'queued') defaults to
+        // rendering, not hiding. Adding it to the blacklist is a deliberate
+        // act when a real "do not phantom this" case appears.
+        expect(isHiddenSwarmStatus('queued')).toBe(false);
+        expect(isHiddenSwarmStatus('blocked')).toBe(false);
     });
 });

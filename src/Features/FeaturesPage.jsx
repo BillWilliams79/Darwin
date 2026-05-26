@@ -15,6 +15,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { useAllFeatures, useAllCategories, useFeatureTestCaseLinks } from '../hooks/useDataQueries';
 import { featureKeys, featureTestCaseKeys } from '../hooks/useQueryKeys';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { createFeature, updateFeature, deleteFeature } from './actions/validationApi';
@@ -68,7 +69,7 @@ export default function FeaturesPage() {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
-    const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'cards');
+    const [view, setView] = useViewPreference(VIEW_KEY, 'cards');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
 
@@ -164,12 +165,7 @@ export default function FeaturesPage() {
         }
     };
 
-    const handleViewChange = (_e, newView) => {
-        if (newView !== null) {
-            setView(newView);
-            localStorage.setItem(VIEW_KEY, newView);
-        }
-    };
+    const handleViewChange = (_e, newView) => setView(newView);
 
     const invalidateAll = () => {
         queryClient.invalidateQueries({ queryKey: featureKeys.all(creatorFk) });

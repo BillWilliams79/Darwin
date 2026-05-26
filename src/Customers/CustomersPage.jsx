@@ -5,12 +5,13 @@
 // Visualizer attaches `customer-release` branches to build dots to convey
 // which customer received which sprint or end-release build.
 
-import { useContext, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllCustomers } from '../hooks/useDataQueries';
+import { useAllCustomers, useAllCustomerReleases } from '../hooks/useDataQueries';
 import { customerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { createCustomer, updateCustomer, deleteCustomer } from './customersApi';
@@ -42,7 +43,20 @@ export default function CustomersPage() {
     const showError = useSnackBarStore(s => s.showError);
 
     const creatorFk = profile?.userName;
+    const navigate = useNavigate();
     const { data: customers = [], isLoading } = useAllCustomers(creatorFk);
+    const { data: releases = [] } = useAllCustomerReleases(creatorFk);
+
+    const releaseCountByCustomer = useMemo(() => {
+        const m = {};
+        for (const r of releases) m[r.customer_fk] = (m[r.customer_fk] || 0) + 1;
+        return m;
+    }, [releases]);
+
+    const rows = useMemo(() => customers.map(c => ({
+        ...c,
+        release_count: releaseCountByCustomer[c.id] || 0,
+    })), [customers, releaseCountByCustomer]);
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
@@ -109,6 +123,31 @@ export default function CustomersPage() {
         { field: 'customer_name', headerName: 'Customer', flex: 1, minWidth: 180 },
         { field: 'description', headerName: 'Description', flex: 2, minWidth: 260 },
         {
+            field: 'release_count',
+            headerName: 'Releases',
+            width: 100,
+            type: 'number',
+            renderCell: (params) => (
+                <Box
+                    component="span"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/customer-releases?customer_fk=${params.row.id}`);
+                    }}
+                    sx={{
+                        cursor: 'pointer',
+                        textDecoration: params.value > 0 ? 'underline' : 'none',
+                        color: params.value > 0 ? 'primary.main' : 'text.secondary',
+                    }}
+                    data-testid={`customer-releases-link-${params.row.id}`}
+                >
+                    {params.value}
+                </Box>
+            ),
+        },
+        {
             field: 'create_ts',
             headerName: 'Created',
             width: 130,
@@ -168,7 +207,7 @@ export default function CustomersPage() {
                 <Box sx={{ maxWidth: TABLE_WIDTH, width: '100%' }}>
                     <DataGrid
                         autoHeight
-                        rows={customers}
+                        rows={rows}
                         columns={columns}
                         getRowId={(r) => r.id}
                         slots={{ toolbar: GridToolbar }}

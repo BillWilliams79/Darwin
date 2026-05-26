@@ -53,6 +53,7 @@ import TrendsFilterChips from './TrendsFilterChips';
 import PickerDialog from './PickerDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { applyViewFilter } from '../utils/mapViewFilter';
 import { navigateTimeframe, DRILL_DOWN } from '../utils/trendsNavigation';
 
@@ -72,7 +73,7 @@ const MapsPage = () => {
     const { data: partners = [] } = useMapPartners(creatorFk);
     const { data: runPartners = [] } = useMapRunPartners(creatorFk);
 
-    const [view, setView] = useState(() => localStorage.getItem(STORAGE_KEY) || 'cards');
+    const [view, setView] = useViewPreference(STORAGE_KEY, 'cards');
     const {
         metric, timeframe, chartType, timeFilter,
         selectedRouteIds, selectedPartnerIds,
@@ -244,12 +245,7 @@ const MapsPage = () => {
             .map(p => ({ ...p, ride_count: partnerCountMap.get(p.id) || 0 }));
     }, [partners, partnerCountMap]);
 
-    const handleViewChange = (event, newView) => {
-        if (newView !== null) {
-            setView(newView);
-            localStorage.setItem(STORAGE_KEY, newView);
-        }
-    };
+    const handleViewChange = (event, newView) => setView(newView);
 
     const handleCreateView = () => {
         setEditingView(null);

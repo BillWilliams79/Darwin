@@ -9,6 +9,7 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
+import { useViewPreference } from '../hooks/useViewPreference';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
@@ -52,7 +53,7 @@ const SwarmView = () => {
     const queryClient = useQueryClient();
 
     const [projectsArray, setProjectsArray] = useState()
-    const [view, setView] = useState(() => localStorage.getItem(SWARM_VIEW_STORAGE_KEY) || 'cards');
+    const [view, setView] = useViewPreference(SWARM_VIEW_STORAGE_KEY, 'cards');
 
     const activeTab = useSwarmTabStore(s => s.activeTab);
     const setActiveTab = useSwarmTabStore(s => s.setActiveTab);
@@ -168,12 +169,7 @@ const SwarmView = () => {
         projectAdd.openDialog();
      }
 
-    const handleViewChange = (event, newView) => {
-        if (newView !== null) {
-            setView(newView);
-            localStorage.setItem(SWARM_VIEW_STORAGE_KEY, newView);
-        }
-    };
+    const handleViewChange = (event, newView) => setView(newView);
 
     const settingsLinks = [
         { path: '/projectedit', label: 'Projects', icon: FolderIcon },
