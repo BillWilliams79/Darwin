@@ -38,6 +38,36 @@ const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
 // when the app is in dark mode, and only lists dark variants.
 const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
 
+// Release-event overlay state (req #2606). Keys match the iframe's
+// localStorage so standalone mode and embedded mode agree on the boot value.
+const SHOW_RELEASES_STORAGE_KEY = 'darwin.bv.showReleases';
+const RELEASE_STYLE_STORAGE_KEY = 'darwin.bv.releaseStyle';
+
+const readShowReleases = () => {
+    try {
+        return window.localStorage.getItem(SHOW_RELEASES_STORAGE_KEY) !== 'off';
+    } catch (_) { return true; }
+};
+
+const writeShowReleases = (value) => {
+    try {
+        window.localStorage.setItem(SHOW_RELEASES_STORAGE_KEY, value ? 'on' : 'off');
+    } catch (_) { /* private mode — accept transient state */ }
+};
+
+const readReleaseStyle = () => {
+    try {
+        const v = parseInt(window.localStorage.getItem(RELEASE_STYLE_STORAGE_KEY) || '', 10);
+        return Number.isFinite(v) && v >= 1 && v <= 5 ? v : 1;
+    } catch (_) { return 1; }
+};
+
+const writeReleaseStyle = (value) => {
+    try {
+        window.localStorage.setItem(RELEASE_STYLE_STORAGE_KEY, String(value));
+    } catch (_) { /* private mode — accept transient state */ }
+};
+
 const readVersionLanes = () => {
     try {
         return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off';
@@ -97,6 +127,16 @@ const BuildVisualizerPage = () => {
     const [staggerOn, setStaggerOn] = useState(() => readVersionLanes());
     const staggerOnRef = useRef(staggerOn);
     useEffect(() => { staggerOnRef.current = staggerOn; }, [staggerOn]);
+
+    // Release-event overlay toolbar state (req #2606). React shell owns the UI;
+    // iframe owns the renderer. localStorage keeps the boot value stable so
+    // standalone mode and embedded mode agree on first paint.
+    const [showReleases, setShowReleases] = useState(() => readShowReleases());
+    const [releaseStyle, setReleaseStyle] = useState(() => readReleaseStyle());
+    const showReleasesRef = useRef(showReleases);
+    const releaseStyleRef = useRef(releaseStyle);
+    useEffect(() => { showReleasesRef.current = showReleases; }, [showReleases]);
+    useEffect(() => { releaseStyleRef.current = releaseStyle; }, [releaseStyle]);
 
     // Dark variant + transport-aware theme (req #2621).
     //   • `darkVariant` is the user's chosen DARK theme. Default Charcoal.
@@ -165,8 +205,30 @@ const BuildVisualizerPage = () => {
         win.postMessage({ type: 'bv:set-theme', variant }, window.location.origin);
     }, []);
 
+    const postShowReleases = useCallback((value) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win) return;
+        win.postMessage({ type: 'bv:set-show-releases', value }, window.location.origin);
+    }, []);
+
+    const postReleaseStyle = useCallback((value) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win) return;
+        win.postMessage({ type: 'bv:set-release-style', value }, window.location.origin);
+    }, []);
+
     const toggleStagger = useCallback(() => {
         setStaggerOn(prev => !prev);
+    }, []);
+
+    const toggleShowReleases = useCallback(() => {
+        setShowReleases(prev => !prev);
+    }, []);
+
+    const changeReleaseStyle = useCallback((v) => {
+        const num = Number(v);
+        if (!Number.isInteger(num) || num < 1 || num > 5) return;
+        setReleaseStyle(num);
     }, []);
 
     useEffect(() => {
@@ -183,6 +245,16 @@ const BuildVisualizerPage = () => {
                 postFilter(selectedTypesRef.current);
                 postVersionLanes(staggerOnRef.current);
                 postTheme(iframeThemeRef.current);
+                postShowReleases(showReleasesRef.current);
+                postReleaseStyle(releaseStyleRef.current);
+            } else if (msg.type === 'bv:release-overlay-state') {
+                // Iframe announced its boot value. Adopt only when it differs
+                // from the value we already hold so we don't re-render on echo.
+                const nextShow = !!msg.showReleases;
+                const v = Number(msg.releaseStyle);
+                const nextStyle = Number.isInteger(v) && v >= 1 && v <= 5 ? v : 1;
+                if (nextShow !== showReleasesRef.current) setShowReleases(nextShow);
+                if (nextStyle !== releaseStyleRef.current) setReleaseStyle(nextStyle);
             } else if (msg.type === 'bv:changed') {
                 if (msg.data && typeof msg.data === 'object') {
                     lib.saveActiveData(msg.data);
@@ -204,7 +276,7 @@ const BuildVisualizerPage = () => {
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
-    }, [lib, postLoad, postFilter, postVersionLanes, postTheme]);
+    }, [lib, postLoad, postFilter, postVersionLanes, postTheme, postShowReleases, postReleaseStyle]);
 
     // Push filter to iframe on every chip toggle (no-op until iframe is ready —
     // the bv:ready handler covers the initial post once the iframe boots).
@@ -227,6 +299,18 @@ const BuildVisualizerPage = () => {
         if (!iframeReady.current) return;
         postVersionLanes(staggerOn);
     }, [staggerOn, postVersionLanes]);
+
+    // Req #2606 — persist + push release-overlay state on every change.
+    useEffect(() => { writeShowReleases(showReleases); }, [showReleases]);
+    useEffect(() => { writeReleaseStyle(releaseStyle); }, [releaseStyle]);
+    useEffect(() => {
+        if (!iframeReady.current) return;
+        postShowReleases(showReleases);
+    }, [showReleases, postShowReleases]);
+    useEffect(() => {
+        if (!iframeReady.current) return;
+        postReleaseStyle(releaseStyle);
+    }, [releaseStyle, postReleaseStyle]);
 
     // Push theme to iframe whenever the resolved value changes — either
     // because the user picked a different dark variant OR Darwin's app
@@ -288,6 +372,10 @@ const BuildVisualizerPage = () => {
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 onChangeDarkVariant={changeDarkVariant}
+                showReleases={showReleases}
+                onToggleShowReleases={toggleShowReleases}
+                releaseStyle={releaseStyle}
+                onChangeReleaseStyle={changeReleaseStyle}
             />
             {lib.isReady ? (
                 <iframe
