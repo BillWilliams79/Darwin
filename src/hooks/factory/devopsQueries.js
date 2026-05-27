@@ -5,6 +5,14 @@
 // Every existing hook signature, URL, cache key, and `enabled` predicate is
 // preserved byte-for-byte by the factory output; parity is locked down by
 // __tests__/devopsQueriesParity.test.js.
+//
+// Req #2697 — `ops: true` on every block here. These four tables live
+// exclusively in the production `darwin` schema (the MCP daemon's
+// `DB_NAME=darwin` is hard-wired). The factory routes their reads through
+// `darwinOpsUri` instead of `darwinUri` so dev-mode builds (where
+// `darwinUri` ends in `/darwin_dev` per req #2683) still see real rows.
+// A future devops table that genuinely IS per-database (e.g. recurring_tasks)
+// would omit `ops` and inherit the default `darwinUri` routing.
 
 import { createEntityQueries } from './createEntityQueries';
 
@@ -15,6 +23,7 @@ import { createEntityQueries } from './createEntityQueries';
 // ---------------------------------------------------------------------------
 export const devServers = createEntityQueries({
     entity: 'dev_servers',
+    ops: true,
     foreignKeys: [
         // `keyParam: 'sessionId'` preserves the legacy `devServerKeys.bySession(id)`
         // cache-key shape `['dev_servers', { sessionId }]`. New devops entities
@@ -30,6 +39,7 @@ export const devServers = createEntityQueries({
 // ---------------------------------------------------------------------------
 export const sessions = createEntityQueries({
     entity: 'swarm_sessions',
+    ops: true,
     byIdCreatorScoped: false,
 });
 
@@ -45,6 +55,7 @@ const SWARM_START_DEFAULT_FIELDS =
 
 export const swarmStarts = createEntityQueries({
     entity: 'swarm_starts',
+    ops: true,
     defaultFields: SWARM_START_DEFAULT_FIELDS,
     fieldsInKey: true,
     defaultSort: 'started_at:desc',
@@ -56,5 +67,6 @@ export const swarmStarts = createEntityQueries({
 // ---------------------------------------------------------------------------
 export const swarmStartSessions = createEntityQueries({
     entity: 'swarm_start_sessions',
+    ops: true,
     defaultFields: 'swarm_start_fk,session_fk',
 });
