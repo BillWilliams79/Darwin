@@ -28,14 +28,25 @@ if (isDev) {
     }
 }
 
+const API_BASE = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng';
+
+// `darwinOpsUri` always points at the production `darwin` schema regardless of
+// dev/prod build mode. Operational tables (`dev_servers`, `swarm_sessions`,
+// `swarm_starts`, `swarm_start_sessions`) are written by the MCP daemon
+// (hard-wired to `DB_NAME=darwin`) and are machine-singleton infrastructure —
+// they were never meant to participate in the prod/dev USER-data split that
+// `darwinUri` honors. Req #2697.
+const DARWIN_OPS_URI = `${API_BASE}/darwin`;
+
 // Context provider for general application data, URI and color schemes
 export const AppContextProvider = ({ children }) => {
 
-    const [darwinUri, setDarwinUri] = useState(`https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/${database}`);
+    const [darwinUri, setDarwinUri] = useState(`${API_BASE}/${database}`);
 
     return (
         <AppContext.Provider value={{
             darwinUri, setDarwinUri, database,
+            darwinOpsUri: DARWIN_OPS_URI,
         }} >
             {children}
         </AppContext.Provider>

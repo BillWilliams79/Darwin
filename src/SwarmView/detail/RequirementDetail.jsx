@@ -84,7 +84,7 @@ const RequirementDetail = () => {
     const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
-    const { darwinUri } = useContext(AppContext);
+    const { darwinUri, darwinOpsUri } = useContext(AppContext);
 
     const [requirement, setRequirement] = useState(isNew ? {
         id: null,
@@ -153,7 +153,8 @@ const RequirementDetail = () => {
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
-                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
+                    // Req #2697 — `swarm_sessions` is an operational table; always read from `darwin`.
+                    call_rest_api(`${darwinOpsUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
@@ -177,7 +178,7 @@ const RequirementDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri, siblingStatuses.join()]);
+    }, [id, idToken, darwinUri, darwinOpsUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
         if (isNew) return;  // draft — nothing is saved until category is picked
