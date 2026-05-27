@@ -96,6 +96,18 @@ export function useBuildPatterns() {
     useEffect(() => {
         if (!projectsQuery.isSuccess) return;
         if (!patterns.length) {
+            // Req #2691: empty patterns at this point means the DB has no
+            // build_projects rows for the authenticated user. Most common
+            // cause: a full-stack deploy of #2648 that shipped the frontend
+            // without seeding production. Surface a loud one-time warning so
+            // future deploys with the same gap are easy to spot in the console.
+            console.warn(
+                '[Build Visualizer] No build_projects rows for the current user. ' +
+                'If this is darwin.one production, the seed step from ' +
+                'DarwinSQL/scripts/seed_build_projects.py + import_builds_json.py ' +
+                'has not been run yet. See requirement #2691: ' +
+                'https://www.darwin.one/swarm/requirement/2691',
+            );
             if (activeId !== null) {
                 setActiveId(null);
                 writeActiveId(null);
