@@ -65,7 +65,7 @@ export function generateSprintCyclePattern({ seed = 2602 } = {}) {
         const dev = {
             id: devId,
             type: 'development',
-            name: 'Development Branches',
+            name: 'Dev Branch',
             parentBranchId: 'main',
             parentBuildId: parentMainBuildId,
             side: 'below',
@@ -139,11 +139,32 @@ export function generateSprintCyclePattern({ seed = 2602 } = {}) {
     release.buildIds.push(finalReleaseBuildId);
     branches.push(release);
 
-    // Tail branches attached to RANDOM release-branch builds, so they don't
-    // all cluster on the final release dot.
-    const pushTailScattered = (typePrefix, type, name, rowOrder, dotColor, count) => {
+    // Tail branches share a deterministic, ORDERED pool of release-branch
+    // parent builds so the i-th hotfix, bootleg, and csr all branch off the
+    // SAME release build — giving them the same X position and letting the
+    // user trace "this hotfix + bootleg + csr cluster came off that release
+    // build" visually (req #2694 follow-up). Pool size = max(counts) so each
+    // type gets enough distinct parents to span its count.
+    const tailParentCount = Math.max(TAIL_HOTFIX_COUNT, TAIL_BOOTLEG_COUNT, TAIL_CSR_COUNT);
+    const tailParentPool = [];
+    const remaining = release.buildIds.slice();
+    for (let i = 0; i < tailParentCount; i += 1) {
+        // pick without replacement until the pool runs out, then allow repeats
+        if (remaining.length) {
+            const idx = Math.floor(rng() * remaining.length);
+            tailParentPool.push(remaining.splice(idx, 1)[0]);
+        } else {
+            tailParentPool.push(pick(release.buildIds));
+        }
+    }
+    // Sort by build position on the release branch so the columns advance
+    // left-to-right. release.buildIds is already in build order.
+    const releaseBuildIndex = new Map(release.buildIds.map((id, i) => [id, i]));
+    tailParentPool.sort((a, b) => releaseBuildIndex.get(a) - releaseBuildIndex.get(b));
+
+    const pushTailAligned = (typePrefix, type, name, rowOrder, dotColor, count) => {
         for (let i = 0; i < count; i += 1) {
-            const parentBuildId = pick(release.buildIds);
+            const parentBuildId = tailParentPool[i];
             const id = `${typePrefix}-${i + 1}`;
             branches.push({
                 id,
@@ -157,9 +178,9 @@ export function generateSprintCyclePattern({ seed = 2602 } = {}) {
             });
         }
     };
-    pushTailScattered('hotfix', 'hotfix', 'Hot Fix', 1, 'red', TAIL_HOTFIX_COUNT);
-    pushTailScattered('bootleg', 'bootleg', 'Bootleg', 2, 'yellow', TAIL_BOOTLEG_COUNT);
-    pushTailScattered('csr', 'csr', 'CSR', 3, null, TAIL_CSR_COUNT);
+    pushTailAligned('hotfix', 'hotfix', 'Hot Fix', 1, 'red', TAIL_HOTFIX_COUNT);
+    pushTailAligned('bootleg', 'bootleg', 'Bootleg', 2, 'yellow', TAIL_BOOTLEG_COUNT);
+    pushTailAligned('csr', 'csr', 'CSR', 3, null, TAIL_CSR_COUNT);
 
     const nextBranchNumber = branches.length + 1;
 

@@ -35,7 +35,7 @@ export const branchTypeLabel = (type) => {
         case 'hotfix':          return 'Hot Fix';
         case 'bootleg':         return 'Bootleg';
         case 'csr':             return 'CSR';
-        case 'development':     return 'Development';
+        case 'development':     return 'Dev';
         default:                return type;
     }
 };
