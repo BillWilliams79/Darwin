@@ -1,6 +1,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
+import AppContext from '../Context/AppContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
@@ -39,6 +40,7 @@ const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
 
 const NavBarSidebar = () => {
     const { idToken, profile } = useContext(AuthContext);
+    const { database } = useContext(AppContext);
     const location = useLocation();
     const navigate = useNavigate();
     const isDesktop = useMediaQuery('(min-width:900px)');
@@ -238,6 +240,15 @@ const NavBarSidebar = () => {
                                             Terminal - {currentDevTerminal}
                                         </Typography>
                                     )}
+                                    {/* Active DB — orange + (PROD) suffix when dev is pointing at production (req #2683) */}
+                                    <Typography sx={{
+                                        fontSize: 12,
+                                        color: database === 'darwin' ? DEV_ORANGE : 'rgba(255,255,255,0.9)',
+                                        fontWeight: database === 'darwin' ? 700 : 400,
+                                        lineHeight: 1.4,
+                                    }} data-testid="navbar-dev-database">
+                                        DB - {database}{database === 'darwin' ? ' (PROD)' : ''}
+                                    </Typography>
                                     {DEV_REQ_ID && (
                                         <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
                                             <a href={`/swarm/requirement/${DEV_REQ_ID}`}
