@@ -270,13 +270,10 @@ describe('listPatternsSorted', () => {
     });
 });
 
-describe('makeEmptyBuildDoc (req #2597)', () => {
-    it('produces a fresh doc with one main branch and one first build', () => {
+describe('makeEmptyBuildDoc (req #2614)', () => {
+    it('produces a fresh doc with one main branch and one stamped first build', () => {
         const d = makeEmptyBuildDoc({ major: 5, minor: 2, initialBuildNumber: 1 });
         expect(d.version).toBe(1);
-        expect(d.currentMajor).toBe(5);
-        expect(d.currentMinor).toBe(2);
-        expect(d.initialBuildNumber).toBe(1);
         expect(d.nextBuildNumber).toBe(2);
         expect(d.nextBranchNumber).toBe(2);
         expect(d.branches).toHaveLength(1);
@@ -288,47 +285,48 @@ describe('makeEmptyBuildDoc (req #2597)', () => {
             parentBuildId: null,
             side: 'center',
             buildIds: ['m1'],
+            currentMajor: 5,
+            currentMinor: 2,
+            buildCounter: 1,
         });
-        expect(d.builds.m1).toMatchObject({ id: 'm1', number: 1, branchId: 'main', dotColor: null });
+        expect(d.builds.m1).toMatchObject({
+            id: 'm1', number: 1, branchId: 'main', dotColor: null,
+            major: 5, minor: 2, build: 1, branchNum: 0,
+        });
     });
 
-    it('seeds trunkSegments with one entry mirroring the dialog inputs', () => {
-        const d = makeEmptyBuildDoc({ major: 2, minor: 10, initialBuildNumber: 345 });
-        expect(d.trunkSegments).toEqual([
-            { startIdx: 0, major: 2, minor: 10, initialBuildNumber: 345 },
-        ]);
+    it('stamps the initial build with initialBuildNumber so the team anchors at e.g. 5.2.42.0', () => {
+        const d = makeEmptyBuildDoc({ major: 5, minor: 2, initialBuildNumber: 42 });
+        expect(d.branches[0].buildCounter).toBe(42);
+        expect(d.builds.m1).toMatchObject({ major: 5, minor: 2, build: 42, branchNum: 0 });
     });
 
     it('defaults when called with no args', () => {
         const d = makeEmptyBuildDoc();
-        expect(d.currentMajor).toBe(1);
-        expect(d.currentMinor).toBe(0);
-        expect(d.initialBuildNumber).toBe(1);
+        expect(d.branches[0]).toMatchObject({ currentMajor: 1, currentMinor: 0, buildCounter: 1 });
+        expect(d.builds.m1).toMatchObject({ major: 1, minor: 0, build: 1, branchNum: 0 });
     });
 
     it('clamps negative major/minor and non-positive initialBuildNumber to safe defaults', () => {
         const d = makeEmptyBuildDoc({ major: -2, minor: -1, initialBuildNumber: 0 });
-        expect(d.currentMajor).toBe(1);
-        expect(d.currentMinor).toBe(0);
-        expect(d.initialBuildNumber).toBe(1);
+        expect(d.branches[0]).toMatchObject({ currentMajor: 1, currentMinor: 0, buildCounter: 1 });
     });
 
     it('floors non-integer numeric inputs', () => {
         const d = makeEmptyBuildDoc({ major: 5.7, minor: 2.4, initialBuildNumber: 42.9 });
-        expect(d.currentMajor).toBe(5);
-        expect(d.currentMinor).toBe(2);
-        expect(d.initialBuildNumber).toBe(42);
+        expect(d.branches[0]).toMatchObject({ currentMajor: 5, currentMinor: 2, buildCounter: 42 });
     });
 
-    it('round-trips the initialBuildNumber so the iframe BuildModel reads it back', () => {
+    it('does NOT emit legacy trunkSegments / root currentMajor / initialBuildNumber', () => {
         const d = makeEmptyBuildDoc({ major: 5, minor: 2, initialBuildNumber: 42 });
-        const json = JSON.stringify(d);
-        const parsed = JSON.parse(json);
-        expect(parsed.initialBuildNumber).toBe(42);
+        expect(d).not.toHaveProperty('trunkSegments');
+        expect(d).not.toHaveProperty('currentMajor');
+        expect(d).not.toHaveProperty('currentMinor');
+        expect(d).not.toHaveProperty('initialBuildNumber');
     });
 });
 
-describe('addEmptyPattern (req #2597)', () => {
+describe('addEmptyPattern (req #2614)', () => {
     it('adds a fresh pattern, switches active to it, preserves others', () => {
         const lib = seedLibraryFrom(sampleBuildsJson, 'Default');
         const originalId = lib.activeId;
@@ -336,9 +334,9 @@ describe('addEmptyPattern (req #2597)', () => {
         expect(Object.keys(next.patterns)).toHaveLength(2);
         expect(next.activeId).not.toBe(originalId);
         expect(next.patterns[next.activeId].name).toBe('Project X');
-        expect(next.patterns[next.activeId].data.currentMajor).toBe(2);
-        expect(next.patterns[next.activeId].data.currentMinor).toBe(1);
-        expect(next.patterns[next.activeId].data.initialBuildNumber).toBe(10);
+        const data = next.patterns[next.activeId].data;
+        expect(data.branches[0]).toMatchObject({ currentMajor: 2, currentMinor: 1, buildCounter: 10 });
+        expect(data.builds.m1).toMatchObject({ major: 2, minor: 1, build: 10, branchNum: 0 });
         // Old pattern still present unchanged
         expect(next.patterns[originalId]).toBe(lib.patterns[originalId]);
     });

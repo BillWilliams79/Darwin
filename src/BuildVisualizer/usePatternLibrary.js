@@ -150,12 +150,14 @@ export function addPatternFromActive(library, name) {
 }
 
 // Builds a fresh builds.json-shaped object representing a brand-new build doc with
-// a single main branch and its first build already run (req #2597). Inputs:
-//   - major / minor: open-segment Major.Minor (drives currentMajor/currentMinor)
-//   - initialBuildNumber: starting Build# of segment 1 — lets the team anchor the
-//     first build at e.g. 5.2.42.0 instead of 5.2.1.0. Defaults to 1.
-// Output mirrors what app.js's BuildModel.toJSON() produces, so it round-trips
-// through the iframe's BuildModel constructor without any normalization.
+// a single main branch and its first build already run. Inputs:
+//   - major / minor: Major.Minor for main at creation. Stamped onto the main
+//     branch (currentMajor/currentMinor) and onto the first build (major/minor).
+//   - initialBuildNumber: the first build's Build#. Lets a team anchor at e.g.
+//     5.2.42.0 instead of 5.2.1.0 to match imported CI history. Defaults to 1.
+// Output mirrors what app.js's BuildModel.toJSON() produces post-migration, so
+// it round-trips through the iframe's BuildModel constructor untouched (no
+// migration triggered).
 export function makeEmptyBuildDoc({ major = 1, minor = 0, initialBuildNumber = 1 } = {}) {
     const safeMajor = Number.isFinite(major) && major >= 0 ? Math.floor(major) : 1;
     const safeMinor = Number.isFinite(minor) && minor >= 0 ? Math.floor(minor) : 0;
@@ -164,19 +166,8 @@ export function makeEmptyBuildDoc({ major = 1, minor = 0, initialBuildNumber = 1
             ? Math.floor(initialBuildNumber) : 1;
     return {
         version: 1,
-        currentMajor: safeMajor,
-        currentMinor: safeMinor,
         nextBuildNumber: 2,
         nextBranchNumber: 2,
-        initialBuildNumber: safeInitial,
-        // First trunk segment — captures the New-doc dialog's M.m + starting Build#.
-        // Subsequent segments are added by the iframe when a Release branch is created.
-        trunkSegments: [{
-            startIdx: 0,
-            major: safeMajor,
-            minor: safeMinor,
-            initialBuildNumber: safeInitial,
-        }],
         branches: [
             {
                 id: 'main',
@@ -186,10 +177,22 @@ export function makeEmptyBuildDoc({ major = 1, minor = 0, initialBuildNumber = 1
                 parentBuildId: null,
                 side: 'center',
                 buildIds: ['m1'],
+                currentMajor: safeMajor,
+                currentMinor: safeMinor,
+                buildCounter: safeInitial,
             },
         ],
         builds: {
-            m1: { id: 'm1', number: 1, branchId: 'main', dotColor: null },
+            m1: {
+                id: 'm1',
+                number: 1,
+                branchId: 'main',
+                dotColor: null,
+                major: safeMajor,
+                minor: safeMinor,
+                build: safeInitial,
+                branchNum: 0,
+            },
         },
     };
 }
