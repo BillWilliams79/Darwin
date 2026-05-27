@@ -59,6 +59,11 @@ export function createEntityQueries({
     byIdCreatorScoped = true,
     byIdReturnsArray = false,
     foreignKeys = [],
+    // Req #2697 — operational tables (`dev_servers`, `swarm_sessions`,
+    // `swarm_starts`, `swarm_start_sessions`) live exclusively in the
+    // production `darwin` schema regardless of dev/prod mode. Set `ops: true`
+    // and the factory picks `darwinOpsUri` from AppContext for every URL.
+    ops = false,
 }) {
     if (!entity) throw new Error('createEntityQueries: entity is required');
 
@@ -89,14 +94,15 @@ export function createEntityQueries({
     // ----- hooks -----
 
     function useAll(creatorFk, options = {}) {
-        const { darwinUri } = useContext(AppContext);
+        const { darwinUri, darwinOpsUri } = useContext(AppContext);
         const { idToken } = useContext(AuthContext);
         const { fields = defaultFields, sort = defaultSort, enabled = true, staleTime } = options;
 
+        const uriRoot = ops ? darwinOpsUri : darwinUri;
         const params = [];
         if (fields) params.push(`fields=${fields}`);
         if (sort) params.push(`sort=${sort}`);
-        const uri = params.length ? `${darwinUri}/${entity}?${params.join('&')}` : `${darwinUri}/${entity}`;
+        const uri = params.length ? `${uriRoot}/${entity}?${params.join('&')}` : `${uriRoot}/${entity}`;
 
         const baseKey = keys.all(creatorFk);
         const queryKey = fieldsInKey && fields ? [...baseKey, { fields }] : baseKey;
@@ -120,13 +126,14 @@ export function createEntityQueries({
             [id, options = {}] = args;
             creatorFk = null;
         }
-        const { darwinUri } = useContext(AppContext);
+        const { darwinUri, darwinOpsUri } = useContext(AppContext);
         const { idToken } = useContext(AuthContext);
         const { fields, enabled = true } = options;
 
+        const uriRoot = ops ? darwinOpsUri : darwinUri;
         const params = [`id=${id}`];
         if (fields) params.push(`fields=${fields}`);
-        const uri = `${darwinUri}/${entity}?${params.join('&')}`;
+        const uri = `${uriRoot}/${entity}?${params.join('&')}`;
 
         const queryKey = byIdCreatorScoped ? keys.byId(creatorFk, id) : keys.byId(id);
 
@@ -161,13 +168,14 @@ export function createEntityQueries({
                 [id, options = {}] = args;
                 creatorFk = null;
             }
-            const { darwinUri } = useContext(AppContext);
+            const { darwinUri, darwinOpsUri } = useContext(AppContext);
             const { idToken } = useContext(AuthContext);
             const { fields = defaultFields, enabled = true } = options;
 
+            const uriRoot = ops ? darwinOpsUri : darwinUri;
             const params = [`${fk.field}=${id}`];
             if (fields) params.push(`fields=${fields}`);
-            const uri = `${darwinUri}/${entity}?${params.join('&')}`;
+            const uri = `${uriRoot}/${entity}?${params.join('&')}`;
 
             const queryKey = creatorScoped ? keyFn(creatorFk, id) : keyFn(id);
 
