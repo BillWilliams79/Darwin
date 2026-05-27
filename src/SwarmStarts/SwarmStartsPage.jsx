@@ -12,7 +12,9 @@ import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
 import { useAllSwarmStarts } from '../hooks/useDataQueries';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
+import SwarmStartsStatsView from './SwarmStartsStatsView';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -20,7 +22,13 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+
+const VIEW_STORAGE_KEY = 'darwin-swarm-starts-view';
 
 const TABLE_WIDTH = 1140;
 
@@ -58,6 +66,10 @@ export default function SwarmStartsPage() {
     // Autonomy filter chip-selector. null = All (no filter applied).
     // 'none' = rows with autonomy_filter IS NULL (the launch had no autonomy keyword).
     const [autonomyFilter, setAutonomyFilter] = useState(null);
+
+    // View toggle (Table | Stats) — req #2686.
+    const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
+    const handleViewChange = (_event, newView) => setView(newView);
 
     const filteredRows = useMemo(() => {
         if (autonomyFilter === null) return swarmStarts;
@@ -186,25 +198,51 @@ export default function SwarmStartsPage() {
                 </Stack>
                 <Box sx={{ flexGrow: 1 }} />
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    {filteredRows.length} of {swarmStarts.length} invocation{swarmStarts.length === 1 ? '' : 's'} — click a row for full summary
+                    {view === 'table'
+                        ? `${filteredRows.length} of ${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
+                        : `${filteredRows.length} of ${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
                 </Typography>
+                <ToggleButtonGroup
+                    value={view}
+                    exclusive
+                    onChange={handleViewChange}
+                    size="small"
+                    sx={{ flexShrink: 0 }}
+                    data-testid="swarm-starts-view-toggle"
+                >
+                    <Tooltip title="Table View">
+                        <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
+                            <TableChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                    <Tooltip title="Stats View">
+                        <ToggleButton value="stats" data-testid="view-toggle-stats" sx={{ px: 2 }}>
+                            <BarChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                </ToggleButtonGroup>
             </Box>
-            <Box className="app-content-tabpanel"
-                 sx={{ px: 3, pt: 0, maxWidth: TABLE_WIDTH }}>
-                <DataGrid
-                    rows={filteredRows}
-                    columns={columns}
-                    rowHeight={52}
-                    density="compact"
-                    slots={{ toolbar: GridToolbar }}
-                    slotProps={{ toolbar: { showQuickFilter: true } }}
-                    initialState={initialState}
-                    pageSizeOptions={[25, 50, 100]}
-                    onRowClick={(p) => navigate(`/swarm/swarm-starts/${p.row.id}`)}
-                    sx={{ cursor: 'pointer' }}
-                    data-testid="swarm-starts-datagrid"
-                />
-            </Box>
+            {view === 'table' && (
+                <Box className="app-content-tabpanel"
+                     sx={{ px: 3, pt: 0, maxWidth: TABLE_WIDTH }}>
+                    <DataGrid
+                        rows={filteredRows}
+                        columns={columns}
+                        rowHeight={52}
+                        density="compact"
+                        slots={{ toolbar: GridToolbar }}
+                        slotProps={{ toolbar: { showQuickFilter: true } }}
+                        initialState={initialState}
+                        pageSizeOptions={[25, 50, 100]}
+                        onRowClick={(p) => navigate(`/swarm/swarm-starts/${p.row.id}`)}
+                        sx={{ cursor: 'pointer' }}
+                        data-testid="swarm-starts-datagrid"
+                    />
+                </Box>
+            )}
+            {view === 'stats' && (
+                <SwarmStartsStatsView rows={filteredRows} />
+            )}
         </Box>
     );
 }
