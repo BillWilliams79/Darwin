@@ -1,8 +1,16 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import { useQuery } from '@tanstack/react-query';
 import BuildVisualizerControls from './BuildVisualizerControls';
-import { usePatternLibrary } from './usePatternLibrary';
+import { useBuildPatterns } from './useBuildPatterns';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 import {
     DEFAULT_DARK_VARIANT,
@@ -10,6 +18,10 @@ import {
     isThemeVariant,
 } from './themeVariants';
 import ThemeContext from '../Theme/ThemeContext';
+import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
+import call_rest_api from '../RestApi/RestApi';
+import { fetchEntity } from '../hooks/factory/createEntityQueries';
 
 // localStorage key shared with Topology/build-visualizer/app.js (req #2598;
 // React shell owns the toggle UI since req #2616 but the iframe still reads
@@ -85,7 +97,20 @@ const BuildVisualizerPage = () => {
     const iframeRef = useRef(null);
     const iframeReady = useRef(false);
     const prevActiveIdRef = useRef(null);
-    const lib = usePatternLibrary();
+    const lib = useBuildPatterns();
+    const { darwinUri } = useContext(AppContext);
+    const { idToken, profile } = useContext(AuthContext);
+    // Customer list — for the Perform Release Event Dialog. Fetched once per
+    // page (TanStack Query default staleTime is fine; this list rarely changes).
+    const customersQuery = useQuery({
+        queryKey: ['customers', profile?.id],
+        queryFn: () => fetchEntity(`${darwinUri}/customers`, idToken),
+        enabled: !!idToken && !!profile?.id && !!darwinUri,
+    });
+    // Release-event Dialog state: opened when the iframe posts bv:release-prompt;
+    // closed by Cancel or by completing the POST flow.
+    const [releaseDialog, setReleaseDialog] = useState(null);
+    const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
     // All branch types start selected — deselecting hides that type (and any
     // descendants rooted on it) in the iframe renderer.
     const [selectedTypes, setSelectedTypes] = useState(() => [...BRANCH_TYPES]);
@@ -149,6 +174,30 @@ const BuildVisualizerPage = () => {
         win.postMessage({ type: 'bv:load', data }, window.location.origin);
     }, []);
 
+    // Req #2648 — hand the iframe SQL credentials so its SqlBackedStorageAdapter
+    // can fetch /build_projects + /branches + /builds for the active project
+    // directly. No-op if the active pattern isn't a SQL-backed project (i.e.
+    // there's no projectId).
+    const postSqlInit = useCallback((projectId) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win || !projectId || !idToken || !darwinUri) return;
+        win.postMessage(
+            { type: 'bv:sql-init', idToken, darwinUri, projectId },
+            window.location.origin,
+        );
+    }, [idToken, darwinUri]);
+
+    // Req #2648 — finish the Perform Release Event flow. Posts the chosen
+    // customer names back to the iframe so it can update model.releaseEvents.
+    const postReleaseResult = useCallback((buildId, customerNames) => {
+        const win = iframeRef.current?.contentWindow;
+        if (!win) return;
+        win.postMessage(
+            { type: 'bv:release-result', buildId, customers: customerNames },
+            window.location.origin,
+        );
+    }, []);
+
     const postFilter = useCallback((selected) => {
         const win = iframeRef.current?.contentWindow;
         if (!win) return;
@@ -205,9 +254,14 @@ const BuildVisualizerPage = () => {
             if (!msg || typeof msg !== 'object') return;
             if (msg.type === 'bv:ready') {
                 iframeReady.current = true;
-                if (lib.activePattern) {
+                // Req #2648 — patterns are SQL-backed. Send credentials so the
+                // iframe constructs its own SqlBackedStorageAdapter and fetches
+                // /build_projects + /branches + /builds for the active project
+                // directly. No bv:load is sent — the legacy in-memory pattern
+                // flow is retired.
+                if (lib.activePattern?.projectId) {
                     prevActiveIdRef.current = lib.activeId;
-                    postLoad(lib.activePattern.data);
+                    postSqlInit(lib.activePattern.projectId);
                 }
                 postFilter(selectedTypesRef.current);
                 postVersionLanes(staggerOnRef.current);
@@ -223,9 +277,17 @@ const BuildVisualizerPage = () => {
                 if (nextShow !== showReleasesRef.current) setShowReleases(nextShow);
                 if (nextStyle !== releaseStyleRef.current) setReleaseStyle(nextStyle);
             } else if (msg.type === 'bv:changed') {
-                if (msg.data && typeof msg.data === 'object') {
-                    lib.saveActiveData(msg.data);
-                }
+                // Req #2648 — iframe-side persistence is now direct to SQL via
+                // SqlBackedStorageAdapter. The parent no longer needs to mirror
+                // every mutation into localStorage; bv:changed is only emitted
+                // for legacy/postMessage adapters which we no longer use here.
+                // Kept as a no-op for protocol compatibility.
+            } else if (msg.type === 'bv:release-prompt' && msg.buildId) {
+                // Req #2648 — iframe asked the parent to run the customer-
+                // selection Dialog. Open it. The Dialog's Confirm handler does
+                // the POSTs and posts bv:release-result back.
+                setReleaseDialog({ buildId: msg.buildId });
+                setSelectedCustomerIds([]);
             } else if (msg.type === 'bv:version-lanes-state') {
                 // Iframe announced its boot value (e.g. standalone mode flipped
                 // localStorage from a different tab). Adopt it locally so the
@@ -236,7 +298,7 @@ const BuildVisualizerPage = () => {
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
-    }, [lib, postLoad, postFilter, postVersionLanes, postTheme, postShowReleases, postReleaseStyle]);
+    }, [lib, postSqlInit, postFilter, postVersionLanes, postTheme, postShowReleases, postReleaseStyle]);
 
     // Push filter to iframe on every chip toggle (no-op until iframe is ready —
     // the bv:ready handler covers the initial post once the iframe boots).
@@ -281,16 +343,90 @@ const BuildVisualizerPage = () => {
         postTheme(iframeTheme);
     }, [iframeTheme, postTheme]);
 
-    // Push the active pattern into the iframe ONLY when the user switches to
-    // a different pattern. Data-within-active-pattern saves originate from the
-    // iframe via bv:changed — echoing them back as bv:load would dismiss any
-    // open context menu and cause a visual re-render flicker.
+    // Req #2648 — when the user switches the active pattern, send a fresh
+    // bv:sql-init so the iframe rebuilds its SqlBackedStorageAdapter with the
+    // new projectId and reloads. Subsequent in-pattern mutations are persisted
+    // directly to SQL by the iframe (no parent-side echo needed).
     useEffect(() => {
-        if (!iframeReady.current || !lib.activePattern) return;
+        if (!iframeReady.current || !lib.activePattern?.projectId) return;
         if (prevActiveIdRef.current === lib.activeId) return;
         prevActiveIdRef.current = lib.activeId;
-        postLoad(lib.activePattern.data);
-    }, [lib.activeId, lib.activePattern, postLoad]);
+        postSqlInit(lib.activePattern.projectId);
+    }, [lib.activeId, lib.activePattern, postSqlInit]);
+
+    // ─── Perform Release Event Dialog handlers ───────────────────────────
+    const selectedCustomers = useMemo(() => {
+        const rows = customersQuery.data || [];
+        return rows.filter(c => selectedCustomerIds.includes(Number(c.id)));
+    }, [customersQuery.data, selectedCustomerIds]);
+
+    const toggleCustomer = useCallback((id) => {
+        const n = Number(id);
+        setSelectedCustomerIds(prev =>
+            prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n],
+        );
+    }, []);
+
+    const confirmReleaseDialog = useCallback(async () => {
+        if (!releaseDialog || !lib.activePattern?.projectId) {
+            setReleaseDialog(null);
+            return;
+        }
+        const buildExtId = releaseDialog.buildId;
+        // Resolve the SQL build_fk by external_id within the active project.
+        // Done as a one-off fetch — typical Perform-Release-Event flows are
+        // rare enough not to warrant a permanent cached lookup.
+        try {
+            const branchesRes = await call_rest_api(
+                `${darwinUri}/branches?project_fk=${lib.activePattern.projectId}`,
+                'GET', '', idToken,
+            );
+            const branches = branchesRes?.data || [];
+            const branchIds = branches.map(b => b.id).join(',');
+            if (!branchIds) throw new Error('No branches for project');
+            const buildsRes = await call_rest_api(
+                `${darwinUri}/builds?branch_fk=(${branchIds})&external_id=${buildExtId}`,
+                'GET', '', idToken,
+            );
+            const builds = buildsRes?.data || [];
+            const sqlBuild = builds.find(b => b.external_id === buildExtId);
+            if (!sqlBuild) throw new Error(`Build ${buildExtId} not found in SQL`);
+
+            // POST one /customer_releases row per selected customer.
+            for (const cust of selectedCustomers) {
+                await call_rest_api(
+                    `${darwinUri}/customer_releases`, 'POST',
+                    {
+                        customer_fk: cust.id,
+                        build_fk: sqlBuild.id,
+                    },
+                    idToken,
+                );
+            }
+            // Mark the build approved_for_release=1 (POSTing a release implies it).
+            await call_rest_api(
+                `${darwinUri}/builds`, 'PUT',
+                [{ id: sqlBuild.id, approved_for_release: 1 }],
+                idToken,
+            );
+
+            // Inform the iframe — pass the customer NAMES so model.releaseEvents
+            // updates locally without a re-fetch.
+            const names = selectedCustomers.map(c => c.customer_name || c.name || `customer-${c.id}`);
+            postReleaseResult(buildExtId, names);
+        } catch (err) {
+            // Surface to console; the user can retry. A snackbar would be nice
+            // but we don't have one wired at this level — out of v1 scope.
+            console.error('[BuildVisualizer] Perform Release Event failed:', err);
+        }
+        setReleaseDialog(null);
+        setSelectedCustomerIds([]);
+    }, [releaseDialog, lib.activePattern, darwinUri, idToken, selectedCustomers, postReleaseResult]);
+
+    const cancelReleaseDialog = useCallback(() => {
+        setReleaseDialog(null);
+        setSelectedCustomerIds([]);
+    }, []);
 
     return (
         <Box
@@ -330,6 +466,50 @@ const BuildVisualizerPage = () => {
                     <CircularProgress />
                 </Box>
             )}
+            <Dialog
+                open={!!releaseDialog}
+                onClose={cancelReleaseDialog}
+                data-testid="bv-release-event-dialog"
+            >
+                <DialogTitle>Perform release event</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ minWidth: 320 }}>
+                        <Box sx={{ mb: 1, fontSize: '0.9rem', color: 'text.secondary' }}>
+                            Build: {releaseDialog?.buildId} — pick the customers receiving this build.
+                        </Box>
+                        {(customersQuery.data || []).map(c => (
+                            <FormControlLabel
+                                key={c.id}
+                                control={(
+                                    <Checkbox
+                                        checked={selectedCustomerIds.includes(Number(c.id))}
+                                        onChange={() => toggleCustomer(c.id)}
+                                        data-testid={`bv-release-customer-${c.id}`}
+                                    />
+                                )}
+                                label={c.customer_name || c.name || `customer-${c.id}`}
+                                sx={{ display: 'block' }}
+                            />
+                        ))}
+                        {(customersQuery.data || []).length === 0 && (
+                            <Box sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                                No customers found — add some on /customers first.
+                            </Box>
+                        )}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={cancelReleaseDialog}>Cancel</Button>
+                    <Button
+                        onClick={confirmReleaseDialog}
+                        disabled={selectedCustomerIds.length === 0}
+                        variant="contained"
+                        data-testid="bv-release-event-confirm"
+                    >
+                        Release to selected
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
