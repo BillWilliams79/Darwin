@@ -12,6 +12,7 @@ import {
     useAllTestCases, useAllTestPlans, useAllCategories,
 } from '../hooks/useDataQueries';
 import { testRunKeys, testResultKeys } from '../hooks/useQueryKeys';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { recordTestResult, completeTestRun, abortTestRun } from './actions/validationApi';
@@ -53,7 +54,7 @@ export function TestRunsPage() {
     const navigate = useNavigate();
     const creatorFk = profile?.userName;
 
-    const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'table');
+    const [view, setView] = useViewPreference(VIEW_KEY, 'table');
 
     // Reuse the shared category filter (same store the other three pages use).
     // Runs don't have a direct category_fk; we filter via the plan's category_fk.
@@ -86,12 +87,7 @@ export function TestRunsPage() {
         });
     }, [runs, planById, categoryFilter]);
 
-    const handleViewChange = (_e, newView) => {
-        if (newView !== null) {
-            setView(newView);
-            localStorage.setItem(VIEW_KEY, newView);
-        }
-    };
+    const handleViewChange = (_e, newView) => setView(newView);
 
     return (
         <Box className="app-content-planpage">
