@@ -54,6 +54,7 @@ export const NAV_LINKS = [
     ...(import.meta.env.DEV ? [
         { path: '/systems2', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
         { path: '/build-visualizer', label: 'Build Visualizer', icon: TimelineIcon, group: 'systems' },
+        { path: '/build-visualizer-d3', label: 'Build Vis D3', icon: TimelineIcon, group: 'systems' },
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),

@@ -25,6 +25,7 @@
     "@tanstack/react-query-devtools": "^5.91.3",
     "amazon-cognito-identity-js": "^6.3.16",
     "crypto-random-string": "^5.0.0",
+    "d3-hierarchy": "^3.1.2",
     "fit-file-parser": "^2.3.3",
     "idb": "^8.0.3",
     "leaflet": "^1.9.4",
