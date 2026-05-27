@@ -144,6 +144,22 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
 // |          |          |   off the left edge, no vertical start bar     |
 // | null     | null     | skip — neither end visible on this panel        |
 //
+// Session statuses that suppress phantom-chip rendering (req #2650).
+// A "phantom" represents the in-progress portion of a session; statuses that
+// indicate the session is NOT actively running must not produce one:
+//   • null/empty   — session lacks a status, nothing to surface.
+//   • 'completed'  — the work is drawn as a real (non-phantom) chip when its
+//                    requirement's completed_at lands in the window.
+//   • 'paused'     — the user explicitly paused the session; it must not
+//                    appear as today's "unfinished business" until resumed.
+// Blacklist, not whitelist: any future session status defaults to rendering,
+// which is the safer failure mode (callers extend the list as needed).
+// Exported for unit-test coverage.
+export const isHiddenSwarmStatus = (status) => {
+    if (!status) return true;
+    return status === 'completed' || status === 'paused';
+};
+
 // Exported for unit-test coverage.
 export const computePhantomPlacement = (startPct, nowPct) => {
     const startIn = startPct !== null && startPct !== undefined;
@@ -613,7 +629,8 @@ const BeadRow = ({
     // session, its requirement) pair where:
     //   • the session is linked to a swarm_start via the junction
     //   • the swarm_start has a started_at that falls in this panel's window
-    //   • the session's swarm_status is not 'completed'
+    //   • the session's swarm_status is not "hidden" — see
+    //     isHiddenSwarmStatus (null/'completed'/'paused' per req #2650).
     //
     // Each phantom carries the FULL requirement datacard payload (title,
     // category, coordination, etc.) so its hover tooltip is identical in shape
@@ -657,7 +674,7 @@ const BeadRow = ({
             for (const sid of linked) {
                 const s = sessionById.get(sid);
                 if (!s) continue;
-                if (!s.swarm_status || s.swarm_status === 'completed') continue;
+                if (isHiddenSwarmStatus(s.swarm_status)) continue;
                 const reqId = parseSessionRequirementId(s.source_ref);
                 const r = reqId && requirementById ? requirementById.get(reqId) : null;
                 // If the session's requirement has already completed_at set
