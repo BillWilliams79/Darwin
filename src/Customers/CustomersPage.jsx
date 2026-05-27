@@ -2,8 +2,9 @@
 //
 // Flat-list MUI DataGrid with Add / Edit / Delete via dialog. Customers are
 // recipients of build releases (HP, NVIDIA, Cisco, Google, ...). The Build
-// Visualizer attaches `customer-release` branches to build dots to convey
-// which customer received which sprint or end-release build.
+// Visualizer attaches release events to build dots via the `customer_releases`
+// table (req #2648 retired the `customer-release` branch type — release events
+// are now an overlay layer driven by `model.releaseEvents`).
 
 import { useContext, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';

@@ -71,16 +71,17 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         setNewOpen(true);
     };
 
-    const confirmNew = () => {
+    const confirmNew = async () => {
         const name = newName.trim();
         if (!name) return;
-        lib.createNew(name, {
+        const result = await lib.createNew(name, {
             major: parseNonNegInt(newMajor, 1),
             minor: parseNonNegInt(newMinor, 0),
             initialBuildNumber: parsePosInt(newInitialBuild, 1),
         });
         setNewOpen(false);
-        showSnack('success', `Created "${name}"`);
+        if (result?.ok === false) showSnack('error', result.error || 'Create failed');
+        else showSnack('success', `Created "${name}"`);
     };
 
     const openSaveAs = () => {
@@ -89,12 +90,13 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         setSaveAsOpen(true);
     };
 
-    const confirmSaveAs = () => {
+    const confirmSaveAs = async () => {
         const name = saveAsName.trim();
         if (!name) return;
-        lib.saveAs(name);
+        const result = await lib.saveAs(name);
         setSaveAsOpen(false);
-        showSnack('success', `Saved as "${name}"`);
+        if (result?.ok === false) showSnack('error', result.error || 'Save As failed');
+        else showSnack('success', `Saved as "${name}"`);
     };
 
     const openRename = () => {
@@ -104,12 +106,13 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         setRenameOpen(true);
     };
 
-    const confirmRename = () => {
+    const confirmRename = async () => {
         const name = renameValue.trim();
         if (!name || !lib.activePattern) return;
-        lib.rename(lib.activePattern.id, name);
+        const result = await lib.rename(lib.activePattern.id, name);
         setRenameOpen(false);
-        showSnack('success', 'Renamed');
+        if (result?.ok === false) showSnack('error', result.error || 'Rename failed');
+        else showSnack('success', 'Renamed');
     };
 
     const openDelete = () => {
@@ -117,12 +120,12 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         setDeleteOpen(true);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
         if (!lib.activePattern) return;
-        const result = lib.remove(lib.activePattern.id);
+        const result = await lib.remove(lib.activePattern.id);
         setDeleteOpen(false);
-        if (result.ok) showSnack('success', 'Deleted');
-        else showSnack('error', result.error);
+        if (result?.ok) showSnack('success', 'Deleted');
+        else showSnack('error', result?.error || 'Delete failed');
     };
 
     const handleExport = () => {
