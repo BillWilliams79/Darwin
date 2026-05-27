@@ -41,7 +41,7 @@ const SwarmSessionDetail = () => {
     const location = useLocation();
 
     const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { darwinOpsUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -67,7 +67,8 @@ const SwarmSessionDetail = () => {
 
     const sessionDelete = useConfirmDialog({
         onConfirm: ({ sessionId }) => {
-            const uri = `${darwinUri}/swarm_sessions`;
+            // Req #2697 — operational tables live exclusively in `darwin`.
+            const uri = `${darwinOpsUri}/swarm_sessions`;
             call_rest_api(uri, 'DELETE', { id: sessionId }, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
