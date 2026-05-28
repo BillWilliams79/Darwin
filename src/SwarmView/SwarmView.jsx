@@ -191,54 +191,31 @@ const SwarmView = () => {
             :
             <>
             <Box className="app-content-planpage">
-                    {/* Combined row — project tabs (Cards view only) + view toggle + chips +
-                        [rocket if cards] + settings (req #2325). Project tabs occupy the left
-                        with flex:1 (scrollable); the buttons pack to the right in the same
-                        visual order as before.
+                    {/* Canonical header row (req #2722) — same LTR order in every view:
+                        [view toggle] [req# jump input] [project tabs (cards)]
+                        [visualizer toolbar (visualizer)] [flex spacer]
+                        [status chips (cards/table)] [rocket (cards)] [settings].
+                        The view toggle is the stable far-left anchor; the right-side
+                        cluster (chips → rocket → settings) keeps the same relative order
+                        in every view, with conditional items either present or omitted
+                        but never reordered. `minHeight: 72px` pins all three views to the
+                        Cards-view height: MUI v7 `<Tab>` with BOTH icon AND label uses
+                        `minHeight: 72` (Tab.js — regardless of iconPosition), so the
+                        Tabs in Cards naturally render at 72px; Table and Visualizer
+                        expand to that same 72px via this minHeight. The bottom divider
+                        is drawn in ALL three views so the visual separator from the
+                        content below is consistent.
                         Padding `px: 3` matches `p: 3` on `.app-content-tabpanel` below, so
-                        the row's right edge aligns with the tabpanel's right content edge
-                        (= right edge of rightmost card in Cards view).
+                        the row's right edge aligns with the tabpanel's right content edge.
                         In Table view, maxWidth is capped at SWARM_TABLE_WIDTH so settings
-                        aligns with the table's right edge instead.
-                        Bottom border is drawn in Cards view so the visual separator from the
-                        tabpanel below (previously on the standalone tabs row) is preserved;
-                        Table view has no border, matching prior behaviour.
-                        Rocket icon is CARDS-ONLY — it controls the SwarmStartCard aggregator
-                        which doesn't exist in Table view.
-                        Spacing (mt/mb/gap) matches MapsPage.jsx header row. */}
+                        aligns with the table's right edge. */}
                     <Box className="app-content-view-toggle"
                          sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 3, mb: 1, px: 3,
-                               ...(view === 'cards' && { borderBottom: 1, borderColor: 'divider' }),
-                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }),
-                               ...(view === 'visualizer' && { borderBottom: 1, borderColor: 'divider' }) }}
+                               minHeight: '72px',
+                               borderBottom: 1, borderColor: 'divider',
+                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }) }}
                          data-testid="swarm-view-toggle-row"
                     >
-                        {view === 'cards' && (
-                            <Tabs value={activeTab.toString()}
-                                  onChange={changeActiveTab}
-                                  variant="scrollable"
-                                  scrollButtons="auto"
-                                  sx={{ flexShrink: 1, minWidth: 0 }} >
-                                {projectsArray.map( (project, projectIndex) =>
-                                    <Tab key={project.id}
-                                         icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
-                                         label={project.project_name}
-                                         value={projectIndex.toString()}
-                                         iconPosition="end" />
-                                )}
-                                <Tab key={'add-project'}
-                                     icon={<AddIcon onClick={addProject}/>}
-                                     iconPosition="start"
-                                     value={9999}
-                                />
-                            </Tabs>
-                        )}
-                        {view === 'cards' && (
-                            <>
-                                <RequirementJumpInput />
-                                <Box sx={{ flexGrow: 1 }} />
-                            </>
-                        )}
                         <ToggleButtonGroup
                             value={view}
                             exclusive
@@ -263,12 +240,29 @@ const SwarmView = () => {
                                 </ToggleButton>
                             </Tooltip>
                         </ToggleButtonGroup>
-                        {/* Visualizer controls — inline in the same header row (req #2407):
-                            [view toggle] [viz buttons + date nav] [spacer] [settings]. */}
+                        <RequirementJumpInput />
+                        {view === 'cards' && (
+                            <Tabs value={activeTab.toString()}
+                                  onChange={changeActiveTab}
+                                  variant="scrollable"
+                                  scrollButtons="auto"
+                                  sx={{ flexShrink: 1, minWidth: 0 }} >
+                                {projectsArray.map( (project, projectIndex) =>
+                                    <Tab key={project.id}
+                                         icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
+                                         label={project.project_name}
+                                         value={projectIndex.toString()}
+                                         iconPosition="end" />
+                                )}
+                                <Tab key={'add-project'}
+                                     icon={<AddIcon onClick={addProject}/>}
+                                     iconPosition="start"
+                                     value={9999}
+                                />
+                            </Tabs>
+                        )}
                         {view === 'visualizer' && <VisualizerToolbar />}
-                        {/* Status-filter chips — Cards/Table only. Visualizer shows
-                            completed requirements (met status) exclusively, so these
-                            chips don't apply. */}
+                        <Box sx={{ flexGrow: 1 }} />
                         {view !== 'visualizer' && (
                             <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
                                 {ALL_REQUIREMENT_STATUSES.map(status => {
@@ -293,8 +287,6 @@ const SwarmView = () => {
                                 })}
                             </Stack>
                         )}
-                        {/* Rocket — Cards view only. Controls the cross-category SwarmStartCard
-                            aggregator, which is irrelevant in Table view. */}
                         {view === 'cards' && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
                                 <IconButton
@@ -307,13 +299,6 @@ const SwarmView = () => {
                                     <RocketLaunchIcon />
                                 </IconButton>
                             </Tooltip>
-                        )}
-                        {/* Table-view spacer pushes settings to the table's right edge (maxWidth cap).
-                            Cards view doesn't need it — the Tabs' flex:1 already consumes the free space.
-                            Visualizer view also needs a flex spacer since it has no left-side Tabs. */}
-                        {(view === 'table' || view === 'visualizer') && <Box sx={{ flexGrow: 1 }} />}
-                        {view !== 'cards' && (
-                            <RequirementJumpInput />
                         )}
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
