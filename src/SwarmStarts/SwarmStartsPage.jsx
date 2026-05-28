@@ -123,14 +123,15 @@ export default function SwarmStartsPage() {
             headerName: 'Arguments',
             width: 390,
             renderCell: (params) => (
-                <Tooltip title={params.value || '(empty — all swarm-ready)'}>
+                <Tooltip title={params.value || '—'}>
                     <Typography variant="body2" component="span"
                                 sx={{ fontFamily: 'monospace',
                                        overflow: 'hidden',
                                        textOverflow: 'ellipsis',
-                                       whiteSpace: 'nowrap' }}
+                                       whiteSpace: 'nowrap',
+                                       ...(params.value ? {} : { color: 'text.secondary' }) }}
                                 data-testid={`swarm-start-args-${params.row.id}`}>
-                        {params.value || <em>(empty)</em>}
+                        {params.value || '—'}
                     </Typography>
                 </Tooltip>
             ),

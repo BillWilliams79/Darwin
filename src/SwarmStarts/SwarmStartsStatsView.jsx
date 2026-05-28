@@ -88,9 +88,9 @@ export function computeSwarmStartStats(rows) {
             }
         }
 
-        // Patterns: group by raw arguments string (empty/null → '(empty)')
+        // Patterns: group by raw arguments string (empty/null → '—' per req #2710)
         const argsKey = (row.arguments == null || row.arguments === '')
-            ? '(empty)'
+            ? '—'
             : row.arguments;
         const existing = patterns.get(argsKey) || {
             pattern: argsKey, invocations: 0, sessions: 0, wallSum: 0, wallCount: 0,
