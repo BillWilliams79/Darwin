@@ -105,7 +105,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
         const s = computeSwarmStartStats(rows);
         expect(s.topPatterns.length).toBeGreaterThan(0);
         expect(s.topPatterns[0]).toMatchObject({ pattern: 'auto', invocations: 3, sessions: 6 });
-        const empty = s.topPatterns.find(p => p.pattern === '(empty)');
+        const empty = s.topPatterns.find(p => p.pattern === '—');
         expect(empty).toMatchObject({ invocations: 2, sessions: 5 });
         const planned = s.topPatterns.find(p => p.pattern === 'planned');
         expect(planned).toMatchObject({ invocations: 1, sessions: 1 });
