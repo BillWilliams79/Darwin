@@ -187,7 +187,7 @@ export default function SwarmStartDetail() {
                             sx={{ fontFamily: 'monospace',
                                    bgcolor: 'action.hover',
                                    px: 1.5, py: 1, borderRadius: 1 }}>
-                    /swarm-start {row.arguments || <em>(empty — all swarm-ready)</em>}
+                    /swarm-start{row.arguments ? ` ${row.arguments}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
                     {row.autonomy_filter && (

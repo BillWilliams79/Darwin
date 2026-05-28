@@ -14,6 +14,7 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BusinessIcon from '@mui/icons-material/Business';
+import UndoIcon from '@mui/icons-material/Undo';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -61,6 +62,7 @@ export const NAV_LINKS = [
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/swarm/swarm-starts', label: 'Swarm Starts', icon: RocketLaunchIcon, group: 'swarm' },
+    { path: '/swarm/swarm-undos', label: 'Swarm Undos', icon: UndoIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },

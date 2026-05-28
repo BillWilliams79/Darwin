@@ -10,6 +10,7 @@ import {
     sessionKeys,
     swarmStartKeys,
     swarmStartSessionKeys,
+    swarmUndoKeys,
 } from '../useQueryKeys';
 import {
     useDevServers,
@@ -19,6 +20,8 @@ import {
     useAllSwarmStarts,
     useSwarmStartById,
     useAllSwarmStartSessions,
+    useAllSwarmUndos,
+    useSwarmUndoById,
 } from '../useDataQueries';
 
 describe('devServerKeys parity', () => {
@@ -59,6 +62,25 @@ describe('swarmStartSessionKeys parity', () => {
     });
 });
 
+// Req #2719 — swarm_undos key + hook shape matches the existing devops factory
+// outputs (swarmStarts pattern, fields-in-key, defaultSort:undone_at).
+// Intentionally NOT ops:true (departure from req #2697 — see devopsQueries.js
+// comment): swarm_undos is a new feature whose data lives in darwin_dev during
+// development and only graduates to production on /swarm-complete merge.
+describe('swarmUndoKeys parity', () => {
+    it('all(creator) → ["swarm_undos", creator]', () => {
+        expect(swarmUndoKeys.all('alice')).toEqual(['swarm_undos', 'alice']);
+    });
+    it('byId(creator, id) → ["swarm_undos", creator, { id }]', () => {
+        expect(swarmUndoKeys.byId('alice', 7)).toEqual(['swarm_undos', 'alice', { id: 7 }]);
+    });
+    it('byId is prefix-compatible with all() for invalidation', () => {
+        const allKey = swarmUndoKeys.all('alice');
+        const byIdKey = swarmUndoKeys.byId('alice', 7);
+        expect(byIdKey.slice(0, allKey.length)).toEqual(allKey);
+    });
+});
+
 describe('devops hook exports', () => {
     it('every legacy hook name is exported as a function', () => {
         expect(typeof useDevServers).toBe('function');
@@ -68,5 +90,7 @@ describe('devops hook exports', () => {
         expect(typeof useAllSwarmStarts).toBe('function');
         expect(typeof useSwarmStartById).toBe('function');
         expect(typeof useAllSwarmStartSessions).toBe('function');
+        expect(typeof useAllSwarmUndos).toBe('function');
+        expect(typeof useSwarmUndoById).toBe('function');
     });
 });
