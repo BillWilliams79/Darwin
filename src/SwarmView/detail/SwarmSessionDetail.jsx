@@ -135,16 +135,10 @@ const SwarmSessionDetail = () => {
                                       onClick={() => navigate(`/swarm/swarm-starts/${swarmStart.id}`)}
                                       sx={{ cursor: 'pointer', mr: 1 }}
                                       data-testid="session-launched-by-chip" />
-                                {swarmStart.arguments
-                                    ? <Typography component="span" variant="body2"
-                                                  sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                                          /swarm-start {swarmStart.arguments}
-                                      </Typography>
-                                    : <Typography component="span" variant="body2"
-                                                  sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                                          /swarm-start (empty — all swarm-ready)
-                                      </Typography>
-                                }
+                                <Typography component="span" variant="body2"
+                                            sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                    /swarm-start{swarmStart.arguments ? ` ${swarmStart.arguments}` : ''}
+                                </Typography>
                             </Typography>
                         </Box>
                     }
