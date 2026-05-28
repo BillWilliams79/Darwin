@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -65,6 +65,7 @@ export const requirementKeys = {
 export const sessionKeys = sessions.keys;
 export const swarmStartKeys = swarmStarts.keys;
 export const swarmStartSessionKeys = swarmStartSessions.keys;
+export const swarmUndoKeys = swarmUndos.keys;
 export const devServerKeys = devServers.keys;
 
 export const recurringTaskKeys = {

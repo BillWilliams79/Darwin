@@ -6,7 +6,7 @@ import { useSwarmVisualizerStore } from '../stores/useSwarmVisualizerStore';
 import {
     useRequirementsDone, useSessions, useAllCategories,
     useAllSwarmStarts, useAllSwarmStartSessions,
-    useAllRequirements,
+    useAllRequirements, useAllSwarmUndos,
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
@@ -79,6 +79,14 @@ const SwarmVisualizerView = () => {
         { fields: 'id,started_at,session_count,wall_seconds,turn_count,auto_start,arguments,autonomy_filter' },
     );
     const { data: swarmStartSessions = [] } = useAllSwarmStartSessions(profile?.userName);
+    // Req #2719 — overlay tombstones in place of swarm-start anchors for
+    // launches that were /swarm-undone. The snapshot column
+    // `swarm_start_fk_at_undo` survives the cascading session delete, so a
+    // small projection is enough.
+    const { data: swarmUndos = [] } = useAllSwarmUndos(
+        profile?.userName,
+        { fields: 'id,swarm_start_fk_at_undo,req_id_at_undo,task_name,branch,coordination_type,reason,undone_at' },
+    );
     // All requirements (any status) — needed so in-progress phantoms can render
     // the same datacard shape as completed bubbles (req #2504). Small projection
     // keeps the payload tight; the visualizer only consumes id/title/category/
@@ -118,6 +126,7 @@ const SwarmVisualizerView = () => {
                 sessions={sessions}
                 swarmStarts={swarmStarts}
                 swarmStartSessions={swarmStartSessions}
+                swarmUndos={swarmUndos}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 beadWindow={beadWindow}

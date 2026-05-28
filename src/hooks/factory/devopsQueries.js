@@ -70,3 +70,28 @@ export const swarmStartSessions = createEntityQueries({
     ops: true,
     defaultFields: 'swarm_start_fk,session_fk',
 });
+
+// ---------------------------------------------------------------------------
+// swarm_undos (req #2719)
+// Hooks: useAllSwarmUndos (fields-in-key, sort undone_at:desc) +
+// useSwarmUndoById (creator-scoped key).
+//
+// Intentionally NOT ops:true (departure from req #2697's pattern for the four
+// pre-existing swarm tables). swarm_undos is a brand-new data type whose data
+// has no reason to live exclusively in the production `darwin` schema during
+// development — routing through the default `darwinUri` lets dev-mode builds
+// read seeded fixtures from `darwin_dev`. The broader question of whether
+// req #2697's ops-routing rule should apply to every operational table by
+// default is a separate design conversation the data-architect should groom
+// (filed for follow-up per user direction 2026-05-28).
+// ---------------------------------------------------------------------------
+const SWARM_UNDO_DEFAULT_FIELDS =
+    'id,session_fk,swarm_start_fk_at_undo,req_id_at_undo,' +
+    'task_name,branch,coordination_type,reason,undone_at,creator_fk';
+
+export const swarmUndos = createEntityQueries({
+    entity: 'swarm_undos',
+    defaultFields: SWARM_UNDO_DEFAULT_FIELDS,
+    fieldsInKey: true,
+    defaultSort: 'undone_at:desc',
+});
