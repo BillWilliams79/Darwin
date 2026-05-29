@@ -6,7 +6,7 @@ import {
 } from '../branchTypeChipStyles';
 
 describe('BRANCH_TYPES', () => {
-    it('lists the six non-main branch types in REGISTRY (Topology/build-visualizer/app.js)', () => {
+    it('lists the six non-main branch types in REGISTRY (d3LayoutEngine.js)', () => {
         expect(BRANCH_TYPES).toEqual([
             'release',
             'sample-release',
@@ -39,7 +39,7 @@ describe('branchTypeChipProps', () => {
 describe('branchTypeLabel', () => {
     it.each([
         ['release',         'Release'],
-        ['sample-release',  'Sample Release'],
+        ['sample-release',  'Sprint Release'],
         ['hotfix',          'Hot Fix'],
         ['bootleg',         'Bootleg'],
         ['csr',             'CSR'],
