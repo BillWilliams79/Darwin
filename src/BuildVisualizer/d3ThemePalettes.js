@@ -1,8 +1,7 @@
-// req #2694 — JS palette mirror of Topology/build-visualizer/styles.css.
+// req #2694 / #2720 — theme palettes for the Build Visualizer SVG canvas.
 //
-// Used by the React-rendered Build Visualizer D3 view to apply theme colors
-// directly to SVG elements (the iframe applies them via CSS variables; we
-// can't share that surface because the SVG lives inside the React tree).
+// Applied directly to SVG elements by the React renderer. Each variant
+// defines colors for backgrounds, lines, labels, dots, and version text.
 // Keep keys/values in lock-step with the `:root[data-theme="…"]` blocks in
 // styles.css and the THEME_VARIANTS list in themeVariants.js.
 

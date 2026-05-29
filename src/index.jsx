@@ -47,9 +47,10 @@ import TestPlansPage from './Features/TestPlansPage';
 import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
+import SwarmUndosPage from './SwarmUndos/SwarmUndosPage';
+import SwarmUndoDetail from './SwarmUndos/SwarmUndoDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
-import BuildVisualizerD3Page from './BuildVisualizer/BuildVisualizerD3Page';
 import CustomersPage from './Customers/CustomersPage';
 import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
 
@@ -105,6 +106,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
                                                              <SwarmStartDetail />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-undos" element= {<AuthenticatedRoute>
+                                                             <SwarmUndosPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-undos/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmUndoDetail />
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
@@ -167,9 +174,6 @@ root.render(
                                                          </AuthenticatedRoute>} />
                       <Route path="build-visualizer" element= {<AuthenticatedRoute>
                                                              <BuildVisualizerPage />
-                                                         </AuthenticatedRoute>} />
-                      <Route path="build-visualizer-d3" element= {<AuthenticatedRoute>
-                                                             <BuildVisualizerD3Page />
                                                          </AuthenticatedRoute>} />
                     </>}
                 </Route >

@@ -42,7 +42,7 @@ import { hierarchy } from 'd3-hierarchy';
 export const REGISTRY = {
     main:             { label: 'Main',                 dotRadius: 5.5, defaultSide: 'center' },
     release:          { label: 'Release',              dotRadius: 6.0, defaultSide: 'above' },
-    'sample-release': { label: 'Sample Release',       dotRadius: 5.5, defaultSide: 'above' },
+    'sample-release': { label: 'Sprint Release',        dotRadius: 5.5, defaultSide: 'above' },
     hotfix:           { label: 'Hot Fix',              dotRadius: 5.5, defaultSide: 'above' },
     bootleg:          { label: 'Bootleg',              dotRadius: 5.5, defaultSide: 'above' },
     csr:              { label: 'CSR',                  dotRadius: 5.5, defaultSide: 'above' },
@@ -54,13 +54,13 @@ export const REGISTRY = {
 // above main render in increasing distance from main as position drops
 // (Sample is closest to main; Hot Fix is farthest above).
 const STRATA = [
-    { id: 'hotfix',  label: 'Hot Fix',        types: ['hotfix'],         side: 'above' },
-    { id: 'bootleg', label: 'Bootleg',        types: ['bootleg'],        side: 'above' },
-    { id: 'csr',     label: 'CSR',            types: ['csr'],            side: 'above' },
-    { id: 'release', label: 'Release',        types: ['release'],        side: 'above' },
-    { id: 'sample',  label: 'Sample Release', types: ['sample-release'], side: 'above' },
-    { id: 'main',    label: 'Main',           types: ['main'],           side: 'center' },
-    { id: 'dev',     label: 'Development',    types: ['development'],    side: 'below' },
+    { id: 'hotfix',  label: 'Hot Fix',         types: ['hotfix'],         side: 'above', bandFill: 'rgba(229, 57, 53, 0.04)' },
+    { id: 'bootleg', label: 'Bootleg',         types: ['bootleg'],        side: 'above', bandFill: 'rgba(253, 216, 53, 0.04)' },
+    { id: 'csr',     label: 'CSR',             types: ['csr'],            side: 'above', bandFill: 'rgba(0, 0, 0, 0.025)' },
+    { id: 'release', label: 'Release',         types: ['release'],        side: 'above', bandFill: 'rgba(34, 197, 94, 0.04)', gapAfter: 90 },
+    { id: 'sample',  label: 'Sprint Release',  types: ['sample-release'], side: 'above', bandFill: 'rgba(59, 130, 246, 0.04)' },
+    { id: 'main',    label: 'Main',            types: ['main'],           side: 'center', bandFill: 'transparent' },
+    { id: 'dev',     label: 'Development',     types: ['development'],    side: 'below', bandFill: 'rgba(0, 0, 0, 0.02)' },
 ];
 export const STRATA_ORDER = STRATA;
 
@@ -79,8 +79,12 @@ export const DEFAULT_OPTS = {
     // Gap between adjacent lanes within a stratum.
     laneGap: 70,
     // Gap between adjacent strata (e.g. between Hot Fix's farthest lane and
-    // Bootleg's closest-to-main lane).
-    stratumGap: 35,
+    // Bootleg's closest-to-main lane). Bumped to 70 (= laneGap) so the
+    // staggered far-lane version labels of an upper stratum's bottom lane
+    // never overlap the text label of the stratum just below it. The far
+    // lane sits ~30 px below its dot; combined with yBottom's laneGap/2
+    // overhang the labels can otherwise crowd the next stratum's text.
+    stratumGap: 70,
     // Width of the bow on a sub-branch curve, in colW units.
     subBranchBowColumns: 1.0,
     // Pixel gutter for the lane-assignment overlap check. Two intervals are
@@ -302,14 +306,19 @@ export function computeLayout(model, opts = {}) {
     // Cumulative height of all above strata + stratum gaps + sideGap from
     // the topmost above stratum to mainY.
     for (let i = 0; i < ABOVE_STRATA.length; i++) {
-        const lanes = laneCountByStratum.get(ABOVE_STRATA[i].id) || 0;
+        const stratum = ABOVE_STRATA[i];
+        const lanes = laneCountByStratum.get(stratum.id) || 0;
         if (lanes > 0) {
             mainY += lanes * o.laneGap;
-            // Stratum-gap between adjacent non-empty above strata
+            // Stratum-gap between adjacent non-empty above strata.
+            // Use per-stratum gapAfter when defined (e.g. release→sample
+            // gets a larger gap for visual differentiation).
             const nextNonEmpty = ABOVE_STRATA
                 .slice(i + 1)
                 .find(s => (laneCountByStratum.get(s.id) || 0) > 0);
-            if (nextNonEmpty) mainY += o.stratumGap;
+            if (nextNonEmpty) {
+                mainY += (stratum.gapAfter != null ? stratum.gapAfter : o.stratumGap);
+            }
         }
     }
     // Add sideGap between the closest above stratum (Sample) and main.
@@ -327,14 +336,19 @@ export function computeLayout(model, opts = {}) {
             stratumLane0Y.set(stratum.id, cursor);
             // Reserve room for this stratum's lanes; cursor moves UP by
             // (lanes-1) × laneGap (lanes occupy from cursor up to
-            // cursor - (lanes-1)*laneGap), then stratumGap to the next.
+            // cursor - (lanes-1)*laneGap), then gap to the next stratum.
             cursor -= (lanes - 1) * o.laneGap;
-            // If there's a non-empty stratum above this one, add stratumGap.
+            // If there's a non-empty stratum above this one, apply the
+            // per-stratum gapAfter from that stratum (it sits above us, so
+            // its gapAfter is the gap between IT and us). Walk upward to
+            // find it, then read its gapAfter.
             const nextAbove = ABOVE_STRATA
                 .slice(0, i)
                 .reverse()
                 .find(s => (laneCountByStratum.get(s.id) || 0) > 0);
-            if (nextAbove) cursor -= o.stratumGap;
+            if (nextAbove) {
+                cursor -= (nextAbove.gapAfter != null ? nextAbove.gapAfter : o.stratumGap);
+            }
         }
     }
     // Dev: lane 0 sits at mainY + sideGap, growing DOWN by laneGap per lane.
@@ -480,6 +494,8 @@ export function computeLayout(model, opts = {}) {
         const last = positions[mainBuildIds[mainBuildIds.length - 1]];
         mainPath = {
             d: `M ${first.x - 30} ${first.y} L ${last.x + o.colW * 0.9} ${first.y}`,
+            firstBuildX: first.x,
+            firstBuildY: first.y,
             hasArrow: true,
         };
     }
@@ -577,6 +593,7 @@ export function computeLayout(model, opts = {}) {
             laneCount: lanes,
             yTop,
             yBottom,
+            bandFill: s.bandFill || 'transparent',
         };
     }).filter(Boolean);
 
