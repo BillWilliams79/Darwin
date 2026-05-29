@@ -1,8 +1,7 @@
-// req #2694 — Build Visualizer D3
+// req #2694 / #2720 — Build Visualizer data hook.
 //
 // Fetches the SQL-backed build data for one `build_projects` row and normalizes
-// it into an in-memory model keyed by the iframe's `external_id` slugs (so this
-// hook's output shape matches what the existing iframe also computes).
+// it into an in-memory model keyed by `external_id` slugs.
 //
 // Three GETs in parallel after the project_fk is known:
 //   /branches?project_fk=<id>
@@ -24,7 +23,7 @@ function csv(ids) {
     return ids.map(n => Number(n)).filter(Number.isFinite).join(',');
 }
 
-export function useBuildVisualizerD3Data(projectId) {
+export function useBuildVisualizerData(projectId) {
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const creatorFk = profile?.id || null;
@@ -137,8 +136,9 @@ export function useBuildVisualizerD3Data(projectId) {
                 branchNum: Number(b.branch_number) || 0,
                 dotColor: b.dot_color || null,
                 approvedForRelease: Number(b.approved_for_release) === 1,
-                major: Number(parent?.major) || 1,
-                minor: Number(parent?.minor) || 0,
+                // Req #2720: per-build M.m — stamped at creation, no look-back.
+                major: Number(b.major) || 1,
+                minor: Number(b.minor) || 0,
             };
         }
 
@@ -204,4 +204,4 @@ export function useBuildVisualizerD3Data(projectId) {
     };
 }
 
-export default useBuildVisualizerD3Data;
+export default useBuildVisualizerData;
