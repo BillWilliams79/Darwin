@@ -1,10 +1,9 @@
-// req #2694 — Build Visualizer D3 — pure React SVG renderer.
+// Build Visualizer — pure React SVG renderer (req #2694 / #2720).
 //
-// Consumes the output of `computeLayout` and emits SVG primitives matching
-// the iframe's BuildRenderer pixel-for-pixel. Adds:
-//   • Stratum band labels along the left edge (one per non-empty stratum)
-//   • Mouse-drag panning (click anywhere outside dots/labels and drag to
-//     pan the canvas — mirrors the iframe's OmniScroller affordance)
+// Consumes the output of `computeLayout` and emits SVG primitives. Adds:
+//   - Stratum band labels along the left edge (one per non-empty stratum)
+//   - Mouse-drag panning (click anywhere outside dots/labels and drag)
+//   - Build-dot click targets (cursor: pointer; onClick callback to parent)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
@@ -139,7 +138,7 @@ function ReleaseOverlay({ style, pos, customers }) {
     }
 }
 
-const BuildVisualizerD3Canvas = ({
+const BuildVisualizerCanvas = ({
     model,
     isLoading,
     error,
@@ -149,6 +148,7 @@ const BuildVisualizerD3Canvas = ({
     releaseStyle,
     appMode,
     darkVariant,
+    onBuildClick,
 }) => {
     const themeKey = appMode === 'dark'
         ? (darkVariant || DEFAULT_DARK_VARIANT)
@@ -190,6 +190,7 @@ const BuildVisualizerD3Canvas = ({
         if (e.button !== 0) return;
         dragRef.current = {
             active: true,
+            moved: false,
             startX: e.clientX,
             startY: e.clientY,
             panX: pan.x,
@@ -203,6 +204,11 @@ const BuildVisualizerD3Canvas = ({
         if (!d.active) return;
         const dx = e.clientX - d.startX;
         const dy = e.clientY - d.startY;
+        // Mark as a real drag once the mouse moves more than 3 px — prevents
+        // accidental micro-movements from suppressing dot clicks.
+        if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+            d.moved = true;
+        }
         setPan({ x: d.panX + dx, y: d.panY + dy });
     }, []);
 
@@ -222,8 +228,25 @@ const BuildVisualizerD3Canvas = ({
         };
     }, [onMouseMove, endDrag]);
 
-    // Reset pan whenever the project changes (layout fully changes shape).
-    useEffect(() => { setPan({ x: 0, y: 0 }); }, [model]);
+    // Reset pan whenever the project changes (req #2720). Translate so the
+    // first main build sits ~20 px from the viewport's left edge AND vertically
+    // centered. Without the vertical centering, dense patterns (Sprint Cycle:
+    // 5 above-strata + main + dev) push main hundreds of pixels down — at
+    // pan.y=0 the user only sees the top strata and main is below the fold.
+    useEffect(() => {
+        const firstBuildX = layout?.mainPath
+            ? Math.max(0, (layout.mainPath.firstBuildX ?? 0))
+            : 0;
+        const firstBuildY = layout?.mainPath
+            ? Math.max(0, (layout.mainPath.firstBuildY ?? 0))
+            : 0;
+        const initX = firstBuildX > 0 ? -(firstBuildX - 20) : 0;
+        // Place main near vertical center of the viewport. Falls back to a
+        // sensible default (300 px) when the viewport hasn't measured yet.
+        const viewportH = viewportRef.current?.clientHeight || 600;
+        const initY = firstBuildY > 0 ? -(firstBuildY - viewportH / 2) : 0;
+        setPan({ x: initX, y: initY });
+    }, [model, layout]);
 
     if (isLoading) {
         return (
@@ -260,7 +283,7 @@ const BuildVisualizerD3Canvas = ({
                 position: 'relative',
                 userSelect: 'none',
             }}
-            data-testid="build-visualizer-d3-canvas"
+            data-testid="build-visualizer-canvas"
         >
             <svg
                 width={layout.width}
@@ -282,16 +305,16 @@ const BuildVisualizerD3Canvas = ({
                     </marker>
                 </defs>
 
-                {/* 0. Stratum bands — subtle horizontal tint behind each non-empty stratum */}
+                {/* 0. Stratum bands — per-stratum background tint (req #2720) */}
                 <g className="strata">
-                    {layout.strata.map((s, i) => (
+                    {layout.strata.map((s) => (
                         <g key={s.id}>
                             <rect
                                 x={0}
                                 y={s.yTop}
                                 width={layout.width}
                                 height={s.yBottom - s.yTop}
-                                fill={i % 2 === 0 ? 'rgba(0,0,0,0.025)' : 'transparent'}
+                                fill={s.bandFill || 'transparent'}
                                 pointerEvents="none"
                             />
                             <text
@@ -397,13 +420,21 @@ const BuildVisualizerD3Canvas = ({
                     )}
                 </g>
 
-                {/* 3. Dots + version labels */}
+                {/* 3. Dots + version labels + click targets */}
                 <g className="dots">
                     {layout.builds.map(b => {
                         const color = dotFill(b, palette);
+                        const handleClick = (e) => {
+                            // Suppress click when the user was dragging (pan).
+                            if (dragRef.current.moved) return;
+                            e.stopPropagation();
+                            if (onBuildClick) onBuildClick(b, e);
+                        };
                         return (
-                            <g key={b.id}>
+                            <g key={b.id} style={{ cursor: 'pointer' }} onClick={handleClick}>
                                 <circle cx={b.x} cy={b.y} r={b.radius} fill={color.fill} stroke={color.stroke} strokeWidth={1.4} />
+                                {/* Transparent hit-area — easier to click than the 5.5 px dot */}
+                                <circle cx={b.x} cy={b.y} r={Math.max(b.radius + 4, 10)} fill="transparent" pointerEvents="all" />
                                 <text x={b.versionX} y={b.versionY} textAnchor="middle" fontSize={9} fontFamily={palette.versionFont} fill={palette.version}>{b.version}</text>
                             </g>
                         );
@@ -430,4 +461,4 @@ const BuildVisualizerD3Canvas = ({
     );
 };
 
-export default BuildVisualizerD3Canvas;
+export default BuildVisualizerCanvas;

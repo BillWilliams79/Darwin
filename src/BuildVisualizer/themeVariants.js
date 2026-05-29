@@ -1,8 +1,7 @@
 // Build Visualizer dark-mode variants (req #2621). Single source of truth
-// shared by the React shell (BuildVisualizerPage, BuildVisualizerControls)
-// and the iframe via the bv:set-theme postMessage payload. Keep this list in
-// sync with Topology/build-visualizer/styles.css ([data-theme="..."] blocks)
-// and memory/build-visualizer-design.md.
+// shared by BuildVisualizerPage, BuildVisualizerControls, and d3ThemePalettes.
+// Keep this list in sync with d3ThemePalettes.js and
+// memory/build-visualizer-design.md.
 //
 // The picker is **dark-mode-only**. When Darwin's app theme is light, the
 // Build Visualizer always shows the (un-themed) light canvas; the chip is

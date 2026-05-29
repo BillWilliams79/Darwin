@@ -4,8 +4,7 @@
 //
 // Order matters: the toolbar renders chips in BRANCH_TYPES order, which
 // matches the visual stacking of the diagram (above-main types first,
-// below-main last). Keep in sync with REGISTRY in
-// Topology/build-visualizer/app.js.
+// below-main last). Keep in sync with REGISTRY in d3LayoutEngine.js.
 
 export const BRANCH_TYPES = [
     'release',
@@ -31,11 +30,11 @@ export const branchTypeChipProps = (type) => {
 export const branchTypeLabel = (type) => {
     switch (type) {
         case 'release':         return 'Release';
-        case 'sample-release':  return 'Sample Release';
+        case 'sample-release':  return 'Sprint Release';
         case 'hotfix':          return 'Hot Fix';
         case 'bootleg':         return 'Bootleg';
         case 'csr':             return 'CSR';
-        case 'development':     return 'Dev';
+        case 'development':     return 'Development';
         default:                return type;
     }
 };

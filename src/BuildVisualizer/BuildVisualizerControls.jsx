@@ -23,9 +23,8 @@ import {
 } from './themeVariants';
 
 // Dedicated horizontal control row above the build viewer (req #2616). One row
-// only — replaces the prior two-row layout (outer React toolbar + inner iframe
-// #toolbar bar) so the SVG can use the full remaining area without controls
-// occluding it. Four groups in left-to-right order:
+// only — a single horizontal control row above the build visualizer canvas.
+// Four groups in left-to-right order:
 //   [ File menu ] | [ Release-type chips ] | [ Stagger toggle ] | [ Theme menu ]
 //
 // The Theme menu is **dark-mode-only** (req #2621 follow-up). When Darwin's app

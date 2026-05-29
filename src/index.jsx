@@ -49,7 +49,6 @@ import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
-import BuildVisualizerD3Page from './BuildVisualizer/BuildVisualizerD3Page';
 import CustomersPage from './Customers/CustomersPage';
 import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
 
@@ -167,9 +166,6 @@ root.render(
                                                          </AuthenticatedRoute>} />
                       <Route path="build-visualizer" element= {<AuthenticatedRoute>
                                                              <BuildVisualizerPage />
-                                                         </AuthenticatedRoute>} />
-                      <Route path="build-visualizer-d3" element= {<AuthenticatedRoute>
-                                                             <BuildVisualizerD3Page />
                                                          </AuthenticatedRoute>} />
                     </>}
                 </Route >
