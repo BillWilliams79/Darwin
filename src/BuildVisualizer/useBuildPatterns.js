@@ -148,14 +148,6 @@ export function useBuildPatterns() {
 
     const createMutation = useMutation({
         mutationFn: async ({ title, description }) => {
-            // Lookup the Build Projects category id (matches seed_build_projects.py).
-            const catUri = `${darwinUri}/categories?category_name=Build%20Projects`;
-            const catRes = await call_rest_api(catUri, 'GET', '', idToken);
-            const catRows = handleApiResult(catRes, 'GET categories');
-            const categoryId = Array.isArray(catRows) && catRows.length ? catRows[0].id : null;
-            if (!categoryId) {
-                throw new Error('Build Projects category not found; run seed_build_projects.py first.');
-            }
             // POST /build_projects
             const projRes = await call_rest_api(
                 `${darwinUri}/build_projects`, 'POST',
@@ -163,7 +155,6 @@ export function useBuildPatterns() {
                     title,
                     description: description || '',
                     project_status: 'active',
-                    category_fk: categoryId,
                 },
                 idToken,
             );

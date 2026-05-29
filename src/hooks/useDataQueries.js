@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -206,6 +206,13 @@ export const useSession  = sessions.useById;
 export const useAllSwarmStarts        = swarmStarts.useAll;
 export const useSwarmStartById        = swarmStarts.useById;
 export const useAllSwarmStartSessions = swarmStartSessions.useAll;
+
+// Req #2719 — swarm_undos: one row per /swarm-undo invocation. Snapshot
+// columns (swarm_start_fk_at_undo, req_id_at_undo, …) outlive the cascading
+// session delete that /swarm-undo performs, so the visualizer can match
+// surviving swarm_starts against undone sessions.
+export const useAllSwarmUndos = swarmUndos.useAll;
+export const useSwarmUndoById = swarmUndos.useById;
 
 export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);

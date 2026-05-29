@@ -176,6 +176,99 @@ export const computePhantomPlacement = (startPct, nowPct) => {
     return null;
 };
 
+// Req #2719 — undone-session chip builder. Pure function so it's testable in
+// isolation; the BeadRow memo wrapping it just supplies the live data + the
+// xPctFn closure.
+//
+// Math invariants (per memo comment above): startPct from swarm_start.started_at,
+// leftPct from undo.undone_at, markerMode resolves normal/clamped/left exactly
+// like a completed chip. Returns [] when vizKey != 'swarm' or no undos in
+// window.
+//
+// Exported for unit-test coverage.
+export const buildUndoneChips = ({
+    vizKey,
+    swarmUndos,
+    swarmStarts,
+    xPctFn,
+    timezone,
+    selectedDate,
+    requirementById,
+    categoryList,
+    // 1.5 default mirrors the BeadRow-local CLOSE_THRESHOLD_PCT — kept in sync
+    // by the unit test (any divergence shows up as a chip markerMode mismatch).
+    closeThresholdPct = 1.5,
+    formatHHMM = formatHM12,
+}) => {
+    if (vizKey !== 'swarm') return [];
+    if (!Array.isArray(swarmUndos) || swarmUndos.length === 0) return [];
+
+    const startById = new Map();
+    for (const ss of (swarmStarts || [])) {
+        if (ss && ss.id != null) startById.set(String(ss.id), ss);
+    }
+
+    const out = [];
+    for (const undo of swarmUndos) {
+        if (!undo || !undo.undone_at) continue;
+        const leftPct = xPctFn(undo.undone_at, timezone, selectedDate);
+        if (leftPct === null) continue;
+
+        const ss = undo.swarm_start_fk_at_undo != null
+            ? startById.get(String(undo.swarm_start_fk_at_undo))
+            : null;
+        const canonicalStartedAt = ss?.started_at || undo.undone_at;
+        const rawStart = canonicalStartedAt
+            ? xPctFn(canonicalStartedAt, timezone, selectedDate)
+            : null;
+        let startPct = rawStart;
+        let startClamped = false;
+        let markerMode = 'normal';
+        if (startPct === null && canonicalStartedAt) {
+            startPct = 0;
+            startClamped = true;
+            markerMode = 'clamped';
+        } else if (
+            startPct !== null &&
+            Math.abs(leftPct - startPct) < closeThresholdPct
+        ) {
+            markerMode = 'left';
+        }
+
+        const reqId = undo.req_id_at_undo != null ? String(undo.req_id_at_undo) : null;
+        const r = reqId && requirementById ? requirementById.get(reqId) : null;
+        const cat = r ? categoryList.find(c => c.id === r.category_fk) : null;
+
+        out.push({
+            id: r ? r.id : (undo.req_id_at_undo ?? null),
+            chipKey: `undone-${undo.id}`,
+            title: r?.title || undo.task_name || '(undone)',
+            completed_at: undo.undone_at,
+            category_fk: r?.category_fk ?? null,
+            requirement_status: r?.requirement_status ?? null,
+            coordination_type: r?.coordination_type
+                || undo.coordination_type
+                || null,
+            categoryName: cat?.category_name || null,
+            color: '#9E9E9E',
+            ringColor: null,
+            timeHHMM: formatHHMM(undo.undone_at, timezone),
+            leftPct,
+            startPct,
+            startClamped,
+            markerMode,
+            session: null,
+            swarmStartId: ss ? ss.id : null,
+            swarmStart: ss || null,
+            groupKey: canonicalStartedAt || '',
+            timezone,
+            isUndone: true,
+            undo,
+        });
+    }
+    return out;
+};
+
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
 // its own row. Sort order (req #2504 swarm-start grouping):
@@ -467,6 +560,7 @@ const BeadRow = ({
     swarmStartById,          // Map<string sessionId, swarm_start_row | null> — req #2504
     swarmStarts = [],        // req #2504 — for in-progress phantom chip rendering
     swarmStartSessions = [], // req #2504 — junction for in-progress detection
+    swarmUndos = [],         // req #2719 — undo log rows for tombstone overlay
     requirementById,         // req #2504 — Map<string reqId, requirement> for phantom tooltips
 }) => {
     const window36h = beadWindow === '36h';
@@ -714,6 +808,34 @@ const BeadRow = ({
     }, [vizKey, swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
         selectedDate, nowPct, requirementById, categoryList]);
 
+    // Undone session chips (req #2719). One chip per `swarm_undos` row —
+    // driven directly by the undo log + the `swarm_starts` row it snapshots
+    // (`swarm_start_fk_at_undo`) rather than the live `swarm_sessions` row.
+    //
+    // Why undo-driven, not session-driven: per req #2697 the `swarm_sessions`
+    // hook (`ops: true`) reads from production `darwin`. A new feature like
+    // `swarm_undos` whose data lives in `darwin_dev` cannot rely on a matching
+    // session-status flip in production. The undo row + swarm_start row are
+    // both readable in dev (undos via the default `darwinUri`, swarm_starts
+    // via `darwinOpsUri`) — that pair is enough to render the chip without
+    // touching the live session at all. As a bonus this also works in the
+    // historical `/swarm-undo` model where the session row was deleted.
+    //
+    // Math is identical to a completed chip: startPct comes from the
+    // swarm_start.started_at (same source the green anchor uses); leftPct
+    // comes from undo.undone_at (treated as the session's completed_at).
+    // `markerMode` resolves to 'normal' / 'clamped' / 'left' via the same
+    // formula `drawChips` uses for completed chips.
+    const undoneChips = useMemo(
+        () => buildUndoneChips({
+            vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+            requirementById, categoryList,
+            closeThresholdPct: CLOSE_THRESHOLD_PCT,
+        }),
+        [vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+         requirementById, categoryList],
+    );
+
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
     //
     // In Sidewalk the wire is at the TOP of the panel, so row 0 — the row
@@ -721,7 +843,9 @@ const BeadRow = ({
     // `topDown = sidewalkPanel` through both assigners so they emit rows in
     // the direction the layout below wants.
     const topDown = sidewalkPanel;
-    const allSwarmChips = phantomChips.length ? [...drawChips, ...phantomChips] : drawChips;
+    const allSwarmChips = (phantomChips.length || undoneChips.length)
+        ? [...drawChips, ...phantomChips, ...undoneChips]
+        : drawChips;
     const placed = vizKey === 'swarm'
         ? assignSwarmLanes(allSwarmChips, topDown)
         : assignRows(drawChips, 1.2, topDown);
@@ -1135,6 +1259,13 @@ const BeadRow = ({
                 );
             })}
 
+            {/* Tombstone overlay removed (req #2719 v2) — undone sessions now
+                render as regular chips through the normal placed[] pipeline
+                with a tombstone bubble swap in the chip render below. The
+                session row is preserved by /swarm-undo so the chip lives,
+                pays the same lane/cluster math, and inherits hover/datacard
+                identically. */}
+
             {placed.map(chip => (
                 <Tooltip
                     key={chip.chipKey || chip.id}
@@ -1176,11 +1307,42 @@ const BeadRow = ({
                                     </span>
                                 </div>
                             )}
-                            {!chip.isPhantom && (
+                            {!chip.session && chip.isUndone && chip.swarmStart?.started_at && (
+                                <div className="ts-datacard-row">
+                                    <span className="ts-datacard-key">Started</span>
+                                    <span>
+                                        {formatCardDateTime(chip.swarmStart.started_at, chip.timezone)}
+                                        {chip.startClamped ? ' (before window)' : ''}
+                                    </span>
+                                </div>
+                            )}
+                            {!chip.isPhantom && !chip.isUndone && (
                                 <div className="ts-datacard-row">
                                     <span className="ts-datacard-key">Closed</span>
                                     <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
                                 </div>
+                            )}
+                            {chip.isUndone && (
+                                <>
+                                    <div className="ts-datacard-row" data-testid={`ts-datacard-status-${chip.chipKey}`}>
+                                        <span className="ts-datacard-key">Status</span>
+                                        <span style={{ color: '#616161', fontWeight: 600 }}>
+                                            undone
+                                        </span>
+                                    </div>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Undone</span>
+                                        <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
+                                    </div>
+                                    {chip.undo?.reason && (
+                                        <div className="ts-datacard-row">
+                                            <span className="ts-datacard-key">Reason</span>
+                                            <span style={{ whiteSpace: 'pre-wrap' }}>
+                                                {chip.undo.reason}
+                                            </span>
+                                        </div>
+                                    )}
+                                </>
                             )}
                             {chip.swarmStart && (
                                 <div className="ts-datacard-row" data-testid={`ts-datacard-swarm-start-${chip.chipKey || chip.id}`}>
@@ -1225,26 +1387,133 @@ const BeadRow = ({
                             onChipClick && onChipClick(chip.id);
                         }}
                     >
-                        <span
-                            className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
-                            data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
-                            style={chip.isPhantom ? {
-                                // Phantom: hollow green ring at the line's "now" end.
-                                // Same diameter as a regular bubble so layout is stable.
-                                backgroundColor: '#ffffff',
-                                border: '2px solid #43A047',
-                                boxSizing: 'border-box',
-                                borderRadius: '50%',
-                                width:  `${circleDiameter}px`,
-                                height: `${circleDiameter}px`,
-                                boxShadow: '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
-                            } : {
-                                backgroundColor: chip.color || '#90a4ae',
-                                width:  `${circleDiameter}px`,
-                                height: `${circleDiameter}px`,
-                                ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
-                            }}
-                        />
+                        {chip.isUndone ? (
+                            // Req #2719 — undone session bubble: textless
+                            // tombstone glyph sized to fill the same bubble
+                            // slot. Same diameter+halo+hover behavior as a
+                            // regular dot so lane/cluster math stays untouched.
+                            //
+                            // No "RIP" text — at 12-16px the text was illegible
+                            // in both light and dark mode. Replaced with a
+                            // mid-grey rounded-top stone + a thin etched cross
+                            // that holds shape at any size and contrasts
+                            // against both backgrounds. CSS class
+                            // `ts-bead-dot-tombstone` carries the theme-aware
+                            // outline color (see TimeSeriesView.css).
+                            (() => {
+                                const SZ = circleDiameter + 6;
+                                const cx = SZ / 2;
+                                const topR = SZ * 0.45;
+                                // Cross dimensions — traditional Latin-cross
+                                // (1:2) proportions per the spec the user
+                                // supplied: total height = 2 × total width,
+                                // arm thickness = arm-width / 3, horizontal
+                                // arm attached 1/4 down from the top.
+                                //
+                                // Driven by a single `crossH` knob (~66% of
+                                // the stone height); everything else falls
+                                // out of the ratio. The prior version used
+                                // equal stem-height and beam-width which
+                                // produced a Greek-cross (1:1) silhouette
+                                // — wrong shape for a tombstone glyph.
+                                const crossH = SZ * 0.66;
+                                const crossW = crossH / 2;
+                                const thick  = Math.max(2, Math.round(crossW / 3));
+                                const crossTop = SZ * 0.18;
+
+                                const stemW = thick;
+                                const stemH = Math.round(crossH);
+                                const beamW = Math.round(crossW);
+                                const beamH = thick;
+                                const stemY = Math.round(crossTop);
+                                const beamY = Math.round(crossTop + crossH / 4);
+                                return (
+                                    <span
+                                        className="ts-bead-dot ts-bead-dot-tombstone"
+                                        data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
+                                        style={{
+                                            backgroundColor: 'transparent',
+                                            boxShadow: 'none',
+                                            width: `${SZ}px`,
+                                            height: `${SZ}px`,
+                                            display: 'inline-block',
+                                            position: 'relative',
+                                        }}
+                                    >
+                                        <svg
+                                            width={SZ}
+                                            height={SZ}
+                                            viewBox={`0 0 ${SZ} ${SZ}`}
+                                            style={{ display: 'block' }}
+                                            aria-label="tombstone"
+                                        >
+                                            {/* Stone body — near-black fill
+                                                + mid-grey outline. Reads as
+                                                a silhouette against both
+                                                light and dark backgrounds
+                                                without needing a theme
+                                                override. */}
+                                            <path
+                                                d={`M 2 ${SZ - 1}
+                                                    L 2 ${topR}
+                                                    Q 2 1 ${cx} 1
+                                                    Q ${SZ - 2} 1 ${SZ - 2} ${topR}
+                                                    L ${SZ - 2} ${SZ - 1}
+                                                    Z`}
+                                                fill="#424242"
+                                                stroke="#9E9E9E"
+                                                strokeWidth="1"
+                                                strokeLinejoin="round"
+                                            />
+                                            {/* Etched cross — pure white on
+                                                near-black stone for maximum
+                                                internal contrast (~17:1).
+                                                Stem (vertical) drawn first,
+                                                beam (horizontal) drawn on
+                                                top so the joint reads as a
+                                                clean cross at any size. */}
+                                            <rect
+                                                x={cx - stemW / 2}
+                                                y={stemY}
+                                                width={stemW}
+                                                height={stemH}
+                                                fill="#FFFFFF"
+                                                rx="0.5"
+                                            />
+                                            <rect
+                                                x={cx - beamW / 2}
+                                                y={beamY}
+                                                width={beamW}
+                                                height={beamH}
+                                                fill="#FFFFFF"
+                                                rx="0.5"
+                                            />
+                                        </svg>
+                                    </span>
+                                );
+                            })()
+                        ) : (
+                            <span
+                                className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
+                                data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
+                                style={chip.isPhantom ? {
+                                    // Phantom: hollow green ring at the line's "now" end.
+                                    // Same diameter as a regular bubble so layout is stable.
+                                    backgroundColor: '#ffffff',
+                                    border: '2px solid #43A047',
+                                    boxSizing: 'border-box',
+                                    borderRadius: '50%',
+                                    width:  `${circleDiameter}px`,
+                                    height: `${circleDiameter}px`,
+                                    boxShadow: '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
+                                } : {
+                                    backgroundColor: chip.color || '#90a4ae',
+                                    width:  `${circleDiameter}px`,
+                                    height: `${circleDiameter}px`,
+                                    ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
+                                }}
+                            />
+                        )}
                         {/* req #2556 — title to right of bubble when toolbar Title toggle on. */}
                         {titlesOn && chip.title && (
                             <span
@@ -1926,6 +2195,7 @@ const TimeSeriesView = ({
     sessions = [],
     swarmStarts = [],          // req #2504 — real swarm-start rows for the user
     swarmStartSessions = [],   // req #2504 — junction (session_fk → swarm_start_fk)
+    swarmUndos = [],           // req #2719 — undo log rows; overlay tombstones
     selectedDate,
     timezone,
     beadWindow = '24h',
@@ -2125,6 +2395,7 @@ const TimeSeriesView = ({
                     swarmStartById={swarmStartById}
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
+                    swarmUndos={swarmUndos}
                     requirementById={requirementById}
                 />
             ) : sidewalkOn && !isWeekView ? (
@@ -2151,6 +2422,7 @@ const TimeSeriesView = ({
                     swarmStartById={swarmStartById}
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
+                    swarmUndos={swarmUndos}
                     requirementById={requirementById}
                 />
             ) : (
@@ -2180,6 +2452,7 @@ const TimeSeriesView = ({
                             swarmStartById={swarmStartById}
                             swarmStarts={swarmStarts}
                             swarmStartSessions={swarmStartSessions}
+                            swarmUndos={swarmUndos}
                             requirementById={requirementById}
                         />
                     ))}
