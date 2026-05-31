@@ -13,18 +13,39 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
+import Fade from '@mui/material/Fade';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import Menu from '@mui/material/Menu';
+import ListSubheader from '@mui/material/ListSubheader';
 import MenuItem from '@mui/material/MenuItem';
+import Popover from '@mui/material/Popover';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import BuildVisualizerControls from './BuildVisualizerControls';
 import BuildVisualizerCanvas from './BuildVisualizerCanvas';
+import HoldCountButton from './HoldCountButton';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
-import { BRANCH_TYPES } from './branchTypeChipStyles';
+import { BRANCH_TYPES, branchTypeLabel } from './branchTypeChipStyles';
 import { REGISTRY } from './d3LayoutEngine';
+import {
+    nextBuildVersion,
+    firstBuildOnNewBranchVersion,
+    fromModelBuild,
+    toBuildRow,
+    isOpenMm,
+    openMm,
+    takesMainMm,
+} from './versionEngine';
+import {
+    allowedChildTypes,
+    canCreate,
+    creationGate,
+    GATE_BLOCK,
+    GATE_CONFIRM,
+} from './branchEngine';
 import {
     DEFAULT_DARK_VARIANT,
     isThemeVariant,
@@ -34,6 +55,16 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
+
+// Press-and-hold tuning (req #2737). Builds: up to 14, base dwell per increment
+// (≈1.5× the original cadence so every count — incl. 2 and 3 — is landable).
+// Branch-create (hotfix/bootleg/development only): up to 5, dwell 2× builds.
+const MAX_BUILDS_PER_HOLD = 14;
+const BUILD_DWELL_MS = 225;
+const MAX_BRANCHES_PER_HOLD = 5;
+const BRANCH_DWELL_MS = BUILD_DWELL_MS * 2;
+// Only these branch types support hold-to-make-multiple; others are single.
+const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 
 // localStorage keys for user preferences.
 const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
@@ -128,11 +159,11 @@ const BuildVisualizerPage = () => {
         writeStoredDarkVariant(variant);
     }, []);
 
-    // ─── Build-dot context menu (req #2720) ────────────────────────────
-    // Mirrors the iframe's _showMenu: Run another build, Create branch submenu,
-    // Mark/Unmark production ready, Perform release event.
-    const [dotMenu, setDotMenu] = useState(null); // { buildRecord, anchorEl }
-    const [branchSubmenuAnchor, setBranchSubmenuAnchor] = useState(null);
+    // ─── Build-dot menu (req #2737) ────────────────────────────────────
+    // Opens on HOVER over a build. Build Info Card header + Execute Build +
+    // Production Ready two-state toggle + (if approved) release event + a flat
+    // list of every legal child branch (BranchEngine §4.7) as one-click buttons.
+    const [dotMenu, setDotMenu] = useState(null); // { buildRecord, mouseX, mouseY }
 
     // The anchorEl for the Menu needs to be a real DOM element. Since the click
     // comes from an SVG element (which MUI Menu can't anchor to reliably), we
@@ -142,19 +173,17 @@ const BuildVisualizerPage = () => {
         : undefined;
 
     const handleBuildClick = useCallback((buildRecord, e) => {
-        // `e` is the React SyntheticEvent from the SVG click. Use its
+        // `e` is the React SyntheticEvent from the SVG hover/click. Use its
         // clientX/clientY for menu positioning.
         setDotMenu({
             buildRecord,
             mouseX: e.clientX,
             mouseY: e.clientY,
         });
-        setBranchSubmenuAnchor(null);
     }, []);
 
     const closeDotMenu = useCallback(() => {
         setDotMenu(null);
-        setBranchSubmenuAnchor(null);
     }, []);
 
     // Look up the branch object for the clicked build.
@@ -205,71 +234,140 @@ const BuildVisualizerPage = () => {
         queryClient.invalidateQueries({ queryKey: ['bv-d3-customer-releases'] });
     }, [queryClient]);
 
-    const handleAddBuild = useCallback(async () => {
-        if (!dotMenu || !dotMenuBranch) { closeDotMenu(); return; }
-        const branchSqlId = branchSqlIdRef.current.get(dotMenuBranch.id);
-        if (!branchSqlId) { closeDotMenu(); return; }
-        // Determine position = max existing position + 1.
-        const existingPositions = (dotMenuBranch.buildIds || []).map(bid => {
-            const b = model.builds[bid];
-            return b ? b.position : -1;
-        });
-        const nextPosition = existingPositions.length > 0
-            ? Math.max(...existingPositions) + 1
-            : 0;
-        // Derive build_number and branch_number from the branch's existing pattern.
-        // For simplicity, use the last build's values as reference.
-        const lastBuildId = dotMenuBranch.buildIds?.[dotMenuBranch.buildIds.length - 1];
-        const lastBuild = lastBuildId ? model.builds[lastBuildId] : null;
-        const buildNumber = lastBuild ? lastBuild.build : 1;
-        const branchNumber = lastBuild ? lastBuild.branchNum + 1 : 0;
-        const major = lastBuild ? lastBuild.major : (dotMenuBranch.major || 1);
-        const minor = lastBuild ? lastBuild.minor : (dotMenuBranch.minor || 0);
-        // Generate external_id slug.
-        const slug = `${dotMenuBranch.id}-b${nextPosition + 1}`;
+    // ─── Assign-M.m prompt (req #2737, §4.2) ───────────────────────────────
+    // Shown when a branch needs a Major.Minor it doesn't have: after a release
+    // hands main's M.m away (main is left open), or when a build is attempted
+    // on an open branch. There is NO auto-assign — the value is the user's, and
+    // the dialog cannot be confirmed without a valid (M ≥ 0, m ≥ 0).
+    const [versionPrompt, setVersionPrompt] = useState(null); // { sqlId, label }
+    const [vpMajor, setVpMajor] = useState('');
+    const [vpMinor, setVpMinor] = useState('');
+    const openVersionPrompt = useCallback((sqlId, label) => {
+        setVpMajor('');
+        setVpMinor('');
+        setVersionPrompt({ sqlId, label });
+    }, []);
+    const vpValid = (() => {
+        const M = parseInt(vpMajor, 10);
+        const m = parseInt(vpMinor, 10);
+        return Number.isFinite(M) && M >= 0 && Number.isFinite(m) && m >= 0;
+    })();
+    const confirmVersionPrompt = useCallback(async () => {
+        if (!versionPrompt) return;
+        const major = parseInt(vpMajor, 10);
+        const minor = parseInt(vpMinor, 10);
+        if (!Number.isFinite(major) || major < 0 || !Number.isFinite(minor) || minor < 0) return;
         try {
             await call_rest_api(
-                `${darwinUri}/builds`, 'POST',
-                {
-                    branch_fk: branchSqlId,
-                    position: nextPosition,
-                    build_number: buildNumber,
-                    branch_number: branchNumber,
-                    major,
-                    minor,
-                    external_id: slug,
-                },
+                `${darwinUri}/branches`, 'PUT',
+                [{ id: versionPrompt.sqlId, major, minor }],
                 idToken,
             );
             invalidateBuildData();
         } catch (err) {
-            console.error('[BuildVisualizer] Add build failed:', err);
+            console.error('[BuildVisualizer] Assign Major.Minor failed:', err);
+        }
+        setVersionPrompt(null);
+    }, [versionPrompt, vpMajor, vpMinor, darwinUri, idToken, invalidateBuildData]);
+
+    // Execute `count` builds in a row on the clicked build's branch (req #2737 —
+    // press-and-hold "Execute Build" ramps count up to MAX_BUILDS_PER_HOLD). A
+    // plain click is count=1. The whole version sequence is computed locally
+    // via the VersionEngine (each build feeds the next), so all POSTs fire in
+    // parallel — distinct positions keep UNIQUE(branch_fk, position) happy.
+    const executeBuilds = useCallback(async (count) => {
+        const n = Math.max(1, Math.min(MAX_BUILDS_PER_HOLD, Math.floor(count) || 1));
+        if (!dotMenu || !dotMenuBranch) { closeDotMenu(); return; }
+        const branchSqlId = branchSqlIdRef.current.get(dotMenuBranch.id);
+        if (!branchSqlId) { closeDotMenu(); return; }
+
+        // Version gate (§4.2): refuse on an open branch and prompt for M.m.
+        const branchMm = { major: dotMenuBranch.major, minor: dotMenuBranch.minor };
+        if (isOpenMm(branchMm)) {
+            closeDotMenu();
+            openVersionPrompt(branchSqlId, dotMenuBranch.name || 'Main');
+            return;
+        }
+
+        const existingPositions = (dotMenuBranch.buildIds || []).map(bid => {
+            const b = model.builds[bid];
+            return b ? b.position : -1;
+        });
+        let nextPosition = existingPositions.length > 0
+            ? Math.max(...existingPositions) + 1
+            : 0;
+        const lastBuildId = dotMenuBranch.buildIds?.[dotMenuBranch.buildIds.length - 1];
+        let lastBuild = fromModelBuild(lastBuildId ? model.builds[lastBuildId] : null);
+
+        const posts = [];
+        for (let i = 0; i < n; i++) {
+            const v = nextBuildVersion({ branchType: dotMenuBranch.type, lastBuild, branchMm });
+            const pos = nextPosition + i;
+            posts.push(call_rest_api(
+                `${darwinUri}/builds`, 'POST',
+                {
+                    branch_fk: branchSqlId,
+                    position: pos,
+                    ...toBuildRow(v),
+                    external_id: `${dotMenuBranch.id}-b${pos + 1}`,
+                },
+                idToken,
+            ));
+            lastBuild = v; // next build increments from this one
+        }
+        try {
+            await Promise.all(posts);
+            invalidateBuildData();
+        } catch (err) {
+            console.error('[BuildVisualizer] Execute builds failed:', err);
         }
         closeDotMenu();
-    }, [dotMenu, dotMenuBranch, model, darwinUri, idToken, closeDotMenu, invalidateBuildData]);
+    }, [dotMenu, dotMenuBranch, model, darwinUri, idToken, closeDotMenu, invalidateBuildData, openVersionPrompt]);
 
-    const handleCreateBranch = useCallback(async (type) => {
+    const handleCreateBranch = useCallback(async (type, count = 1) => {
         if (!dotMenu || !projectId) { closeDotMenu(); return; }
+        // BranchEngine policy gate (§4.7). Submenu already filters to allowed
+        // types; this guards programmatic / stale calls too. Multi-create is
+        // only offered for MULTI_BRANCH_TYPES; clamp accordingly.
+        const parentType = dotMenuBranch?.type || 'main';
+        if (!canCreate(parentType, type).allowed) { closeDotMenu(); return; }
+        const gate = creationGate(type, dotMenu.buildRecord);
+        if (gate.action === GATE_BLOCK) { closeDotMenu(); return; }
+        if (gate.action === GATE_CONFIRM && !window.confirm(gate.message)) { closeDotMenu(); return; }
+        const n = MULTI_BRANCH_TYPES.has(type)
+            ? Math.max(1, Math.min(MAX_BRANCHES_PER_HOLD, Math.floor(count) || 1))
+            : 1;
         const buildExtId = dotMenu.buildRecord.id;
         const buildSqlRow = buildSqlIdRef.current.get(buildExtId);
         if (!buildSqlRow) { closeDotMenu(); return; }
         const parentBuildSqlId = buildSqlRow.id || buildSqlRow;
         const label = REGISTRY[type]?.label || type;
-        // Generate a slug for the new branch.
-        const slug = `${type}-${Date.now()}`;
-        const major = dotMenu.buildRecord.approvedForRelease
-            ? (Number(buildSqlRow.major) || 1)
-            : (Number(buildSqlRow.major) || 1);
-        const minor = Number(buildSqlRow.minor) || 0;
-        try {
+        const parentBuild = fromModelBuild(model.builds?.[buildExtId]);
+        // Sibling ordinal base — each new branch in this batch is the next
+        // same-type sibling off this parent build, so Branch# walks the
+        // reserved range (e.g. hotfix 6000, 6050, 6100 …).
+        const baseOrd0 = (model.branches || [])
+            .filter(b => b.parentBuildId === buildExtId && b.type === type).length;
+        const stamp = Date.now();
+
+        // `release` carries main's M.m away (§4.2). release isn't a multi type,
+        // so n === 1 here; the handoff runs once after creation.
+        const mainSqlId = branchSqlIdRef.current.get('main');
+        const doHandoff = takesMainMm(type) && mainSqlId;
+
+        // One independent POST-branch → POST-its-first-build chain per branch;
+        // run them in parallel (distinct external_ids + Branch#s).
+        const chains = Array.from({ length: n }, (_, i) => (async () => {
+            const v = firstBuildOnNewBranchVersion({ type, parentBuild, siblingOrd0: baseOrd0 + i });
+            const slug = `${type}-${stamp}-${i}`;
             const branchRes = await call_rest_api(
                 `${darwinUri}/branches`, 'POST',
                 {
                     project_fk: projectId,
                     branch_type: type,
                     name: label,
-                    major,
-                    minor,
+                    major: v.major,
+                    minor: v.minor,
                     parent_build_fk: Number(parentBuildSqlId),
                     external_id: slug,
                     side: REGISTRY[type]?.defaultSide || 'above',
@@ -279,36 +377,53 @@ const BuildVisualizerPage = () => {
             const branch = branchRes?.data;
             const newBranchId = Array.isArray(branch) ? branch[0]?.id : branch?.id;
             if (newBranchId) {
-                // Add the first build on the new branch.
-                const buildNum = Number(buildSqlRow.build_number) || 1;
                 await call_rest_api(
                     `${darwinUri}/builds`, 'POST',
                     {
                         branch_fk: newBranchId,
                         position: 0,
-                        build_number: buildNum,
-                        branch_number: 1,
-                        major,
-                        minor,
+                        ...toBuildRow(v),
                         external_id: `${slug}-b1`,
                     },
                     idToken,
                 );
+            }
+        })());
+
+        try {
+            await Promise.all(chains);
+            if (doHandoff) {
+                // Set main open — next build refused until the user assigns M.m.
+                const open = openMm();
+                await call_rest_api(
+                    `${darwinUri}/branches`, 'PUT',
+                    [{ id: mainSqlId, major: open.major, minor: open.minor }],
+                    idToken,
+                );
+                // Prompt ONLY after the open-PUT actually succeeded — otherwise a
+                // failed release-create would pop a dialog that overwrites main's
+                // still-valid M.m on confirm.
+                openVersionPrompt(mainSqlId, 'Main');
             }
             invalidateBuildData();
         } catch (err) {
             console.error('[BuildVisualizer] Create branch failed:', err);
         }
         closeDotMenu();
-    }, [dotMenu, projectId, darwinUri, idToken, closeDotMenu, invalidateBuildData]);
+    }, [dotMenu, dotMenuBranch, projectId, model, darwinUri, idToken, closeDotMenu, invalidateBuildData, openVersionPrompt]);
 
     const handleToggleApproved = useCallback(async () => {
-        if (!dotMenu) { closeDotMenu(); return; }
+        if (!dotMenu) return;
         const buildExtId = dotMenu.buildRecord.id;
         const buildSqlRow = buildSqlIdRef.current.get(buildExtId);
-        if (!buildSqlRow) { closeDotMenu(); return; }
+        if (!buildSqlRow) return;
         const sqlId = buildSqlRow.id || buildSqlRow;
         const newVal = !dotMenu.buildRecord.approvedForRelease;
+        // Optimistically flip the open popover's state so the Switch + the
+        // release-event item update in place — the popover STAYS OPEN (req #2737).
+        setDotMenu(prev => (prev && prev.buildRecord.id === buildExtId
+            ? { ...prev, buildRecord: { ...prev.buildRecord, approvedForRelease: newVal } }
+            : prev));
         try {
             await call_rest_api(
                 `${darwinUri}/builds`, 'PUT',
@@ -319,8 +434,7 @@ const BuildVisualizerPage = () => {
         } catch (err) {
             console.error('[BuildVisualizer] Toggle approved failed:', err);
         }
-        closeDotMenu();
-    }, [dotMenu, darwinUri, idToken, closeDotMenu, invalidateBuildData]);
+    }, [dotMenu, darwinUri, idToken, invalidateBuildData]);
 
     const handlePerformReleaseEvent = useCallback(() => {
         if (!dotMenu) return;
@@ -329,10 +443,11 @@ const BuildVisualizerPage = () => {
         closeDotMenu();
     }, [dotMenu, closeDotMenu]);
 
-    // Branch types available for the "Create branch" submenu.
+    // Branch types available for the "Create branch" submenu — driven by the
+    // BranchEngine matrix (§4.7) from the clicked build's branch type.
     const branchSubtypes = useMemo(
-        () => Object.keys(REGISTRY).filter(t => t !== 'main'),
-        [],
+        () => allowedChildTypes(dotMenuBranch?.type || 'main'),
+        [dotMenuBranch],
     );
 
     // ─── Perform Release Event Dialog ────────────────────────────────────
@@ -423,6 +538,7 @@ const BuildVisualizerPage = () => {
             />
             <BuildVisualizerCanvas
                 model={model}
+                projectId={projectId}
                 isLoading={dataLoading || !lib.isReady}
                 error={dataError || lib.error}
                 selectedTypes={selectedTypes}
@@ -434,76 +550,123 @@ const BuildVisualizerPage = () => {
                 onBuildClick={handleBuildClick}
             />
 
-            {/* ─── Build-dot context menu (req #2720) ─────────────────── */}
-            <Menu
+            {/* ─── Build-dot menu — non-modal hover Popover (req #2737) ─── */}
+            <Popover
                 open={!!dotMenu}
                 onClose={closeDotMenu}
                 anchorReference="anchorPosition"
                 anchorPosition={dotMenuPosition}
+                // Pin top-left to the cursor so content growth (toggling the
+                // release item) extends DOWN/RIGHT and the corner never moves —
+                // no wiggle (req #2737).
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                marginThreshold={0}
+                hideBackdrop
+                disableScrollLock
+                disableAutoFocus
+                disableEnforceFocus
+                disableRestoreFocus
+                // Fade, not the default Grow/scale — a scale animates the size
+                // and reads as wiggle. Opacity-only = stable position + fade in.
+                slots={{ transition: Fade }}
+                slotProps={{
+                    transition: { timeout: 140 },
+                    paper: {
+                        onMouseLeave: closeDotMenu,
+                        sx: { pointerEvents: 'auto' },
+                    },
+                }}
+                sx={{ pointerEvents: 'none' }}
                 data-testid="bv-build-menu"
             >
-                {/* Header: Build # + version + branch name */}
+                {/* Build Info Card */}
                 <Box sx={{ px: 2, pt: 1, pb: 0.5, pointerEvents: 'none' }}>
                     <Typography variant="subtitle2" fontWeight={700}>
-                        Build #{dotMenu?.buildRecord?.id}
+                        Build {dotMenu?.buildRecord?.version}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                        v{dotMenu?.buildRecord?.version}
+                        {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                        on {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
+                        {(() => {
+                            const ts = dotMenu && model?.builds?.[dotMenu.buildRecord.id]?.createdAt;
+                            return ts ? new Date(ts).toLocaleString() : '—';
+                        })()}
                     </Typography>
                 </Box>
                 <Divider />
-                <MenuItem
-                    onClick={handleAddBuild}
+
+                <HoldCountButton
+                    label="Execute Build"
+                    onExecute={executeBuilds}
+                    maxQty={MAX_BUILDS_PER_HOLD}
+                    dwellMs={BUILD_DWELL_MS}
                     data-testid="bv-menu-add-build"
-                >
-                    Run another build on this branch
+                />
+
+                {/* Production Ready — two-state toggle (req #2737). Off = not
+                    production ready (default); On = production ready. */}
+                <MenuItem onClick={handleToggleApproved} data-testid="bv-menu-approve">
+                    <FormControlLabel
+                        sx={{ m: 0, pointerEvents: 'none' }}
+                        control={(
+                            <Switch
+                                size="small"
+                                checked={!!dotMenu?.buildRecord?.approvedForRelease}
+                                tabIndex={-1}
+                                inputProps={{ readOnly: true, 'data-testid': 'bv-menu-approve-switch' }}
+                            />
+                        )}
+                        label="Production Ready"
+                    />
                 </MenuItem>
-                <MenuItem
-                    onClick={(e) => setBranchSubmenuAnchor(e.currentTarget)}
-                    data-testid="bv-menu-create-branch"
-                >
-                    Create branch from this build
-                </MenuItem>
-                <MenuItem
-                    onClick={handleToggleApproved}
-                    data-testid="bv-menu-approve"
-                >
-                    {dotMenu?.buildRecord?.approvedForRelease
-                        ? 'Unmark as production ready'
-                        : 'Mark as production ready'}
-                </MenuItem>
+
                 {dotMenu?.buildRecord?.approvedForRelease && (
-                    <MenuItem
-                        onClick={handlePerformReleaseEvent}
-                        data-testid="bv-menu-release-prompt"
-                    >
-                        Perform release event...
+                    <MenuItem onClick={handlePerformReleaseEvent} data-testid="bv-menu-release-prompt">
+                        Perform release event…
                     </MenuItem>
                 )}
-            </Menu>
 
-            {/* Branch-type submenu */}
-            <Menu
-                open={!!branchSubmenuAnchor}
-                onClose={() => setBranchSubmenuAnchor(null)}
-                anchorEl={branchSubmenuAnchor}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                data-testid="bv-branch-submenu"
-            >
+                <Divider />
+                <ListSubheader
+                    disableSticky
+                    sx={{
+                        bgcolor: 'transparent',
+                        lineHeight: 1.8,
+                        fontSize: '0.7rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                    }}
+                >
+                    Create branch
+                </ListSubheader>
+                {branchSubtypes.length === 0 && (
+                    <MenuItem disabled>No branches allowed here</MenuItem>
+                )}
                 {branchSubtypes.map(t => (
-                    <MenuItem
-                        key={t}
-                        onClick={() => handleCreateBranch(t)}
-                        data-testid={`bv-menu-branch-${t}`}
-                    >
-                        {REGISTRY[t].label}
-                    </MenuItem>
+                    MULTI_BRANCH_TYPES.has(t)
+                        ? (
+                            <HoldCountButton
+                                key={t}
+                                label={branchTypeLabel(t)}
+                                onExecute={(n) => handleCreateBranch(t, n)}
+                                maxQty={MAX_BRANCHES_PER_HOLD}
+                                dwellMs={BRANCH_DWELL_MS}
+                                data-testid={`bv-menu-branch-${t}`}
+                            />
+                        )
+                        : (
+                            <MenuItem
+                                key={t}
+                                onClick={() => handleCreateBranch(t)}
+                                data-testid={`bv-menu-branch-${t}`}
+                            >
+                                {branchTypeLabel(t)}
+                            </MenuItem>
+                        )
                 ))}
-            </Menu>
+            </Popover>
 
             <Dialog
                 open={!!releaseDialog}
@@ -546,6 +709,56 @@ const BuildVisualizerPage = () => {
                         data-testid="bv-release-event-confirm"
                     >
                         Release to selected
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Assign-M.m prompt (req #2737, §4.2). Required — no auto-assign;
+                Cancel leaves the branch open and the next build is refused. */}
+            <Dialog
+                open={!!versionPrompt}
+                onClose={() => setVersionPrompt(null)}
+                data-testid="bv-version-prompt"
+            >
+                <DialogTitle>Assign Major.Minor for “{versionPrompt?.label}”</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" sx={{ mb: 1.5 }}>
+                        This branch has no version. Set its Major.Minor before its
+                        next build — the build cannot proceed without it.
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <TextField
+                            label="Major"
+                            type="number"
+                            autoFocus
+                            margin="dense"
+                            value={vpMajor}
+                            onChange={(e) => setVpMajor(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && vpValid) confirmVersionPrompt(); }}
+                            inputProps={{ min: 0, step: 1, 'data-testid': 'bv-version-major' }}
+                            sx={{ flex: 1 }}
+                        />
+                        <TextField
+                            label="Minor"
+                            type="number"
+                            margin="dense"
+                            value={vpMinor}
+                            onChange={(e) => setVpMinor(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && vpValid) confirmVersionPrompt(); }}
+                            inputProps={{ min: 0, step: 1, 'data-testid': 'bv-version-minor' }}
+                            sx={{ flex: 1 }}
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setVersionPrompt(null)}>Cancel</Button>
+                    <Button
+                        onClick={confirmVersionPrompt}
+                        disabled={!vpValid}
+                        variant="contained"
+                        data-testid="bv-version-confirm"
+                    >
+                        Assign
                     </Button>
                 </DialogActions>
             </Dialog>

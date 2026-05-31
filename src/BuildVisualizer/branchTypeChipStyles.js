@@ -30,7 +30,7 @@ export const branchTypeChipProps = (type) => {
 export const branchTypeLabel = (type) => {
     switch (type) {
         case 'release':         return 'Release';
-        case 'sample-release':  return 'Sprint Release';
+        case 'sample-release':  return 'Sprint = Sample';
         case 'hotfix':          return 'Hot Fix';
         case 'bootleg':         return 'Bootleg';
         case 'csr':             return 'CSR';

@@ -137,8 +137,11 @@ export function useBuildVisualizerData(projectId) {
                 dotColor: b.dot_color || null,
                 approvedForRelease: Number(b.approved_for_release) === 1,
                 // Req #2720: per-build M.m — stamped at creation, no look-back.
-                major: Number(b.major) || 1,
-                minor: Number(b.minor) || 0,
+                // Use nullish (not ||) so an explicit Major=0 / Minor=0 is
+                // preserved rather than coerced to the 1 / 0 fallback (req #2737).
+                major: b.major != null ? Number(b.major) : 1,
+                minor: b.minor != null ? Number(b.minor) : 0,
+                createdAt: b.create_ts || null,
             };
         }
 
@@ -164,8 +167,9 @@ export function useBuildVisualizerData(projectId) {
                 parentBranchId: isTrunk ? null : (parentBranchRow?.external_id || null),
                 side: br.side || (isTrunk ? 'center' : 'above'),
                 rowOrder: br.row_order != null ? Number(br.row_order) : null,
-                major: Number(br.major) || 1,
-                minor: Number(br.minor) || 0,
+                // Nullish, not ||, so an explicit Major=0 survives (req #2737).
+                major: br.major != null ? Number(br.major) : 1,
+                minor: br.minor != null ? Number(br.minor) : 0,
                 labelEnd: br.label_end || null,
                 buildIds: myBuilds,
             });

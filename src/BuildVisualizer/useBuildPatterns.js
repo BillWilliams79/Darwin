@@ -8,8 +8,7 @@
 // BuildPatternMenu + BuildVisualizerPage) so the call sites need only the
 // import-name flip plus async/await on the mutation callbacks:
 //   { isReady, error, clearError, library, patterns, activeId, activePattern,
-//     selectPattern, createNew, rename, remove, saveAs,
-//     exportAll, importAll }
+//     selectPattern, createNew, rename, remove }
 //
 // Differences from the old hook:
 //   • `library` is { version, activeId, patterns: {} } reassembled from the
@@ -19,9 +18,8 @@
 //     iframe fetches its own data via bv:sql-init). Consumers that previously
 //     read `.data` to send via bv:load now read `.projectId` and post
 //     bv:sql-init instead.
-//   • `exportAll` / `importAll` are stubbed for v1 (req #2648 deferred — not
-//     in acceptance criteria). They keep a working shape so the menu doesn't
-//     crash, but the import path no-ops with a helpful error.
+//   • Duplicate / Import / Export were removed (req #2737) — they were
+//     unimplemented v1 stubs and the project workflow doesn't need them.
 //   • `saveActiveData` is removed — the iframe now persists directly via the
 //     SqlBackedStorageAdapter on every model mutation. Consumers that used
 //     it (BuildVisualizerPage's bv:changed handler) drop the call.
@@ -33,6 +31,7 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
+import { firstMainBuildVersion, toBuildRow } from './versionEngine';
 
 const ACTIVE_ID_STORAGE_KEY = 'darwin.buildVisualizer.activeProjectId.v1';
 
@@ -147,7 +146,11 @@ export function useBuildPatterns() {
     };
 
     const createMutation = useMutation({
-        mutationFn: async ({ title, description }) => {
+        mutationFn: async ({ title, description, major = 1, minor = 0, initialBuildNumber = 1 }) => {
+            // The first main build's version comes from the VersionEngine — the
+            // single source of truth (req #2737). No inline version arithmetic.
+            const v = firstMainBuildVersion({ major, minor, initialBuildNumber });
+
             // POST /build_projects
             const projRes = await call_rest_api(
                 `${darwinUri}/build_projects`, 'POST',
@@ -162,15 +165,16 @@ export function useBuildPatterns() {
             const newProjectId = Array.isArray(proj) ? proj[0]?.id : proj?.id;
             if (!newProjectId) throw new Error('build_projects POST returned no id');
 
-            // POST trunk branch.
+            // POST trunk branch. Stamp main's current M.m (= the declared M.m).
+            // external_id='main' marks the trunk.
             const branchRes = await call_rest_api(
                 `${darwinUri}/branches`, 'POST',
                 {
                     project_fk: newProjectId,
-                    branch_type: 'release',
+                    branch_type: 'main',
                     name: 'Main',
-                    major: 1,
-                    minor: 0,
+                    major: v.major,
+                    minor: v.minor,
                     external_id: 'main',
                     side: 'center',
                 },
@@ -187,14 +191,13 @@ export function useBuildPatterns() {
                 idToken,
             );
 
-            // POST first build.
+            // POST first build — version columns straight from the engine.
             await call_rest_api(
                 `${darwinUri}/builds`, 'POST',
                 {
                     branch_fk: trunkId,
                     position: 0,
-                    build_number: 1,
-                    branch_number: 0,
+                    ...toBuildRow(v),
                     external_id: 'm1',
                 },
                 idToken,
@@ -259,11 +262,16 @@ export function useBuildPatterns() {
         writeActiveId(numericId);
     }, []);
 
-    const createNew = useCallback(async (name /* opts unused — SQL initial build is always 1.0.1 */) => {
+    const createNew = useCallback(async (name, opts = {}) => {
         const title = String(name || '').trim();
         if (!title) return { ok: false, error: 'name required' };
+        const major = Number.isFinite(opts.major) && opts.major >= 0 ? opts.major : 1;
+        const minor = Number.isFinite(opts.minor) && opts.minor >= 0 ? opts.minor : 0;
+        const initialBuildNumber = Number.isFinite(opts.initialBuildNumber) && opts.initialBuildNumber > 0
+            ? opts.initialBuildNumber
+            : 1;
         try {
-            await createMutation.mutateAsync({ title });
+            await createMutation.mutateAsync({ title, major, minor, initialBuildNumber });
             return { ok: true };
         } catch (e) {
             return { ok: false, error: e?.message || 'create failed' };
@@ -282,32 +290,17 @@ export function useBuildPatterns() {
     }, [renameMutation]);
 
     const remove = useCallback(async (id) => {
-        if (patterns.length <= 1) {
-            return { ok: false, error: "Can't delete the last pattern" };
-        }
+        // No last-project guard (req #2737) — deleting every project to reach a
+        // clean slate is a supported workflow. The empty state is handled: the
+        // patterns effect resets activeId to null and the canvas renders its
+        // "No branches" placeholder.
         try {
             await removeMutation.mutateAsync({ id });
             return { ok: true };
         } catch (e) {
             return { ok: false, error: e?.message || 'delete failed' };
         }
-    }, [removeMutation, patterns]);
-
-    // saveAs / exportAll / importAll — v1 stubs. The SQL-backed pattern model
-    // doesn't yet support deep clone (would require fetching all branches +
-    // builds and reposting them with new external_id mappings). Keeping
-    // working shapes so the menu items can stay visible-but-disabled until a
-    // follow-up requirement lights them up. Each returns the unified
-    // {ok, error} shape the consumer already understands.
-    const saveAs = useCallback(async () => ({
-        ok: false,
-        error: 'Duplicate not yet implemented for SQL-backed patterns (req #2648 v1).',
-    }), []);
-    const exportAll = useCallback(() => new Blob(['{}'], { type: 'application/json' }), []);
-    const importAll = useCallback(async () => ({
-        ok: false,
-        error: 'Import not yet implemented for SQL-backed patterns (req #2648 v1).',
-    }), []);
+    }, [removeMutation]);
 
     const isReady = !!projectsQuery.isSuccess || !!projectsQuery.data;
     const liveError = error || projectsQuery.error?.message || null;
@@ -322,12 +315,9 @@ export function useBuildPatterns() {
         activePattern,
         selectPattern,
         saveActiveData: () => {}, // no-op — see header comment
-        saveAs,
         createNew,
         rename,
         remove,
-        exportAll,
-        importAll,
     };
 }
 
