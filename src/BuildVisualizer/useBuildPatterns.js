@@ -94,6 +94,14 @@ export function useBuildPatterns() {
     // session, or first-ever load), fall back to the first available pattern.
     useEffect(() => {
         if (!projectsQuery.isSuccess) return;
+        // Don't reconcile activeId mid-refetch (req #2741). After createMutation
+        // sets activeId to the new project and invalidates, the refetch is
+        // briefly in flight with `patterns` still the OLD list — the new id
+        // isn't found yet. Resetting to patterns[0] here would yank the user
+        // back to a pre-existing project. Wait for the refetch to settle; once
+        // `patterns` includes the new project the `find` below passes and no
+        // reset happens.
+        if (projectsQuery.isFetching) return;
         if (!patterns.length) {
             // Req #2691: empty patterns at this point means the DB has no
             // build_projects rows for the authenticated user. Most common
@@ -118,7 +126,7 @@ export function useBuildPatterns() {
             setActiveId(next);
             writeActiveId(next);
         }
-    }, [projectsQuery.isSuccess, patterns, activeId]);
+    }, [projectsQuery.isSuccess, projectsQuery.isFetching, patterns, activeId]);
 
     const activePattern = useMemo(
         () => (activeId ? patterns.find(p => p.id === activeId) || null : null),

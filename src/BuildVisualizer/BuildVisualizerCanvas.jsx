@@ -8,10 +8,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 
 import { computeLayout } from './d3LayoutEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 import paletteFor from './d3ThemePalettes';
+import { frameView } from './frameStrategies';
+import { starColorFor } from './starColors';
 import {
     DEFAULT_DARK_VARIANT,
     LIGHT_TRANSPORT_VARIANT,
@@ -20,35 +24,8 @@ import {
 const ARROW_ID = 'bv-d3-arrow';
 const ARROW_WHISPY_ID = 'bv-d3-arrow-whispy';
 
-// ─── Default ("home") view — single source of truth ────────────────────────
-// Every case that needs the view (re)framed for a freshly-shown project routes
-// through this one function: first mount with a restored project, switching
-// projects, creating a new project, and the auto-fallback after deleting the
-// active project. It is deliberately NOT called for filter/stagger toggles,
-// release-style changes, or user drags — those must preserve the current pan.
-//
-// Horizontal: anchor the SVG's left edge (x=0) at the viewport's left edge.
-// The layout reserves `leftPad` (240px) on the left for the stratum/swim-lane
-// labels (drawn at x≈6) and the main/project endpoint label (anchored to the
-// left of the first build). Showing from x=0 keeps ALL of that visible — plus
-// the first build at x=leftPad. (The previous logic placed the first *build*
-// ~20px from the edge, which translated the whole graph left and shoved the
-// labels — project name + swim lanes — off the left side.)
-//
-// Vertical: if the whole graph fits the viewport, center it; otherwise anchor
-// on the trunk (mainY) so strata above and dev branches below stay reachable.
-function computeInitialView(layout, viewportH) {
-    const x = 0;
-    const graphH = layout?.height || 0;
-    let y;
-    if (graphH > 0 && graphH <= viewportH) {
-        y = Math.round((viewportH - graphH) / 2);
-    } else {
-        const mainY = layout?.mainY || 0;
-        y = Math.round(viewportH / 2 - mainY);
-    }
-    return { x, y };
-}
+// frameView imported from './frameStrategies' — single source of truth (req #2741).
+// See that module for FRAME_STRATEGIES and the centerMain algorithm.
 
 function dotFill(record, palette) {
     if (record.dotColor === 'green')  return palette.dotGreen;
@@ -71,101 +48,66 @@ function starPoints(cx, cy, ro, ri, tips) {
     return pts.join(' ');
 }
 
-function customerColor(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-    const hue = Math.abs(h) % 360;
-    return `hsl(${hue}, 70%, 55%)`;
+// starColorFor imported from './starColors' — single source of truth (req #2741).
+
+function StarRow({ pos, customers, color }) {
+    // One star PER release event (req #2741) — 6 releases ⇒ 6 stars — in a row
+    // centered on the build, ABOVE the bubble. `color` is chosen from the build's
+    // branch type by the caller (gold / silver / red).
+    const n = customers.length;
+    const ro = 7;
+    const ri = ro * 0.45;
+    const pitch = 2 * ro + 2;            // star width + gap
+    const cy = pos.y - 22;
+    const startX = pos.x - ((n - 1) * pitch) / 2;
+    return (
+        <g>
+            {customers.map((name, i) => (
+                <polygon
+                    key={`${name}-${i}`}
+                    points={starPoints(startX + i * pitch, cy, ro, ri, 5)}
+                    fill={color.fill}
+                    stroke={color.stroke}
+                    strokeWidth={1.1}
+                    strokeLinejoin="round"
+                />
+            ))}
+        </g>
+    );
 }
 
-function GoldStar({ pos, customers }) {
-    const cx = pos.x;
-    const cy = pos.y + 22;
-    const ro = 9;
-    const ri = ro * 0.45;
-    return (
-        <g>
-            <polygon points={starPoints(cx, cy, ro, ri, 5)} fill="#fbbf24" stroke="#b45309" strokeWidth={1.1} strokeLinejoin="round" />
-            <text x={cx} y={cy + 3.2} textAnchor="middle" fontSize={9} fontWeight="bold" fill="#1a1a1a">{customers.length}</text>
-        </g>
-    );
+function formatReleaseDate(d) {
+    if (!d) return '';
+    const dt = new Date(d);
+    return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString();
 }
-function Halo({ pos, customers }) {
-    const ringR = 12;
-    const n = customers.length;
+
+// Hover content for a release bubble (req #2741) — the build it shipped, the
+// branch, and each customer release event with its date. Falls back to the
+// plain customer-name list when no dated details are available.
+function ReleaseTooltipContent({ build, branchName }) {
+    const details = build.releaseDetails?.length
+        ? build.releaseDetails
+        : (build.releaseCustomers || []).map(name => ({ name, date: null }));
     return (
-        <g>
-            {customers.map((name, i) => {
-                const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-                return <circle key={`${name}-${i}`} cx={(pos.x + Math.cos(angle) * ringR).toFixed(2)} cy={(pos.y + Math.sin(angle) * ringR).toFixed(2)} r={2.5} fill={customerColor(name)} stroke="#1a1a1a" strokeWidth={0.5} />;
-            })}
-        </g>
+        <Box sx={{ py: 0.25 }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+                Released — Build {build.version}
+            </Typography>
+            {branchName ? (
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+                    {branchName}
+                </Typography>
+            ) : null}
+            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2 }}>
+                {details.map((d, i) => (
+                    <Box component="li" key={`${d.name}-${i}`} sx={{ fontSize: '0.72rem', lineHeight: 1.5 }}>
+                        {d.name}{d.date ? ` — ${formatReleaseDate(d.date)}` : ''}
+                    </Box>
+                ))}
+            </Box>
+        </Box>
     );
-}
-function Pennant({ pos, customers }) {
-    const baseY = pos.y - 6;
-    const tipY = baseY - 32;
-    const baseX = pos.x;
-    const tipX = pos.x + 22 + Math.max(0, customers.length - 1) * 4;
-    return (
-        <g>
-            <line x1={baseX} y1={pos.y - 6} x2={baseX} y2={tipY + 2} stroke="#1a1a1a" strokeWidth={1} />
-            <polygon points={`${baseX},${tipY} ${tipX},${(tipY + baseY) / 2} ${baseX},${baseY}`} fill="#fbbf24" stroke="#b45309" strokeWidth={0.8} />
-            {customers.map((name, i) => {
-                const y = tipY + 6 + i * 8;
-                if (y > baseY - 2) return null;
-                return <text key={`${name}-${i}`} x={baseX + 3} y={y} fontSize={7} fontFamily='"Consolas", "Menlo", monospace' fill="#1a1a1a">{name.slice(0, 8)}</text>;
-            })}
-        </g>
-    );
-}
-function Sunburst({ pos, customers }) {
-    const n = customers.length;
-    const rayLen = 16;
-    const startR = 8;
-    return (
-        <g>
-            {customers.map((name, i) => {
-                const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-                const cos = Math.cos(angle); const sin = Math.sin(angle);
-                return (
-                    <g key={`${name}-${i}`}>
-                        <line x1={(pos.x + cos * startR).toFixed(2)} y1={(pos.y + sin * startR).toFixed(2)} x2={(pos.x + cos * (startR + rayLen)).toFixed(2)} y2={(pos.y + sin * (startR + rayLen)).toFixed(2)} stroke="#fbbf24" strokeWidth={1.4} strokeLinecap="round" />
-                        <text x={(pos.x + cos * (startR + rayLen + 5)).toFixed(2)} y={(pos.y + sin * (startR + rayLen + 5) + 3).toFixed(2)} textAnchor="middle" fontSize={8} fontWeight="bold" fill="#1a1a1a">{name.charAt(0).toUpperCase()}</text>
-                    </g>
-                );
-            })}
-        </g>
-    );
-}
-function ChipRow({ pos, customers }) {
-    const chipW = 14; const chipH = 10; const gap = 2;
-    const totalW = customers.length * chipW + (customers.length - 1) * gap;
-    const startX = pos.x - totalW / 2;
-    const y = pos.y + 16;
-    return (
-        <g>
-            {customers.map((name, i) => {
-                const x = startX + i * (chipW + gap);
-                return (
-                    <g key={`${name}-${i}`}>
-                        <rect x={x} y={y} width={chipW} height={chipH} rx={3} ry={3} fill={customerColor(name)} stroke="#1a1a1a" strokeWidth={0.5} />
-                        <text x={x + chipW / 2} y={y + chipH - 2} textAnchor="middle" fontSize={7} fontWeight="bold" fill="#ffffff">{name.charAt(0).toUpperCase()}</text>
-                    </g>
-                );
-            })}
-        </g>
-    );
-}
-function ReleaseOverlay({ style, pos, customers }) {
-    switch (style) {
-        case 2: return <Halo pos={pos} customers={customers} />;
-        case 3: return <Pennant pos={pos} customers={customers} />;
-        case 4: return <Sunburst pos={pos} customers={customers} />;
-        case 5: return <ChipRow pos={pos} customers={customers} />;
-        case 1:
-        default: return <GoldStar pos={pos} customers={customers} />;
-    }
 }
 
 const BuildVisualizerCanvas = ({
@@ -176,10 +118,12 @@ const BuildVisualizerCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
-    releaseStyle,
     appMode,
     darkVariant,
     onBuildClick,
+    onBuildLeave,
+    onBranchClick,
+    resetViewNonce,
 }) => {
     const themeKey = appMode === 'dark'
         ? (darkVariant || DEFAULT_DARK_VARIANT)
@@ -205,6 +149,27 @@ const BuildVisualizerCanvas = ({
         ),
         [model, staggerOn, hiddenBranchIds],
     );
+
+    // branch extId → display name, for the release hover tooltip.
+    const branchNameById = useMemo(() => {
+        const m = new Map();
+        for (const br of layout.branches || []) m.set(br.id, br.name);
+        return m;
+    }, [layout]);
+
+    // extId of the trunk, so its endpoint label opens the same branch editor.
+    const mainBranchId = useMemo(
+        () => (layout.branches || []).find(b => b.isMain)?.id || null,
+        [layout],
+    );
+
+    // Open the branch editor from a name-label click — suppressed mid-drag so
+    // panning across a label doesn't pop the editor (mirrors the dot menu).
+    const handleBranchLabelClick = useCallback((branchId, e) => {
+        if (dragRef.current.active || dragRef.current.moved) return;
+        e.stopPropagation();
+        if (onBranchClick && branchId) onBranchClick(branchId);
+    }, [onBranchClick]);
 
     // ─── Mouse-drag panning ────────────────────────────────────────────
     // Click anywhere on the viewport background and drag to pan the SVG.
@@ -259,21 +224,88 @@ const BuildVisualizerCanvas = ({
         };
     }, [onMouseMove, endDrag]);
 
+    // Measure the live viewport + apply a framing strategy — the ONE place pan
+    // is (re)computed (req #2741). Retries across animation frames until the
+    // viewport element reports a NON-ZERO height: a freshly-created/switched
+    // project can read clientHeight === 0 (box still mounting / CSS grid sizing)
+    // at the moment the framing effect fires. The old code papered over that
+    // with a `|| 600` fallback, so main was centered against a phantom 600px
+    // viewport and landed ~1/3 from the top on a taller monitor. We never apply
+    // a guessed height now — we wait for the real one, call `onFramed` only on
+    // success, and return a canceller. `frameView` stays the single source of
+    // truth for WHERE the trunk lands; this wrapper only handles measurement.
+    const runFrame = useCallback((onFramed) => {
+        let raf = 0;
+        let tries = 0;
+        const attempt = () => {
+            const height = viewportRef.current?.clientHeight || 0;
+            if (height > 0) {
+                setPan(frameView(layout, { height }));
+                onFramed?.();
+                return;
+            }
+            if (tries++ < 120) raf = requestAnimationFrame(attempt); // ~2s budget
+        };
+        attempt();
+        return () => { if (raf) cancelAnimationFrame(raf); };
+    }, [layout]);
+
     // Frame the default view ONCE per project identity (req #2737). Keyed on
     // `projectId`, not on `layout`, so filter/stagger toggles — which change
-    // `layout` but not the project — never yank the user's current pan. The
-    // fit waits until this project's layout actually has branches (data load
-    // is async), then runs `computeInitialView` exactly once. Covered cases:
-    // first mount, project switch, new-project create, post-delete fallback.
+    // `layout` but not the project — never yank the user's current pan. Waits
+    // for this project's layout to have branches (data load is async), then
+    // frames; the project is marked framed ONLY after a real height is measured
+    // (`onFramed`), so a transient 0px read can't lock in a wrong pan. Covered
+    // cases: first mount, project switch, new-project create, post-delete
+    // fallback.
     const lastFitProjectId = useRef(null);
     useEffect(() => {
         if (projectId == null) { lastFitProjectId.current = null; return; }
         if (!layout.branches.length) return;          // layout not ready yet
         if (lastFitProjectId.current === projectId) return; // already framed
-        const viewportH = viewportRef.current?.clientHeight || 600;
-        setPan(computeInitialView(layout, viewportH));
-        lastFitProjectId.current = projectId;
-    }, [projectId, layout]);
+        return runFrame(() => { lastFitProjectId.current = projectId; });
+    }, [projectId, layout, runFrame]);
+
+    // Explicit "Reset view" trigger (req #2741). Keyed ONLY on `resetViewNonce`
+    // (bumped by the toolbar control) so it fires on demand and NEVER on
+    // filter/stagger/layout changes — preserving the user's pan otherwise. A ref
+    // holds the latest `runFrame` so the effect re-centers against the current
+    // layout without taking `runFrame` (→ `layout`) as a dependency. `nonce` is
+    // 0 on mount, so the first real reset is 1 — the initial value is skipped.
+    const runFrameRef = useRef(runFrame);
+    runFrameRef.current = runFrame;
+    useEffect(() => {
+        if (!resetViewNonce) return; // 0 = initial, no reset requested
+        return runFrameRef.current();
+    }, [resetViewNonce]);
+
+    // Keep the view STABLE across in-place layout reflows (req #2741). Hiding a
+    // branch type (e.g. Release) collapses a whole stratum, so `mainY` shrinks
+    // and EVERY branch Y shifts up. With a fixed pan the graph would visibly
+    // jump. To preserve "what the user was looking at", compensate the pan by
+    // the change in `mainY` — the trunk (and everything anchored to it) keeps
+    // its on-screen position; only the toggled branches appear/disappear.
+    //
+    // Gated on DATA IDENTITY (`model` reference): a filter/stagger toggle
+    // recomputes `layout` while `model` stays the same object, so we compensate;
+    // a project switch / data reload gives a NEW `model`, so we skip and let
+    // runFrame own positioning. This is strategy-agnostic — it does NOT assume
+    // the framing function is linear in `mainY`, so new FRAME_STRATEGIES stay
+    // safe. Also skipped until the project is initially framed.
+    const prevMainYRef = useRef(null);
+    const prevModelRef = useRef(null);
+    useEffect(() => {
+        const mainY = layout?.mainY ?? null;
+        const prevMainY = prevMainYRef.current;
+        const sameData = model != null && prevModelRef.current === model;
+        prevMainYRef.current = mainY;
+        prevModelRef.current = model;
+        if (!sameData) return;                              // project switch / reload
+        if (prevMainY == null || mainY == null) return;     // nothing to compare
+        if (lastFitProjectId.current !== projectId) return; // not yet framed
+        const delta = prevMainY - mainY;
+        if (delta !== 0) setPan(p => ({ ...p, y: p.y + delta }));
+    }, [layout, model, projectId]);
 
     if (isLoading) {
         return (
@@ -406,7 +438,13 @@ const BuildVisualizerCanvas = ({
                         if (b.labelX == null || !b.name) return null;
                         const lines = String(b.name).split('\n');
                         return (
-                            <g key={`label-${b.id}`} className="bv-fade">
+                            <g
+                                key={`label-${b.id}`}
+                                className="bv-fade"
+                                data-branch-id={b.id}
+                                style={{ cursor: onBranchClick ? 'pointer' : 'default' }}
+                                onClick={(e) => handleBranchLabelClick(b.id, e)}
+                            >
                                 {lines.map((line, i) => (
                                     <text
                                         key={`${b.id}-line-${i}`}
@@ -432,6 +470,9 @@ const BuildVisualizerCanvas = ({
                                 fontWeight={600}
                                 fill={palette.label}
                                 textAnchor="end"
+                                data-branch-id={mainBranchId || undefined}
+                                style={{ cursor: (onBranchClick && mainBranchId) ? 'pointer' : 'default' }}
+                                onClick={(e) => handleBranchLabelClick(mainBranchId, e)}
                             >
                                 {layout.mainEndpointLabels.leftText}
                             </text>
@@ -469,6 +510,7 @@ const BuildVisualizerCanvas = ({
                                 style={{ cursor: 'pointer' }}
                                 onMouseEnter={openMenu}
                                 onClick={openMenu}
+                                onMouseLeave={() => { if (onBuildLeave) onBuildLeave(); }}
                             >
                                 <circle cx={b.x} cy={b.y} r={b.radius} fill={color.fill} stroke={color.stroke} strokeWidth={1.4} />
                                 {/* Transparent hit-area — easier to click than the 5.5 px dot */}
@@ -479,18 +521,32 @@ const BuildVisualizerCanvas = ({
                     })}
                 </g>
 
-                {/* 4. Release overlays */}
+                {/* 4. Release overlays — each carries a hover tooltip with the
+                    release event details (req #2741). The tooltip triggers on
+                    the glyph's own painted shapes; we intentionally do NOT lay a
+                    transparent hit-rect over the dot, so the build dot still
+                    opens its own menu on hover. */}
                 {showReleases && (
                     <g className="release-overlays">
                         {layout.builds
                             .filter(b => b.releaseCustomers?.length)
                             .map(b => (
-                                <ReleaseOverlay
+                                <Tooltip
                                     key={`release-${b.id}`}
-                                    style={releaseStyle || 1}
-                                    pos={{ x: b.x, y: b.y }}
-                                    customers={b.releaseCustomers}
-                                />
+                                    title={<ReleaseTooltipContent build={b} branchName={branchNameById.get(b.branchId)} />}
+                                    placement="top"
+                                    arrow
+                                    enterDelay={120}
+                                    enterTouchDelay={120}
+                                >
+                                    <g style={{ cursor: 'help' }}>
+                                        <StarRow
+                                            pos={{ x: b.x, y: b.y }}
+                                            customers={b.releaseCustomers}
+                                            color={starColorFor(b.branchType)}
+                                        />
+                                    </g>
+                                </Tooltip>
                             ))}
                     </g>
                 )}

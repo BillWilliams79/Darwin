@@ -97,7 +97,7 @@ export function useBuildVisualizerData(projectId) {
     // future D3 layout engine can both use them.
     const model = useMemo(() => {
         if (!branchRows.length) {
-            return { branches: [], builds: {}, releaseEvents: {} };
+            return { branches: [], builds: {}, releaseEvents: {}, releaseEventDetails: {} };
         }
 
         const branchBySqlId = new Map(branchRows.map(b => [Number(b.id), b]));
@@ -187,17 +187,28 @@ export function useBuildVisualizerData(projectId) {
         );
         const releaseRows = Array.isArray(releasesQuery.data) ? releasesQuery.data : [];
         const releaseEvents = {};
+        // Parallel detail map for the hover tooltip: per build extId, each
+        // release event's customer name + date (req #2741). `releaseEvents`
+        // (names only) stays the glyph's source of truth so the overlay
+        // renderers are untouched.
+        const releaseEventDetails = {};
         for (const row of releaseRows) {
             const buildSqlId = Number(row.build_fk);
             const buildRow = buildBySqlId.get(buildSqlId);
             if (!buildRow?.external_id) continue;
             const name = customerNameById.get(Number(row.customer_fk));
             if (!name) continue;
-            if (!releaseEvents[buildRow.external_id]) releaseEvents[buildRow.external_id] = [];
-            releaseEvents[buildRow.external_id].push(name);
+            const extId = buildRow.external_id;
+            if (!releaseEvents[extId]) releaseEvents[extId] = [];
+            releaseEvents[extId].push(name);
+            if (!releaseEventDetails[extId]) releaseEventDetails[extId] = [];
+            releaseEventDetails[extId].push({
+                name,
+                date: row.release_date || row.create_ts || null,
+            });
         }
 
-        return { branches, builds, releaseEvents };
+        return { branches, builds, releaseEvents, releaseEventDetails };
     }, [branchRows, buildRows, releasesQuery.data, customersQuery.data]);
 
     return {
