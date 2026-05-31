@@ -56,13 +56,16 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 
-// Press-and-hold tuning (req #2737). Builds: up to 14, base dwell per increment
-// (≈1.5× the original cadence so every count — incl. 2 and 3 — is landable).
-// Branch-create (hotfix/bootleg/development only): up to 5, dwell 2× builds.
+// Press-and-hold tuning (req #2737, retimed req #2741). Builds cap at 14,
+// branch-create (hotfix/bootleg/development only) at 5. The TIMING is shared.
 const MAX_BUILDS_PER_HOLD = 14;
-const BUILD_DWELL_MS = 225;
 const MAX_BRANCHES_PER_HOLD = 5;
-const BRANCH_DWELL_MS = BUILD_DWELL_MS * 2;
+// Common hold-to-count timing for BOTH builds and branches (req #2741): one
+// start delay + one dwell, only the cap differs. Derived from the prior branch
+// cadence — start delay 2× the old 200 ms (the wait before the count leaves 1),
+// dwell = the old branch dwell (2× builds = 450) made 25% longer.
+const HOLD_START_DELAY_MS = 400;        // 2× the prior 200 ms
+const HOLD_DWELL_MS = 450 * 1.25;       // 562.5 ms — 25% longer than the old branch dwell
 // Only these branch types support hold-to-make-multiple; others are single.
 const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 
@@ -70,7 +73,6 @@ const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
 const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
 const SHOW_RELEASES_STORAGE_KEY = 'darwin.bv.showReleases';
-const RELEASE_STYLE_STORAGE_KEY = 'darwin.bv.releaseStyle';
 
 const readShowReleases = () => {
     try {
@@ -79,15 +81,6 @@ const readShowReleases = () => {
 };
 const writeShowReleases = (value) => {
     try { window.localStorage.setItem(SHOW_RELEASES_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
-};
-const readReleaseStyle = () => {
-    try {
-        const v = parseInt(window.localStorage.getItem(RELEASE_STYLE_STORAGE_KEY) || '', 10);
-        return Number.isFinite(v) && v >= 1 && v <= 5 ? v : 1;
-    } catch (_) { return 1; }
-};
-const writeReleaseStyle = (value) => {
-    try { window.localStorage.setItem(RELEASE_STYLE_STORAGE_KEY, String(value)); } catch (_) {}
 };
 const readVersionLanes = () => {
     try { return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
@@ -136,17 +129,17 @@ const BuildVisualizerPage = () => {
     const toggleStagger = useCallback(() => setStaggerOn(prev => !prev), []);
     useEffect(() => { writeVersionLanes(staggerOn); }, [staggerOn]);
 
-    // Release overlay.
+    // "Reset view" — bump a nonce the canvas watches to re-frame on demand
+    // (req #2741). Filter/stagger toggles preserve the user's pan; this is the
+    // explicit re-center control.
+    const [resetViewNonce, setResetViewNonce] = useState(0);
+    const handleResetView = useCallback(() => setResetViewNonce(n => n + 1), []);
+
+    // Release overlay — Gold Star only (req #2741; the style picker + Chip Row
+    // were removed). Toggle just shows/hides the overlay.
     const [showReleases, setShowReleases] = useState(() => readShowReleases());
-    const [releaseStyle, setReleaseStyle] = useState(() => readReleaseStyle());
     const toggleShowReleases = useCallback(() => setShowReleases(prev => !prev), []);
-    const changeReleaseStyle = useCallback((v) => {
-        const num = Number(v);
-        if (!Number.isInteger(num) || num < 1 || num > 5) return;
-        setReleaseStyle(num);
-    }, []);
     useEffect(() => { writeShowReleases(showReleases); }, [showReleases]);
-    useEffect(() => { writeReleaseStyle(releaseStyle); }, [releaseStyle]);
 
     // Theme — dark-variant handling.
     const { effectiveMode } = useContext(ThemeContext);
@@ -172,19 +165,53 @@ const BuildVisualizerPage = () => {
         ? { top: dotMenu.mouseY, left: dotMenu.mouseX }
         : undefined;
 
+    // Hover-bridge close timer (req #2741). The menu opens on dot hover and the
+    // popup sits a hair away from the dot, so leaving the dot OR the popup
+    // schedules a short-delay close; entering the popup (or hovering another
+    // dot) cancels it. This lets the cursor travel dot→popup without flicker
+    // while guaranteeing the menu closes whenever the cursor rests on neither.
+    const dotCloseTimerRef = useRef(null);
+    const cancelCloseDotMenu = useCallback(() => {
+        if (dotCloseTimerRef.current) {
+            clearTimeout(dotCloseTimerRef.current);
+            dotCloseTimerRef.current = null;
+        }
+    }, []);
+
     const handleBuildClick = useCallback((buildRecord, e) => {
         // `e` is the React SyntheticEvent from the SVG hover/click. Use its
         // clientX/clientY for menu positioning.
+        cancelCloseDotMenu(); // moving onto a dot cancels any pending close
         setDotMenu({
             buildRecord,
             mouseX: e.clientX,
             mouseY: e.clientY,
         });
-    }, []);
+    }, [cancelCloseDotMenu]);
 
     const closeDotMenu = useCallback(() => {
+        cancelCloseDotMenu();
         setDotMenu(null);
-    }, []);
+    }, [cancelCloseDotMenu]);
+
+    const scheduleCloseDotMenu = useCallback(() => {
+        cancelCloseDotMenu();
+        dotCloseTimerRef.current = setTimeout(() => {
+            dotCloseTimerRef.current = null;
+            setDotMenu(null);
+        }, 150);
+    }, [cancelCloseDotMenu]);
+
+    // Clear the pending close timer on unmount.
+    useEffect(() => cancelCloseDotMenu, [cancelCloseDotMenu]);
+
+    // Close any open build (dot) menu when the active project changes (req
+    // #2741). The menu is anchored to a build that belongs to the old project;
+    // leaving it open after a switch/create strands a popup over unrelated data.
+    useEffect(() => {
+        setDotMenu(null);
+        setBranchEditor(null);
+    }, [projectId]);
 
     // Look up the branch object for the clicked build.
     const dotMenuBranch = useMemo(() => {
@@ -269,6 +296,43 @@ const BuildVisualizerPage = () => {
         }
         setVersionPrompt(null);
     }, [versionPrompt, vpMajor, vpMinor, darwinUri, idToken, invalidateBuildData]);
+
+    // ─── Branch editor (req #2741) ───────────────────────────────────────
+    // Clicking a branch name label (including main's trunk label) opens this
+    // editor: set the branch name and review the branch's info. PUT /branches
+    // persists the rename through the same path as other branch mutations.
+    const [branchEditor, setBranchEditor] = useState(null); // { branchId }
+    const [beName, setBeName] = useState('');
+    const branchEditorBranch = useMemo(
+        () => (branchEditor && model?.branches)
+            ? model.branches.find(b => b.id === branchEditor.branchId) || null
+            : null,
+        [branchEditor, model],
+    );
+    const handleBranchClick = useCallback((branchId) => {
+        const br = model?.branches?.find(b => b.id === branchId);
+        if (!br) return;
+        setBeName(br.name || '');
+        setBranchEditor({ branchId });
+    }, [model]);
+    const closeBranchEditor = useCallback(() => setBranchEditor(null), []);
+    const beValid = beName.trim().length > 0;
+    const confirmBranchEditor = useCallback(async () => {
+        if (!branchEditor || beName.trim().length === 0) return;
+        const sqlId = branchSqlIdRef.current.get(branchEditor.branchId);
+        if (!sqlId) { setBranchEditor(null); return; }
+        try {
+            await call_rest_api(
+                `${darwinUri}/branches`, 'PUT',
+                [{ id: sqlId, name: beName.trim() }],
+                idToken,
+            );
+            invalidateBuildData();
+        } catch (err) {
+            console.error('[BuildVisualizer] Rename branch failed:', err);
+        }
+        setBranchEditor(null);
+    }, [branchEditor, beName, darwinUri, idToken, invalidateBuildData]);
 
     // Execute `count` builds in a row on the clicked build's branch (req #2737 —
     // press-and-hold "Execute Build" ramps count up to MAX_BUILDS_PER_HOLD). A
@@ -528,13 +592,12 @@ const BuildVisualizerPage = () => {
                 onToggleType={toggleType}
                 staggerOn={staggerOn}
                 onToggleStagger={toggleStagger}
+                onResetView={handleResetView}
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 onChangeDarkVariant={changeDarkVariant}
                 showReleases={showReleases}
                 onToggleShowReleases={toggleShowReleases}
-                releaseStyle={releaseStyle}
-                onChangeReleaseStyle={changeReleaseStyle}
             />
             <BuildVisualizerCanvas
                 model={model}
@@ -544,10 +607,12 @@ const BuildVisualizerPage = () => {
                 selectedTypes={selectedTypes}
                 staggerOn={staggerOn}
                 showReleases={showReleases}
-                releaseStyle={releaseStyle}
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 onBuildClick={handleBuildClick}
+                onBuildLeave={scheduleCloseDotMenu}
+                onBranchClick={handleBranchClick}
+                resetViewNonce={resetViewNonce}
             />
 
             {/* ─── Build-dot menu — non-modal hover Popover (req #2737) ─── */}
@@ -573,7 +638,8 @@ const BuildVisualizerPage = () => {
                 slotProps={{
                     transition: { timeout: 140 },
                     paper: {
-                        onMouseLeave: closeDotMenu,
+                        onMouseEnter: cancelCloseDotMenu,
+                        onMouseLeave: scheduleCloseDotMenu,
                         sx: { pointerEvents: 'auto' },
                     },
                 }}
@@ -601,7 +667,8 @@ const BuildVisualizerPage = () => {
                     label="Execute Build"
                     onExecute={executeBuilds}
                     maxQty={MAX_BUILDS_PER_HOLD}
-                    dwellMs={BUILD_DWELL_MS}
+                    dwellMs={HOLD_DWELL_MS}
+                    startDelayMs={HOLD_START_DELAY_MS}
                     data-testid="bv-menu-add-build"
                 />
 
@@ -652,7 +719,8 @@ const BuildVisualizerPage = () => {
                                 label={branchTypeLabel(t)}
                                 onExecute={(n) => handleCreateBranch(t, n)}
                                 maxQty={MAX_BRANCHES_PER_HOLD}
-                                dwellMs={BRANCH_DWELL_MS}
+                                dwellMs={HOLD_DWELL_MS}
+                                startDelayMs={HOLD_START_DELAY_MS}
                                 data-testid={`bv-menu-branch-${t}`}
                             />
                         )
@@ -759,6 +827,59 @@ const BuildVisualizerPage = () => {
                         data-testid="bv-version-confirm"
                     >
                         Assign
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ─── Branch editor — name + info (req #2741) ─── */}
+            <Dialog
+                open={!!branchEditor}
+                onClose={closeBranchEditor}
+                data-testid="bv-branch-editor"
+            >
+                <DialogTitle>Edit branch</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        label="Branch name"
+                        autoFocus
+                        fullWidth
+                        margin="dense"
+                        value={beName}
+                        onChange={(e) => setBeName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && beValid) confirmBranchEditor(); }}
+                        inputProps={{ 'data-testid': 'bv-branch-name-input' }}
+                    />
+                    {branchEditorBranch && (
+                        <Box sx={{ mt: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                Type: {branchEditorBranch.type}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                Version: {branchEditorBranch.major < 0
+                                    ? 'open (no Major.Minor)'
+                                    : `${branchEditorBranch.major}.${branchEditorBranch.minor}`}
+                            </Typography>
+                            {branchEditorBranch.parentBranchId && (
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                    Branched from: {model?.branches?.find(b => b.id === branchEditorBranch.parentBranchId)?.name
+                                        || branchEditorBranch.parentBranchId}
+                                </Typography>
+                            )}
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                Builds: {branchEditorBranch.buildIds?.length || 0}
+                            </Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={closeBranchEditor}>Cancel</Button>
+                    <Button
+                        onClick={confirmBranchEditor}
+                        disabled={!beValid}
+                        variant="contained"
+                        data-testid="bv-branch-save"
+                    >
+                        Save
                     </Button>
                 </DialogActions>
             </Dialog>

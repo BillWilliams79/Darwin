@@ -31,31 +31,21 @@ import {
 // theme is light the visualizer always renders light and the picker is hidden
 // — there's only one sensible color scheme to offer in that case. Dark mode
 // exposes the six dark variants.
-const RELEASE_STYLE_LABELS = {
-    1: 'Gold Star',
-    2: 'Halo',
-    3: 'Pennant',
-    4: 'Sunburst',
-    5: 'Chip Row',
-};
-
 const BuildVisualizerControls = ({
     lib,
     selectedTypes,
     onToggleType,
     staggerOn,
     onToggleStagger,
+    onResetView,
     appMode,
     darkVariant,
     onChangeDarkVariant,
     showReleases,
     onToggleShowReleases,
-    releaseStyle,
-    onChangeReleaseStyle,
 }) => {
     const [snack, setSnack] = useState(null);
     const [themeAnchor, setThemeAnchor] = useState(null);
-    const [releaseStyleAnchor, setReleaseStyleAnchor] = useState(null);
     const showSnack = (severity, message) => setSnack({ severity, message });
     const closeSnack = () => setSnack(null);
 
@@ -73,15 +63,6 @@ const BuildVisualizerControls = ({
     const selectVariant = (variant) => {
         closeThemeMenu();
         if (variant !== darkVariant) onChangeDarkVariant?.(variant);
-    };
-
-    const showReleaseControls =
-        Boolean(onToggleShowReleases) && Boolean(onChangeReleaseStyle);
-    const openReleaseStyleMenu = (e) => setReleaseStyleAnchor(e.currentTarget);
-    const closeReleaseStyleMenu = () => setReleaseStyleAnchor(null);
-    const selectReleaseStyle = (v) => {
-        closeReleaseStyleMenu();
-        if (v !== releaseStyle) onChangeReleaseStyle?.(v);
     };
 
     return (
@@ -136,6 +117,38 @@ const BuildVisualizerControls = ({
                     </>
                 )}
 
+                {onResetView && (
+                    <>
+                        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                        <Chip
+                            label="Reset view"
+                            size="small"
+                            onClick={onResetView}
+                            variant="outlined"
+                            sx={{ cursor: 'pointer' }}
+                            data-testid="bv-reset-view"
+                        />
+                    </>
+                )}
+
+                {onToggleShowReleases && (
+                    <>
+                        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                        <Chip
+                            label="Releases"
+                            size="small"
+                            onClick={onToggleShowReleases}
+                            {...releasesChipProps}
+                            sx={{
+                                ...(showReleases ? releasesChipProps.sx : {}),
+                                cursor: 'pointer',
+                            }}
+                            aria-pressed={showReleases ? 'true' : 'false'}
+                            data-testid="bv-releases-toggle"
+                        />
+                    </>
+                )}
+
                 {onToggleStagger && (
                     <>
                         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
@@ -151,62 +164,6 @@ const BuildVisualizerControls = ({
                             aria-pressed={staggerOn ? 'true' : 'false'}
                             data-testid="bv-stagger-toggle"
                         />
-                    </>
-                )}
-
-                {showReleaseControls && (
-                    <>
-                        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-                        <Chip
-                            label="Releases"
-                            size="small"
-                            onClick={onToggleShowReleases}
-                            {...releasesChipProps}
-                            sx={{
-                                ...(showReleases ? releasesChipProps.sx : {}),
-                                cursor: 'pointer',
-                            }}
-                            aria-pressed={showReleases ? 'true' : 'false'}
-                            data-testid="bv-releases-toggle"
-                        />
-                        <Chip
-                            label={`Style: ${RELEASE_STYLE_LABELS[releaseStyle] || 'Gold Star'}`}
-                            size="small"
-                            onClick={openReleaseStyleMenu}
-                            variant="outlined"
-                            disabled={!showReleases}
-                            sx={{ cursor: showReleases ? 'pointer' : 'not-allowed' }}
-                            aria-haspopup="true"
-                            aria-expanded={Boolean(releaseStyleAnchor) ? 'true' : undefined}
-                            data-testid="bv-release-style-chip"
-                        />
-                        <Menu
-                            anchorEl={releaseStyleAnchor}
-                            open={Boolean(releaseStyleAnchor)}
-                            onClose={closeReleaseStyleMenu}
-                            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                            slotProps={{ paper: { sx: { minWidth: 180 } } }}
-                        >
-                            {[1, 2, 3, 4, 5].map(v => (
-                                <MenuItem
-                                    key={v}
-                                    selected={v === releaseStyle}
-                                    onClick={() => selectReleaseStyle(v)}
-                                    data-testid={`bv-release-style-option-${v}`}
-                                >
-                                    <ListItemIcon>
-                                        {v === releaseStyle ? <CheckIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
-                                    </ListItemIcon>
-                                    <ListItemText
-                                        primary={`${v}. ${RELEASE_STYLE_LABELS[v]}`}
-                                        primaryTypographyProps={{
-                                            sx: v === releaseStyle ? { fontWeight: 600 } : undefined,
-                                        }}
-                                    />
-                                </MenuItem>
-                            ))}
-                        </Menu>
                     </>
                 )}
 
