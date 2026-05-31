@@ -20,6 +20,36 @@ import {
 const ARROW_ID = 'bv-d3-arrow';
 const ARROW_WHISPY_ID = 'bv-d3-arrow-whispy';
 
+// ─── Default ("home") view — single source of truth ────────────────────────
+// Every case that needs the view (re)framed for a freshly-shown project routes
+// through this one function: first mount with a restored project, switching
+// projects, creating a new project, and the auto-fallback after deleting the
+// active project. It is deliberately NOT called for filter/stagger toggles,
+// release-style changes, or user drags — those must preserve the current pan.
+//
+// Horizontal: anchor the SVG's left edge (x=0) at the viewport's left edge.
+// The layout reserves `leftPad` (240px) on the left for the stratum/swim-lane
+// labels (drawn at x≈6) and the main/project endpoint label (anchored to the
+// left of the first build). Showing from x=0 keeps ALL of that visible — plus
+// the first build at x=leftPad. (The previous logic placed the first *build*
+// ~20px from the edge, which translated the whole graph left and shoved the
+// labels — project name + swim lanes — off the left side.)
+//
+// Vertical: if the whole graph fits the viewport, center it; otherwise anchor
+// on the trunk (mainY) so strata above and dev branches below stay reachable.
+function computeInitialView(layout, viewportH) {
+    const x = 0;
+    const graphH = layout?.height || 0;
+    let y;
+    if (graphH > 0 && graphH <= viewportH) {
+        y = Math.round((viewportH - graphH) / 2);
+    } else {
+        const mainY = layout?.mainY || 0;
+        y = Math.round(viewportH / 2 - mainY);
+    }
+    return { x, y };
+}
+
 function dotFill(record, palette) {
     if (record.dotColor === 'green')  return palette.dotGreen;
     if (record.dotColor === 'red')    return palette.dotRed;
@@ -140,6 +170,7 @@ function ReleaseOverlay({ style, pos, customers }) {
 
 const BuildVisualizerCanvas = ({
     model,
+    projectId,
     isLoading,
     error,
     selectedTypes,
@@ -228,25 +259,21 @@ const BuildVisualizerCanvas = ({
         };
     }, [onMouseMove, endDrag]);
 
-    // Reset pan whenever the project changes (req #2720). Translate so the
-    // first main build sits ~20 px from the viewport's left edge AND vertically
-    // centered. Without the vertical centering, dense patterns (Sprint Cycle:
-    // 5 above-strata + main + dev) push main hundreds of pixels down — at
-    // pan.y=0 the user only sees the top strata and main is below the fold.
+    // Frame the default view ONCE per project identity (req #2737). Keyed on
+    // `projectId`, not on `layout`, so filter/stagger toggles — which change
+    // `layout` but not the project — never yank the user's current pan. The
+    // fit waits until this project's layout actually has branches (data load
+    // is async), then runs `computeInitialView` exactly once. Covered cases:
+    // first mount, project switch, new-project create, post-delete fallback.
+    const lastFitProjectId = useRef(null);
     useEffect(() => {
-        const firstBuildX = layout?.mainPath
-            ? Math.max(0, (layout.mainPath.firstBuildX ?? 0))
-            : 0;
-        const firstBuildY = layout?.mainPath
-            ? Math.max(0, (layout.mainPath.firstBuildY ?? 0))
-            : 0;
-        const initX = firstBuildX > 0 ? -(firstBuildX - 20) : 0;
-        // Place main near vertical center of the viewport. Falls back to a
-        // sensible default (300 px) when the viewport hasn't measured yet.
+        if (projectId == null) { lastFitProjectId.current = null; return; }
+        if (!layout.branches.length) return;          // layout not ready yet
+        if (lastFitProjectId.current === projectId) return; // already framed
         const viewportH = viewportRef.current?.clientHeight || 600;
-        const initY = firstBuildY > 0 ? -(firstBuildY - viewportH / 2) : 0;
-        setPan({ x: initX, y: initY });
-    }, [model, layout]);
+        setPan(computeInitialView(layout, viewportH));
+        lastFitProjectId.current = projectId;
+    }, [projectId, layout]);
 
     if (isLoading) {
         return (
@@ -265,7 +292,7 @@ const BuildVisualizerCanvas = ({
     if (!layout.branches.length) {
         return (
             <Box sx={{ p: 2, color: 'text.secondary' }}>
-                No branches in the selected pattern.
+                No branches in the selected project.
             </Box>
         );
     }
@@ -296,6 +323,10 @@ const BuildVisualizerCanvas = ({
                     transformOrigin: '0 0',
                 }}
             >
+                {/* New branch/build groups mount with a fresh key → fade in
+                    once (req #2737). Existing elements have stable keys, so they
+                    never remount and never replay the animation. */}
+                <style>{'@keyframes bvFadeIn{from{opacity:0}to{opacity:1}}.bv-fade{animation:bvFadeIn 240ms ease-out}'}</style>
                 <defs>
                     <marker id={ARROW_ID} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                         <path d="M0,0 L10,5 L0,10 z" fill={palette.line} />
@@ -348,7 +379,7 @@ const BuildVisualizerCanvas = ({
                         />
                     )}
                     {layout.connectors.map(c => (
-                        <g key={c.branchId}>
+                        <g key={c.branchId} className="bv-fade">
                             <path
                                 d={c.curveD}
                                 fill="none"
@@ -375,7 +406,7 @@ const BuildVisualizerCanvas = ({
                         if (b.labelX == null || !b.name) return null;
                         const lines = String(b.name).split('\n');
                         return (
-                            <g key={`label-${b.id}`}>
+                            <g key={`label-${b.id}`} className="bv-fade">
                                 {lines.map((line, i) => (
                                     <text
                                         key={`${b.id}-line-${i}`}
@@ -424,14 +455,21 @@ const BuildVisualizerCanvas = ({
                 <g className="dots">
                     {layout.builds.map(b => {
                         const color = dotFill(b, palette);
-                        const handleClick = (e) => {
-                            // Suppress click when the user was dragging (pan).
-                            if (dragRef.current.moved) return;
+                        // Open the build menu on HOVER (req #2737). Suppressed
+                        // mid-pan so dragging across the canvas doesn't pop menus.
+                        const openMenu = (e) => {
+                            if (dragRef.current.active || dragRef.current.moved) return;
                             e.stopPropagation();
                             if (onBuildClick) onBuildClick(b, e);
                         };
                         return (
-                            <g key={b.id} style={{ cursor: 'pointer' }} onClick={handleClick}>
+                            <g
+                                key={b.id}
+                                className="bv-fade"
+                                style={{ cursor: 'pointer' }}
+                                onMouseEnter={openMenu}
+                                onClick={openMenu}
+                            >
                                 <circle cx={b.x} cy={b.y} r={b.radius} fill={color.fill} stroke={color.stroke} strokeWidth={1.4} />
                                 {/* Transparent hit-area — easier to click than the 5.5 px dot */}
                                 <circle cx={b.x} cy={b.y} r={Math.max(b.radius + 4, 10)} fill="transparent" pointerEvents="all" />
