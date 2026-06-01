@@ -74,6 +74,10 @@
     cursor: grab;
     user-select: none;
     touch-action: pan-x;       /* let horizontal page scroll pass through; we handle vertical */
+    /* req #2744 — reserve a band for the single shared time axis pinned at the
+       top of the frame so day panels scroll BENEATH it (no date/bubble overlap).
+       Matches .ts-shared-timeline-elevator height. */
+    padding-top: 34px;
 }
 .ts-elevator:active { cursor: grabbing; }
 .ts-elevator-inner {
@@ -183,6 +187,14 @@
 .ts-bead-week .ts-bead-timeline        { bottom: 10px; }
 .ts-bead-week .ts-bead-divider-layer   { top: 28px; bottom: 56px; }
 
+/* req #2744 — Week stack with the per-row time axis suppressed (a single shared
+   axis renders at the top of the view). The freed bottom chrome collapses to
+   just the wire near the row's floor, so bubbles ride lower (JS bubbleOffset 24)
+   and the divider layer extends down to the wire so the hour gridlines still run
+   through the bubbles. */
+.ts-bead-week.ts-bead-no-timeline .ts-bead-wire          { bottom: 20px; }
+.ts-bead-week.ts-bead-no-timeline .ts-bead-divider-layer { top: 28px; bottom: 16px; }
+
 /* Sidewalk panel — chrome at top (date on row 1, x-axis time on row 2),
    bubbles stack bottom-up as usual. No side padding so adjacent 24h panels
    butt up seamlessly. */
@@ -266,6 +278,12 @@ body.darwin-dark .ts-bead-day-count-inline {
     left: 0;
     right: 0;
 }
+/* req #2744 — Elevator panels with the per-panel time axis suppressed (a single
+   shared axis is pinned to the top of the frame). The time row (top:46..64) is
+   gone, so the wire and divider layer move up under the date row. Matching JS:
+   BeadRow chromeOffset 46, Elevator panelHeights chromeBottom 46. */
+.ts-bead-sidewalk.ts-bead-no-timeline .ts-bead-wire          { top: 34px; }
+.ts-bead-sidewalk.ts-bead-no-timeline .ts-bead-divider-layer { top: 34px; }
 /* Hide the standalone count badge — Sidewalk shows it inline with the date. */
 .ts-bead-sidewalk .ts-bead-count {
     display: none;
@@ -479,6 +497,65 @@ body.darwin-dark .ts-bead-label {
     }
 }
 
+/* ── req #2744 — single shared time axis (Week stack + Elevator) ──
+   Renders the hour labels (12am 3am 6am …) once at the top of the view instead
+   of once per day row. The labels sit ABOVE their tick lines, which point down
+   toward the per-row vertical dividers that remain. An opaque background keeps
+   day content from showing through when it scrolls under the bar. */
+.ts-shared-timeline {
+    position: relative;
+}
+.ts-shared-timeline .ts-bead-tick {
+    flex-direction: column-reverse;   /* label on top, tick line below pointing down */
+}
+.ts-shared-timeline .ts-bead-tick-line       { height: 6px; }
+.ts-shared-timeline .ts-bead-tick-major .ts-bead-tick-line { height: 10px; }
+.ts-shared-timeline .ts-bead-tick-label {
+    margin-top: 0;
+    margin-bottom: 2px;
+}
+
+/* Week variant — sticky bar above the 7 rows. min-width matches .ts-bead so the
+   tick % positions map to the same content width as the rows below them. */
+.ts-shared-timeline-week {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    min-width: 720px;
+    height: 38px;
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+.ts-shared-timeline-week .ts-bead-timeline {
+    left: 16px;            /* match each row's .ts-bead padding so ticks align */
+    right: 16px;
+    top: 8px;
+    bottom: auto;
+    height: 26px;
+}
+
+/* Elevator variant — pinned to the top of the scrolling frame (frame reserves a
+   matching padding-top so panels scroll beneath it). Sidewalk panels have no
+   side padding, so the axis runs edge-to-edge to match their dividers. */
+.ts-shared-timeline-elevator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    height: 34px;
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    pointer-events: none;
+}
+.ts-shared-timeline-elevator .ts-bead-timeline {
+    left: 0;
+    right: 0;
+    top: 6px;
+    bottom: auto;
+    height: 24px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Dark mode — activated by <body class="darwin-dark">
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -551,4 +628,12 @@ body.darwin-dark .ts-swarm-start-tick {
 }
 body.darwin-dark .ts-swarm-lines marker path {
     fill: rgba(207, 216, 220, 0.85);
+}
+
+/* req #2744 — shared time axis bar: opaque dark background so panels scrolling
+   under it (Elevator) are occluded; matches the .ts-bead-label dark surface. */
+body.darwin-dark .ts-shared-timeline-week,
+body.darwin-dark .ts-shared-timeline-elevator {
+    background: #141210;
+    border-bottom-color: rgba(255, 255, 255, 0.14);
 }
