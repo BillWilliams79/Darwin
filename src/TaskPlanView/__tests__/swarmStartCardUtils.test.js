@@ -41,6 +41,10 @@ describe('sortSwarmReadyItems', () => {
 });
 
 describe('getCoordLabel', () => {
+    it('returns Discuss Req for discuss', () => {
+        expect(getCoordLabel('discuss')).toBe('Discuss Req');
+    });
+
     it('returns Planned for planned', () => {
         expect(getCoordLabel('planned')).toBe('Planned');
     });
