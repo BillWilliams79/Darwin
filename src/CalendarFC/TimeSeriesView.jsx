@@ -514,6 +514,19 @@ const BeadTimeline = ({ ticks }) => (
     </Box>
 );
 
+// req #2744 — single shared time axis rendered once at the top of the view
+// instead of once per day. Used by the Week stack (variant="week": sticky bar
+// above the 7 rows) and the Elevator (variant="elevator": bar pinned to the top
+// of the scrolling frame). Ticks are computed by the parent with the SAME
+// baseHours/visibleHours the rows use, so the labels line up with the per-row
+// vertical hour dividers that remain below. Labels sit above the tick lines,
+// which point down toward the rows (see .ts-shared-timeline CSS).
+const SharedTimeline = ({ ticks, variant }) => (
+    <Box className={`ts-shared-timeline ts-shared-timeline-${variant}`} aria-hidden="true">
+        <BeadTimeline ticks={ticks} />
+    </Box>
+);
+
 const formatDayLabel = (s, tz) => {
     if (!s) return '';
     const d = new Date(s + 'T12:00:00');
@@ -553,6 +566,9 @@ const BeadRow = ({
     titlesOn = false,             // req #2556 — render req title to right of bubble
     crossDays = [], onChipClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
+    hideTimeline = false,    // req #2744 — suppress the per-row time axis; a single
+                             // shared axis is rendered once at the top of the view
+                             // (Week stack + Elevator). Compacts the freed chrome.
     sidewalkHeight,
     canonicalStartById,      // Map<string sessionId, ISO started_at> — swarm alignment
     clusterSizeById,         // Map<string sessionId, n members in its cluster>
@@ -588,10 +604,16 @@ const BeadRow = ({
     // kept only so the height formula below still computes a sane lower bound.
     const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
+    // req #2744 — when the per-row time axis is suppressed (Week stack), the
+    // bottom chrome that held the timeline (wire 64 + axis 10..54) collapses to
+    // just the wire near the row's bottom, so bubbles ride lower and the row is
+    // shorter. The matching CSS (.ts-bead-week.ts-bead-no-timeline) pins the
+    // wire to bottom:20 and extends the divider layer down to it.
+    const LAYOUT_WEEK_NOTL = { bubbleOffset: 24, baseHeight: 80 };
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
-        : isWeekView   ? LAYOUT_WEEK
+        : isWeekView   ? (hideTimeline ? LAYOUT_WEEK_NOTL : LAYOUT_WEEK)
         :                LAYOUT_DAY;
 
     const sessionsByReq = useMemo(() => indexSessionsByRequirement(sessions), [sessions]);
@@ -864,7 +886,12 @@ const BeadRow = ({
     //                   req #2331/#2364, plus ~12px breathing room before row 0).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
-    const chromeOffset  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
+    // req #2744 — Elevator panels (sidewalkPanel) with the time axis suppressed
+    // drop the time row (top:46..64), so the wire moves up to top:34 and row 0
+    // starts at 46 instead of 80. Matching CSS: .ts-bead-sidewalk.ts-bead-no-timeline.
+    const chromeOffset  = sidewalkPanel
+        ? (hideTimeline ? 46 : 80)
+        : (isWeekView ? 26 : 46);
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
@@ -882,7 +909,7 @@ const BeadRow = ({
         : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
     return (
-        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''}`}
+        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''} ${hideTimeline ? 'ts-bead-no-timeline' : ''}`}
              data-testid="ts-bead"
              data-date={selectedDate}
              style={{ height: `${height}px` }}>
@@ -907,7 +934,9 @@ const BeadRow = ({
             )}
 
             <Box className="ts-bead-wire" />
-            <BeadTimeline ticks={ticks} />
+            {/* req #2744 — the per-row time axis is hidden in Week/Elevator
+                where a single shared axis renders at the top of the view. */}
+            {!hideTimeline && <BeadTimeline ticks={ticks} />}
 
             {vizKey === 'swarm' && (
                 <svg className="ts-swarm-lines" data-testid="ts-swarm-lines"
@@ -1876,7 +1905,15 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 // stops where momentum ends (no snap-to-panel, matching Sidewalk). Adjacent
 // day panels butt up with no seam, so bubbles that straddle Sun→Mon feel
 // continuous (req #2383).
-const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+//
+// req #2744 — the frame reserves a top band (`padding-top`) for the single
+// shared time axis pinned at its top. `frameHeight` (clientHeight) still
+// includes that padding, so the scroll math must subtract it to get the real
+// visible content height — otherwise the bottom of the last panel is clipped
+// and centering is biased upward. `clientHeight - padding` equals the content
+// height regardless of box-sizing, so this correction is box-model-agnostic.
+const ELEVATOR_TOP_AXIS_PX = 34;
+const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
@@ -1902,12 +1939,17 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // one-lane-per-chip (maxRow = chips − 1). Without this, bead panels were
     // sized to the swarm worst case and wasted ~80% of their vertical space.
     //
-    // BASE_HEIGHT is intentionally low (140px) — enough to fit the top chrome
-    // (date + time-axis ≈ 122px minimum) plus a little breathing room.
+    // BASE_HEIGHT is intentionally low (140px) — comfortably clears the compact
+    // top chrome (req #2744: date row + wire ≈ 46px, the per-panel time axis was
+    // moved to the single shared bar at the top of the frame) plus breathing room.
     const panelHeights = useMemo(() => {
         const BASE_HEIGHT   = 140;
         const bubbleOffset  = 20;
-        const chromeBottom  = 80;
+        // req #2744 — Elevator panels suppress their per-panel time axis (a single
+        // shared axis sits at the top of the frame), so the top chrome is the
+        // compact 46 (date row + wire) instead of 80. Must match BeadRow's
+        // `chromeOffset = sidewalkPanel && hideTimeline ? 46`.
+        const chromeBottom  = 46;
         const dateClearance = Math.ceil(circleDiameter / 2) + 4;
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
@@ -1993,7 +2035,8 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const indexForOffset = () => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0 || g.stripHeight === 0) return 0;
-        const frameCenterInStrip = -offsetRef.current + (frameHeight / 2);
+        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
+        const frameCenterInStrip = -offsetRef.current + (viewportH / 2);
         for (let i = 0; i < g.heights.length; i++) {
             const bottom = g.cumulative[i] + g.heights[i];
             if (frameCenterInStrip < bottom) return i;
@@ -2007,7 +2050,8 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0) return 0;
         const i = Math.max(0, Math.min(g.heights.length - 1, idx));
-        const target = frameHeight / 2 - g.cumulative[i] - g.heights[i] / 2;
+        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
+        const target = viewportH / 2 - g.cumulative[i] - g.heights[i] / 2;
         return clampOffset(target);
     };
 
@@ -2015,8 +2059,9 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // is shorter than the frame, lock to 0.
     const clampOffset = (y) => {
         const g = panelGeomRef.current;
-        if (!g || g.stripHeight <= frameHeight) return 0;
-        const minOffset = frameHeight - g.stripHeight;
+        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
+        if (!g || g.stripHeight <= viewportH) return 0;
+        const minOffset = viewportH - g.stripHeight;
         return Math.max(minOffset, Math.min(0, y));
     };
 
@@ -2173,12 +2218,17 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 
     return (
         <Box className="ts-elevator" data-testid="ts-elevator" ref={frameRef}>
+            {/* req #2744 — single shared time axis pinned to the top of the
+                frame; panels scroll beneath it (the frame reserves padding-top
+                so dates/bubbles never slide under the bar). */}
+            <SharedTimeline variant="elevator" ticks={sharedTicks} />
             <Box className="ts-elevator-inner" ref={innerRef}>
                 {dates.map((d, i) => (
                     <Box key={d} className="ts-elevator-panel" data-date={d}
                          style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
+                                 hideTimeline={true}
                                  sidewalkHeight={panelHeights[i]}
                                  {...rowProps} />
                     </Box>
@@ -2220,6 +2270,17 @@ const TimeSeriesView = ({
         : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
     const tooltipFontSize = getFontSize(fontSizeKey);
     const circleDiameter  = getCircleSize(circleSizeKey);
+
+    // req #2744 — ticks for the single shared time axis. Each variant mirrors the
+    // base/visible hours its rows compute in BeadRow so the shared labels align
+    // with the per-row vertical dividers:
+    //   Week stack rows → non-sidewalk base (36h base, beadWindow-derived visible).
+    //   Elevator panels → sidewalk base (24h base, 24h visible).
+    const weekTicks = useMemo(
+        () => buildTicks(ZOOM_HOURS[zoomKey]?.['36h'] ?? 36, getZoomHours(zoomKey, beadWindow)),
+        [zoomKey, beadWindow],
+    );
+    const elevatorTicks = useMemo(() => buildTicks(24, 24), []);
 
     // Week view: 7 dates Mon..Sun rendered top=earliest → bottom=Sunday.
     // Stack always ends at Sunday (ISO week convention).
@@ -2375,6 +2436,7 @@ const TimeSeriesView = ({
                 <Elevator
                     centerDate={selectedDate}
                     onCenterDateChange={onCenterDateChange || (() => {})}
+                    sharedTicks={elevatorTicks}
                     requirements={requirements}
                     sessions={sessions}
                     timezone={timezone}
@@ -2426,7 +2488,12 @@ const TimeSeriesView = ({
                     requirementById={requirementById}
                 />
             ) : (
-                <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
+                <>
+                    {/* req #2744 — Week stack: one shared time axis above the 7
+                        rows (sticky to the top) instead of a per-row axis. Day
+                        view keeps its own per-row axis (hideTimeline stays off). */}
+                    {isWeekView && <SharedTimeline variant="week" ticks={weekTicks} />}
+                    <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
                     {rowDates.map(d => (
                         <BeadRow
                             key={d}
@@ -2444,6 +2511,7 @@ const TimeSeriesView = ({
                             zoomKey={zoomKey}
                             categoryList={categoryList}
                             isWeekView={isWeekView}
+                            hideTimeline={isWeekView}
                             crossDays={crossDayMap.get(d) || []}
                             onChipClick={onChipClick}
                             canonicalStartById={canonicalStartById}
@@ -2456,7 +2524,8 @@ const TimeSeriesView = ({
                             requirementById={requirementById}
                         />
                     ))}
-                </Box>
+                    </Box>
+                </>
             )}
         </Box>
     );
