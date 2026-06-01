@@ -7,7 +7,7 @@
 
 export const STAR_COLORS = {
     release:          { fill: '#fbbf24', stroke: '#b45309' }, // gold
-    'sample-release': { fill: '#fbbf24', stroke: '#b45309' }, // gold (Sprint=Sample)
+    'sample-release': { fill: '#fbbf24', stroke: '#b45309' }, // gold (Sprint/Sample)
     csr:              { fill: '#fbbf24', stroke: '#b45309' }, // gold (req #2741)
     hotfix:           { fill: '#d4d4d8', stroke: '#71717a' }, // silver
     bootleg:          { fill: '#ef4444', stroke: '#991b1b' }, // red
