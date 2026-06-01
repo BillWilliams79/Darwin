@@ -234,10 +234,15 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                 >
                     {requirement.id !== '' && (
                         <Box sx={{
-                            width: 6,
+                            width: 8,
                             alignSelf: 'stretch',
                             minHeight: 24,
                             bgcolor: categoryColorMap[requirement.category_fk] || 'transparent',
+                            // Translucent mid-gray outline so the bar stays visible
+                            // regardless of how pale (e.g. DarwinUI #f2e982 on white)
+                            // or dark the category color is, in either theme (req #2752).
+                            border: '1px solid',
+                            borderColor: 'rgba(128,128,128,0.5)',
                             borderRadius: '3px',
                         }} />
                     )}
