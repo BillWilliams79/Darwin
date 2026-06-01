@@ -72,6 +72,23 @@ export const GATE_CONFIRM = 'confirm';
 export const GATE_BLOCK = 'block';
 
 /**
+ * §4.4 — True when creating `childType` from a parent branch of
+ * `parentBranchType` requires a user-chosen first Branch#. Today this fires
+ * ONLY for `sample-release` off a `release` parent, because both types share
+ * the same `base:1, stride:50` reserved Branch# range and the sample freezes
+ * the SAME Build# as the release — a head-on collision. Every other create
+ * path has a distinct reserved range or a distinct frozen Build#.
+ *
+ * The predicate is a simple boolean — it doesn't compute the suggestion or the
+ * used set; those live in versionEngine.js (suggestFirstBranchNumber /
+ * usedBranchNumbersFor). Keeping them separate matches the existing module
+ * boundary: branchEngine owns policy, versionEngine owns version arithmetic.
+ */
+export function needsBranchNumberPrompt({ childType, parentBranchType }) {
+    return childType === 'sample-release' && parentBranchType === 'release';
+}
+
+/**
  * Gate a (would-be) creation on the parent build's state (§4.7).
  *
  * There are currently NO creation gates. The earlier "release requires a

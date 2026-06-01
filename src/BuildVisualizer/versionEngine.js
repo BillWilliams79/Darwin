@@ -179,3 +179,62 @@ export function firstBuildOnNewBranchVersion({ type, parentBuild, siblingOrd0 = 
 export function takesMainMm(branchType) {
     return branchType === 'release';
 }
+
+// ─── Branch# collision helpers (req #2742) ────────────────────────────────
+//
+// When a sample-release is created off a release parent, both types share the
+// same Branch# range (base:1, stride:50) AND the same frozen Build#, so the
+// default first Branch# (=1) collides with the release's own builds. These
+// two helpers let the UI prompt the user for a collision-free first Branch#.
+
+/**
+ * Sorted array of Branch#s already used on the same M.m.B coordinate as
+ * `parentBuild`. Useful for displaying "in use" values so the user can pick
+ * a free one.
+ *
+ * `builds` is the model's builds map (Object) or array — normalized
+ * internally. Null-safe.
+ */
+export function usedBranchNumbersFor({ parentBuild, builds }) {
+    if (!parentBuild || !builds) return [];
+    const M = num(parentBuild.major, NaN);
+    const m = num(parentBuild.minor, NaN);
+    const B = num(parentBuild.build, NaN);
+    if (!Number.isFinite(M) || !Number.isFinite(m) || !Number.isFinite(B)) return [];
+
+    const arr = Array.isArray(builds) ? builds : Object.values(builds);
+    const used = new Set();
+    for (const b of arr) {
+        if (!b) continue;
+        if (num(b.major, NaN) === M && num(b.minor, NaN) === m && num(b.build, NaN) === B) {
+            const bn = num(b.branchNum != null ? b.branchNum : b.branchNumber, NaN);
+            if (Number.isFinite(bn)) used.add(bn);
+        }
+    }
+    return [...used].sort((a, b) => a - b);
+}
+
+/**
+ * Suggest a first Branch# for a new sub-branch that shares `parentBuild`'s
+ * M.m.B coordinate. Returns `1 + max(branchNum)` over all builds on that
+ * coordinate — guaranteed collision-free.
+ *
+ * Fallback chain:
+ *   1. max+1 over the shared M.m.B coordinate.
+ *   2. parentBuild.branchNum + 1 (shouldn't be needed — the parent itself
+ *      occupies the coordinate).
+ *   3. 1 (absolute fallback).
+ */
+export function suggestFirstBranchNumber({ parentBuild, builds }) {
+    const used = usedBranchNumbersFor({ parentBuild, builds });
+    if (used.length > 0) return used[used.length - 1] + 1;
+    // Fallback — the parent itself should be in the set, but be safe.
+    if (parentBuild) {
+        const bn = num(
+            parentBuild.branchNum != null ? parentBuild.branchNum : parentBuild.branchNumber,
+            NaN,
+        );
+        if (Number.isFinite(bn)) return bn + 1;
+    }
+    return 1;
+}

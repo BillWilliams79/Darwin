@@ -11,6 +11,7 @@ import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import Fade from '@mui/material/Fade';
@@ -38,11 +39,14 @@ import {
     isOpenMm,
     openMm,
     takesMainMm,
+    suggestFirstBranchNumber,
+    usedBranchNumbersFor,
 } from './versionEngine';
 import {
     allowedChildTypes,
     canCreate,
     creationGate,
+    needsBranchNumberPrompt,
     GATE_BLOCK,
     GATE_CONFIRM,
 } from './branchEngine';
@@ -50,6 +54,7 @@ import {
     DEFAULT_DARK_VARIANT,
     isThemeVariant,
 } from './themeVariants';
+import { canDeleteBuild, canDeleteBranch } from './deleteRules';
 import ThemeContext from '../Theme/ThemeContext';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -115,6 +120,15 @@ const BuildVisualizerPage = () => {
     });
     const [releaseDialog, setReleaseDialog] = useState(null);
     const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+
+    // Delete confirmation dialog (req #2742). A single dialog driven by a state
+    // object replaces both window.confirm calls. Everything needed to display the
+    // message AND execute the delete is snapshot at open time so the originating
+    // popover/editor can close immediately. The preview box mirrors TaskDeleteDialog:
+    // generic prompt + bordered preview rendering the item with context.
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
+    // shape (build): { kind:'build', sqlId, version, branchName, releaseEventCount, approvedForRelease }
+    // shape (branch): { kind:'branch', sqlId, branchName, typeLabel, buildCount, releaseEventCount }
 
     // Branch-type chip rail.
     const [selectedTypes, setSelectedTypes] = useState(() => [...BRANCH_TYPES]);
@@ -189,6 +203,17 @@ const BuildVisualizerPage = () => {
         });
     }, [cancelCloseDotMenu]);
 
+    // Empty-branch anchor click — opens the dot menu in "empty anchor" mode:
+    // only Execute Build is shown (no buildRecord exists).
+    const handleEmptyAnchorClick = useCallback((branchId, e) => {
+        cancelCloseDotMenu();
+        setDotMenu({
+            emptyBranchId: branchId,
+            mouseX: e.clientX,
+            mouseY: e.clientY,
+        });
+    }, [cancelCloseDotMenu]);
+
     const closeDotMenu = useCallback(() => {
         cancelCloseDotMenu();
         setDotMenu(null);
@@ -211,13 +236,25 @@ const BuildVisualizerPage = () => {
     useEffect(() => {
         setDotMenu(null);
         setBranchEditor(null);
+        setSampleBranchNumPrompt(null);
+        // Also drop the delete-confirm dialog: it snapshots a SQL id from the
+        // outgoing project, so leaving it open across a switch would let its
+        // confirm fire a DELETE against an entity no longer on screen (req #2742).
+        setDeleteConfirm(null);
     }, [projectId]);
 
-    // Look up the branch object for the clicked build.
+    // Look up the branch object for the clicked build (or empty anchor).
     const dotMenuBranch = useMemo(() => {
         if (!dotMenu || !model?.branches) return null;
+        if (dotMenu.emptyBranchId) {
+            return model.branches.find(b => b.id === dotMenu.emptyBranchId) || null;
+        }
+        if (!dotMenu.buildRecord) return null;
         return model.branches.find(b => b.id === dotMenu.buildRecord.branchId) || null;
     }, [dotMenu, model]);
+
+    // True when the dot menu is open in empty-anchor mode (no builds on branch).
+    const isEmptyAnchorMenu = !!dotMenu?.emptyBranchId;
 
     // Resolve the SQL branch id for the clicked build's branch. We need this
     // for POST /builds (adding a build) and POST /branches (creating a branch).
@@ -296,6 +333,19 @@ const BuildVisualizerPage = () => {
         }
         setVersionPrompt(null);
     }, [versionPrompt, vpMajor, vpMinor, darwinUri, idToken, invalidateBuildData]);
+
+    // ─── Sprint branch-number prompt (req #2742) ────────────────────────
+    // When a sample-release is created off a release parent, both share the
+    // same reserved Branch# range + the same frozen Build#, so the default
+    // first Branch# collides. This prompt lets the user choose a free one.
+    const [sampleBranchNumPrompt, setSampleBranchNumPrompt] = useState(null);
+    // shape: { type, parentBuildExtId, parentBuildSqlId, projectId, parentBranchName,
+    //          frozen: {major,minor,build}, suggested, used: [...] }
+    const [sbnValue, setSbnValue] = useState('');
+
+    const sbnParsed = parseInt(sbnValue, 10);
+    const sbnValid = Number.isFinite(sbnParsed) && sbnParsed >= 1;
+    const sbnInUse = sbnValid && sampleBranchNumPrompt?.used?.includes(sbnParsed);
 
     // ─── Branch editor (req #2741) ───────────────────────────────────────
     // Clicking a branch name label (including main's trunk label) opens this
@@ -388,46 +438,140 @@ const BuildVisualizerPage = () => {
         closeDotMenu();
     }, [dotMenu, dotMenuBranch, model, darwinUri, idToken, closeDotMenu, invalidateBuildData, openVersionPrompt]);
 
-    const handleCreateBranch = useCallback(async (type, count = 1) => {
-        if (!dotMenu || !projectId) { closeDotMenu(); return; }
-        // BranchEngine policy gate (§4.7). Submenu already filters to allowed
-        // types; this guards programmatic / stale calls too. Multi-create is
-        // only offered for MULTI_BRANCH_TYPES; clamp accordingly.
-        const parentType = dotMenuBranch?.type || 'main';
-        if (!canCreate(parentType, type).allowed) { closeDotMenu(); return; }
-        const gate = creationGate(type, dotMenu.buildRecord);
-        if (gate.action === GATE_BLOCK) { closeDotMenu(); return; }
-        if (gate.action === GATE_CONFIRM && !window.confirm(gate.message)) { closeDotMenu(); return; }
-        const n = MULTI_BRANCH_TYPES.has(type)
-            ? Math.max(1, Math.min(MAX_BRANCHES_PER_HOLD, Math.floor(count) || 1))
-            : 1;
-        const buildExtId = dotMenu.buildRecord.id;
-        const buildSqlRow = buildSqlIdRef.current.get(buildExtId);
-        if (!buildSqlRow) { closeDotMenu(); return; }
-        const parentBuildSqlId = buildSqlRow.id || buildSqlRow;
-        const label = REGISTRY[type]?.label || type;
-        const parentBuild = fromModelBuild(model.builds?.[buildExtId]);
-        // Sibling ordinal base — each new branch in this batch is the next
-        // same-type sibling off this parent build, so Branch# walks the
-        // reserved range (e.g. hotfix 6000, 6050, 6100 …).
-        const baseOrd0 = (model.branches || [])
-            .filter(b => b.parentBuildId === buildExtId && b.type === type).length;
-        const stamp = Date.now();
+    // ─── Execute builds on an EMPTY branch (req #2742) ──────────────────
+    // The branch exists but has zero builds. The first build uses the branch's
+    // frozen/current version (same as doCreateBranch would), and subsequent
+    // builds in a hold-to-N walk via nextBuildVersion from that seed.
+    const executeBuildsOnEmptyBranch = useCallback(async (count) => {
+        const n = Math.max(1, Math.min(MAX_BUILDS_PER_HOLD, Math.floor(count) || 1));
+        if (!dotMenu?.emptyBranchId || !dotMenuBranch) { closeDotMenu(); return; }
+        const branch = dotMenuBranch;
+        const branchSqlId = branchSqlIdRef.current.get(branch.id);
+        if (!branchSqlId) { closeDotMenu(); return; }
 
-        // `release` carries main's M.m away (§4.2). release isn't a multi type,
-        // so n === 1 here; the handoff runs once after creation.
+        // Resolve the first-build version based on branch type.
+        let firstVersion;
+        if (branch.type === 'main') {
+            // Main — use nextBuildVersion with no lastBuild.
+            const branchMm = { major: branch.major, minor: branch.minor };
+            if (isOpenMm(branchMm)) {
+                closeDotMenu();
+                openVersionPrompt(branchSqlId, branch.name || 'Main');
+                return;
+            }
+            firstVersion = nextBuildVersion({ branchType: 'main', lastBuild: null, branchMm });
+        } else {
+            // Sub-branch — use firstBuildOnNewBranchVersion with parent build.
+            const parentBuild = fromModelBuild(
+                branch.parentBuildId ? model.builds?.[branch.parentBuildId] : null,
+            );
+            if (!parentBuild) { closeDotMenu(); return; }
+
+            const parentBranch = model.branches?.find(b => b.id === branch.parentBranchId);
+            const parentBranchType = parentBranch?.type || 'main';
+
+            // Sprint-branch-number prompt gate: sample-release off release parent.
+            if (needsBranchNumberPrompt({ childType: branch.type, parentBranchType })) {
+                const suggested = suggestFirstBranchNumber({ parentBuild, builds: model.builds });
+                const used = usedBranchNumbersFor({ parentBuild, builds: model.builds });
+                const parentBranchName = String(parentBranch?.name || parentBranchType).replace(/\n/g, ' / ');
+                setSbnValue(String(suggested));
+                setSampleBranchNumPrompt({
+                    type: branch.type,
+                    parentBuildExtId: branch.parentBuildId,
+                    parentBuildSqlId: buildSqlIdRef.current.get(branch.parentBuildId)?.id
+                        || buildSqlIdRef.current.get(branch.parentBuildId),
+                    projectId,
+                    parentBranchName,
+                    frozen: {
+                        major: parentBuild.major ?? 0,
+                        minor: parentBuild.minor ?? 0,
+                        build: parentBuild.build ?? 0,
+                    },
+                    suggested,
+                    used,
+                    parentBuild,
+                    baseOrd0: 0,
+                    // Flag: creating first build on EXISTING empty branch, not a new branch.
+                    emptyBranchSqlId: branchSqlId,
+                    emptyBranchExtId: branch.id,
+                });
+                closeDotMenu();
+                return;
+            }
+
+            // Count same-type siblings off the same parent build (excluding self).
+            const siblingOrd0 = (model.branches || [])
+                .filter(b => b.parentBuildId === branch.parentBuildId
+                    && b.type === branch.type
+                    && b.id !== branch.id)
+                .length;
+            firstVersion = firstBuildOnNewBranchVersion({
+                type: branch.type,
+                parentBuild,
+                siblingOrd0,
+            });
+        }
+
+        // Build the POST chain: first build uses firstVersion, subsequent walk.
+        const posts = [];
+        let lastBuild = firstVersion;
+        const branchMm = { major: firstVersion.major, minor: firstVersion.minor };
+        for (let i = 0; i < n; i++) {
+            const v = i === 0 ? firstVersion : nextBuildVersion({
+                branchType: branch.type,
+                lastBuild,
+                branchMm,
+            });
+            posts.push(call_rest_api(
+                `${darwinUri}/builds`, 'POST',
+                {
+                    branch_fk: branchSqlId,
+                    position: i,
+                    ...toBuildRow(v),
+                    external_id: `${branch.id}-b${i + 1}`,
+                },
+                idToken,
+            ));
+            lastBuild = v;
+        }
+        try {
+            await Promise.all(posts);
+            invalidateBuildData();
+        } catch (err) {
+            console.error('[BuildVisualizer] Execute builds on empty branch failed:', err);
+        }
+        closeDotMenu();
+    }, [dotMenu, dotMenuBranch, model, projectId, darwinUri, idToken, closeDotMenu,
+        invalidateBuildData, openVersionPrompt]);
+
+    // ─── Refactored create-branch helper (req #2742) ─────────────────────
+    // Factored out so the sprint-branch-number prompt can call it with a
+    // user-chosen firstBranchNumOverride. When present (n===1 sample path),
+    // the first build's version is computed normally and then its branchNumber
+    // is replaced with the override. Subsequent builds added later walk
+    // lastBuild.branchNumber + 1 via nextBuildVersion — they continue cleanly.
+    const doCreateBranch = useCallback(async ({
+        type, n, buildExtId, parentBuildSqlId, parentBuild, baseOrd0, pid,
+        firstBranchNumOverride,
+    }) => {
+        const label = REGISTRY[type]?.label || type;
+        const stamp = Date.now();
         const mainSqlId = branchSqlIdRef.current.get('main');
         const doHandoff = takesMainMm(type) && mainSqlId;
 
-        // One independent POST-branch → POST-its-first-build chain per branch;
-        // run them in parallel (distinct external_ids + Branch#s).
         const chains = Array.from({ length: n }, (_, i) => (async () => {
-            const v = firstBuildOnNewBranchVersion({ type, parentBuild, siblingOrd0: baseOrd0 + i });
+            const base = firstBuildOnNewBranchVersion({ type, parentBuild, siblingOrd0: baseOrd0 + i });
+            // When a firstBranchNumOverride is supplied (sprint off release),
+            // replace the computed Branch# with the user's chosen value.
+            const v = (firstBranchNumOverride != null && i === 0)
+                ? { ...base, branchNumber: firstBranchNumOverride }
+                : base;
             const slug = `${type}-${stamp}-${i}`;
             const branchRes = await call_rest_api(
                 `${darwinUri}/branches`, 'POST',
                 {
-                    project_fk: projectId,
+                    project_fk: pid,
                     branch_type: type,
                     name: label,
                     major: v.major,
@@ -454,27 +598,126 @@ const BuildVisualizerPage = () => {
             }
         })());
 
+        await Promise.all(chains);
+        if (doHandoff) {
+            const open = openMm();
+            await call_rest_api(
+                `${darwinUri}/branches`, 'PUT',
+                [{ id: mainSqlId, major: open.major, minor: open.minor }],
+                idToken,
+            );
+            openVersionPrompt(mainSqlId, 'Main');
+        }
+        invalidateBuildData();
+    }, [darwinUri, idToken, invalidateBuildData, openVersionPrompt]);
+
+    const handleCreateBranch = useCallback(async (type, count = 1) => {
+        if (!dotMenu || !projectId) { closeDotMenu(); return; }
+        // BranchEngine policy gate (§4.7). Submenu already filters to allowed
+        // types; this guards programmatic / stale calls too. Multi-create is
+        // only offered for MULTI_BRANCH_TYPES; clamp accordingly.
+        const parentType = dotMenuBranch?.type || 'main';
+        if (!canCreate(parentType, type).allowed) { closeDotMenu(); return; }
+        const gate = creationGate(type, dotMenu.buildRecord);
+        if (gate.action === GATE_BLOCK) { closeDotMenu(); return; }
+        if (gate.action === GATE_CONFIRM && !window.confirm(gate.message)) { closeDotMenu(); return; }
+        const n = MULTI_BRANCH_TYPES.has(type)
+            ? Math.max(1, Math.min(MAX_BRANCHES_PER_HOLD, Math.floor(count) || 1))
+            : 1;
+        const buildExtId = dotMenu.buildRecord.id;
+        const buildSqlRow = buildSqlIdRef.current.get(buildExtId);
+        if (!buildSqlRow) { closeDotMenu(); return; }
+        const parentBuildSqlId = buildSqlRow.id || buildSqlRow;
+        const parentBuild = fromModelBuild(model.builds?.[buildExtId]);
+        const baseOrd0 = (model.branches || [])
+            .filter(b => b.parentBuildId === buildExtId && b.type === type).length;
+
+        // ─── Sprint-branch-number prompt gate (req #2742) ─────────────────
+        // sample-release off a release parent: both share the same Branch#
+        // range + the same frozen Build#. Prompt for a collision-free first
+        // Branch# instead of creating with the default (which collides).
+        if (needsBranchNumberPrompt({ childType: type, parentBranchType: parentType })) {
+            const suggested = suggestFirstBranchNumber({ parentBuild, builds: model.builds });
+            const used = usedBranchNumbersFor({ parentBuild, builds: model.builds });
+            const parentBranchName = String(dotMenuBranch?.name || parentType).replace(/\n/g, ' / ');
+            setSbnValue(String(suggested));
+            setSampleBranchNumPrompt({
+                type,
+                parentBuildExtId: buildExtId,
+                parentBuildSqlId,
+                projectId,
+                parentBranchName,
+                frozen: {
+                    major: parentBuild?.major ?? 0,
+                    minor: parentBuild?.minor ?? 0,
+                    build: parentBuild?.build ?? 0,
+                },
+                suggested,
+                used,
+                parentBuild,
+                baseOrd0,
+            });
+            closeDotMenu();
+            return;
+        }
+
         try {
-            await Promise.all(chains);
-            if (doHandoff) {
-                // Set main open — next build refused until the user assigns M.m.
-                const open = openMm();
-                await call_rest_api(
-                    `${darwinUri}/branches`, 'PUT',
-                    [{ id: mainSqlId, major: open.major, minor: open.minor }],
-                    idToken,
-                );
-                // Prompt ONLY after the open-PUT actually succeeded — otherwise a
-                // failed release-create would pop a dialog that overwrites main's
-                // still-valid M.m on confirm.
-                openVersionPrompt(mainSqlId, 'Main');
-            }
-            invalidateBuildData();
+            await doCreateBranch({
+                type, n, buildExtId, parentBuildSqlId, parentBuild, baseOrd0, pid: projectId,
+            });
         } catch (err) {
             console.error('[BuildVisualizer] Create branch failed:', err);
         }
         closeDotMenu();
-    }, [dotMenu, dotMenuBranch, projectId, model, darwinUri, idToken, closeDotMenu, invalidateBuildData, openVersionPrompt]);
+    }, [dotMenu, dotMenuBranch, projectId, model, darwinUri, idToken, closeDotMenu, invalidateBuildData, openVersionPrompt, doCreateBranch]);
+
+    // Confirm handler for the sprint branch-number prompt. Supports two modes:
+    //   1. Normal: creating a new branch + first build (doCreateBranch).
+    //   2. Empty-branch: adding the first build to an existing empty branch
+    //      (emptyBranchSqlId is set — POST /builds only, no branch creation).
+    const confirmSampleBranchNum = useCallback(async () => {
+        if (!sampleBranchNumPrompt || !sbnValid) return;
+        const {
+            type, parentBuildSqlId, projectId: pid,
+            parentBuild, baseOrd0, parentBuildExtId,
+            emptyBranchSqlId, emptyBranchExtId,
+        } = sampleBranchNumPrompt;
+        try {
+            if (emptyBranchSqlId) {
+                // Mode 2: first build on existing empty branch.
+                const base = firstBuildOnNewBranchVersion({
+                    type, parentBuild, siblingOrd0: baseOrd0,
+                });
+                const v = { ...base, branchNumber: sbnParsed };
+                await call_rest_api(
+                    `${darwinUri}/builds`, 'POST',
+                    {
+                        branch_fk: emptyBranchSqlId,
+                        position: 0,
+                        ...toBuildRow(v),
+                        external_id: `${emptyBranchExtId}-b1`,
+                    },
+                    idToken,
+                );
+                invalidateBuildData();
+            } else {
+                // Mode 1: create new branch + first build.
+                await doCreateBranch({
+                    type,
+                    n: 1,
+                    buildExtId: parentBuildExtId,
+                    parentBuildSqlId,
+                    parentBuild,
+                    baseOrd0,
+                    pid,
+                    firstBranchNumOverride: sbnParsed,
+                });
+            }
+        } catch (err) {
+            console.error('[BuildVisualizer] Create sprint branch failed:', err);
+        }
+        setSampleBranchNumPrompt(null);
+    }, [sampleBranchNumPrompt, sbnValid, sbnParsed, doCreateBranch, darwinUri, idToken, invalidateBuildData]);
 
     const handleToggleApproved = useCallback(async () => {
         if (!dotMenu) return;
@@ -506,6 +749,81 @@ const BuildVisualizerPage = () => {
         setSelectedCustomerIds([]);
         closeDotMenu();
     }, [dotMenu, closeDotMenu]);
+
+    // Delete build (req #2742). Gated by canDeleteBuild — last build on a
+    // multi-build branch with no child branches parented off it. Opens the
+    // delete confirmation dialog; the actual DELETE runs from confirmDelete.
+    const handleDeleteBuild = useCallback(() => {
+        if (!dotMenu || !dotMenuBranch) return;
+        const buildExtId = dotMenu.buildRecord.id;
+        const version = dotMenu.buildRecord.version || buildExtId;
+        const row = buildSqlIdRef.current.get(buildExtId);
+        const sqlId = row?.id || row;
+        if (!sqlId) { closeDotMenu(); return; }
+        const releaseEventCount = (model?.releaseEvents?.[buildExtId] || []).length;
+        const branchName = String(dotMenuBranch.name || dotMenuBranch.id).replace(/\n/g, ' / ');
+        setDeleteConfirm({
+            kind: 'build',
+            sqlId: Number(sqlId),
+            version,
+            branchName,
+            releaseEventCount,
+            approvedForRelease: !!dotMenu.buildRecord.approvedForRelease,
+        });
+        closeDotMenu();
+    }, [dotMenu, dotMenuBranch, model, closeDotMenu]);
+
+    // Delete branch (req #2742). Gated by canDeleteBranch — not main and no
+    // child branches. FK cascade removes builds + customer_releases. Opens the
+    // delete confirmation dialog; the actual DELETE runs from confirmDelete.
+    const handleDeleteBranch = useCallback(() => {
+        if (!branchEditor || !branchEditorBranch) return;
+        const branchName = String(branchEditorBranch.name || branchEditor.branchId).replace(/\n/g, ' / ');
+        const buildCount = branchEditorBranch.buildIds?.length || 0;
+        const sqlId = branchSqlIdRef.current.get(branchEditor.branchId);
+        if (!sqlId) { closeBranchEditor(); return; }
+        // Sum release events across all builds on this branch.
+        const releaseEventCount = (branchEditorBranch.buildIds || []).reduce(
+            (sum, bid) => sum + (model?.releaseEvents?.[bid] || []).length,
+            0,
+        );
+        const typeLabel = REGISTRY[branchEditorBranch.type]?.label || branchEditorBranch.type;
+        setDeleteConfirm({
+            kind: 'branch',
+            sqlId: Number(sqlId),
+            branchName,
+            typeLabel,
+            buildCount,
+            releaseEventCount,
+        });
+        closeBranchEditor();
+    }, [branchEditor, branchEditorBranch, model, closeBranchEditor]);
+
+    // Confirm handler for the delete dialog — executes the actual DELETE,
+    // invalidates the cache, then closes the dialog.
+    const confirmDelete = useCallback(async () => {
+        if (!deleteConfirm) return;
+        const { kind, sqlId } = deleteConfirm;
+        try {
+            if (kind === 'build') {
+                await call_rest_api(
+                    `${darwinUri}/builds`, 'DELETE',
+                    { id: sqlId },
+                    idToken,
+                );
+            } else {
+                await call_rest_api(
+                    `${darwinUri}/branches`, 'DELETE',
+                    { id: sqlId },
+                    idToken,
+                );
+            }
+            invalidateBuildData();
+        } catch (err) {
+            console.error(`[BuildVisualizer] Delete ${kind} failed:`, err);
+        }
+        setDeleteConfirm(null);
+    }, [deleteConfirm, darwinUri, idToken, invalidateBuildData]);
 
     // Branch types available for the "Create branch" submenu — driven by the
     // BranchEngine matrix (§4.7) from the clicked build's branch type.
@@ -612,6 +930,7 @@ const BuildVisualizerPage = () => {
                 onBuildClick={handleBuildClick}
                 onBuildLeave={scheduleCloseDotMenu}
                 onBranchClick={handleBranchClick}
+                onEmptyAnchorClick={handleEmptyAnchorClick}
                 resetViewNonce={resetViewNonce}
             />
 
@@ -646,94 +965,139 @@ const BuildVisualizerPage = () => {
                 sx={{ pointerEvents: 'none' }}
                 data-testid="bv-build-menu"
             >
-                {/* Build Info Card */}
-                <Box sx={{ px: 2, pt: 1, pb: 0.5, pointerEvents: 'none' }}>
-                    <Typography variant="subtitle2" fontWeight={700}>
-                        Build {dotMenu?.buildRecord?.version}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                        {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                        {(() => {
-                            const ts = dotMenu && model?.builds?.[dotMenu.buildRecord.id]?.createdAt;
-                            return ts ? new Date(ts).toLocaleString() : '—';
-                        })()}
-                    </Typography>
-                </Box>
-                <Divider />
+                {isEmptyAnchorMenu ? (
+                    /* ─── Empty-anchor mode — Execute Build only ─── */
+                    <>
+                        <Box sx={{ px: 2, pt: 1, pb: 0.5, pointerEvents: 'none' }}>
+                            <Typography variant="subtitle2" fontWeight={700}>
+                                {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                No builds yet
+                            </Typography>
+                        </Box>
+                        <Divider />
+                        <HoldCountButton
+                            label="Execute Build"
+                            onExecute={executeBuildsOnEmptyBranch}
+                            maxQty={MAX_BUILDS_PER_HOLD}
+                            dwellMs={HOLD_DWELL_MS}
+                            startDelayMs={HOLD_START_DELAY_MS}
+                            data-testid="bv-menu-add-build"
+                        />
+                    </>
+                ) : (
+                    /* ─── Normal build-dot mode ─── */
+                    <>
+                        {/* Build Info Card */}
+                        <Box sx={{ px: 2, pt: 1, pb: 0.5, pointerEvents: 'none' }}>
+                            <Typography variant="subtitle2" fontWeight={700}>
+                                Build {dotMenu?.buildRecord?.version}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                {(() => {
+                                    const ts = dotMenu && model?.builds?.[dotMenu.buildRecord?.id]?.createdAt;
+                                    return ts ? new Date(ts).toLocaleString() : '—';
+                                })()}
+                            </Typography>
+                        </Box>
+                        <Divider />
 
-                <HoldCountButton
-                    label="Execute Build"
-                    onExecute={executeBuilds}
-                    maxQty={MAX_BUILDS_PER_HOLD}
-                    dwellMs={HOLD_DWELL_MS}
-                    startDelayMs={HOLD_START_DELAY_MS}
-                    data-testid="bv-menu-add-build"
-                />
+                        <HoldCountButton
+                            label="Execute Build"
+                            onExecute={executeBuilds}
+                            maxQty={MAX_BUILDS_PER_HOLD}
+                            dwellMs={HOLD_DWELL_MS}
+                            startDelayMs={HOLD_START_DELAY_MS}
+                            data-testid="bv-menu-add-build"
+                        />
 
-                {/* Production Ready — two-state toggle (req #2737). Off = not
-                    production ready (default); On = production ready. */}
-                <MenuItem onClick={handleToggleApproved} data-testid="bv-menu-approve">
-                    <FormControlLabel
-                        sx={{ m: 0, pointerEvents: 'none' }}
-                        control={(
-                            <Switch
-                                size="small"
-                                checked={!!dotMenu?.buildRecord?.approvedForRelease}
-                                tabIndex={-1}
-                                inputProps={{ readOnly: true, 'data-testid': 'bv-menu-approve-switch' }}
+                        {/* Production Ready — two-state toggle (req #2737). Off = not
+                            production ready (default); On = production ready. */}
+                        <MenuItem onClick={handleToggleApproved} data-testid="bv-menu-approve">
+                            <FormControlLabel
+                                sx={{ m: 0, pointerEvents: 'none' }}
+                                control={(
+                                    <Switch
+                                        size="small"
+                                        checked={!!dotMenu?.buildRecord?.approvedForRelease}
+                                        tabIndex={-1}
+                                        inputProps={{ readOnly: true, 'data-testid': 'bv-menu-approve-switch' }}
+                                    />
+                                )}
+                                label="Production Ready"
                             />
-                        )}
-                        label="Production Ready"
-                    />
-                </MenuItem>
+                        </MenuItem>
 
-                {dotMenu?.buildRecord?.approvedForRelease && (
-                    <MenuItem onClick={handlePerformReleaseEvent} data-testid="bv-menu-release-prompt">
-                        Perform release event…
-                    </MenuItem>
-                )}
-
-                <Divider />
-                <ListSubheader
-                    disableSticky
-                    sx={{
-                        bgcolor: 'transparent',
-                        lineHeight: 1.8,
-                        fontSize: '0.7rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                    }}
-                >
-                    Create branch
-                </ListSubheader>
-                {branchSubtypes.length === 0 && (
-                    <MenuItem disabled>No branches allowed here</MenuItem>
-                )}
-                {branchSubtypes.map(t => (
-                    MULTI_BRANCH_TYPES.has(t)
-                        ? (
-                            <HoldCountButton
-                                key={t}
-                                label={branchTypeLabel(t)}
-                                onExecute={(n) => handleCreateBranch(t, n)}
-                                maxQty={MAX_BRANCHES_PER_HOLD}
-                                dwellMs={HOLD_DWELL_MS}
-                                startDelayMs={HOLD_START_DELAY_MS}
-                                data-testid={`bv-menu-branch-${t}`}
-                            />
-                        )
-                        : (
-                            <MenuItem
-                                key={t}
-                                onClick={() => handleCreateBranch(t)}
-                                data-testid={`bv-menu-branch-${t}`}
-                            >
-                                {branchTypeLabel(t)}
+                        {dotMenu?.buildRecord?.approvedForRelease && (
+                            <MenuItem onClick={handlePerformReleaseEvent} data-testid="bv-menu-release-prompt">
+                                Perform release event…
                             </MenuItem>
-                        )
-                ))}
+                        )}
+
+                        <Divider />
+                        <ListSubheader
+                            disableSticky
+                            sx={{
+                                bgcolor: 'transparent',
+                                lineHeight: 1.8,
+                                fontSize: '0.7rem',
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.5,
+                            }}
+                        >
+                            Create branch
+                        </ListSubheader>
+                        {branchSubtypes.length === 0 && (
+                            <MenuItem disabled>No branches allowed here</MenuItem>
+                        )}
+                        {branchSubtypes.map(t => (
+                            MULTI_BRANCH_TYPES.has(t)
+                                ? (
+                                    <HoldCountButton
+                                        key={t}
+                                        label={branchTypeLabel(t)}
+                                        onExecute={(n) => handleCreateBranch(t, n)}
+                                        maxQty={MAX_BRANCHES_PER_HOLD}
+                                        dwellMs={HOLD_DWELL_MS}
+                                        startDelayMs={HOLD_START_DELAY_MS}
+                                        data-testid={`bv-menu-branch-${t}`}
+                                    />
+                                )
+                                : (
+                                    <MenuItem
+                                        key={t}
+                                        onClick={() => handleCreateBranch(t)}
+                                        data-testid={`bv-menu-branch-${t}`}
+                                    >
+                                        {branchTypeLabel(t)}
+                                    </MenuItem>
+                                )
+                        ))}
+
+                        {/* Delete build — destructive, at the bottom (req #2742).
+                            Gated: last build, no child branch parented off it. */}
+                        {dotMenu && dotMenuBranch && dotMenu.buildRecord && canDeleteBuild({
+                            branch: dotMenuBranch,
+                            buildId: dotMenu.buildRecord.id,
+                            branches: model?.branches || [],
+                        }) && (
+                            <>
+                                <Divider />
+                                <MenuItem
+                                    onClick={handleDeleteBuild}
+                                    data-testid="bv-menu-delete-build"
+                                    sx={{ color: 'error.main' }}
+                                >
+                                    Delete build…
+                                </MenuItem>
+                            </>
+                        )}
+                    </>
+                )}
             </Popover>
 
             <Dialog
@@ -872,6 +1236,21 @@ const BuildVisualizerPage = () => {
                     )}
                 </DialogContent>
                 <DialogActions>
+                    {/* Delete — destructive, left-aligned (req #2742).
+                        Gated: not main and no child branches. */}
+                    {branchEditorBranch && canDeleteBranch({
+                        branch: branchEditorBranch,
+                        branches: model?.branches || [],
+                    }) && (
+                        <Button
+                            color="error"
+                            onClick={handleDeleteBranch}
+                            sx={{ mr: 'auto' }}
+                            data-testid="bv-branch-delete"
+                        >
+                            Delete
+                        </Button>
+                    )}
                     <Button onClick={closeBranchEditor}>Cancel</Button>
                     <Button
                         onClick={confirmBranchEditor}
@@ -880,6 +1259,157 @@ const BuildVisualizerPage = () => {
                         data-testid="bv-branch-save"
                     >
                         Save
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ─── Sprint branch-number prompt (req #2742) ─── */}
+            <Dialog
+                open={!!sampleBranchNumPrompt}
+                onClose={() => setSampleBranchNumPrompt(null)}
+                data-testid="bv-sample-branchnum-prompt"
+            >
+                <DialogTitle>Sprint branch number</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                        A sprint branch off a release shares the release's
+                        Major.Minor.Build coordinate, so it needs its own Branch#
+                        to avoid version collisions.
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 0.5, fontFamily: 'monospace', fontWeight: 600 }}>
+                        Version: {sampleBranchNumPrompt
+                            ? `${sampleBranchNumPrompt.frozen.major}.${sampleBranchNumPrompt.frozen.minor}.${sampleBranchNumPrompt.frozen.build}.x`
+                            : ''}
+                    </Typography>
+                    {sampleBranchNumPrompt?.used?.length > 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                            In use: {sampleBranchNumPrompt.used.join(', ')}
+                        </Typography>
+                    )}
+                    <TextField
+                        label="First Branch#"
+                        type="number"
+                        autoFocus
+                        fullWidth
+                        margin="dense"
+                        value={sbnValue}
+                        onChange={(e) => setSbnValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && sbnValid) confirmSampleBranchNum(); }}
+                        inputProps={{
+                            min: 1,
+                            step: 1,
+                            'data-testid': 'bv-sample-branchnum-input',
+                        }}
+                        error={sbnInUse}
+                        helperText={sbnInUse
+                            ? `Branch# ${sbnParsed} is already in use on this version`
+                            : ''}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setSampleBranchNumPrompt(null)}
+                        data-testid="bv-sample-branchnum-cancel"
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={confirmSampleBranchNum}
+                        disabled={!sbnValid}
+                        variant="contained"
+                        data-testid="bv-sample-branchnum-confirm"
+                    >
+                        Confirm
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ─── Delete confirmation dialog (req #2742) ───
+                 Mirrors TaskDeleteDialog: generic prompt + bordered preview
+                 box rendering the item with contextual attributes. */}
+            <Dialog
+                open={!!deleteConfirm}
+                onClose={() => setDeleteConfirm(null)}
+                data-testid="bv-delete-dialog"
+            >
+                <DialogTitle>
+                    {deleteConfirm?.kind === 'build' ? 'Delete Build' : 'Delete Branch'}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText data-testid="bv-delete-message">
+                        {deleteConfirm?.kind === 'build'
+                            ? 'Do you want to permanently delete this build?'
+                            : 'Do you want to permanently delete this branch?'}
+                    </DialogContentText>
+                    {deleteConfirm && (
+                        <Box
+                            data-testid="bv-delete-preview"
+                            sx={{
+                                mt: 2,
+                                mx: 2,
+                                p: 1.5,
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                borderRadius: 1,
+                                bgcolor: 'background.paper',
+                            }}
+                        >
+                            {deleteConfirm.kind === 'build' ? (
+                                <>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ fontFamily: 'monospace', fontWeight: 700 }}
+                                    >
+                                        {deleteConfirm.version}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {deleteConfirm.branchName}
+                                    </Typography>
+                                    {deleteConfirm.approvedForRelease && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            Production ready
+                                        </Typography>
+                                    )}
+                                    {deleteConfirm.releaseEventCount > 0 && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {`${deleteConfirm.releaseEventCount} customer release event${deleteConfirm.releaseEventCount === 1 ? '' : 's'}`}
+                                        </Typography>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                        {deleteConfirm.branchName}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {deleteConfirm.typeLabel}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {`Deletes ${deleteConfirm.buildCount} build${deleteConfirm.buildCount === 1 ? '' : 's'}`}
+                                        {deleteConfirm.releaseEventCount > 0
+                                            ? ` and ${deleteConfirm.releaseEventCount} release event${deleteConfirm.releaseEventCount === 1 ? '' : 's'}`
+                                            : ''}
+                                    </Typography>
+                                </>
+                            )}
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setDeleteConfirm(null)}
+                        data-testid="bv-delete-cancel"
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        autoFocus
+                        onClick={confirmDelete}
+                        data-testid="bv-delete-confirm-button"
+                    >
+                        Delete
                     </Button>
                 </DialogActions>
             </Dialog>
