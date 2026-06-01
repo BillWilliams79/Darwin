@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Divider from '@mui/material/Divider';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -109,41 +111,71 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
     const actionsDisabled = !lib.activePattern;
 
     return (
-        <Box>
-            <Button
-                onClick={openMenu}
-                variant="text"
-                size="small"
-                color="inherit"
-                startIcon={<InsertDriveFileOutlinedIcon fontSize="small" />}
-                endIcon={<ArrowDropDownIcon />}
-                aria-haspopup="true"
-                aria-expanded={Boolean(menuAnchor) ? 'true' : undefined}
-                data-testid="pattern-picker"
-                sx={{
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    fontSize: '0.95rem',
-                    px: 1.25,
-                    minHeight: 36,
-                    maxWidth: 360,
-                    '& .MuiButton-startIcon': { mr: 0.75 },
-                    '& .MuiButton-endIcon': { ml: 0.25 },
-                }}
+        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            {/* Split trigger (req #2756): clicking the project name opens the
+                Rename dialog — mirroring the canvas branch-name labels, which are
+                also click-to-rename. The dropdown arrow opens the File menu. */}
+            <Tooltip
+                title={actionsDisabled ? '' : 'Click to rename project'}
+                disableInteractive
             >
                 <Box
                     component="span"
+                    role={actionsDisabled ? undefined : 'button'}
+                    tabIndex={actionsDisabled ? -1 : 0}
+                    onClick={actionsDisabled ? undefined : openRename}
+                    onKeyDown={(e) => {
+                        if (actionsDisabled) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openRename();
+                        }
+                    }}
+                    data-testid="bv-project-name"
                     sx={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        display: 'block',
-                        maxWidth: 280,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        px: 1.25,
+                        minHeight: 36,
+                        fontWeight: 600,
+                        fontSize: '0.95rem',
+                        color: 'inherit',
+                        borderRadius: 1,
+                        cursor: actionsDisabled ? 'default' : 'pointer',
+                        '& .bv-project-name-text': { textDecoration: 'none' },
+                        '&:hover .bv-project-name-text': actionsDisabled
+                            ? undefined
+                            : { textDecoration: 'underline' },
                     }}
                 >
-                    {triggerLabel}
+                    <InsertDriveFileOutlinedIcon fontSize="small" />
+                    <Box
+                        component="span"
+                        className="bv-project-name-text"
+                        sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            display: 'block',
+                            maxWidth: 280,
+                        }}
+                    >
+                        {triggerLabel}
+                    </Box>
                 </Box>
-            </Button>
+            </Tooltip>
+            <IconButton
+                onClick={openMenu}
+                size="small"
+                color="inherit"
+                aria-haspopup="true"
+                aria-expanded={Boolean(menuAnchor) ? 'true' : undefined}
+                aria-label="Project file menu"
+                data-testid="pattern-picker"
+            >
+                <ArrowDropDownIcon />
+            </IconButton>
 
             <Menu
                 anchorEl={menuAnchor}
