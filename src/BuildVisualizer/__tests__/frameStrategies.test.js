@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { FRAME_STRATEGIES, frameView, DEFAULT_FRAME_STRATEGY } from '../frameStrategies';
+import {
+    FRAME_STRATEGIES,
+    frameView,
+    DEFAULT_FRAME_STRATEGY,
+    reflowPanDeltaY,
+} from '../frameStrategies';
 
 describe('DEFAULT_FRAME_STRATEGY', () => {
     it('is centerMain', () => {
@@ -61,5 +66,89 @@ describe('frameView', () => {
     it('falls back to centerMain for unknown strategy', () => {
         const result = frameView({ mainY: 200 }, { height: 600 }, 'nonexistent');
         expect(result).toEqual({ x: 0, y: 100 });
+    });
+});
+
+describe('reflowPanDeltaY (req #2754)', () => {
+    it('compensates a same-project reflow by the mainY change (add branch/build grows mainY → negative delta)', () => {
+        // Adding hotfix/bootleg branches grows the strata above the trunk, so
+        // mainY increases; the pan must shift UP (negative) to keep the trunk fixed.
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: 200,
+            mainY: 260,
+        });
+        expect(delta).toBe(-60);
+    });
+
+    it('compensates a collapse (filter toggle shrinks mainY → positive delta)', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: 260,
+            mainY: 200,
+        });
+        expect(delta).toBe(60);
+    });
+
+    it('returns 0 on a project switch (let runFrame reframe)', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: false,
+            framed: true,
+            prevMainY: 200,
+            mainY: 500,
+        });
+        expect(delta).toBe(0);
+    });
+
+    it('returns 0 before the project is framed', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: false,
+            prevMainY: 200,
+            mainY: 260,
+        });
+        expect(delta).toBe(0);
+    });
+
+    it('returns 0 when prevMainY is null (first measurable layout)', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: null,
+            mainY: 260,
+        });
+        expect(delta).toBe(0);
+    });
+
+    it('returns 0 when mainY is null (transient empty layout)', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: 200,
+            mainY: null,
+        });
+        expect(delta).toBe(0);
+    });
+
+    it('returns 0 when mainY is unchanged (no jump, no-op)', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: 200,
+            mainY: 200,
+        });
+        expect(delta).toBe(0);
+    });
+
+    it('treats mainY = 0 as a real value, not missing', () => {
+        const delta = reflowPanDeltaY({
+            sameProject: true,
+            framed: true,
+            prevMainY: 40,
+            mainY: 0,
+        });
+        expect(delta).toBe(40);
     });
 });
