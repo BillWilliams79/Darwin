@@ -8,6 +8,7 @@ import {
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
 import ProfileDialog from './ProfileDialog';
+import { prodRequirementUrl } from '../utils/prodUrl';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -251,7 +252,10 @@ const NavBarSidebar = () => {
                                     </Typography>
                                     {DEV_REQ_ID && (
                                         <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
-                                            <a href={`/swarm/requirement/${DEV_REQ_ID}`}
+                                            {/* Dev servers run against the darwin_dev debug DB where this
+                                                requirement may not exist, so link to production darwin.one
+                                                (req #2757) instead of the relative — local — origin. */}
+                                            <a href={prodRequirementUrl(DEV_REQ_ID)}
                                                target="_blank" rel="noopener noreferrer"
                                                style={{ color: '#90CAF9', textDecoration: 'none' }}
                                                data-testid="navbar-dev-req-link">
