@@ -160,6 +160,14 @@ export const isHiddenSwarmStatus = (status) => {
     return status === 'completed' || status === 'paused';
 };
 
+// Outer autonomy ring color for a chip (req #2423 completed chips, req #2755
+// phantom/in-progress chips). The ring is only present when the Coordination
+// data toggle is on; otherwise there is no ring (null). Shared by both the
+// completed-chip and phantom-chip construction paths so they stay in lockstep.
+// Exported for unit-test coverage.
+export const coordinationRingColor = (dataKey, coordinationType) =>
+    dataKey === 'coordination' ? getCoordinationColor(coordinationType) : null;
+
 // Exported for unit-test coverage.
 export const computePhantomPlacement = (startPct, nowPct) => {
     const startIn = startPct !== null && startPct !== undefined;
@@ -659,9 +667,7 @@ const BeadRow = ({
             // toggle now layers an outer ring on top instead of replacing the fill,
             // so both encodings remain visible simultaneously.
             const color = cat?.color || null;
-            const ringColor = dataKey === 'coordination'
-                ? getCoordinationColor(r.coordination_type)
-                : null;
+            const ringColor = coordinationRingColor(dataKey, r.coordination_type);
             out.push({
                 id: r.id,
                 title: r.title || '',
@@ -839,7 +845,10 @@ const BeadRow = ({
                     coordination_type: r?.coordination_type ?? null,
                     categoryName: cat?.category_name || null,
                     color: cat?.color || '#43A047',
-                    ringColor: null,
+                    // Autonomy ring — same derivation as completed chips (req #2755).
+                    // In-progress phantoms must show the coordination ring too when
+                    // the Coordination toggle is on; previously hard-coded null.
+                    ringColor: coordinationRingColor(dataKey, r?.coordination_type),
                     timeHHMM: null,
                     leftPct: phantomLeftPct,
                     timezone,
@@ -857,7 +866,7 @@ const BeadRow = ({
         }
         return out;
     }, [vizKey, swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
-        selectedDate, nowPct, requirementById, categoryList]);
+        selectedDate, nowPct, requirementById, categoryList, dataKey]);
 
     // Undone session chips (req #2719). One chip per `swarm_undos` row —
     // driven directly by the undo log + the `swarm_starts` row it snapshots
@@ -1612,7 +1621,14 @@ const BeadRow = ({
                                     borderRadius: '50%',
                                     width:  `${circleDiameter}px`,
                                     height: `${circleDiameter}px`,
-                                    boxShadow: '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
+                                    // req #2755 — when the Coordination toggle is on, layer the
+                                    // autonomy ring (6px coordination-color band) into the inline
+                                    // box-shadow. The inline value overrides the .ts-bead-dot-ringed
+                                    // CSS rule, so the ring must be emitted here to render on phantoms.
+                                    boxShadow: chip.ringColor
+                                        ? `0 0 0 2px #fff, 0 0 0 6px ${chip.ringColor}, 0 1px 3px rgba(0, 0, 0, 0.2)`
+                                        : '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
+                                    ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
                                 } : {
                                     backgroundColor: chip.color || '#90a4ae',
                                     width:  `${circleDiameter}px`,
