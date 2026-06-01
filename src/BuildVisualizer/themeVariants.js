@@ -6,9 +6,8 @@
 // The picker is **dark-mode-only**. When Darwin's app theme is light, the
 // Build Visualizer always shows the (un-themed) light canvas; the chip is
 // hidden and this list is never surfaced to the user. The 'light' value
-// still exists in the iframe as a transport-level value the React shell
-// posts to undo any data-theme attribute — it is not a user-selectable
-// variant.
+// still exists as a transport-level value the renderer uses to undo any
+// data-theme attribute — it is not a user-selectable variant.
 //
 // `swatch` is a representative bg color used in the picker UI so each option
 // shows the actual canvas color it produces. `accent` is the connector color
@@ -30,9 +29,9 @@ export const THEME_VARIANTS = [
 
 export const DEFAULT_DARK_VARIANT = THEME_VARIANT_MIDNIGHT;
 
-// Transport-only sentinel posted to the iframe when Darwin's app theme is
-// light — the iframe removes `data-theme` from <html> and reverts to its
-// :root defaults. Not a user-selectable variant; never appears in the menu.
+// Transport-only sentinel applied when Darwin's app theme is light — the
+// renderer removes `data-theme` from <html> and reverts to its :root
+// defaults. Not a user-selectable variant; never appears in the menu.
 export const LIGHT_TRANSPORT_VARIANT = 'light';
 
 const META = {

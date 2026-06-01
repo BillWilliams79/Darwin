@@ -24,6 +24,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 const coordinationChipProps = (ct) => {
     switch (ct) {
+        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
         case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
         case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
         case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };

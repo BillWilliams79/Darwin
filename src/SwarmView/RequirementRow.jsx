@@ -22,6 +22,7 @@ import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DescriptionIcon from '@mui/icons-material/Description';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
 
@@ -183,6 +184,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const coordType = requirement.coordination_type || null;
     const getCoordinationIcon = () => {
         if (requirement.id === '') return null;
+        if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: '#f48fb1' }} />; // pink — discuss (req #2745)
         if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue
         if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
         if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />; // light purple
@@ -190,6 +192,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     };
 
     const coordTooltip = {
+        discuss: 'Discuss Req — click to cycle',
         planned: 'Planned — click to cycle', implemented: 'Implemented — click to cycle',
         deployed: 'Deployed — click to cycle',
     };

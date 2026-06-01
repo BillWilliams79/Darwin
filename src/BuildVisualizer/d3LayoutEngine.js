@@ -93,7 +93,7 @@ export const DEFAULT_OPTS = {
     // arrow tip doesn't touch the next branch's curve landing.
     collisionGutter: 4,
     // Length of the tail line past the last build dot, in colW units.
-    // Halved from the iframe's 0.7 (req #2694 follow-up) so dev branches
+    // Halved from the prior 0.7 (req #2694 follow-up) so dev branches
     // with many builds don't bleed visual weight into the column to their
     // right. Tighter tail = more breathing room without losing the arrow.
     arrowExtColumns: 0.35,

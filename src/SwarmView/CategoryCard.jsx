@@ -560,7 +560,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             i === requirementIndex ? { ...r, requirement_status: next } : r));
     }
 
-    const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
+    // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
+    // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
+    const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
@@ -572,7 +574,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
             let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         revert();
@@ -587,7 +589,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     showError(error, "Unable to change autonomy");
                 });
         } else if (savingRef.current) {
-            pendingMutationsRef.current.coordination_type = next === null ? 'NULL' : next;
+            pendingMutationsRef.current.coordination_type = next;
         }
         setRequirementsArray(prev => prev.map((r, i) =>
             i === requirementIndex ? { ...r, coordination_type: next } : r));
