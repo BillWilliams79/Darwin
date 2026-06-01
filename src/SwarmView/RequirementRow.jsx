@@ -50,6 +50,18 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const handSortActive = sortMode === 'hand';
     const [insertIndicator, setInsertIndicator] = useState(null);
 
+    // Keep the latest requirement + index in refs so the drag `item` factory can
+    // build a fresh payload at drag-start WITHOUT listing volatile fields in the
+    // useDrag dep array. Previously `requirement.title` was a dep, so every
+    // keystroke in the title field recreated the drag spec → new `drag`
+    // connector → `mergedRef` identity churned → React detached/reattached the
+    // row's DOM ref on every character. Reading `.current` at drag time keeps the
+    // payload current without that per-keystroke churn (req #2747).
+    const requirementRef = useRef(requirement);
+    requirementRef.current = requirement;
+    const requirementIndexRef = useRef(requirementIndex);
+    requirementIndexRef.current = requirementIndex;
+
     const [{ isDragging }, drag] = useDrag(() => ({
         type: 'requirementRow',
         item: () => {
@@ -60,8 +72,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             // visually loses chips and tooltips for a few frames mid-drop.
             const rect = rowRef.current?.getBoundingClientRect();
             return {
-                ...requirement,
-                requirementIndex,
+                ...requirementRef.current,
+                requirementIndex: requirementIndexRef.current,
                 sourceWidth: rect?.width || 300,
                 sourceHeight: rect?.height || 40,
             };
@@ -92,9 +104,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         collect: (monitor) => ({
             isDragging: !!monitor.isDragging(),
         }),
-    }), [requirement.id, requirement.title, requirement.requirement_status,
-         requirement.category_fk, requirement.sort_order, requirementIndex,
-         isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
+        // Volatile requirement fields + requirementIndex are intentionally NOT
+        // deps — the `item` factory reads them live from refs at drag-start, so
+        // the spec/connector only needs to be rebuilt when behaviour-affecting
+        // inputs change (canDrag → isTemplate; end → sortMode + the setters).
+    }), [isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
 
     // Hover-only drop target — sets the insert indicator above/below this row
     // and writes the splice target into the parent CategoryCard via
