@@ -432,6 +432,17 @@ test.describe.serial('SwarmView DnD — Requirement Row', () => {
     const hasColorBar = await aggRow.evaluate((el: HTMLElement) => el.classList.contains('aggregator-row'));
     expect(hasColorBar).toBe(true);
 
+    // req #2752: the inner color bar must carry a delineating border so pale
+    // (e.g. DarwinUI #f2e982 on white) or dark category colors stay visible
+    // against the card background in either theme. The border is on the inner
+    // colored Box (first child of the category-color-bar wrapper).
+    const colorBarBorder = await aggregator
+      .getByTestId(`category-color-bar-${req1Id}`)
+      .locator('> *')
+      .first()
+      .evaluate((el: HTMLElement) => getComputedStyle(el).borderTopStyle);
+    expect(colorBarBorder).toBe('solid');
+
     // Hide aggregator
     await toggleBtn.click();
   });
