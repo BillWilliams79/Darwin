@@ -341,7 +341,9 @@ const SwarmStartCard = () => {
     };
 
     // Coordination click — mirrors CategoryCard
-    const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
+    // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
+    // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
+    const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
@@ -351,7 +353,7 @@ const SwarmStartCard = () => {
         const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, coordination_type: next === null ? 'NULL' : next }], idToken)
+            [{ id: requirementId, coordination_type: next }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     revert();

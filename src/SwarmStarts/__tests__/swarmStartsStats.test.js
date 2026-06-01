@@ -25,7 +25,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
         expect(s.wallHistogram).toHaveLength(6);
         expect(s.wallHistogram.every(b => b.count === 0)).toBe(true);
         expect(s.topPatterns).toEqual([]);
-        expect(s.autonomyBreakdown).toHaveLength(4);
+        expect(s.autonomyBreakdown).toHaveLength(5);
         expect(s.autonomyBreakdown.every(b => b.count === 0)).toBe(true);
     });
 
@@ -136,6 +136,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
 
     it('breaks down autonomy_filter, treating unknown / null as "none"', () => {
         const rows = [
+            mkRow({ autonomy_filter: 'discuss' }),
             mkRow({ autonomy_filter: 'planned' }),
             mkRow({ autonomy_filter: 'planned' }),
             mkRow({ autonomy_filter: 'implemented' }),
@@ -144,6 +145,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
         ];
         const s = computeSwarmStartStats(rows);
         const counts = Object.fromEntries(s.autonomyBreakdown.map(b => [b.label, b.count]));
+        expect(counts.discuss).toBe(1);
         expect(counts.planned).toBe(2);
         expect(counts.implemented).toBe(1);
         expect(counts.deployed).toBe(0);

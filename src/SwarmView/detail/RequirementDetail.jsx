@@ -92,7 +92,7 @@ const RequirementDetail = () => {
         description: '',
         category_fk: null,
         requirement_status: 'authoring',
-        coordination_type: null,
+        coordination_type: 'implemented',
         started_at: null,
         completed_at: null,
         deferred_at: null,
@@ -263,8 +263,10 @@ const RequirementDetail = () => {
     };
 
     const handleCoordinationChange = (event, newVal) => {
+        // Autonomy is mandatory (req #2745) — newVal is always one of the four
+        // values; the chip can no longer deselect to null.
         setRequirement(prev => ({ ...prev, coordination_type: newVal }));
-        saveField('coordination_type', newVal === null ? 'NULL' : newVal);
+        saveField('coordination_type', newVal);
     };
 
     const handleCategoryChange = async (event) => {
@@ -467,6 +469,7 @@ const RequirementDetail = () => {
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
                             {[
+                                { value: 'discuss',     label: 'Discuss Req', chipSx: { bgcolor: '#f48fb1', color: '#000' } },
                                 { value: 'planned',     label: 'Planned',     chipSx: { bgcolor: '#90caf9', color: '#000' } },
                                 { value: 'implemented', label: 'Implemented', chipSx: { bgcolor: '#4caf50', color: '#fff' } },
                                 { value: 'deployed',    label: 'Deployed',    chipSx: { bgcolor: '#b39ddb', color: '#000' } },
@@ -478,7 +481,7 @@ const RequirementDetail = () => {
                                         label={label}
                                         size="small"
                                         disabled={!isEditable}
-                                        onClick={() => handleCoordinationChange(null, selected ? null : value)}
+                                        onClick={() => { if (!selected) handleCoordinationChange(null, value); }}
                                         {...(selected
                                             ? (chipSx ? { sx: { ...chipSx, cursor: isEditable ? 'pointer' : 'default' } } : { color, sx: { cursor: isEditable ? 'pointer' : 'default' } })
                                             : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }

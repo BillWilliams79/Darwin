@@ -36,7 +36,7 @@ const WALL_BUCKETS = [
 // session_count histogram buckets: each integer 0..5 is its own bucket, 6+ collapsed.
 const SESSION_BUCKETS = ['0', '1', '2', '3', '4', '5', '6+'];
 
-const AUTONOMY_VALUES = ['planned', 'implemented', 'deployed'];
+const AUTONOMY_VALUES = ['discuss', 'planned', 'implemented', 'deployed'];
 
 // Pure aggregator — rows → stats object. Exported for unit testing.
 export function computeSwarmStartStats(rows) {
