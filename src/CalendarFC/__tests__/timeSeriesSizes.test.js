@@ -96,6 +96,7 @@ describe('Circle size option 1/2/3/4', () => {
 
 describe('formatCoordination (autonomy label)', () => {
     it('maps known values to Title Case', () => {
+        expect(formatCoordination('discuss')).toBe('Discuss Req');
         expect(formatCoordination('planned')).toBe('Planned');
         expect(formatCoordination('implemented')).toBe('Implemented');
         expect(formatCoordination('deployed')).toBe('Deployed');
@@ -113,7 +114,7 @@ describe('formatCoordination (autonomy label)', () => {
 
     it('has a label for every documented coordination_type', () => {
         // Same set documented in CLAUDE.md § Darwin MCP Server.
-        expect(Object.keys(COORDINATION_LABELS).sort()).toEqual(['deployed', 'implemented', 'planned']);
+        expect(Object.keys(COORDINATION_LABELS).sort()).toEqual(['deployed', 'discuss', 'implemented', 'planned']);
     });
 });
 
@@ -978,7 +979,8 @@ describe('Data selection — Coordination palette (req #2382)', () => {
         expect(DEFAULT_DATA_KEY).toBe('category');
     });
 
-    it('COORDINATION_COLORS maps the three typed coordination values', () => {
+    it('COORDINATION_COLORS maps the four typed coordination values', () => {
+        expect(COORDINATION_COLORS.discuss).toBe('#AB47BC');
         expect(COORDINATION_COLORS.planned).toBe('#FB8C00');
         expect(COORDINATION_COLORS.implemented).toBe('#FDD835');
         expect(COORDINATION_COLORS.deployed).toBe('#43A047');
@@ -989,6 +991,7 @@ describe('Data selection — Coordination palette (req #2382)', () => {
     });
 
     it('getCoordinationColor returns the mapped color for every typed value', () => {
+        expect(getCoordinationColor('discuss')).toBe('#AB47BC');
         expect(getCoordinationColor('planned')).toBe('#FB8C00');
         expect(getCoordinationColor('implemented')).toBe('#FDD835');
         expect(getCoordinationColor('deployed')).toBe('#43A047');

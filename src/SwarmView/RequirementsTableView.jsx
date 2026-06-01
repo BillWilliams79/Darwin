@@ -50,7 +50,7 @@ const STATUS_SORT_ORDER = {
     authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5,
 };
 
-const AUTONOMY_OPTIONS = ['planned', 'implemented', 'deployed'];
+const AUTONOMY_OPTIONS = ['discuss', 'planned', 'implemented', 'deployed'];
 
 const NO_CHANGE = '__no_change__';
 
