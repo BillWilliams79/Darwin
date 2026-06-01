@@ -93,8 +93,8 @@ export function useBuildVisualizerData(projectId) {
     //                                       dotColor, approvedForRelease}
     //   releaseEvents: object keyed by build extId of [customer name, …]
     //
-    // External IDs (slugs) are the canonical join keys — the iframe and any
-    // future D3 layout engine can both use them.
+    // External IDs (slugs) are the canonical join keys the D3 layout engine
+    // uses.
     const model = useMemo(() => {
         if (!branchRows.length) {
             return { branches: [], builds: {}, releaseEvents: {}, releaseEventDetails: {} };
@@ -146,8 +146,8 @@ export function useBuildVisualizerData(projectId) {
         }
 
         // Branches normalized. Trunk first, then everything else in SQL-id order
-        // (matches the iframe convention so parents typically come before
-        // children — important for the layout step).
+        // so parents typically come before children — important for the layout
+        // step.
         const branches = [];
         const pushBranch = (br) => {
             if (!br.external_id) return;

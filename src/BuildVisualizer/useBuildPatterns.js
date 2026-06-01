@@ -1,28 +1,20 @@
-// Req #2648 — SQL-backed pattern library.
+// Req #2648 — SQL-backed project library for the Build Visualizer.
 //
-// Replaces `usePatternLibrary.js` (localStorage-only). Each "pattern" in the
-// dropdown is a row in `build_projects` — the iframe loads its branches +
-// builds from SQL via SqlBackedStorageAdapter when the user activates one.
+// Each "pattern" in the picker is a row in `build_projects`; the canvas loads
+// that project's branches + builds from SQL (see useBuildVisualizerData) when
+// it becomes active.
 //
-// Surface kept compatible with the consumers of `usePatternLibrary` (
-// BuildPatternMenu + BuildVisualizerPage) so the call sites need only the
-// import-name flip plus async/await on the mutation callbacks:
+// Surface consumed by BuildPatternMenu + BuildVisualizerPage:
 //   { isReady, error, clearError, library, patterns, activeId, activePattern,
 //     selectPattern, createNew, rename, remove }
 //
-// Differences from the old hook:
+// Notes:
 //   • `library` is { version, activeId, patterns: {} } reassembled from the
-//     SQL result so the shape stays consistent with the consumer.
-//   • `patterns` is sorted by updatedAt desc (same as before).
-//   • `activePattern.data` is the SQL projectId (NOT a builds.json blob — the
-//     iframe fetches its own data via bv:sql-init). Consumers that previously
-//     read `.data` to send via bv:load now read `.projectId` and post
-//     bv:sql-init instead.
-//   • Duplicate / Import / Export were removed (req #2737) — they were
-//     unimplemented v1 stubs and the project workflow doesn't need them.
-//   • `saveActiveData` is removed — the iframe now persists directly via the
-//     SqlBackedStorageAdapter on every model mutation. Consumers that used
-//     it (BuildVisualizerPage's bv:changed handler) drop the call.
+//     SQL result.
+//   • `patterns` is sorted by updatedAt desc.
+//   • `activePattern.projectId` is the SQL project id the canvas loads from.
+//   • create / rename / remove mutate `build_projects` via call_rest_api and
+//     invalidate the projects query on success.
 
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

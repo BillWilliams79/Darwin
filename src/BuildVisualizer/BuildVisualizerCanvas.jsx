@@ -172,7 +172,7 @@ const BuildVisualizerCanvas = ({
 
     // ─── Mouse-drag panning ────────────────────────────────────────────
     // Click anywhere on the viewport background and drag to pan the SVG.
-    // Mirrors the iframe's OmniScroller. Build dots / labels keep their
+    // Omni-directional pan. Build dots / labels keep their
     // own click behavior because the dragger only fires on mousedown that
     // doesn't propagate from those (we don't preventDefault inside dot
     // / label elements; their parent gets the event after).

@@ -1,6 +1,6 @@
 // Build Visualizer — the D3-based React implementation (req #2694 / #2720).
 //
-// Replaced the iframe-based visualizer in req #2720. State + toolbar wiring +
+// Build Visualizer page (req #2720 React + D3 engine). State + toolbar wiring +
 // Perform-Release-Event Dialog + build-dot context menu live here; the SVG
 // canvas itself is delegated to BuildVisualizerCanvas.
 

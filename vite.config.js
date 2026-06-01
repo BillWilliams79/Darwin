@@ -33,9 +33,6 @@ function devserverMarker() {
 // `apply: 'serve'` excludes this plugin (and therefore the asset payload) from
 // `vite build`, so production bundles have zero topology content. See req #2521.
 // V1 (systems/ subdir, /systems route) was retired in req #2525.
-// Build Visualizer iframe path (/build-visualizer/*) was retired in req #2720 —
-// the D3 React implementation is now THE Build Visualizer and doesn't need
-// iframe asset serving.
 function topologyDevAssets() {
   const darwinRoot = import.meta.dirname
   const candidates = [

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Build Visualizer — Standalone</title>
+  <style>
+    html, body, #root { margin: 0; height: 100%; }
+    /* BuildVisualizerPage's root Box uses gridArea: 'content'. */
+    #root { display: grid; grid-template-areas: 'content'; grid-template-rows: 1fr; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <!--
+    The /export-builds-topology skill injects production data here at bundle
+    time as an inline JSON script tag with id "bv-standalone-seed" so the app
+    works offline and over file://. When that seed is absent (e.g. a bare
+    vite build), standaloneApi.js falls back to fetch('./data/<table>.json').
+  -->
+  <script type="module" src="./main.jsx"></script>
+</body>
+</html>
