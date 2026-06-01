@@ -43,7 +43,7 @@ import { formatVersion, fromModelBuild } from './versionEngine';
 export const REGISTRY = {
     main:             { label: 'Main',                 dotRadius: 5.5, defaultSide: 'center' },
     release:          { label: 'Release',              dotRadius: 6.0, defaultSide: 'above' },
-    'sample-release': { label: 'Sprint = Sample',       dotRadius: 5.5, defaultSide: 'above' },
+    'sample-release': { label: 'Sprint/Sample',         dotRadius: 5.5, defaultSide: 'above' },
     hotfix:           { label: 'Hot Fix',              dotRadius: 5.5, defaultSide: 'above' },
     bootleg:          { label: 'Bootleg',              dotRadius: 5.5, defaultSide: 'above' },
     csr:              { label: 'CSR',                  dotRadius: 5.5, defaultSide: 'above' },
@@ -59,7 +59,7 @@ const STRATA = [
     { id: 'hotfix',  label: 'Hot Fix',         types: ['hotfix'],         side: 'above', bandFill: 'rgba(229, 57, 53, 0.04)' },
     { id: 'csr',     label: 'CSR',             types: ['csr'],            side: 'above', bandFill: 'rgba(0, 0, 0, 0.025)' },
     { id: 'release', label: 'Release',         types: ['release'],        side: 'above', bandFill: 'rgba(34, 197, 94, 0.04)', gapAfter: 90 },
-    { id: 'sample',  label: 'Sprint = Sample',  types: ['sample-release'], side: 'above', bandFill: 'rgba(59, 130, 246, 0.04)' },
+    { id: 'sample',  label: 'Sprint/Sample',    types: ['sample-release'], side: 'above', bandFill: 'rgba(59, 130, 246, 0.04)' },
     { id: 'main',    label: 'Main',            types: ['main'],           side: 'center', bandFill: 'transparent' },
     { id: 'dev',     label: 'Development',     types: ['development'],    side: 'below', bandFill: 'rgba(0, 0, 0, 0.02)' },
 ];

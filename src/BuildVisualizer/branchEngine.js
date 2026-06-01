@@ -19,10 +19,10 @@
 
 // Single canonical type order, used for BOTH axes of the §4.7 matrix and the
 // submenu. `main` (the singleton trunk, never creatable) leads the full order;
-// CREATABLE_TYPES is that order minus `main`. Sprint ("Sprint = Sample",
+// CREATABLE_TYPES is that order minus `main`. Sprint ("Sprint/Sample",
 // type `sample-release`) precedes release.
 export const CREATABLE_TYPES = [
-    'sample-release', // "Sprint = Sample"
+    'sample-release', // "Sprint/Sample"
     'release',
     'csr',
     'development',
