@@ -1,19 +1,31 @@
 // /swarm/swarm-undos/:id — single-row detail page for a swarm_undo (req #2719).
-// Shows the user-provided reason verbatim plus the snapshot columns that
-// outlive the cascading session delete. Cross-links to the originating
-// swarm_start (when known) so the user can see what was undone.
+// Shows the user-provided reason plus the snapshot columns that outlive the
+// cascading session delete. Cross-links to the originating swarm_start (when
+// known) so the user can see what was undone.
+//
+// Req #2769 — the Reason is editable here (the single swarm-undo editor).
+// Follows the inline-save pattern from RequirementDetail: local state synced
+// from the loaded row, save-on-blur (and Cmd/Ctrl+Enter) via a generic PUT to
+// /swarm_undos, then cache invalidation. swarm_undos reads/writes through
+// `darwinUri` (not ops-routed) — see hooks/factory/devopsQueries.js.
 
-import { useContext, useMemo } from 'react';
+import { useContext, useMemo, useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
+import AppContext from '../Context/AppContext';
+import call_rest_api from '../RestApi/RestApi';
 import { useSwarmUndoById, useAllRequirements } from '../hooks/useDataQueries';
+import { swarmUndoKeys } from '../hooks/useQueryKeys';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { formatDateTime } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import Table from '@mui/material/Table';
@@ -38,12 +50,50 @@ export default function SwarmUndoDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
-    const { profile } = useContext(AuthContext);
+    const { profile, idToken } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
     const timezone = profile?.timezone;
     const creatorFk = profile?.userName;
 
     const undoId = Number(id);
     const { data: undo, isLoading, isError } = useSwarmUndoById(creatorFk, undoId);
+
+    // Req #2769 — editable Reason. Seed local state from the loaded row and
+    // keep it in sync whenever the underlying record changes (cache refresh,
+    // navigation between undo ids). The TextField is the single source of
+    // truth while the user types; we persist on blur / Cmd+Enter.
+    const [reason, setReason] = useState('');
+    useEffect(() => {
+        setReason(undo?.reason ?? '');
+    }, [undo?.id, undo?.reason]);
+
+    const saveReason = () => {
+        if (!undo) return;
+        const next = reason;
+        if (next === (undo.reason ?? '')) return;  // nothing changed
+        call_rest_api(`${darwinUri}/swarm_undos`, 'PUT', [{ id: undo.id, reason: next }], idToken)
+            .then(result => {
+                const code = result?.httpStatus?.httpStatus;
+                if (code !== 200 && code !== 204) {
+                    showError(result, 'Unable to update reason');
+                } else {
+                    queryClient.invalidateQueries({ queryKey: swarmUndoKeys.all(creatorFk) });
+                    queryClient.invalidateQueries({ queryKey: swarmUndoKeys.byId(creatorFk, undoId) });
+                }
+            })
+            .catch(error => showError(error, 'Unable to update reason'));
+    };
+
+    const handleReasonKeyDown = (event) => {
+        // Cmd/Ctrl+Enter commits; plain Enter keeps inserting newlines (the
+        // reason is multiline free text).
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            event.target.blur();  // triggers saveReason via onBlur
+        }
+    };
     // Req #2719 follow-up — display the requirement as "#NNN — Title" so the
     // detail page reads like a human-curated record, not just a snapshot FK.
     // Targeted projection keeps the round-trip small; the hook already caches
@@ -157,14 +207,21 @@ export default function SwarmUndoDetail() {
                 <Typography variant="overline" sx={{ color: 'text.secondary' }}>
                     Reason
                 </Typography>
-                <Box sx={{ mt: 0.5, p: 2, border: 1, borderColor: 'divider',
-                            borderRadius: 1, bgcolor: 'background.paper' }}>
-                    <Typography variant="body1"
-                                sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                                data-testid="swarm-undo-detail-reason">
-                        {undo.reason}
-                    </Typography>
-                </Box>
+                {/* Req #2769 — editable. Persists on blur and Cmd/Ctrl+Enter. */}
+                <TextField
+                    variant="outlined"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    onBlur={saveReason}
+                    onKeyDown={handleReasonKeyDown}
+                    fullWidth
+                    multiline
+                    minRows={3}
+                    autoComplete="off"
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                    slotProps={{ htmlInput: { 'data-testid': 'swarm-undo-detail-reason' } }}
+                />
             </Box>
 
             <Box>
