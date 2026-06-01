@@ -36,7 +36,7 @@ function makeModel({ mainBuilds = 5, subBranches = [], releaseEvents = {}, relea
 
     for (const sub of subBranches) {
         const subBuildIds = [];
-        for (let i = 0; i < (sub.buildCount || 1); i++) {
+        for (let i = 0; i < (sub.buildCount ?? 1); i++) {
             const bid = `${sub.id}-b${i + 1}`;
             subBuildIds.push(bid);
             builds[bid] = {
@@ -459,7 +459,91 @@ describe('main path', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. MAIN ENDPOINT LABELS
+// 10. EMPTY BRANCHES — emptyAnchors, label, connector (req #2742)
+// ---------------------------------------------------------------------------
+describe('empty branches', () => {
+    it('a branch with zero builds emits an emptyAnchors entry at parentX + colW', () => {
+        const model = makeModel({
+            mainBuilds: 5,
+            subBranches: [
+                { id: 'dev-empty', type: 'development', parentBuildId: 'm3', buildCount: 0, name: 'Empty Dev' },
+            ],
+        });
+
+        const layout = computeLayout(model);
+        expect(layout.emptyAnchors).toHaveLength(1);
+        const anchor = layout.emptyAnchors[0];
+        expect(anchor.branchId).toBe('dev-empty');
+        // x should be at parentX + colW (first-build slot)
+        const parentBuildRecord = layout.builds.find(b => b.id === 'm3');
+        expect(anchor.x).toBe(parentBuildRecord.x + DEFAULT_OPTS.colW);
+        // y should match the branch's assigned Y
+        const branchRecord = layout.branches.find(b => b.id === 'dev-empty');
+        expect(anchor.y).toBe(branchRecord.y);
+    });
+
+    it('a named empty branch gets a non-null labelX', () => {
+        const model = makeModel({
+            mainBuilds: 3,
+            subBranches: [
+                { id: 'dev-empty', type: 'development', parentBuildId: 'm2', buildCount: 0, name: 'Empty Dev' },
+            ],
+        });
+
+        const layout = computeLayout(model);
+        const branchRecord = layout.branches.find(b => b.id === 'dev-empty');
+        expect(branchRecord.labelX).not.toBeNull();
+        expect(branchRecord.labelY).not.toBeNull();
+    });
+
+    it('an empty branch connector has hasArrow: true and lineD reaching the first-build slot', () => {
+        const model = makeModel({
+            mainBuilds: 5,
+            subBranches: [
+                { id: 'hf-empty', type: 'hotfix', parentBuildId: 'm2', buildCount: 0, name: 'Empty HF' },
+            ],
+        });
+
+        const layout = computeLayout(model);
+        const conn = layout.connectors.find(c => c.branchId === 'hf-empty');
+        expect(conn).toBeTruthy();
+        expect(conn.hasArrow).toBe(true);
+        // lineD should contain a segment extending past the parent X
+        expect(conn.lineD).toMatch(/^M .* L .*/);
+    });
+
+    it('a branch with builds does NOT emit an emptyAnchors entry', () => {
+        const model = makeModel({
+            mainBuilds: 3,
+            subBranches: [
+                { id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 },
+            ],
+        });
+
+        const layout = computeLayout(model);
+        expect(layout.emptyAnchors).toHaveLength(0);
+    });
+
+    it('empty anchor x is included in canvas width calculation', () => {
+        // Main has 2 builds. Empty branch off m2 → anchor at m2.x + colW.
+        // That anchor extends past main's last build and should widen the canvas.
+        const model = makeModel({
+            mainBuilds: 2,
+            subBranches: [
+                { id: 'dev-empty', type: 'development', parentBuildId: 'm2', buildCount: 0, name: 'Empty' },
+            ],
+        });
+
+        const layoutWithEmpty = computeLayout(model);
+        const layoutNoEmpty = computeLayout(makeModel({ mainBuilds: 2 }));
+
+        // The empty anchor extends past main's tail, so width should be >=
+        expect(layoutWithEmpty.width).toBeGreaterThanOrEqual(layoutNoEmpty.width);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 11. MAIN ENDPOINT LABELS
 // ---------------------------------------------------------------------------
 describe('main endpoint labels', () => {
     it('includes left label using the main branch name', () => {

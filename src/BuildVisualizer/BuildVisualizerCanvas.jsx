@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography';
 
 import { computeLayout } from './d3LayoutEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
+import { computeHiddenBranchIds } from './visibilityRules';
 import paletteFor from './d3ThemePalettes';
 import { frameView } from './frameStrategies';
 import { starColorFor } from './starColors';
@@ -123,6 +124,7 @@ const BuildVisualizerCanvas = ({
     onBuildClick,
     onBuildLeave,
     onBranchClick,
+    onEmptyAnchorClick,
     resetViewNonce,
 }) => {
     const themeKey = appMode === 'dark'
@@ -132,14 +134,11 @@ const BuildVisualizerCanvas = ({
 
     const hiddenBranchIds = useMemo(() => {
         if (!model?.branches?.length) return new Set();
-        const allTypes = new Set(BRANCH_TYPES);
-        const allowedTypes = new Set(selectedTypes || BRANCH_TYPES);
-        allowedTypes.add('main');
-        const hidden = new Set();
-        for (const b of model.branches) {
-            if (allTypes.has(b.type) && !allowedTypes.has(b.type)) hidden.add(b.id);
-        }
-        return hidden;
+        return computeHiddenBranchIds({
+            branches: model.branches,
+            selectedTypes: selectedTypes || BRANCH_TYPES,
+            allTypes: BRANCH_TYPES,
+        });
     }, [model, selectedTypes]);
 
     const layout = useMemo(
@@ -520,6 +519,38 @@ const BuildVisualizerCanvas = ({
                         );
                     })}
                 </g>
+
+                {/* 3b. Empty-branch anchors — hover targets at the first-build
+                    slot on branches with zero builds. Opens an Execute-Build-only
+                    menu via onEmptyAnchorClick. */}
+                {(layout.emptyAnchors || []).length > 0 && (
+                    <g className="empty-anchors">
+                        {layout.emptyAnchors.map(a => {
+                            const openAnchorMenu = (e) => {
+                                if (dragRef.current.active || dragRef.current.moved) return;
+                                e.stopPropagation();
+                                if (onEmptyAnchorClick) onEmptyAnchorClick(a.branchId, e);
+                            };
+                            return (
+                                <g
+                                    key={`empty-${a.branchId}`}
+                                    style={{ cursor: 'pointer' }}
+                                    onMouseEnter={openAnchorMenu}
+                                    onClick={openAnchorMenu}
+                                    onMouseLeave={() => { if (onBuildLeave) onBuildLeave(); }}
+                                >
+                                    <circle
+                                        cx={a.x}
+                                        cy={a.y}
+                                        r={Math.max(a.radius + 4, 10)}
+                                        fill="transparent"
+                                        pointerEvents="all"
+                                    />
+                                </g>
+                            );
+                        })}
+                    </g>
+                )}
 
                 {/* 4. Release overlays — each carries a hover tooltip with the
                     release event details (req #2741). The tooltip triggers on

@@ -12,6 +12,8 @@ import {
     nextBuildVersion,
     firstBuildOnNewBranchVersion,
     takesMainMm,
+    suggestFirstBranchNumber,
+    usedBranchNumbersFor,
 } from '../versionEngine';
 
 // All fixtures below are the worked examples from
@@ -130,6 +132,115 @@ describe('open state — §4.2', () => {
         expect(takesMainMm('release')).toBe(true);
         expect(takesMainMm('sample-release')).toBe(false);
         expect(takesMainMm('hotfix')).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// usedBranchNumbersFor — §4.4 Branch# collision helpers (req #2742)
+// ---------------------------------------------------------------------------
+describe('usedBranchNumbersFor', () => {
+    it('returns sorted Branch#s sharing the same M.m.B coordinate', () => {
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 0 };
+        const builds = {
+            m8: { major: 5, minor: 0, build: 8, branchNum: 0 },
+            r1: { major: 5, minor: 0, build: 8, branchNum: 1 },
+            r2: { major: 5, minor: 0, build: 8, branchNum: 2 },
+            r3: { major: 5, minor: 0, build: 8, branchNum: 3 },
+            m9: { major: 5, minor: 0, build: 9, branchNum: 0 }, // different B
+            m7: { major: 5, minor: 0, build: 7, branchNum: 0 }, // different B
+            other: { major: 5, minor: 1, build: 8, branchNum: 0 }, // different m
+        };
+        expect(usedBranchNumbersFor({ parentBuild, builds })).toEqual([0, 1, 2, 3]);
+    });
+
+    it('works with builds as an array', () => {
+        const parentBuild = { major: 1, minor: 0, build: 3, branchNum: 0 };
+        const builds = [
+            { major: 1, minor: 0, build: 3, branchNum: 0 },
+            { major: 1, minor: 0, build: 3, branchNum: 5 },
+        ];
+        expect(usedBranchNumbersFor({ parentBuild, builds })).toEqual([0, 5]);
+    });
+
+    it('returns empty array when no builds share the coordinate', () => {
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 0 };
+        const builds = {
+            m1: { major: 5, minor: 0, build: 7, branchNum: 0 },
+        };
+        expect(usedBranchNumbersFor({ parentBuild, builds })).toEqual([]);
+    });
+
+    it('returns empty array for null/undefined inputs', () => {
+        expect(usedBranchNumbersFor({ parentBuild: null, builds: {} })).toEqual([]);
+        expect(usedBranchNumbersFor({ parentBuild: { major: 1, minor: 0, build: 1, branchNum: 0 }, builds: null })).toEqual([]);
+        expect(usedBranchNumbersFor({ parentBuild: null, builds: null })).toEqual([]);
+    });
+
+    it('handles branchNumber (canonical name) as well as branchNum (model name)', () => {
+        const parentBuild = { major: 1, minor: 0, build: 1, branchNumber: 0 };
+        const builds = [
+            { major: 1, minor: 0, build: 1, branchNumber: 0 },
+            { major: 1, minor: 0, build: 1, branchNumber: 7 },
+        ];
+        expect(usedBranchNumbersFor({ parentBuild, builds })).toEqual([0, 7]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// suggestFirstBranchNumber — §4.4 Branch# collision helpers (req #2742)
+// ---------------------------------------------------------------------------
+describe('suggestFirstBranchNumber', () => {
+    it('returns max+1 over the shared M.m.B coordinate', () => {
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 0 };
+        const builds = {
+            m8: { major: 5, minor: 0, build: 8, branchNum: 0 },
+            r1: { major: 5, minor: 0, build: 8, branchNum: 1 },
+            r2: { major: 5, minor: 0, build: 8, branchNum: 2 },
+            r3: { major: 5, minor: 0, build: 8, branchNum: 3 },
+        };
+        expect(suggestFirstBranchNumber({ parentBuild, builds })).toBe(4);
+    });
+
+    it('ignores builds on other M.m.B coordinates', () => {
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 0 };
+        const builds = {
+            m8: { major: 5, minor: 0, build: 8, branchNum: 0 },
+            other: { major: 5, minor: 0, build: 7, branchNum: 100 },
+        };
+        // Only m8 shares the coordinate; max is 0, so suggestion is 1
+        expect(suggestFirstBranchNumber({ parentBuild, builds })).toBe(1);
+    });
+
+    it('falls back to parentBuild.branchNum + 1 when no builds share the coordinate', () => {
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 5 };
+        const builds = {};
+        expect(suggestFirstBranchNumber({ parentBuild, builds })).toBe(6);
+    });
+
+    it('falls back to 1 for null parentBuild', () => {
+        expect(suggestFirstBranchNumber({ parentBuild: null, builds: {} })).toBe(1);
+    });
+
+    it('handles the §4.5 worked example: release has builds at branchNum 0,1,2,3 → suggest 4', () => {
+        // release-1 has 3 builds: 5.0.8.1, 5.0.8.2, 5.0.8.3
+        // plus main build 5.0.8.0 shares the coordinate
+        const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 3 };
+        const builds = {
+            m8:  { major: 5, minor: 0, build: 8, branchNum: 0 },
+            r1a: { major: 5, minor: 0, build: 8, branchNum: 1 },
+            r1b: { major: 5, minor: 0, build: 8, branchNum: 2 },
+            r1c: { major: 5, minor: 0, build: 8, branchNum: 3 },
+        };
+        expect(suggestFirstBranchNumber({ parentBuild, builds })).toBe(4);
+    });
+
+    it('works with an array of builds', () => {
+        const parentBuild = { major: 1, minor: 0, build: 5, branchNum: 0 };
+        const builds = [
+            { major: 1, minor: 0, build: 5, branchNum: 0 },
+            { major: 1, minor: 0, build: 5, branchNum: 10 },
+        ];
+        expect(suggestFirstBranchNumber({ parentBuild, builds })).toBe(11);
     });
 });
 

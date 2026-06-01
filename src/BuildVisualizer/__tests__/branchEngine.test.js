@@ -4,6 +4,7 @@ import {
     allowedChildTypes,
     canCreate,
     creationGate,
+    needsBranchNumberPrompt,
     GATE_PROCEED,
 } from '../branchEngine';
 
@@ -180,6 +181,47 @@ describe('creationGate — no gates currently defined', () => {
 
     it('GATE_PROCEED export equals "proceed"', () => {
         expect(GATE_PROCEED).toBe('proceed');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// needsBranchNumberPrompt — §4.4 Branch# collision gate (req #2742)
+// ---------------------------------------------------------------------------
+describe('needsBranchNumberPrompt', () => {
+    it('true for sample-release child + release parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'sample-release', parentBranchType: 'release' })).toBe(true);
+    });
+
+    it('false for sample-release child + main parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'sample-release', parentBranchType: 'main' })).toBe(false);
+    });
+
+    it('false for release child + release parent (release has distinct create path)', () => {
+        expect(needsBranchNumberPrompt({ childType: 'release', parentBranchType: 'release' })).toBe(false);
+    });
+
+    it('false for hotfix child + release parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'hotfix', parentBranchType: 'release' })).toBe(false);
+    });
+
+    it('false for csr child + release parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'csr', parentBranchType: 'release' })).toBe(false);
+    });
+
+    it('false for development child + release parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'development', parentBranchType: 'release' })).toBe(false);
+    });
+
+    it('false for bootleg child + release parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'bootleg', parentBranchType: 'release' })).toBe(false);
+    });
+
+    it('false for sample-release child + sample-release parent (not allowed but still false)', () => {
+        expect(needsBranchNumberPrompt({ childType: 'sample-release', parentBranchType: 'sample-release' })).toBe(false);
+    });
+
+    it('false for sample-release child + hotfix parent', () => {
+        expect(needsBranchNumberPrompt({ childType: 'sample-release', parentBranchType: 'hotfix' })).toBe(false);
     });
 });
 
