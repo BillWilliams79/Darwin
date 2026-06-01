@@ -4,8 +4,8 @@
 //
 // 1. **Strata** (the domain model). Each branch type lives in its own
 //    horizontal band, in this order top-to-bottom:
-//      • Stratum 1: Hot Fix
-//      • Stratum 2: Bootleg
+//      • Stratum 1: Bootleg
+//      • Stratum 2: Hot Fix
 //      • Stratum 3: CSR
 //      • Stratum 4: Release
 //      • Stratum 5: Sample Release
@@ -38,11 +38,12 @@
 // strata problem.
 
 import { hierarchy } from 'd3-hierarchy';
+import { formatVersion, fromModelBuild } from './versionEngine';
 
 export const REGISTRY = {
     main:             { label: 'Main',                 dotRadius: 5.5, defaultSide: 'center' },
     release:          { label: 'Release',              dotRadius: 6.0, defaultSide: 'above' },
-    'sample-release': { label: 'Sprint Release',        dotRadius: 5.5, defaultSide: 'above' },
+    'sample-release': { label: 'Sprint/Sample',         dotRadius: 5.5, defaultSide: 'above' },
     hotfix:           { label: 'Hot Fix',              dotRadius: 5.5, defaultSide: 'above' },
     bootleg:          { label: 'Bootleg',              dotRadius: 5.5, defaultSide: 'above' },
     csr:              { label: 'CSR',                  dotRadius: 5.5, defaultSide: 'above' },
@@ -52,13 +53,13 @@ export const REGISTRY = {
 // Strata are ordered top-to-bottom in SVG. Position 0 = top of canvas;
 // position N-1 = bottom. `position` of 'main' is the trunk anchor. Strata
 // above main render in increasing distance from main as position drops
-// (Sample is closest to main; Hot Fix is farthest above).
+// (Sample is closest to main; Bootleg is farthest above, then Hot Fix, CSR).
 const STRATA = [
-    { id: 'hotfix',  label: 'Hot Fix',         types: ['hotfix'],         side: 'above', bandFill: 'rgba(229, 57, 53, 0.04)' },
     { id: 'bootleg', label: 'Bootleg',         types: ['bootleg'],        side: 'above', bandFill: 'rgba(253, 216, 53, 0.04)' },
+    { id: 'hotfix',  label: 'Hot Fix',         types: ['hotfix'],         side: 'above', bandFill: 'rgba(229, 57, 53, 0.04)' },
     { id: 'csr',     label: 'CSR',             types: ['csr'],            side: 'above', bandFill: 'rgba(0, 0, 0, 0.025)' },
     { id: 'release', label: 'Release',         types: ['release'],        side: 'above', bandFill: 'rgba(34, 197, 94, 0.04)', gapAfter: 90 },
-    { id: 'sample',  label: 'Sprint Release',  types: ['sample-release'], side: 'above', bandFill: 'rgba(59, 130, 246, 0.04)' },
+    { id: 'sample',  label: 'Sprint/Sample',    types: ['sample-release'], side: 'above', bandFill: 'rgba(59, 130, 246, 0.04)' },
     { id: 'main',    label: 'Main',            types: ['main'],           side: 'center', bandFill: 'transparent' },
     { id: 'dev',     label: 'Development',     types: ['development'],    side: 'below', bandFill: 'rgba(0, 0, 0, 0.02)' },
 ];
@@ -92,7 +93,7 @@ export const DEFAULT_OPTS = {
     // arrow tip doesn't touch the next branch's curve landing.
     collisionGutter: 4,
     // Length of the tail line past the last build dot, in colW units.
-    // Halved from the iframe's 0.7 (req #2694 follow-up) so dev branches
+    // Halved from the prior 0.7 (req #2694 follow-up) so dev branches
     // with many builds don't bleed visual weight into the column to their
     // right. Tighter tail = more breathing room without losing the arrow.
     arrowExtColumns: 0.35,
@@ -115,7 +116,9 @@ function dotRadiusFor(type) {
 function horizontalExtentFor(branch, parentX, opts) {
     const colW = opts.colW;
     const nBuilds = (branch.buildIds || []).length;
-    const lastBuildX = nBuilds > 0 ? parentX + nBuilds * colW : parentX;
+    // Empty branches extend to the first-build slot (parentX + colW) so the
+    // arrow sits where the first build would land — matching the exemplar.
+    const lastBuildX = nBuilds > 0 ? parentX + nBuilds * colW : parentX + colW;
     const hasArrow = !branch._hasChildAtLastBuild;
     const arrowExt = hasArrow ? colW * opts.arrowExtColumns : 0;
     return { xMin: parentX, xMax: Math.max(parentX, lastBuildX) + arrowExt };
@@ -190,12 +193,13 @@ export function computeLayout(model, opts = {}) {
     const branches = model?.branches || [];
     const buildsMap = model?.builds || {};
     const releaseEvents = model?.releaseEvents || {};
+    const releaseEventDetails = model?.releaseEventDetails || {};
 
     if (!branches.length) {
         return {
             branches: [], builds: [], connectors: [],
             mainPath: null, mainEndpointLabels: null,
-            strata: [],
+            strata: [], emptyAnchors: [],
             width: 800, height: 200, mainY: 0,
         };
     }
@@ -287,7 +291,7 @@ export function computeLayout(model, opts = {}) {
     }
 
     // ─── Step 4. Assign Y per stratum from cumulative heights ──────────
-    // Above strata are stacked top-to-bottom: Hot Fix at top, Sample just
+    // Above strata are stacked top-to-bottom: Bootleg at top, Sample just
     // above main. Each stratum gets `laneCount * laneGap` of vertical
     // room plus a `stratumGap` separator from the next.
     //
@@ -460,7 +464,10 @@ export function computeLayout(model, opts = {}) {
         const lastId = buildIds.length ? buildIds[buildIds.length - 1] : null;
         const lastPos = lastId != null ? positions[lastId] : null;
         const arrowExt = hasArrow ? o.colW * o.arrowExtColumns : 0;
-        const horizontalEndX = (lastPos ? Math.max(p3.x, lastPos.x) : p3.x) + arrowExt;
+        // Empty branches extend to the first-build slot (p3.x + colW) so the
+        // arrow sits where the first build would land.
+        const emptySlotX = !buildIds.length ? p3.x + o.colW : null;
+        const horizontalEndX = (lastPos ? Math.max(p3.x, lastPos.x) : (emptySlotX || p3.x)) + arrowExt;
 
         // Split into TWO paths:
         //   • curveD — the connector arrow from the parent build to the branch
@@ -519,10 +526,11 @@ export function computeLayout(model, opts = {}) {
                 radius: r,
                 dotColor: data.dotColor || null,
                 approvedForRelease: !!data.approvedForRelease,
-                version: `${data.major}.${data.minor}.${data.build}.${data.branchNum}`,
+                version: formatVersion(fromModelBuild(data)),
                 versionX: pos.x,
                 versionY: pos.y + r + o.versionCloseOffset + laneOffset,
                 releaseCustomers: releaseEvents[bid] || [],
+                releaseDetails: releaseEventDetails[bid] || [],
             });
         });
     }
@@ -543,13 +551,18 @@ export function computeLayout(model, opts = {}) {
         const parentPos = parentBuildId != null ? positions[parentBuildId] : null;
         const stratumId = STRATUM_BY_TYPE.get(b.type) || 'sample';
         const stratumDef = STRATA.find(s => s.id === stratumId);
-        if (!parentPos || buildIds.length === 0 || !b.name) {
+        if (!parentPos || !b.name) {
             return {
                 id: b.id, type: b.type, name: b.name || '', side: stratumDef.side,
                 y, isMain: false,
                 labelX: null, labelY: null,
             };
         }
+        // When a branch has release events, the release glyphs sit ABOVE the
+        // dots (req #2741). Give the branch NAME its own higher "top track" so
+        // it clears that glyph row; branches without releases keep the normal
+        // -16 track (req #2741 — name = top track, releases = next track down).
+        const hasRelease = (b.buildIds || []).some(bid => releaseEvents[bid]?.length > 0);
         return {
             id: b.id,
             type: b.type,
@@ -558,7 +571,7 @@ export function computeLayout(model, opts = {}) {
             y,
             isMain: false,
             labelX: parentPos.x + 10,
-            labelY: y - 16,
+            labelY: y - (hasRelease ? 34 : 16),
         };
     });
 
@@ -597,10 +610,43 @@ export function computeLayout(model, opts = {}) {
         };
     }).filter(Boolean);
 
+    // ─── Step 10b. Empty-branch anchors ─────────────────────────────────
+    // One per visible non-main branch with zero builds — the hover target
+    // position where the first build would sit. Used by the canvas to render
+    // an Execute-Build-only hover anchor at the arrow tip.
+    const emptyAnchors = [];
+    for (const b of visible) {
+        if ((b.buildIds || []).length > 0) continue;
+        const parentBuildId = b.parentBuildId;
+        const parentPos = parentBuildId != null ? positions[parentBuildId] : null;
+        if (!parentPos) continue;
+        const y = branchY.get(b.id);
+        if (y == null) continue;
+        emptyAnchors.push({
+            branchId: b.id,
+            x: parentPos.x + o.colW,   // first-build slot
+            y,
+            radius: dotRadiusFor(b.type),
+        });
+    }
+
     // ─── Step 11. Canvas size ──────────────────────────────────────────
     const yValues = Array.from(branchY.values());
     const lowestY = yValues.length ? Math.max(...yValues) : mainY;
-    const totalWidth = o.leftPad + Math.max(0, mainBuildIds.length - 1) * o.colW + o.rightPad + 160;
+    // Width must span the RIGHTMOST visible build, not just main's last build:
+    // a sub-branch off a late main build (e.g. a dev branch with several builds)
+    // can extend past main's tail, and the <svg> viewport clips anything beyond
+    // `width` (req #2741 — fixed a cut-off where added builds weren't shown).
+    // Also include empty-anchor x values so the arrow isn't clipped.
+    const allXValues = [
+        ...buildRecords.map(r => r.x),
+        ...emptyAnchors.map(a => a.x),
+    ];
+    const maxBuildX = allXValues.length
+        ? Math.max(...allXValues)
+        : o.leftPad + Math.max(0, mainBuildIds.length - 1) * o.colW;
+    const arrowTail = o.colW * o.arrowExtColumns;
+    const totalWidth = maxBuildX + arrowTail + o.rightPad + 160;
     const totalHeight = Math.ceil(lowestY + o.canvasPadBottom);
 
     // Cleanup transient markers.
@@ -613,6 +659,7 @@ export function computeLayout(model, opts = {}) {
         mainPath,
         mainEndpointLabels,
         strata: strataBands,
+        emptyAnchors,
         width: totalWidth,
         height: totalHeight,
         mainY,

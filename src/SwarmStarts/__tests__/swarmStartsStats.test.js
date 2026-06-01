@@ -25,7 +25,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
         expect(s.wallHistogram).toHaveLength(6);
         expect(s.wallHistogram.every(b => b.count === 0)).toBe(true);
         expect(s.topPatterns).toEqual([]);
-        expect(s.autonomyBreakdown).toHaveLength(4);
+        expect(s.autonomyBreakdown).toHaveLength(5);
         expect(s.autonomyBreakdown.every(b => b.count === 0)).toBe(true);
     });
 
@@ -136,6 +136,7 @@ describe('computeSwarmStartStats (req #2686)', () => {
 
     it('breaks down autonomy_filter, treating unknown / null as "none"', () => {
         const rows = [
+            mkRow({ autonomy_filter: 'discuss' }),
             mkRow({ autonomy_filter: 'planned' }),
             mkRow({ autonomy_filter: 'planned' }),
             mkRow({ autonomy_filter: 'implemented' }),
@@ -144,9 +145,32 @@ describe('computeSwarmStartStats (req #2686)', () => {
         ];
         const s = computeSwarmStartStats(rows);
         const counts = Object.fromEntries(s.autonomyBreakdown.map(b => [b.label, b.count]));
+        expect(counts.discuss).toBe(1);
         expect(counts.planned).toBe(2);
         expect(counts.implemented).toBe(1);
         expect(counts.deployed).toBe(0);
         expect(counts.none).toBe(2);
+    });
+
+    // Req #2747 — largest launch by requirements generated (max session_count).
+    it('reports the largest launch (max session_count) with its swarm-start id', () => {
+        const rows = [
+            mkRow({ id: 10, session_count: 2 }),
+            mkRow({ id: 11, session_count: 9 }),
+            mkRow({ id: 12, session_count: 5 }),
+        ];
+        expect(computeSwarmStartStats(rows).maxRequirements).toEqual({ id: 11, count: 9 });
+    });
+
+    it('maxRequirements is null for empty input', () => {
+        expect(computeSwarmStartStats([]).maxRequirements).toBeNull();
+    });
+
+    it('maxRequirements keeps the first row on a tie (strict >)', () => {
+        const rows = [
+            mkRow({ id: 1, session_count: 4 }),
+            mkRow({ id: 2, session_count: 4 }),
+        ];
+        expect(computeSwarmStartStats(rows).maxRequirements).toEqual({ id: 1, count: 4 });
     });
 });

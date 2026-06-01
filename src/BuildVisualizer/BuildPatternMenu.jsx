@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Divider from '@mui/material/Divider';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -15,15 +17,10 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import CheckIcon from '@mui/icons-material/Check';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
-import FileDownloadIcon from '@mui/icons-material/FileDownload';
-import FileUploadIcon from '@mui/icons-material/FileUpload';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const parseNonNegInt = (s, fallback) => {
     const n = parseInt(String(s).trim(), 10);
@@ -34,15 +31,12 @@ const parsePosInt = (s, fallback) => {
     return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
-// Single-surface "document menu" for the Build Visualizer: pattern picker, file
-// actions (New / Duplicate / Rename / Delete), and library actions (Import /
-// Export) collapsed into one MUI Menu. Replaces the prior cluster of a Select +
-// six buttons in the toolbar.
+// Single-surface "document menu" for the Build Visualizer: project picker plus
+// file actions (New / Rename / Delete) collapsed into one MUI Menu. Replaces the
+// prior cluster of a Select + several buttons in the toolbar. Duplicate / Import
+// / Export were removed in req #2737 (unimplemented v1 stubs, not needed).
 const BuildPatternMenu = ({ lib, onShowSnack }) => {
-    const fileInputRef = useRef(null);
     const [menuAnchor, setMenuAnchor] = useState(null);
-    const [saveAsOpen, setSaveAsOpen] = useState(false);
-    const [saveAsName, setSaveAsName] = useState('');
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -84,21 +78,6 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         else showSnack('success', `Created "${name}"`);
     };
 
-    const openSaveAs = () => {
-        closeMenu();
-        setSaveAsName(lib.activePattern ? `${lib.activePattern.name} copy` : '');
-        setSaveAsOpen(true);
-    };
-
-    const confirmSaveAs = async () => {
-        const name = saveAsName.trim();
-        if (!name) return;
-        const result = await lib.saveAs(name);
-        setSaveAsOpen(false);
-        if (result?.ok === false) showSnack('error', result.error || 'Save As failed');
-        else showSnack('success', `Saved as "${name}"`);
-    };
-
     const openRename = () => {
         closeMenu();
         if (!lib.activePattern) return;
@@ -128,74 +107,75 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
         else showSnack('error', result?.error || 'Delete failed');
     };
 
-    const handleExport = () => {
-        closeMenu();
-        const blob = lib.exportAll();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `darwin-build-patterns-${today()}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showSnack('success', 'Exported');
-    };
-
-    const handleImportClick = () => {
-        closeMenu();
-        fileInputRef.current?.click();
-    };
-
-    const handleImportChange = async (e) => {
-        const file = e.target.files?.[0];
-        e.target.value = '';
-        if (!file) return;
-        const result = await lib.importAll(file);
-        if (result.ok) showSnack('success', 'Imported');
-        else showSnack('error', result.error);
-    };
-
-    const triggerLabel = lib.activePattern ? lib.activePattern.name : 'No pattern';
-    const deleteDisabled = lib.patterns.length <= 1 || !lib.activePattern;
+    const triggerLabel = lib.activePattern ? lib.activePattern.name : 'No project';
     const actionsDisabled = !lib.activePattern;
 
     return (
-        <Box>
-            <Button
-                onClick={openMenu}
-                variant="text"
-                size="small"
-                color="inherit"
-                startIcon={<InsertDriveFileOutlinedIcon fontSize="small" />}
-                endIcon={<ArrowDropDownIcon />}
-                aria-haspopup="true"
-                aria-expanded={Boolean(menuAnchor) ? 'true' : undefined}
-                data-testid="pattern-picker"
-                sx={{
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    fontSize: '0.95rem',
-                    px: 1.25,
-                    minHeight: 36,
-                    maxWidth: 360,
-                    '& .MuiButton-startIcon': { mr: 0.75 },
-                    '& .MuiButton-endIcon': { ml: 0.25 },
-                }}
+        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            {/* Split trigger (req #2756): clicking the project name opens the
+                Rename dialog — mirroring the canvas branch-name labels, which are
+                also click-to-rename. The dropdown arrow opens the File menu. */}
+            <Tooltip
+                title={actionsDisabled ? '' : 'Click to rename project'}
+                disableInteractive
             >
                 <Box
                     component="span"
+                    role={actionsDisabled ? undefined : 'button'}
+                    tabIndex={actionsDisabled ? -1 : 0}
+                    onClick={actionsDisabled ? undefined : openRename}
+                    onKeyDown={(e) => {
+                        if (actionsDisabled) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openRename();
+                        }
+                    }}
+                    data-testid="bv-project-name"
                     sx={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        display: 'block',
-                        maxWidth: 280,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        px: 1.25,
+                        minHeight: 36,
+                        fontWeight: 600,
+                        fontSize: '0.95rem',
+                        color: 'inherit',
+                        borderRadius: 1,
+                        cursor: actionsDisabled ? 'default' : 'pointer',
+                        '& .bv-project-name-text': { textDecoration: 'none' },
+                        '&:hover .bv-project-name-text': actionsDisabled
+                            ? undefined
+                            : { textDecoration: 'underline' },
                     }}
                 >
-                    {triggerLabel}
+                    <InsertDriveFileOutlinedIcon fontSize="small" />
+                    <Box
+                        component="span"
+                        className="bv-project-name-text"
+                        sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            display: 'block',
+                            maxWidth: 280,
+                        }}
+                    >
+                        {triggerLabel}
+                    </Box>
                 </Box>
-            </Button>
+            </Tooltip>
+            <IconButton
+                onClick={openMenu}
+                size="small"
+                color="inherit"
+                aria-haspopup="true"
+                aria-expanded={Boolean(menuAnchor) ? 'true' : undefined}
+                aria-label="Project file menu"
+                data-testid="pattern-picker"
+            >
+                <ArrowDropDownIcon />
+            </IconButton>
 
             <Menu
                 anchorEl={menuAnchor}
@@ -216,7 +196,7 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
                         letterSpacing: 0.5,
                     }}
                 >
-                    Patterns
+                    Projects
                 </ListSubheader>
                 {lib.patterns.map(p => {
                     const isActive = p.id === lib.activeId;
@@ -247,15 +227,7 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
 
                 <MenuItem onClick={openNew} data-testid="bv-new">
                     <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                    <ListItemText primary="New build doc…" />
-                </MenuItem>
-                <MenuItem
-                    onClick={openSaveAs}
-                    disabled={actionsDisabled}
-                    data-testid="bv-save-as"
-                >
-                    <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
-                    <ListItemText primary="Duplicate" />
+                    <ListItemText primary="New Project…" />
                 </MenuItem>
                 <MenuItem
                     onClick={openRename}
@@ -267,45 +239,25 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
                 </MenuItem>
                 <MenuItem
                     onClick={openDelete}
-                    disabled={deleteDisabled}
+                    disabled={actionsDisabled}
                     data-testid="bv-delete"
-                    sx={{ color: deleteDisabled ? undefined : 'error.main' }}
+                    sx={{ color: actionsDisabled ? undefined : 'error.main' }}
                 >
                     <ListItemIcon>
                         <DeleteOutlineIcon
                             fontSize="small"
-                            sx={{ color: deleteDisabled ? undefined : 'error.main' }}
+                            sx={{ color: actionsDisabled ? undefined : 'error.main' }}
                         />
                     </ListItemIcon>
                     <ListItemText primary="Delete" />
                 </MenuItem>
-
-                <Divider />
-
-                <MenuItem onClick={handleImportClick} data-testid="bv-import">
-                    <ListItemIcon><FileUploadIcon fontSize="small" /></ListItemIcon>
-                    <ListItemText primary="Import…" />
-                </MenuItem>
-                <MenuItem onClick={handleExport} data-testid="bv-export">
-                    <ListItemIcon><FileDownloadIcon fontSize="small" /></ListItemIcon>
-                    <ListItemText primary="Export all…" />
-                </MenuItem>
             </Menu>
 
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/json"
-                onChange={handleImportChange}
-                style={{ display: 'none' }}
-                data-testid="bv-import-input"
-            />
-
             <Dialog open={newOpen} onClose={() => setNewOpen(false)}>
-                <DialogTitle>New build doc</DialogTitle>
+                <DialogTitle>New Project</DialogTitle>
                 <DialogContent>
                     <DialogContentText sx={{ mb: 1 }}>
-                        Creates a fresh build pattern with one main branch and its first build.
+                        Creates a fresh project with one main branch and its first build.
                     </DialogContentText>
                     <TextField
                         autoFocus
@@ -360,36 +312,14 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={saveAsOpen} onClose={() => setSaveAsOpen(false)}>
-                <DialogTitle>Duplicate pattern</DialogTitle>
-                <DialogContent>
-                    <TextField
-                        autoFocus
-                        fullWidth
-                        margin="dense"
-                        label="Pattern name"
-                        value={saveAsName}
-                        onChange={(e) => setSaveAsName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && saveAsName.trim()) confirmSaveAs(); }}
-                        inputProps={{ 'data-testid': 'bv-save-as-input' }}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setSaveAsOpen(false)}>Cancel</Button>
-                    <Button onClick={confirmSaveAs} disabled={!saveAsName.trim()} data-testid="bv-save-as-confirm">
-                        Save
-                    </Button>
-                </DialogActions>
-            </Dialog>
-
             <Dialog open={renameOpen} onClose={() => setRenameOpen(false)}>
-                <DialogTitle>Rename pattern</DialogTitle>
+                <DialogTitle>Rename project</DialogTitle>
                 <DialogContent>
                     <TextField
                         autoFocus
                         fullWidth
                         margin="dense"
-                        label="Pattern name"
+                        label="Project name"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && renameValue.trim()) confirmRename(); }}
@@ -405,7 +335,7 @@ const BuildPatternMenu = ({ lib, onShowSnack }) => {
             </Dialog>
 
             <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
-                <DialogTitle>Delete pattern?</DialogTitle>
+                <DialogTitle>Delete project?</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
                         Delete "{lib.activePattern?.name}"? This cannot be undone.

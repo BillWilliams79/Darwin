@@ -93,11 +93,11 @@ export function useBuildVisualizerData(projectId) {
     //                                       dotColor, approvedForRelease}
     //   releaseEvents: object keyed by build extId of [customer name, …]
     //
-    // External IDs (slugs) are the canonical join keys — the iframe and any
-    // future D3 layout engine can both use them.
+    // External IDs (slugs) are the canonical join keys the D3 layout engine
+    // uses.
     const model = useMemo(() => {
         if (!branchRows.length) {
-            return { branches: [], builds: {}, releaseEvents: {} };
+            return { branches: [], builds: {}, releaseEvents: {}, releaseEventDetails: {} };
         }
 
         const branchBySqlId = new Map(branchRows.map(b => [Number(b.id), b]));
@@ -137,14 +137,17 @@ export function useBuildVisualizerData(projectId) {
                 dotColor: b.dot_color || null,
                 approvedForRelease: Number(b.approved_for_release) === 1,
                 // Req #2720: per-build M.m — stamped at creation, no look-back.
-                major: Number(b.major) || 1,
-                minor: Number(b.minor) || 0,
+                // Use nullish (not ||) so an explicit Major=0 / Minor=0 is
+                // preserved rather than coerced to the 1 / 0 fallback (req #2737).
+                major: b.major != null ? Number(b.major) : 1,
+                minor: b.minor != null ? Number(b.minor) : 0,
+                createdAt: b.create_ts || null,
             };
         }
 
         // Branches normalized. Trunk first, then everything else in SQL-id order
-        // (matches the iframe convention so parents typically come before
-        // children — important for the layout step).
+        // so parents typically come before children — important for the layout
+        // step.
         const branches = [];
         const pushBranch = (br) => {
             if (!br.external_id) return;
@@ -164,8 +167,9 @@ export function useBuildVisualizerData(projectId) {
                 parentBranchId: isTrunk ? null : (parentBranchRow?.external_id || null),
                 side: br.side || (isTrunk ? 'center' : 'above'),
                 rowOrder: br.row_order != null ? Number(br.row_order) : null,
-                major: Number(br.major) || 1,
-                minor: Number(br.minor) || 0,
+                // Nullish, not ||, so an explicit Major=0 survives (req #2737).
+                major: br.major != null ? Number(br.major) : 1,
+                minor: br.minor != null ? Number(br.minor) : 0,
                 labelEnd: br.label_end || null,
                 buildIds: myBuilds,
             });
@@ -183,17 +187,28 @@ export function useBuildVisualizerData(projectId) {
         );
         const releaseRows = Array.isArray(releasesQuery.data) ? releasesQuery.data : [];
         const releaseEvents = {};
+        // Parallel detail map for the hover tooltip: per build extId, each
+        // release event's customer name + date (req #2741). `releaseEvents`
+        // (names only) stays the glyph's source of truth so the overlay
+        // renderers are untouched.
+        const releaseEventDetails = {};
         for (const row of releaseRows) {
             const buildSqlId = Number(row.build_fk);
             const buildRow = buildBySqlId.get(buildSqlId);
             if (!buildRow?.external_id) continue;
             const name = customerNameById.get(Number(row.customer_fk));
             if (!name) continue;
-            if (!releaseEvents[buildRow.external_id]) releaseEvents[buildRow.external_id] = [];
-            releaseEvents[buildRow.external_id].push(name);
+            const extId = buildRow.external_id;
+            if (!releaseEvents[extId]) releaseEvents[extId] = [];
+            releaseEvents[extId].push(name);
+            if (!releaseEventDetails[extId]) releaseEventDetails[extId] = [];
+            releaseEventDetails[extId].push({
+                name,
+                date: row.release_date || row.create_ts || null,
+            });
         }
 
-        return { branches, builds, releaseEvents };
+        return { branches, builds, releaseEvents, releaseEventDetails };
     }, [branchRows, buildRows, releasesQuery.data, customersQuery.data]);
 
     return {

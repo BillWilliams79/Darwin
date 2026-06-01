@@ -9,6 +9,7 @@ export const sortSwarmReadyItems = (items) => {
 // Map coordination_type to a display label for tooltips / aria.
 export const getCoordLabel = (coordType) => {
     switch (coordType) {
+        case 'discuss':     return 'Discuss Req';
         case 'planned':     return 'Planned';
         case 'implemented': return 'Implemented';
         case 'deployed':    return 'Deployed';

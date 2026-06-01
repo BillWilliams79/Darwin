@@ -112,6 +112,26 @@ const SwarmVisualizerView = () => {
         navigate(`/swarm/requirement/${reqId}`, { state: { from: 'visualizer' } });
     }, [navigate]);
 
+    // Swarm-start anchor click (req #2747) — open the single swarm-start detail,
+    // mirroring the requirement-chip flow. Save scroll first so the detail page's
+    // Back (navigate(-1) → /swarm, visualizer view persisted) lands on this exact
+    // viewpoint. Only real swarm-starts carry an id; estimated anchors pass null.
+    const onSwarmStartClick = useCallback((swarmStartId) => {
+        if (swarmStartId == null) return;
+        sessionStorage.setItem('visualizer_scrollY', String(window.scrollY));
+        navigate(`/swarm/swarm-starts/${swarmStartId}`, { state: { from: '/swarm' } });
+    }, [navigate]);
+
+    // Tombstone (undone session) click (req #2747) — open the swarm-undo detail
+    // rather than the requirement; the undo data is the pertinent context here,
+    // and the user can hop to the requirement from there. SwarmUndoDetail's Back
+    // honours `state.from`, returning to the visualizer.
+    const onUndoClick = useCallback((undoId) => {
+        if (undoId == null) return;
+        sessionStorage.setItem('visualizer_scrollY', String(window.scrollY));
+        navigate(`/swarm/swarm-undos/${undoId}`, { state: { from: '/swarm' } });
+    }, [navigate]);
+
     const onCenterDateChange = useCallback((d) => {
         if (d && d !== currentDate) setCurrentDate(d);
     }, [currentDate, setCurrentDate]);
@@ -138,6 +158,8 @@ const SwarmVisualizerView = () => {
                 isWeekView={isWeekView}
                 categoryList={categoryList}
                 onChipClick={onChipClick}
+                onSwarmStartClick={onSwarmStartClick}
+                onUndoClick={onUndoClick}
                 onCenterDateChange={onCenterDateChange}
             />
         </div>

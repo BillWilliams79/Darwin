@@ -39,7 +39,7 @@ describe('branchTypeChipProps', () => {
 describe('branchTypeLabel', () => {
     it.each([
         ['release',         'Release'],
-        ['sample-release',  'Sprint Release'],
+        ['sample-release',  'Sprint/Sample'],
         ['hotfix',          'Hot Fix'],
         ['bootleg',         'Bootleg'],
         ['csr',             'CSR'],

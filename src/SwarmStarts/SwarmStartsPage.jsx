@@ -44,11 +44,12 @@ const REQ_LINE_HEIGHT = 18;
 const REQ_BASE_HEIGHT = 52;
 
 // Closed whitelist matching the swarm-start skill (req #2339).
-const AUTONOMY_VALUES = ['planned', 'implemented', 'deployed'];
+const AUTONOMY_VALUES = ['discuss', 'planned', 'implemented', 'deployed'];
 
 const autonomyChipProps = (filter) => {
     if (!filter) return null;
     switch (filter) {
+        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
         case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
         case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
         case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };

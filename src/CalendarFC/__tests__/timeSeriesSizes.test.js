@@ -96,6 +96,7 @@ describe('Circle size option 1/2/3/4', () => {
 
 describe('formatCoordination (autonomy label)', () => {
     it('maps known values to Title Case', () => {
+        expect(formatCoordination('discuss')).toBe('Discuss Req');
         expect(formatCoordination('planned')).toBe('Planned');
         expect(formatCoordination('implemented')).toBe('Implemented');
         expect(formatCoordination('deployed')).toBe('Deployed');
@@ -113,7 +114,7 @@ describe('formatCoordination (autonomy label)', () => {
 
     it('has a label for every documented coordination_type', () => {
         // Same set documented in CLAUDE.md § Darwin MCP Server.
-        expect(Object.keys(COORDINATION_LABELS).sort()).toEqual(['deployed', 'implemented', 'planned']);
+        expect(Object.keys(COORDINATION_LABELS).sort()).toEqual(['deployed', 'discuss', 'implemented', 'planned']);
     });
 });
 
@@ -389,7 +390,7 @@ describe('clusterSessionsByStartTime', () => {
 // Row 0 = earliest met = bottom; higher rows = later met = top.
 // topDown=true reverses the order so the latest gets row 0 (Sidewalk mode —
 // wire sits at the top of the panel, so row 0 renders closest to it). ──────────
-import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor, computePhantomPlacement, isHiddenSwarmStatus } from '../TimeSeriesView';
+import { assignSwarmLanes, assignRows, weekDates, centeredDateRange, swarmStartBarX, positionFor, computePhantomPlacement, isHiddenSwarmStatus, coordinationRingColor } from '../TimeSeriesView';
 
 // ─── clusterSessionsByStartTime — MySQL-format parsing (req #2398) ─────────────
 // Regression guard: before the fix, clusterSessionsByStartTime parsed
@@ -978,7 +979,8 @@ describe('Data selection — Coordination palette (req #2382)', () => {
         expect(DEFAULT_DATA_KEY).toBe('category');
     });
 
-    it('COORDINATION_COLORS maps the three typed coordination values', () => {
+    it('COORDINATION_COLORS maps the four typed coordination values', () => {
+        expect(COORDINATION_COLORS.discuss).toBe('#AB47BC');
         expect(COORDINATION_COLORS.planned).toBe('#FB8C00');
         expect(COORDINATION_COLORS.implemented).toBe('#FDD835');
         expect(COORDINATION_COLORS.deployed).toBe('#43A047');
@@ -989,6 +991,7 @@ describe('Data selection — Coordination palette (req #2382)', () => {
     });
 
     it('getCoordinationColor returns the mapped color for every typed value', () => {
+        expect(getCoordinationColor('discuss')).toBe('#AB47BC');
         expect(getCoordinationColor('planned')).toBe('#FB8C00');
         expect(getCoordinationColor('implemented')).toBe('#FDD835');
         expect(getCoordinationColor('deployed')).toBe('#43A047');
@@ -999,6 +1002,31 @@ describe('Data selection — Coordination palette (req #2382)', () => {
         expect(getCoordinationColor(undefined)).toBe('#E53935');
         expect(getCoordinationColor('')).toBe('#E53935');
         expect(getCoordinationColor('unknown')).toBe('#E53935');
+    });
+});
+
+// ─── coordinationRingColor — outer autonomy ring (req #2423 / #2755) ───────────
+// The shared derivation used by BOTH completed chips and in-progress phantom
+// chips. Before req #2755 phantoms hard-coded ringColor:null and never showed
+// the ring; this helper guarantees the two paths stay identical.
+describe('coordinationRingColor (req #2755 — phantom + completed parity)', () => {
+    it('returns null when the Coordination toggle is off (category mode)', () => {
+        expect(coordinationRingColor('category', 'deployed')).toBe(null);
+        expect(coordinationRingColor('category', null)).toBe(null);
+        expect(coordinationRingColor(undefined, 'planned')).toBe(null);
+    });
+
+    it('maps coordination_type to its ring color when toggle is on', () => {
+        expect(coordinationRingColor('coordination', 'discuss')).toBe('#AB47BC');
+        expect(coordinationRingColor('coordination', 'planned')).toBe('#FB8C00');
+        expect(coordinationRingColor('coordination', 'implemented')).toBe('#FDD835');
+        expect(coordinationRingColor('coordination', 'deployed')).toBe('#43A047');
+    });
+
+    it('falls back to red when coordination_type is missing/unknown', () => {
+        expect(coordinationRingColor('coordination', null)).toBe('#E53935');
+        expect(coordinationRingColor('coordination', undefined)).toBe('#E53935');
+        expect(coordinationRingColor('coordination', 'bogus')).toBe('#E53935');
     });
 });
 

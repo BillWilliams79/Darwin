@@ -23,6 +23,7 @@
 # production
 /build
 /dist
+/dist-standalone
 /_deploy_backups
 
 # misc

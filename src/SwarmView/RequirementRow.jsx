@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
+import { useTheme, darken, lighten } from '@mui/material/styles';
 
 import { useDrag, useDrop } from 'react-dnd';
 import { useRequirementActions } from '../hooks/useRequirementActions';
@@ -22,12 +23,14 @@ import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DescriptionIcon from '@mui/icons-material/Description';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
+    const theme = useTheme();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
@@ -49,6 +52,18 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const handSortActive = sortMode === 'hand';
     const [insertIndicator, setInsertIndicator] = useState(null);
 
+    // Keep the latest requirement + index in refs so the drag `item` factory can
+    // build a fresh payload at drag-start WITHOUT listing volatile fields in the
+    // useDrag dep array. Previously `requirement.title` was a dep, so every
+    // keystroke in the title field recreated the drag spec → new `drag`
+    // connector → `mergedRef` identity churned → React detached/reattached the
+    // row's DOM ref on every character. Reading `.current` at drag time keeps the
+    // payload current without that per-keystroke churn (req #2747).
+    const requirementRef = useRef(requirement);
+    requirementRef.current = requirement;
+    const requirementIndexRef = useRef(requirementIndex);
+    requirementIndexRef.current = requirementIndex;
+
     const [{ isDragging }, drag] = useDrag(() => ({
         type: 'requirementRow',
         item: () => {
@@ -59,8 +74,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             // visually loses chips and tooltips for a few frames mid-drop.
             const rect = rowRef.current?.getBoundingClientRect();
             return {
-                ...requirement,
-                requirementIndex,
+                ...requirementRef.current,
+                requirementIndex: requirementIndexRef.current,
                 sourceWidth: rect?.width || 300,
                 sourceHeight: rect?.height || 40,
             };
@@ -91,9 +106,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         collect: (monitor) => ({
             isDragging: !!monitor.isDragging(),
         }),
-    }), [requirement.id, requirement.title, requirement.requirement_status,
-         requirement.category_fk, requirement.sort_order, requirementIndex,
-         isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
+        // Volatile requirement fields + requirementIndex are intentionally NOT
+        // deps — the `item` factory reads them live from refs at drag-start, so
+        // the spec/connector only needs to be rebuilt when behaviour-affecting
+        // inputs change (canDrag → isTemplate; end → sortMode + the setters).
+    }), [isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
 
     // Hover-only drop target — sets the insert indicator above/below this row
     // and writes the splice target into the parent CategoryCard via
@@ -169,6 +186,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const coordType = requirement.coordination_type || null;
     const getCoordinationIcon = () => {
         if (requirement.id === '') return null;
+        if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: '#f48fb1' }} />; // pink — discuss (req #2745)
         if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue
         if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
         if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />; // light purple
@@ -176,12 +194,38 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     };
 
     const coordTooltip = {
+        discuss: 'Discuss Req — click to cycle',
         planned: 'Planned — click to cycle', implemented: 'Implemented — click to cycle',
         deployed: 'Deployed — click to cycle',
     };
 
     const isAggregatorRow = Boolean(categoryColorMap);
     const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}`;
+
+    // Category color bar fill + delineating edge (req #2752).
+    // Verified root cause: the bar already renders the exact category color
+    // (DOM bgcolor === the category hex), so the fill is correct. The failure
+    // is pure luminance contrast — a pale color like DarwinUI #f2e982 sits at
+    // ~1.25:1 against the white light-mode card and reads as invisible; the
+    // symmetric case is a very dark color against the dark-mode charcoal card.
+    // Fix: keep the true category color as the fill and outline the bar with a
+    // SAME-HUE shade of that color — darkened in light mode, lightened in dark
+    // — so the stripe always has a visible edge and still reads as its own
+    // category color (not washed to gray, which the prior attempt did and which
+    // hid the hue identity).
+    const barColor = categoryColorMap ? categoryColorMap[requirement.category_fk] : undefined;
+    let barBorderColor = null;
+    if (barColor) {
+        try {
+            barBorderColor = theme.palette.mode === 'dark'
+                ? lighten(barColor, 0.45)
+                : darken(barColor, 0.4);
+        } catch {
+            // Non-parseable color value — fall back to a neutral divider edge
+            // rather than crashing the row render.
+            barBorderColor = 'rgba(128,128,128,0.5)';
+        }
+    }
 
     return (
         <Box className={rowClassName}
@@ -220,7 +264,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                             width: 6,
                             alignSelf: 'stretch',
                             minHeight: 24,
-                            bgcolor: categoryColorMap[requirement.category_fk] || 'transparent',
+                            bgcolor: barColor || 'transparent',
+                            ...(barColor && {
+                                border: '1px solid',
+                                borderColor: barBorderColor,
+                            }),
                             borderRadius: '3px',
                         }} />
                     )}

@@ -1,6 +1,9 @@
 import { Page } from '@playwright/test';
 
-const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin';
+// Safe-by-default: target darwin_dev unless explicitly overridden (req #2750).
+// Local/dev E2E runs (run-e2e.sh) MUST NOT write to production darwin. The
+// production smoke suite (playwright.production.config.ts) pins TEST_DATABASE=darwin.
+const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin_dev';
 const DARWIN_API = `https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/${TEST_DATABASE}`;
 
 /** Extract the idToken from the browser context cookies. */
@@ -155,17 +158,41 @@ export async function clickCategorySortMode(page: Page, categoryId: string, mode
 
 /**
  * Clean up all stale E2E data for the current test user.
- * Deletes in FK-safe order: requirement_sessions → swarm_sessions → projects → domains.
- * CASCADE handles children (categories/requirements under projects, areas/tasks under domains).
+ *
+ * Deletes in FK-safe order (req #2750):
+ *   requirement_sessions → swarm_sessions → requirements → categories → projects → domains
+ *
+ * Earlier this function deleted ONLY projects, assuming CASCADE would clear
+ * categories → requirements. It can't: requirements.category_fk is ON DELETE
+ * RESTRICT (migration 041) and requirements.project_fk is ON DELETE SET NULL.
+ * So a project DELETE SET-NULLs its requirements then RESTRICT-fails on the
+ * category cascade — the error was swallowed and requirements/categories/projects
+ * survived forever. We now delete requirements first, then categories, then
+ * projects, mirroring DarwinSQL/scripts/cleanup_e2e.py.
+ *
  * Called once at the start of each test run from auth.setup.ts.
  */
-export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; sessions: number }> {
+export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; categories: number; requirements: number; sessions: number }> {
   const sub = process.env.E2E_TEST_COGNITO_SUB;
-  if (!sub) return { domains: 0, projects: 0, sessions: 0 };
+  if (!sub) return { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0 };
 
-  const summary = { domains: 0, projects: 0, sessions: 0 };
+  const summary = { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0 };
 
-  // 1. Fetch and delete swarm_sessions (and their requirement_sessions links)
+  // Helper: fetch all ids for a table scoped to this creator, then delete each.
+  const deleteAllForCreator = async (table: string): Promise<number> => {
+    try {
+      const rows = await apiCall(
+        `${table}?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
+      ) as Array<{ id: number | string }>;
+      if (!Array.isArray(rows)) return 0;
+      for (const row of rows) {
+        try { await apiDelete(table, row.id, idToken); } catch { /* best-effort */ }
+      }
+      return rows.length;
+    } catch { /* best-effort */ return 0; }
+  };
+
+  // 1. swarm_sessions (and their requirement_sessions links)
   try {
     const sessions = await apiCall(
       `swarm_sessions?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
@@ -186,31 +213,17 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
     }
   } catch { /* best-effort */ }
 
-  // 2. Fetch and delete projects (CASCADE handles categories → requirements)
-  try {
-    const projects = await apiCall(
-      `projects?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
-    ) as Array<{ id: string }>;
-    if (Array.isArray(projects)) {
-      for (const proj of projects) {
-        try { await apiDelete('projects', proj.id, idToken); } catch { /* best-effort */ }
-      }
-      summary.projects = projects.length;
-    }
-  } catch { /* best-effort */ }
+  // 2. requirements — must go before categories (category_fk is ON DELETE RESTRICT).
+  summary.requirements = await deleteAllForCreator('requirements');
 
-  // 3. Fetch and delete domains (CASCADE handles areas → tasks)
-  try {
-    const domains = await apiCall(
-      `domains?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
-    ) as Array<{ id: string }>;
-    if (Array.isArray(domains)) {
-      for (const dom of domains) {
-        try { await apiDelete('domains', dom.id, idToken); } catch { /* best-effort */ }
-      }
-      summary.domains = domains.length;
-    }
-  } catch { /* best-effort */ }
+  // 3. categories — now deletable since their requirements are gone.
+  summary.categories = await deleteAllForCreator('categories');
+
+  // 4. projects — categories already cleared, so the delete succeeds cleanly.
+  summary.projects = await deleteAllForCreator('projects');
+
+  // 5. domains (CASCADE handles areas → tasks).
+  summary.domains = await deleteAllForCreator('domains');
 
   return summary;
 }

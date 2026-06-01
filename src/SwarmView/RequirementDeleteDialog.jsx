@@ -16,6 +16,7 @@ import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import DescriptionIcon from '@mui/icons-material/Description';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
 
@@ -33,6 +34,7 @@ const getStatusIcon = (status) => {
 // Mirror RequirementRow getCoordinationIcon — visible only for swarm_ready/development.
 const getCoordinationIcon = (status, coordType) => {
     if (!['swarm_ready', 'development'].includes(status)) return null;
+    if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: '#f48fb1' }} />;
     if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />;
     if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
     if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />;
