@@ -49,6 +49,7 @@ export function computeSwarmStartStats(rows) {
             avgSecondsPerSession: null,
             autoStartCount: 0,
             autoStartRatio: 0,
+            maxRequirements: null,
             sessionsHistogram: SESSION_BUCKETS.map(label => ({ label, count: 0 })),
             wallHistogram: WALL_BUCKETS.map(b => ({ label: b.label, count: 0 })),
             topPatterns: [],
@@ -61,6 +62,11 @@ export function computeSwarmStartStats(rows) {
     let autoStartCount = 0;
     let wallSumWithSessions = 0;
     let sessionsForAvg = 0;
+    // Largest launch by requirements generated (req #2747). Each session a
+    // swarm-start launches works one requirement, so session_count is the
+    // count of requirements that launch generated. Track the row holding the
+    // max; strict `>` keeps the first/earliest row on a tie.
+    let maxRequirements = null; // { id, count }
     const sessionsHistMap = Object.fromEntries(SESSION_BUCKETS.map(b => [b, 0]));
     const wallHistMap = Object.fromEntries(WALL_BUCKETS.map(b => [b.label, 0]));
     const patterns = new Map(); // key → {pattern, invocations, sessions, wallSum, wallCount}
@@ -72,6 +78,9 @@ export function computeSwarmStartStats(rows) {
         const sessionCount = Number(row.session_count) || 0;
         totalSessions += sessionCount;
         if (row.auto_start) autoStartCount += 1;
+        if (maxRequirements === null || sessionCount > maxRequirements.count) {
+            maxRequirements = { id: row.id, count: sessionCount };
+        }
 
         // Sessions histogram
         const sessKey = sessionCount >= 6 ? '6+' : String(sessionCount);
@@ -127,6 +136,7 @@ export function computeSwarmStartStats(rows) {
         avgSecondsPerSession: sessionsForAvg > 0 ? wallSumWithSessions / sessionsForAvg : null,
         autoStartCount,
         autoStartRatio: autoStartCount / total,
+        maxRequirements,
         sessionsHistogram: SESSION_BUCKETS.map(label => ({ label, count: sessionsHistMap[label] || 0 })),
         wallHistogram: WALL_BUCKETS.map(b => ({ label: b.label, count: wallHistMap[b.label] || 0 })),
         topPatterns,
@@ -150,7 +160,9 @@ const formatPct = (v) => `${(v * 100).toFixed(0)}%`;
 
 function KpiCard({ label, value, hint }) {
     return (
-        <Paper elevation={1} sx={{ p: 2, flex: 1, minWidth: 160 }}>
+        // Width is owned by the CSS-grid cell in the KPI strip (uniform columns →
+        // clean left + right alignment, req #2747); the card just fills its cell.
+        <Paper elevation={1} sx={{ p: 2, height: '100%' }}>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                 {label}
             </Typography>
@@ -168,7 +180,9 @@ function KpiCard({ label, value, hint }) {
 
 function ChartCard({ title, subtitle, height = 220, children, testId }) {
     return (
-        <Paper elevation={1} sx={{ p: 2, flex: 1, minWidth: 280 }} data-testid={testId}>
+        // Full-width so each chart block hugs the page's left + right margins
+        // when stacked (req #2747).
+        <Paper elevation={1} sx={{ p: 2, width: '100%' }} data-testid={testId}>
             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                 {title}
             </Typography>
@@ -209,11 +223,21 @@ export default function SwarmStartsStatsView({ rows = [] }) {
 
     return (
         <Box sx={{ px: 3, pt: 1, maxWidth: STATS_WIDTH }} data-testid="swarm-starts-stats-view">
-            {/* KPI strip */}
-            <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 2 }}
-                   data-testid="swarm-starts-stats-kpis">
+            {/* KPI strip — CSS grid with uniform auto-fit columns so the cards
+                line up on BOTH the left and right edges (req #2747). The prior
+                flex-wrap layout justified the right edge but let interior cards
+                land at ragged left offsets when a row held a different count. */}
+            <Box sx={{ display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                        gap: 2, mb: 2 }}
+                 data-testid="swarm-starts-stats-kpis">
                 <KpiCard label="Invocations" value={stats.total.toLocaleString()} />
                 <KpiCard label="Sessions Launched" value={stats.totalSessions.toLocaleString()} />
+                <KpiCard label="Most Requirements / Launch"
+                         value={stats.maxRequirements ? stats.maxRequirements.count.toLocaleString() : '—'}
+                         hint={stats.maxRequirements && stats.maxRequirements.id != null
+                             ? `Swarm-Start #${stats.maxRequirements.id}`
+                             : undefined} />
                 <KpiCard label="Avg Sessions / Invocation"
                          value={stats.avgSessionsPerInvocation.toFixed(2)} />
                 <KpiCard label="Avg Time to Start a Session"
@@ -222,10 +246,13 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                 <KpiCard label="Auto-Start"
                          value={formatPct(stats.autoStartRatio)}
                          hint={`${stats.autoStartCount} of ${stats.total}`} />
-            </Stack>
+            </Box>
 
-            {/* Charts row 1 — sessions histogram + wall histogram */}
-            <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 2 }}>
+            {/* Charts — full-width and stacked so every block shares the page's
+                left + right margins (req #2747). Previously Sessions + Wall-Time
+                were a 2-up row, which left Wall-Time's left edge detached from the
+                page margin while everything else hugged it. */}
+            <Stack spacing={2} sx={{ mb: 2 }}>
                 <ChartCard
                     title="Sessions per Invocation"
                     subtitle="How many sessions each /swarm-start launches"
@@ -261,10 +288,7 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                         </BarChart>
                     </ResponsiveContainer>
                 </ChartCard>
-            </Stack>
 
-            {/* Charts row 2 — autonomy breakdown */}
-            <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 2 }}>
                 <ChartCard
                     title="Autonomy Filter Breakdown"
                     subtitle="How often each autonomy keyword is used"

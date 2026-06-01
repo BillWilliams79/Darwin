@@ -149,4 +149,26 @@ describe('computeSwarmStartStats (req #2686)', () => {
         expect(counts.deployed).toBe(0);
         expect(counts.none).toBe(2);
     });
+
+    // Req #2747 — largest launch by requirements generated (max session_count).
+    it('reports the largest launch (max session_count) with its swarm-start id', () => {
+        const rows = [
+            mkRow({ id: 10, session_count: 2 }),
+            mkRow({ id: 11, session_count: 9 }),
+            mkRow({ id: 12, session_count: 5 }),
+        ];
+        expect(computeSwarmStartStats(rows).maxRequirements).toEqual({ id: 11, count: 9 });
+    });
+
+    it('maxRequirements is null for empty input', () => {
+        expect(computeSwarmStartStats([]).maxRequirements).toBeNull();
+    });
+
+    it('maxRequirements keeps the first row on a tie (strict >)', () => {
+        const rows = [
+            mkRow({ id: 1, session_count: 4 }),
+            mkRow({ id: 2, session_count: 4 }),
+        ];
+        expect(computeSwarmStartStats(rows).maxRequirements).toEqual({ id: 1, count: 4 });
+    });
 });

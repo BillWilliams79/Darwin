@@ -8,6 +8,8 @@ import {
     centeredDateRange,
     extendDates,
     pruneDates,
+    assignSwarmLanes,
+    buildCrossDayGhosts,
 } from '../TimeSeriesView';
 
 describe('trimTo35', () => {
@@ -488,5 +490,115 @@ describe('pruneDates (Sidewalk infinite scroll)', () => {
         const m = String(expectedLast.getMonth() + 1).padStart(2, '0');
         const day = String(expectedLast.getDate()).padStart(2, '0');
         expect(lastEntry).toBe(`${y}-${m}-${day}`);
+    });
+});
+
+// Req #2747 — cross-day pass-through lines must share the intermediate day's
+// lane assignment with same-day chips so a dashed long-tail line never lands on
+// a lane already held by a bubble that closed that day. BeadRow models this by
+// adding "ghost" occupants (one per cross-day session) to the SAME
+// assignSwarmLanes call as the day's real chips. These tests lock the invariant
+// at the assigner level: every occupant — real or ghost — gets a unique row,
+// and cluster-mates (shared groupKey) stay contiguous.
+describe('assignSwarmLanes — cross-day ghost occupants (req #2747)', () => {
+    // Shape mirrors the reported May 28 collision: three reqs CLOSED that day
+    // (2708/2714/2715) plus three long-tail sessions (2709/2716/2720, closed
+    // May 29) passing THROUGH as ghosts — all in one swarm-start cluster.
+    const GROUP = '2026-05-27T08:00:00Z';
+    const sameDay = [
+        { chipKey: '2708-s1', groupKey: GROUP, completed_at: '2026-05-28T10:00:00Z' },
+        { chipKey: '2714-s2', groupKey: GROUP, completed_at: '2026-05-28T11:00:00Z' },
+        { chipKey: '2715-s3', groupKey: GROUP, completed_at: '2026-05-28T12:00:00Z' },
+    ];
+    const ghosts = [
+        { chipKey: 'xdghost-4-middle-0', groupKey: GROUP, completed_at: '2026-05-29T09:00:00Z', isCrossDayGhost: true },
+        { chipKey: 'xdghost-5-middle-1', groupKey: GROUP, completed_at: '2026-05-29T10:00:00Z', isCrossDayGhost: true },
+        { chipKey: 'xdghost-6-middle-2', groupKey: GROUP, completed_at: '2026-05-29T11:00:00Z', isCrossDayGhost: true },
+    ];
+
+    it('assigns a unique row to every occupant — no bubble/line shares a lane', () => {
+        const placed = assignSwarmLanes([...sameDay, ...ghosts]);
+        const rows = placed.map(c => c.row);
+        expect(new Set(rows).size).toBe(rows.length);          // all distinct
+        expect([...rows].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]); // dense 0..N-1
+    });
+
+    it('no same-day chip and ghost ever resolve to the same row', () => {
+        const placed = assignSwarmLanes([...sameDay, ...ghosts]);
+        const realRows = new Set(placed.filter(c => !c.isCrossDayGhost).map(c => c.row));
+        const ghostRows = placed.filter(c => c.isCrossDayGhost).map(c => c.row);
+        for (const gr of ghostRows) expect(realRows.has(gr)).toBe(false);
+    });
+
+    it('keeps cluster-mates (shared groupKey) contiguous in the lane stack', () => {
+        // A second, earlier cluster should occupy a contiguous block that does
+        // not interleave with the GROUP cluster.
+        const otherGroup = '2026-05-26T08:00:00Z';
+        const other = [
+            { chipKey: '2700-s9', groupKey: otherGroup, completed_at: '2026-05-28T08:00:00Z' },
+        ];
+        const placed = assignSwarmLanes([...sameDay, ...ghosts, ...other]);
+        const groupRows = placed.filter(c => c.groupKey === GROUP).map(c => c.row).sort((a, b) => a - b);
+        // Contiguous run (max-min === count-1, no gaps from the other cluster).
+        expect(groupRows[groupRows.length - 1] - groupRows[0]).toBe(groupRows.length - 1);
+    });
+});
+
+// Req #2747 — buildCrossDayGhosts is the field-mapping step that turns the
+// parent's crossDayMap entries into ghost lane-occupants fed to assignSwarmLanes
+// (then split back out for the cross-day SVG). These lock the mapping so a
+// silent rename/typo in the ghost shape is caught.
+describe('buildCrossDayGhosts (req #2747)', () => {
+    const sampleCrossDays = [
+        { sessionId: 4, role: 'middle', groupKey: '2026-05-27T08:00:00Z',
+          completedAt: '2026-05-29T09:00:00Z', card: { id: 2709 } },
+        { sessionId: 5, role: 'start', pct: 42, groupKey: '2026-05-27T08:00:00Z',
+          completedAt: '2026-05-29T10:00:00Z', card: { id: 2716 } },
+    ];
+
+    it('returns [] when vizKey is not swarm', () => {
+        expect(buildCrossDayGhosts(sampleCrossDays, 'bead')).toEqual([]);
+    });
+
+    it('returns [] for empty / non-array input', () => {
+        expect(buildCrossDayGhosts([], 'swarm')).toEqual([]);
+        expect(buildCrossDayGhosts(undefined, 'swarm')).toEqual([]);
+        expect(buildCrossDayGhosts(null, 'swarm')).toEqual([]);
+    });
+
+    it('maps each entry to a ghost carrying groupKey, end-day completed_at, and the original crossDay', () => {
+        const ghosts = buildCrossDayGhosts(sampleCrossDays, 'swarm');
+        expect(ghosts).toHaveLength(2);
+        expect(ghosts[0]).toEqual({
+            chipKey: 'xdghost-4-middle-0',
+            id: 2709,
+            groupKey: '2026-05-27T08:00:00Z',
+            completed_at: '2026-05-29T09:00:00Z',
+            isCrossDayGhost: true,
+            crossDay: sampleCrossDays[0],
+        });
+        // groupKey + completed_at must match what assignSwarmLanes sorts on so
+        // ghosts seat contiguously with their cluster's same-day chips.
+        expect(ghosts[1].chipKey).toBe('xdghost-5-start-1');
+        expect(ghosts[1].id).toBe(2716);
+        expect(ghosts.every(g => g.isCrossDayGhost === true)).toBe(true);
+    });
+
+    it('feeds assignSwarmLanes so ghosts get distinct rows from same-day chips', () => {
+        const sameDay = [{ chipKey: '2708-s1', groupKey: '2026-05-27T08:00:00Z',
+                           completed_at: '2026-05-28T10:00:00Z' }];
+        const ghosts = buildCrossDayGhosts(sampleCrossDays, 'swarm');
+        const placed = assignSwarmLanes([...sameDay, ...ghosts]);
+        const rows = placed.map(c => c.row);
+        expect(new Set(rows).size).toBe(rows.length);   // every occupant a unique lane
+        const ghostRows = placed.filter(c => c.isCrossDayGhost).map(c => c.row);
+        const realRows = new Set(placed.filter(c => !c.isCrossDayGhost).map(c => c.row));
+        for (const gr of ghostRows) expect(realRows.has(gr)).toBe(false);
+    });
+
+    it('handles a null card without throwing (id falls back to null)', () => {
+        const ghosts = buildCrossDayGhosts(
+            [{ sessionId: 9, role: 'middle', groupKey: 'g', completedAt: 't' }], 'swarm');
+        expect(ghosts[0].id).toBeNull();
     });
 });
