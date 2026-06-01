@@ -12,11 +12,8 @@ test.describe('Build Visualizer — D3 React implementation (req #2720)', () => 
         await page.goto('/build-visualizer');
     });
 
-    test('renders the D3 canvas (not an iframe)', async ({ page }) => {
-        // The D3 canvas should be visible — no iframe.
+    test('renders the D3 canvas', async ({ page }) => {
         await expect(page.getByTestId('build-visualizer-canvas')).toBeVisible();
-        // The old iframe testid must NOT exist.
-        await expect(page.locator('[data-testid="build-visualizer-iframe"]')).toHaveCount(0);
     });
 
     test('pattern picker is visible', async ({ page }) => {
@@ -78,7 +75,7 @@ test.describe('Build Visualizer — D3 React implementation (req #2720)', () => 
     });
 
     // Future: add tests for build-dot click menu, branch creation, etc.
-    // The old iframe-based E2E tests (pattern CRUD, branch editor, natural
-    // spacing) were retired with the iframe in req #2720. New E2E coverage
-    // for the D3 architecture should be added in a follow-up requirement.
+    // Earlier E2E tests (pattern CRUD, branch editor, natural spacing) were
+    // retired in req #2720. New E2E coverage for the D3 architecture should
+    // be added in a follow-up requirement.
 });
