@@ -285,6 +285,80 @@ describe('labelY — top-track raise for release events', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 4b. RELEASE CLEARANCE (req #2772) — a release-bearing row reserves extra
+//     vertical room ABOVE it so its star row + raised label don't collide with
+//     the version labels of the row directly above. Applied only to the gap
+//     above the release-bearing row; release-free layouts are unchanged.
+// ---------------------------------------------------------------------------
+describe('release clearance — extra room above a release-bearing row', () => {
+    // Two CSR branches off the SAME parent build overlap horizontally, so they
+    // land on different lanes of the CSR stratum (lane 0 = inner/lower, lane 1
+    // = outer/upper). cs1 is first in model order → lane 0 (nearest main).
+    const twoCsr = (releaseEvents = {}) => computeLayout(makeModel({
+        mainBuilds: 4,
+        subBranches: [
+            { id: 'cs1', type: 'csr', parentBuildId: 'm1', buildCount: 3 },
+            { id: 'cs2', type: 'csr', parentBuildId: 'm1', buildCount: 3 },
+        ],
+        releaseEvents,
+    }));
+    const gapBetween = (layout) => {
+        const cs1 = layout.branches.find(b => b.id === 'cs1');
+        const cs2 = layout.branches.find(b => b.id === 'cs2');
+        return Math.abs(cs1.y - cs2.y);
+    };
+
+    it('release-free: adjacent same-stratum lanes are exactly laneGap apart', () => {
+        expect(gapBetween(twoCsr())).toBe(DEFAULT_OPTS.laneGap);
+    });
+
+    it('release on the INNER lane widens the gap above it by releaseClearance', () => {
+        // cs1 (lane 0, lower) bears the release → clearance is inserted between
+        // it and cs2 (the lane directly above).
+        const gap = gapBetween(twoCsr({ 'cs1-b1': ['Acme'] }));
+        expect(gap).toBe(DEFAULT_OPTS.laneGap + DEFAULT_OPTS.releaseClearance);
+    });
+
+    it('release on the OUTER lane does NOT widen the inter-lane gap', () => {
+        // cs2 (lane 1, upper) bears the release → clearance goes above cs2
+        // (toward the stratum/canvas above), not between the two CSR lanes.
+        const gap = gapBetween(twoCsr({ 'cs2-b1': ['Acme'] }));
+        expect(gap).toBe(DEFAULT_OPTS.laneGap);
+    });
+
+    it('release-free absolute Y matches the documented formula (no upward shift)', () => {
+        // One 1-lane above stratum (bootleg) + main. The prior engine placed the
+        // topmost lane at canvasPadTop + laneGap and main a sideGap below the
+        // band — locking this guards against the rows-walk shifting everything up.
+        const { canvasPadTop, laneGap, sideGap } = DEFAULT_OPTS;
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1 }],
+        }));
+        const bootleg = layout.branches.find(b => b.id === 'bl1');
+        expect(bootleg.y).toBe(canvasPadTop + laneGap);          // 40 + 70 = 110
+        expect(layout.mainY).toBe(canvasPadTop + laneGap + sideGap); // 110 + 70 = 180
+    });
+
+    it('a release on a dev branch pushes it further below main', () => {
+        const plain = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+        }));
+        const withRel = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+            releaseEvents: { 'dev1-b1': ['Acme'] },
+        }));
+        const devPlain = plain.branches.find(b => b.id === 'dev1');
+        const devRel = withRel.branches.find(b => b.id === 'dev1');
+        // main stays put; the dev lane drops by releaseClearance to clear main's
+        // version labels with its star row.
+        expect(devRel.y - devPlain.y).toBe(DEFAULT_OPTS.releaseClearance);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // 5. BUILD RECORDS — branchType and releaseDetails carried through
 // ---------------------------------------------------------------------------
 describe('build records — branchType and releaseDetails', () => {
