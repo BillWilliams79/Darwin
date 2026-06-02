@@ -6,7 +6,9 @@ test.describe('Error Handling P1', () => {
     // Mock API calls: Domains → 1 domain, Areas → 1 area, Tasks → 500 error.
     // Route patterns target the API path specifically — **/tasks** would also
     // match the page URL /taskcards (since "taskcards" contains "tasks").
-    await page.route('**/eng/darwin/domains*', route => {
+    // The DB segment is wildcarded (`darwin*`) so the mock applies whether the UI
+    // runs against `darwin` (production) or `darwin_dev` (dev-server runs).
+    await page.route('**/eng/darwin*/domains*', route => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -14,7 +16,7 @@ test.describe('Error Handling P1', () => {
       });
     });
 
-    await page.route('**/eng/darwin/areas*', route => {
+    await page.route('**/eng/darwin*/areas*', route => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -22,7 +24,7 @@ test.describe('Error Handling P1', () => {
       });
     });
 
-    await page.route('**/eng/darwin/tasks*', route => {
+    await page.route('**/eng/darwin*/tasks*', route => {
       route.fulfill({
         status: 500,
         contentType: 'application/json',

@@ -33,14 +33,16 @@ test.describe('Authentication', () => {
     await page.getByTestId('login-password').locator('input').fill(process.env.E2E_TEST_PASSWORD!);
     await page.getByTestId('login-submit').click();
 
-    // SRP auth → loginWithTokens → JWT validate → profile fetch → navigate to /taskcards
-    await expect(page).toHaveURL(/\/taskcards/, { timeout: 30000 });
+    // SRP auth → loginWithTokens → JWT validate (ops /jwt URI, req #2697) → profile
+    // fetch → navigate. A fully-onboarded user lands on /taskcards; a user without a
+    // saved timezone (the dedicated E2E users have none) is routed to the first-run
+    // /setup page. Either is a successful authenticated landing — the failure mode is
+    // staying on /login (e.g. a thrown SRP/JWT error).
+    await expect(page).toHaveURL(/\/(taskcards|setup)/, { timeout: 30000 });
 
-    // Verify protected route is accessible (Plan view renders domain tabs)
-    await page.waitForSelector('[role="tab"]', { timeout: 15000 });
-
-    // Verify in-session navigation to protected route works
-    await page.getByRole('link', { name: /plan/i }).click();
+    // Verify authenticated access to the protected Plan view (renders domain tabs).
+    await page.goto('/taskcards');
     await expect(page).toHaveURL(/\/taskcards/);
+    await page.waitForSelector('[role="tab"]', { timeout: 15000 });
   });
 });
