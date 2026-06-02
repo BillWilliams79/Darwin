@@ -1,7 +1,26 @@
 import { Page } from '@playwright/test';
 
 const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin';
-const DARWIN_API = `https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng/${TEST_DATABASE}`;
+const API_BASE = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng';
+const DARWIN_API = `${API_BASE}/${TEST_DATABASE}`;
+
+// Req #2697 — operational tables live exclusively in the production `darwin`
+// schema. The app reads/writes them via `darwinOpsUri` (always `…/darwin`),
+// regardless of the active dev database. So E2E seeds/reads of these tables MUST
+// target `darwin` too: when TEST_DATABASE=darwin_dev, content tables (requirements,
+// projects, domains, …) go to darwin_dev but ops tables must still go to darwin, or
+// the UI (which reads ops from darwin) never sees the seeded rows — e.g. a seeded
+// swarm_session shows up as "Session not found." This mirrors the app's
+// darwinUri / darwinOpsUri split. Keep in sync with the `ops: true` entities in
+// src/hooks/factory/devopsQueries.js.
+const OPS_API = `${API_BASE}/darwin`;
+const OPS_TABLES = new Set(['swarm_sessions', 'dev_servers', 'swarm_starts', 'swarm_start_sessions']);
+
+/** Resolve the API base for a table (ops tables → production `darwin`). */
+function apiBaseFor(tableWithQuery: string): string {
+  const table = tableWithQuery.split('?')[0];
+  return OPS_TABLES.has(table) ? OPS_API : DARWIN_API;
+}
 
 /** Extract the idToken from the browser context cookies. */
 export async function getIdToken(page: Page): Promise<string> {
@@ -21,11 +40,23 @@ export async function apiCall(
   retries = 3,
 ): Promise<unknown> {
   for (let attempt = 1; attempt <= retries; attempt++) {
-    const res = await fetch(`${DARWIN_API}/${table}`, {
-      method,
-      headers: { Authorization: idToken },
-      body: method === 'GET' ? undefined : JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${apiBaseFor(table)}/${table}`, {
+        method,
+        headers: { Authorization: idToken },
+        body: method === 'GET' ? undefined : JSON.stringify(body),
+      });
+    } catch (err) {
+      // Transient network failure (DNS/connection reset talking to the cloud API
+      // — surfaces as `TypeError: fetch failed`). Retry with backoff so a blip in
+      // a beforeAll seed doesn't abort an entire serial describe.
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+        continue;
+      }
+      throw err;
+    }
 
     const text = await res.text();
 
@@ -45,7 +76,7 @@ export async function apiCall(
 
 /** DELETE a record by id. */
 export async function apiDelete(table: string, id: number | string, idToken: string): Promise<void> {
-  await fetch(`${DARWIN_API}/${table}`, {
+  await fetch(`${apiBaseFor(table)}/${table}`, {
     method: 'DELETE',
     headers: { Authorization: idToken },
     body: JSON.stringify({ id }),
@@ -186,7 +217,25 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
     }
   } catch { /* best-effort */ }
 
-  // 2. Fetch and delete projects (CASCADE handles categories → requirements)
+  // 2a. Delete requirements FIRST. `requirements.category_fk → categories` is
+  //     RESTRICT, so deleting a project (which CASCADE-deletes its categories)
+  //     fails whenever a category still has requirements — the whole project
+  //     delete rolls back and the rows accumulate across runs (the root cause of
+  //     darwin_dev E2E pollution that degrades count/position-sensitive tests).
+  //     Deleting requirements up front (which CASCADE-deletes requirement_sessions)
+  //     clears the RESTRICT so the project delete in 2b can cascade clean.
+  try {
+    const requirements = await apiCall(
+      `requirements?creator_fk=${sub}&fields=id`, 'GET', '', idToken,
+    ) as Array<{ id: string }>;
+    if (Array.isArray(requirements)) {
+      for (const req of requirements) {
+        try { await apiDelete('requirements', req.id, idToken); } catch { /* best-effort */ }
+      }
+    }
+  } catch { /* best-effort */ }
+
+  // 2b. Delete projects (CASCADE now handles the emptied categories).
   try {
     const projects = await apiCall(
       `projects?creator_fk=${sub}&fields=id`, 'GET', '', idToken,

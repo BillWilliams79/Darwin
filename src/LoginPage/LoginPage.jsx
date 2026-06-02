@@ -60,7 +60,7 @@ function LoginPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const { loginWithTokens } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { darwinUri, darwinOpsUri } = useContext(AppContext);
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -76,7 +76,7 @@ function LoginPage() {
         setLoading(true);
         try {
             const tokens = await signIn(email, password);
-            const profile = await loginWithTokens(tokens, darwinUri);
+            const profile = await loginWithTokens(tokens, darwinUri, darwinOpsUri);
             navigate(profile?.timezone == null ? '/setup' : redirectPath, { replace: true });
         } catch (err) {
             if (err.code === 'UserNotConfirmedException') {

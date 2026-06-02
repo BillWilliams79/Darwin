@@ -122,14 +122,19 @@ test.describe('Swarm View', () => {
     await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
   });
 
-  test('SWM-12a: Requirement row shows row number', async ({ page }) => {
+  test('SWM-12a: Requirement row shows clickable requirement-# chip', async ({ page }) => {
     await page.goto('/swarm');
     await page.waitForSelector('[role="tab"]', { timeout: 10000 });
     await page.getByRole('tab', { name: testProjectName }).click();
     await expect(page.getByTestId(`requirement-${testRequirementId}`)).toBeVisible({ timeout: 10000 });
-    // Row number "1" should be visible in the requirement row
-    const row = page.getByTestId(`requirement-${testRequirementId}`);
-    await expect(row.locator('p').first()).toContainText('1');
+    // The numerical row-ordering was replaced (RequirementRow.jsx, commit aae12d2,
+    // 2026-04-24) by a clickable requirement-# chip that shows the requirement id
+    // and navigates to the detail page. Assert the current behavior.
+    const chip = page.getByTestId(`req-id-chip-${testRequirementId}`);
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText(String(testRequirementId));
+    await chip.click();
+    await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${testRequirementId}$`), { timeout: 10000 });
   });
 
   test('SWM-13: /swarm/requirement/:id renders RequirementDetail with correct title', async ({ page }) => {
