@@ -35,6 +35,7 @@ import {
     nextBuildVersion,
     firstBuildOnNewBranchVersion,
     fromModelBuild,
+    formatVersion,
     toBuildRow,
     isOpenMm,
     openMm,
@@ -55,6 +56,7 @@ import {
     isThemeVariant,
 } from './themeVariants';
 import { canDeleteBuild, canDeleteBranch } from './deleteRules';
+import { formatBranchLocation } from './buildLocation';
 import ThemeContext from '../Theme/ThemeContext';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -106,7 +108,20 @@ const writeStoredDarkVariant = (variant) => {
 const BuildVisualizerPage = () => {
     const lib = useBuildPatterns();
     const projectId = lib.activePattern?.projectId || null;
+    // Active project's display name — used to compose the branch-location
+    // string shown on build/branch click (req #2753).
+    const projectName = lib.activePattern?.name || '';
     const { isLoading: dataLoading, error: dataError, model } = useBuildVisualizerData(projectId);
+
+    // Version of a branch's FIRST build (req #2753). The branch-location string
+    // identifies the branch, so it is the same for the branch and every build
+    // on it — always the first build's M.m.B.b. Empty when the branch has no
+    // builds yet. `buildIds` is ordered by position (see useBuildVisualizerData).
+    const branchFirstBuildVersion = useCallback((branch) => {
+        const firstId = branch?.buildIds?.[0];
+        const firstBuild = firstId ? model?.builds?.[firstId] : null;
+        return firstBuild ? formatVersion(fromModelBuild(firstBuild)) : '';
+    }, [model]);
 
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
@@ -1003,6 +1018,22 @@ const BuildVisualizerPage = () => {
                                     return ts ? new Date(ts).toLocaleString() : '—';
                                 })()}
                             </Typography>
+                            {/* Branch location (req #2753) — informational, not a link.
+                                Identifies the branch: project / branch name /
+                                version of the branch's first build. */}
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                display="block"
+                                sx={{ mt: 0.5, wordBreak: 'break-all' }}
+                                data-testid="bv-build-location"
+                            >
+                                {formatBranchLocation(
+                                    projectName,
+                                    dotMenuBranch?.name,
+                                    branchFirstBuildVersion(dotMenuBranch),
+                                )}
+                            </Typography>
                         </Box>
                         <Divider />
 
@@ -1231,6 +1262,23 @@ const BuildVisualizerPage = () => {
                             )}
                             <Typography variant="caption" color="text.secondary" display="block">
                                 Builds: {branchEditorBranch.buildIds?.length || 0}
+                            </Typography>
+                            {/* Branch location (req #2753) — informational, not a link.
+                                Same shape as the build menu: project / branch name /
+                                version of the branch's first build (omitted when the
+                                branch has no builds yet). */}
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                display="block"
+                                sx={{ mt: 0.5, wordBreak: 'break-all' }}
+                                data-testid="bv-branch-location"
+                            >
+                                {formatBranchLocation(
+                                    projectName,
+                                    branchEditorBranch.name,
+                                    branchFirstBuildVersion(branchEditorBranch),
+                                )}
                             </Typography>
                         </Box>
                     )}

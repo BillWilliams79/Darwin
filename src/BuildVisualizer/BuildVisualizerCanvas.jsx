@@ -15,7 +15,7 @@ import { computeLayout } from './d3LayoutEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 import { computeHiddenBranchIds } from './visibilityRules';
 import paletteFor from './d3ThemePalettes';
-import { frameView } from './frameStrategies';
+import { frameView, reflowPanDeltaY } from './frameStrategies';
 import { starColorFor } from './starColors';
 import {
     DEFAULT_DARK_VARIANT,
@@ -278,33 +278,41 @@ const BuildVisualizerCanvas = ({
         return runFrameRef.current();
     }, [resetViewNonce]);
 
-    // Keep the view STABLE across in-place layout reflows (req #2741). Hiding a
-    // branch type (e.g. Release) collapses a whole stratum, so `mainY` shrinks
-    // and EVERY branch Y shifts up. With a fixed pan the graph would visibly
-    // jump. To preserve "what the user was looking at", compensate the pan by
-    // the change in `mainY` — the trunk (and everything anchored to it) keeps
-    // its on-screen position; only the toggled branches appear/disappear.
+    // Keep the view STABLE across in-place layout reflows (req #2741, #2754).
+    // Hiding a branch type (e.g. Release) collapses a whole stratum, so `mainY`
+    // shrinks and EVERY branch Y shifts up; adding hotfix/bootleg branches or
+    // builds grows the strata/lanes and shifts EVERY branch Y down. With a fixed
+    // pan the graph would visibly jump. To preserve "what the user was looking
+    // at", compensate the pan by the change in `mainY` — the trunk (and
+    // everything anchored to it) keeps its on-screen position; only the
+    // added/toggled branches appear or disappear.
     //
-    // Gated on DATA IDENTITY (`model` reference): a filter/stagger toggle
-    // recomputes `layout` while `model` stays the same object, so we compensate;
-    // a project switch / data reload gives a NEW `model`, so we skip and let
-    // runFrame own positioning. This is strategy-agnostic — it does NOT assume
-    // the framing function is linear in `mainY`, so new FRAME_STRATEGIES stay
-    // safe. Also skipped until the project is initially framed.
+    // Gated on PROJECT IDENTITY (`projectId`), NOT the `model` reference
+    // (req #2754). An add-branch / add-build refetches (`invalidateBuildData`)
+    // and produces a BRAND-NEW `model` object while staying on the same project
+    // — the old model-reference gate treated that as a reload and skipped
+    // compensation, so the view jumped to the new branches. A real project
+    // switch changes `projectId`, where we skip and let `runFrame` reframe. The
+    // delta math lives in `reflowPanDeltaY` — strategy-agnostic, so it does NOT
+    // assume the framing function is linear in `mainY` and new FRAME_STRATEGIES
+    // stay safe. A transient empty layout (no branches) reads `mainY` as null so
+    // it is never used as a comparison point.
     const prevMainYRef = useRef(null);
-    const prevModelRef = useRef(null);
+    const prevProjectIdRef = useRef(null);
     useEffect(() => {
-        const mainY = layout?.mainY ?? null;
+        const mainY = layout?.branches?.length ? (layout.mainY ?? null) : null;
         const prevMainY = prevMainYRef.current;
-        const sameData = model != null && prevModelRef.current === model;
+        const sameProject = prevProjectIdRef.current === projectId;
         prevMainYRef.current = mainY;
-        prevModelRef.current = model;
-        if (!sameData) return;                              // project switch / reload
-        if (prevMainY == null || mainY == null) return;     // nothing to compare
-        if (lastFitProjectId.current !== projectId) return; // not yet framed
-        const delta = prevMainY - mainY;
+        prevProjectIdRef.current = projectId;
+        const delta = reflowPanDeltaY({
+            sameProject,
+            framed: lastFitProjectId.current === projectId,
+            prevMainY,
+            mainY,
+        });
         if (delta !== 0) setPan(p => ({ ...p, y: p.y + delta }));
-    }, [layout, model, projectId]);
+    }, [layout, projectId]);
 
     if (isLoading) {
         return (

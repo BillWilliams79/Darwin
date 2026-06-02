@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
+import { useTheme, darken, lighten } from '@mui/material/styles';
 
 import { useDrag, useDrop } from 'react-dnd';
 import { useRequirementActions } from '../hooks/useRequirementActions';
@@ -29,6 +30,7 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
 
     const navigate = useNavigate();
+    const theme = useTheme();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
@@ -200,6 +202,31 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const isAggregatorRow = Boolean(categoryColorMap);
     const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}`;
 
+    // Category color bar fill + delineating edge (req #2752).
+    // Verified root cause: the bar already renders the exact category color
+    // (DOM bgcolor === the category hex), so the fill is correct. The failure
+    // is pure luminance contrast — a pale color like DarwinUI #f2e982 sits at
+    // ~1.25:1 against the white light-mode card and reads as invisible; the
+    // symmetric case is a very dark color against the dark-mode charcoal card.
+    // Fix: keep the true category color as the fill and outline the bar with a
+    // SAME-HUE shade of that color — darkened in light mode, lightened in dark
+    // — so the stripe always has a visible edge and still reads as its own
+    // category color (not washed to gray, which the prior attempt did and which
+    // hid the hue identity).
+    const barColor = categoryColorMap ? categoryColorMap[requirement.category_fk] : undefined;
+    let barBorderColor = null;
+    if (barColor) {
+        try {
+            barBorderColor = theme.palette.mode === 'dark'
+                ? lighten(barColor, 0.45)
+                : darken(barColor, 0.4);
+        } catch {
+            // Non-parseable color value — fall back to a neutral divider edge
+            // rather than crashing the row render.
+            barBorderColor = 'rgba(128,128,128,0.5)';
+        }
+    }
+
     return (
         <Box className={rowClassName}
              data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
@@ -237,7 +264,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                             width: 6,
                             alignSelf: 'stretch',
                             minHeight: 24,
-                            bgcolor: categoryColorMap[requirement.category_fk] || 'transparent',
+                            bgcolor: barColor || 'transparent',
+                            ...(barColor && {
+                                border: '1px solid',
+                                borderColor: barBorderColor,
+                            }),
                             borderRadius: '3px',
                         }} />
                     )}
