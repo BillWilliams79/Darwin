@@ -18,6 +18,7 @@ import { useQuery } from '@tanstack/react-query';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
+import { releaseTypeFor } from './readinessRules';
 
 function csv(ids) {
     return ids.map(n => Number(n)).filter(Number.isFinite).join(',');
@@ -199,12 +200,23 @@ export function useBuildVisualizerData(projectId) {
             const name = customerNameById.get(Number(row.customer_fk));
             if (!name) continue;
             const extId = buildRow.external_id;
+            // Release type (Production / Sample / Debug / Hot Fix) is DERIVED
+            // from the build's branch type — a deterministic classification, not
+            // stored data, so a mapping change applies retroactively (req #2772;
+            // data-architect: derive, don't persist). Resolve the effective type
+            // the same way the branch model does (trunk → 'main').
+            const branchRow = branchBySqlId.get(Number(buildRow.branch_fk));
+            const effType = branchRow
+                ? (Number(branchRow.id) === trunkSqlId ? 'main' : (branchRow.branch_type || 'development'))
+                : 'development';
+            const releaseType = releaseTypeFor(effType);
             if (!releaseEvents[extId]) releaseEvents[extId] = [];
             releaseEvents[extId].push(name);
             if (!releaseEventDetails[extId]) releaseEventDetails[extId] = [];
             releaseEventDetails[extId].push({
                 name,
                 date: row.release_date || row.create_ts || null,
+                releaseType,
             });
         }
 

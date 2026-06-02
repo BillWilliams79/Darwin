@@ -19,7 +19,7 @@ export default function HoldCountButton({
     label,
     onExecute,
     maxQty = 14,
-    dwellMs = 562.5,
+    dwellMs = 375,
     startDelayMs = 400,
     'data-testid': testId,
 }) {

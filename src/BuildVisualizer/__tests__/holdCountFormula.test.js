@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { holdCount } from '../holdCountFormula';
 
-// Default timing from HoldCountButton: startDelayMs=400, dwellMs=562.5
+// Default timing from HoldCountButton: startDelayMs=400, dwellMs=375
 const START = 400;
-const DWELL = 562.5;
+const DWELL = 375;
 const MAX = 14;
 
 describe('holdCount — quick click', () => {
