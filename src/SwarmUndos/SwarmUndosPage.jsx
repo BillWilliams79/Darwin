@@ -42,12 +42,13 @@ export default function SwarmUndosPage() {
     const { data: swarmUndos = [], isLoading } = useAllSwarmUndos(creatorFk);
 
     const columns = useMemo(() => [
-        { field: 'id', headerName: 'ID', width: 70, type: 'number' },
+        { field: 'id', headerName: 'ID', width: 70, type: 'number', display: 'flex' },
         {
             field: 'req_id_at_undo',
             headerName: 'Req',
             width: 90,
             type: 'number',
+            display: 'flex',
             renderCell: (params) => params.value
                 ? <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                     #{params.value}
@@ -58,6 +59,7 @@ export default function SwarmUndosPage() {
             field: 'task_name',
             headerName: 'Task',
             width: 280,
+            display: 'flex',
             renderCell: (params) => (
                 <Tooltip title={params.value || '—'}>
                     <Typography variant="body2"
@@ -75,6 +77,7 @@ export default function SwarmUndosPage() {
             field: 'coordination_type',
             headerName: 'Coordination',
             width: 130,
+            display: 'flex',
             renderCell: (params) => params.value
                 ? <Chip label={params.value} size="small"
                         {...(coordinationChipProps(params.value) || {})}
@@ -86,6 +89,7 @@ export default function SwarmUndosPage() {
             field: 'reason',
             headerName: 'Reason',
             width: 460,
+            display: 'flex',
             renderCell: (params) => (
                 <Tooltip title={params.value || ''}>
                     <Typography variant="body2"
@@ -99,24 +103,11 @@ export default function SwarmUndosPage() {
             ),
         },
         {
-            field: 'session_fk',
-            headerName: 'Session',
-            width: 100,
-            type: 'number',
-            renderCell: (params) => params.value
-                ? <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                    #{params.value}
-                  </Typography>
-                : <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                              title="Session row was deleted; snapshot columns preserve the link history.">
-                    (gone)
-                  </Typography>,
-        },
-        {
             field: 'swarm_start_fk_at_undo',
             headerName: 'Start',
             width: 90,
             type: 'number',
+            display: 'flex',
             renderCell: (params) => params.value
                 ? <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                     #{params.value}
@@ -127,6 +118,7 @@ export default function SwarmUndosPage() {
             field: 'undone_at',
             headerName: 'Undone',
             width: 200,
+            display: 'flex',
             valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
         },
         // Hidden by default; revealable via column-visibility toolbar.
@@ -134,6 +126,7 @@ export default function SwarmUndosPage() {
             field: 'branch',
             headerName: 'Branch',
             width: 320,
+            display: 'flex',
             renderCell: (params) => (
                 <Tooltip title={params.value || '—'}>
                     <Typography variant="body2"
