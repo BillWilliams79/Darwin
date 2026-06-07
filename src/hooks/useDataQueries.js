@@ -623,7 +623,7 @@ const CUSTOMER_DEFAULT_FIELDS = 'id,customer_name,description,closed,sort_order,
 const CUSTOMER_FULL_FIELDS    = 'id,customer_name,description,creator_fk,closed,sort_order,create_ts,update_ts';
 
 export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customers?closed=0&fields=${fields}&sort=sort_order:asc`;
     const queryKey = [...customerKeys.all(creatorFk), { fields }];
@@ -635,7 +635,7 @@ export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, e
 }
 
 export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customers?id=${id}&fields=${CUSTOMER_FULL_FIELDS}`;
     const queryKey = customerKeys.byId(creatorFk, id);
@@ -654,7 +654,7 @@ const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_
 const CUSTOMER_RELEASE_DEFAULT_FIELDS = 'id,customer_fk,build_fk,release_notes,creator_fk,create_ts,update_ts';
 
 export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/build_projects?fields=${fields}`;
     const queryKey = [...buildProjectKeys.all(creatorFk), { fields }];
@@ -666,7 +666,7 @@ export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_
 }
 
 export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/branches?fields=${fields}`;
     const queryKey = [...branchKeys.all(creatorFk), { fields }];
@@ -678,7 +678,7 @@ export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enab
 }
 
 export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/builds?fields=${fields}`;
     const queryKey = [...buildKeys.all(creatorFk), { fields }];
@@ -690,7 +690,7 @@ export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled
 }
 
 export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customer_releases?fields=${fields}`;
     const queryKey = [...customerReleaseKeys.all(creatorFk), { fields }];
@@ -702,7 +702,7 @@ export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DE
 }
 
 export function useCustomerReleasesByBuild(creatorFk, buildId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customer_releases?build_fk=${buildId}&fields=${CUSTOMER_RELEASE_DEFAULT_FIELDS}`;
     const queryKey = customerReleaseKeys.byBuild(creatorFk, buildId);
