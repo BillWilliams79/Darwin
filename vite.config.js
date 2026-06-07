@@ -174,6 +174,22 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: { buffer: 'buffer/' },
+      // Force a single instance of these packages. A worktree's deps can be
+      // reachable via more than one physical path (e.g. a stray symlink into
+      // another clone's node_modules), and Vite's optimizeDeps will then
+      // nondeterministically resolve a subset of modules through the second
+      // path — loading two copies of @emotion/react + @mui. Two emotion caches
+      // means ThemeProvider's theme is invisible to half the components, which
+      // renders as random, partial dark-mode breakage. dedupe guarantees one
+      // instance regardless of how the package is reached. See req #2774.
+      dedupe: [
+        'react',
+        'react-dom',
+        '@emotion/react',
+        '@emotion/styled',
+        '@mui/material',
+        '@mui/system',
+      ],
     },
     worker: {
       format: 'es',
