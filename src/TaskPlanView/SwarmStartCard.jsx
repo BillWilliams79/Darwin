@@ -21,7 +21,6 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
-import { computeCategoryRankMap } from '../SwarmView/processSort';
 
 // Chip statuses shown on this card. Mirrors the Roadmap filter chips minus 'deferred'
 // (retired from the aggregator per req #2584). 'met' is special-cased: it shows only
@@ -151,27 +150,21 @@ const SwarmStartCard = () => {
         return map;
     }, [serverCategoryColors]);
 
-    // Fetch all requirements (open-status only is handled inside computeCategoryRankMap)
-    // so each aggregator row can show its 1-based swarm-start position within its origin
-    // category — the same N that `/swarm-start <category> <N>` would target.
-    const { data: allRequirementsForRanking } = useAllRequirements(profile?.userName, {
-        fields: 'id,category_fk,requirement_status,started_at',
+    // Fetch all requirements across categories — powers the per-status counts below.
+    const { data: allRequirementsForCounts } = useAllRequirements(profile?.userName, {
+        fields: 'id,requirement_status',
     });
-    const requirementRankMap = React.useMemo(
-        () => computeCategoryRankMap(allRequirementsForRanking),
-        [allRequirementsForRanking]
-    );
 
     // Count requirements per status across all categories (req #2549). Reuses the
-    // same useAllRequirements query that powers requirementRankMap — no extra fetch.
+    // same useAllRequirements query — no extra fetch.
     // The 'met' count is overlaid from the trailing-24h Met query (req #2584), since
     // useAllRequirements doesn't carry completed_at and can't be filtered to the
     // 24-hour window here. Returns { authoring, approved, swarm_ready, development, met }.
     const statusCountMap = React.useMemo(() => {
         const counts = {};
         SWARM_START_STATUSES.forEach(s => { counts[s] = 0; });
-        if (Array.isArray(allRequirementsForRanking)) {
-            for (const r of allRequirementsForRanking) {
+        if (Array.isArray(allRequirementsForCounts)) {
+            for (const r of allRequirementsForCounts) {
                 if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
                 if (counts[r.requirement_status] !== undefined) counts[r.requirement_status] += 1;
             }
@@ -180,7 +173,7 @@ const SwarmStartCard = () => {
             counts.met = serverMetRequirements.length;
         }
         return counts;
-    }, [allRequirementsForRanking, serverMetRequirements]);
+    }, [allRequirementsForCounts, serverMetRequirements]);
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -501,7 +494,6 @@ const SwarmStartCard = () => {
                         setCrossCardInsertIndex,
                         sessionStatusMap,
                         categoryColorMap,
-                        requirementRankMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
                     }}>
                         {requirementsArray.filter(r => r.id !== '').length === 0 && (

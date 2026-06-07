@@ -211,16 +211,15 @@ test.describe('Swarm View', () => {
     await expect(page).toHaveURL(/\/swarm\/sessions$/);
   });
 
-  test('SWM-24: requirement detail shows category-order index', async ({ page }) => {
+  test('SWM-24: requirement detail shows the requirement ID', async ({ page }) => {
     await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
-    // Detail row renders both "ID - N" and "Category Order - N"; check each in its own span
+    // Detail row renders "ID - N". The "Category Order - N" display was removed in req #2782.
     const idEl = page.getByTestId('requirement-id');
     await expect(idEl).toBeVisible({ timeout: 10000 });
     await expect(idEl).toContainText(`ID - ${testRequirementId}`);
-    const indexEl = page.getByTestId('requirement-index');
-    await expect(indexEl).toHaveText('1');
-    await expect(page.getByText('Category Order - 1')).toBeVisible();
+    await expect(page.getByTestId('requirement-index')).toHaveCount(0);
+    await expect(page.getByText(/Category Order/)).toHaveCount(0);
   });
 
   test('SWM-25: up/down navigation between requirements', async ({ page }) => {
