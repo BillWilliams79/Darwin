@@ -2003,6 +2003,9 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 // and centering is biased upward. `clientHeight - padding` equals the content
 // height regardless of box-sizing, so this correction is box-model-agnostic.
 const ELEVATOR_TOP_AXIS_PX = 34;
+// Small bias (px) for top-edge index detection so a panel that has just crossed
+// the viewport top is reported, not the one a hair above it (req #2781).
+const ELEVATOR_TOP_EPS = 2;
 const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
@@ -2120,28 +2123,32 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     };
 
     // Map current translateY to the panel whose [top, bottom] range contains
-    // the frame's vertical center. Linear scan over cumulative offsets — N≤21,
-    // no need for binary search.
+    // the TOP of the viewport — the focus day sits at the top of the frame
+    // (req #2781), so the day reported up as `currentDate` is the one the user
+    // reads at the top, matching the non-elevator week stack. Linear scan over
+    // cumulative offsets — N≤21, no need for binary search. The small epsilon
+    // biases the boundary toward the panel that has actually crossed the top
+    // edge so a pixel-perfect alignment doesn't flicker between two days.
     const indexForOffset = () => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0 || g.stripHeight === 0) return 0;
-        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
-        const frameCenterInStrip = -offsetRef.current + (viewportH / 2);
+        const frameTopInStrip = -offsetRef.current + ELEVATOR_TOP_EPS;
         for (let i = 0; i < g.heights.length; i++) {
             const bottom = g.cumulative[i] + g.heights[i];
-            if (frameCenterInStrip < bottom) return i;
+            if (frameTopInStrip < bottom) return i;
         }
         return g.heights.length - 1;
     };
 
-    // Offset that places the panel at `idx` centered in the frame (or flush
-    // to the top when the strip is shorter than the frame).
+    // Offset that places the panel at `idx` flush against the TOP of the frame
+    // (req #2781 — focus day at the top of the view, not centered), clamped so
+    // the strip never walks off-screen. When the strip is shorter than the
+    // frame, clampOffset locks to 0 (top).
     const offsetForIndex = (idx) => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0) return 0;
         const i = Math.max(0, Math.min(g.heights.length - 1, idx));
-        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
-        const target = viewportH / 2 - g.cumulative[i] - g.heights[i] / 2;
+        const target = -g.cumulative[i];
         return clampOffset(target);
     };
 
@@ -2502,6 +2509,102 @@ const TimeSeriesView = ({
     }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone,
         categoryList, canonicalStartById, swarmStartIdById, swarmStartById]);
 
+    // Non-elevator week stack lives inside its own fixed-height scroll frame
+    // (req #2781) — same outer box as the Elevator frame, so the page never
+    // window-scrolls in week view and toggling Elevator on/off keeps the viewport
+    // pinned. On focus-day change / mode toggle / data load, bring the selected
+    // day's row to the TOP of the frame (just below the 38px sticky shared
+    // timeline), mirroring the Elevator's top-anchored focus.
+    const weekFrameRef     = React.useRef(null);
+    const userScrolledRef  = React.useRef(false);  // user took manual control of the frame
+    const programmaticRef  = React.useRef(false);  // our own scrollTop write (ignore in listener)
+    const showWeekFrame = isWeekView && !elevatorOn && !sidewalkOn;
+
+    // A focus-day or mode change is an intentional re-anchor — clear the manual
+    // -scroll guard so the layout effect below pins the new focus day to the top.
+    // MUST be useLayoutEffect declared BEFORE the anchor effect: layout effects
+    // run in declaration order, so this clears the guard before the anchor reads
+    // it on the same commit (otherwise Today-after-a-manual-scroll would bail).
+    React.useLayoutEffect(() => {
+        userScrolledRef.current = false;
+    }, [showWeekFrame, selectedDate]);
+
+    // Mark genuine user scrolls so a background data refetch (which changes the
+    // `requirements`/`sessions` array refs even via structural sharing when ANY
+    // row in the broad fetch window changes) does not yank the user back to the
+    // focus day mid-read. Our own programmatic scrollTop writes are flagged and
+    // skipped here.
+    React.useEffect(() => {
+        if (!showWeekFrame) return undefined;
+        const frame = weekFrameRef.current;
+        if (!frame) return undefined;
+        const onScroll = () => {
+            if (programmaticRef.current) { programmaticRef.current = false; return; }
+            userScrolledRef.current = true;
+        };
+        frame.addEventListener('scroll', onScroll, { passive: true });
+        return () => frame.removeEventListener('scroll', onScroll);
+    }, [showWeekFrame]);
+
+    React.useLayoutEffect(() => {
+        if (!showWeekFrame) return;
+        if (userScrolledRef.current) return;   // user is scrolling — don't fight them
+        const frame = weekFrameRef.current;
+        if (!frame || !selectedDate) return;
+        const row = frame.querySelector(`.ts-bead[data-date="${selectedDate}"]`);
+        if (!row) return;
+        const WEEK_AXIS_PX = 38; // == .ts-shared-timeline-week height
+        const delta = row.getBoundingClientRect().top
+                    - frame.getBoundingClientRect().top
+                    - WEEK_AXIS_PX;
+        if (Math.abs(delta) < 1) return;       // already anchored — no scroll, no flag
+        const before = frame.scrollTop;
+        programmaticRef.current = true;
+        frame.scrollTop += delta;
+        // If the write was clamped to a no-op (focus row already at the bottom
+        // limit), no scroll event fires — clear the flag so it doesn't swallow
+        // the user's next real scroll.
+        if (frame.scrollTop === before) programmaticRef.current = false;
+    // Re-anchor on focus/mode change and on data-driven height changes — but the
+    // userScrolled guard above suppresses the data case once the user scrolls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showWeekFrame, selectedDate, requirements, sessions]);
+
+    // One BeadRow per row date (Day = [selectedDate]; Week = Mon..Sun). Shared by
+    // the framed week stack and the in-flow day view so the row props stay DRY.
+    const weekRows = rowDates.map(d => (
+        <BeadRow
+            key={d}
+            requirements={requirements}
+            sessions={sessions}
+            selectedDate={d}
+            timezone={timezone}
+            beadWindow={beadWindow}
+            vizKey={vizKey}
+            dataKey={dataKey}
+            titlesOn={titlesOn}
+            tooltipFontSize={tooltipFontSize}
+            circleDiameter={circleDiameter}
+            spaceKey={spaceKey}
+            zoomKey={zoomKey}
+            categoryList={categoryList}
+            isWeekView={isWeekView}
+            hideTimeline={isWeekView}
+            crossDays={crossDayMap.get(d) || []}
+            onChipClick={onChipClick}
+            onSwarmStartClick={onSwarmStartClick}
+            onUndoClick={onUndoClick}
+            canonicalStartById={canonicalStartById}
+            clusterSizeById={clusterSizeById}
+            swarmStartIdById={swarmStartIdById}
+            swarmStartById={swarmStartById}
+            swarmStarts={swarmStarts}
+            swarmStartSessions={swarmStartSessions}
+            swarmUndos={swarmUndos}
+            requirementById={requirementById}
+        />
+    ));
+
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
             {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
@@ -2566,47 +2669,25 @@ const TimeSeriesView = ({
                     swarmUndos={swarmUndos}
                     requirementById={requirementById}
                 />
-            ) : (
-                <>
-                    {/* req #2744 — Week stack: one shared time axis above the 7
-                        rows (sticky to the top) instead of a per-row axis. Day
-                        view keeps its own per-row axis (hideTimeline stays off). */}
-                    {isWeekView && <SharedTimeline variant="week" ticks={weekTicks} />}
-                    <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
-                    {rowDates.map(d => (
-                        <BeadRow
-                            key={d}
-                            requirements={requirements}
-                            sessions={sessions}
-                            selectedDate={d}
-                            timezone={timezone}
-                            beadWindow={beadWindow}
-                            vizKey={vizKey}
-                            dataKey={dataKey}
-                            titlesOn={titlesOn}
-                            tooltipFontSize={tooltipFontSize}
-                            circleDiameter={circleDiameter}
-                            spaceKey={spaceKey}
-                            zoomKey={zoomKey}
-                            categoryList={categoryList}
-                            isWeekView={isWeekView}
-                            hideTimeline={isWeekView}
-                            crossDays={crossDayMap.get(d) || []}
-                            onChipClick={onChipClick}
-                            onSwarmStartClick={onSwarmStartClick}
-                            onUndoClick={onUndoClick}
-                            canonicalStartById={canonicalStartById}
-                            clusterSizeById={clusterSizeById}
-                            swarmStartIdById={swarmStartIdById}
-                            swarmStartById={swarmStartById}
-                            swarmStarts={swarmStarts}
-                            swarmStartSessions={swarmStartSessions}
-                            swarmUndos={swarmUndos}
-                            requirementById={requirementById}
-                        />
-                    ))}
+            ) : isWeekView ? (
+                /* req #2744 — Week stack: one shared time axis above the 7 rows
+                   (sticky to the top of the frame) instead of a per-row axis.
+                   req #2781 — wrapped in a fixed-height .ts-week-scroll frame
+                   (same box as the Elevator) so the page does not window-scroll
+                   in week view; the focus day is scrolled to the top by the
+                   weekFrameRef layout effect above. */
+                <Box className="ts-week-scroll" data-testid="ts-week-scroll" ref={weekFrameRef}>
+                    <SharedTimeline variant="week" ticks={weekTicks} />
+                    <Box className="ts-rows ts-rows-week">
+                        {weekRows}
                     </Box>
-                </>
+                </Box>
+            ) : (
+                /* Day view keeps its own per-row axis (hideTimeline stays off)
+                   and stays in normal page flow. */
+                <Box className="ts-rows">
+                    {weekRows}
+                </Box>
             )}
         </Box>
     );

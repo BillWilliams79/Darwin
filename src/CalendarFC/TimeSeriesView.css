@@ -106,6 +106,20 @@
     gap: 6px;
 }
 
+/* ── Week stack scroll frame (Week + !elevator + !sidewalk; req #2781) ──
+   Fixed-height internal scroller so the page never window-scrolls in week view
+   and the focus day can be pinned to the top. Height matches .ts-elevator so
+   toggling Elevator on/off does not move the frame box even a pixel. position:
+   relative makes it the offset/scroll context for the sticky week timeline
+   (top:0) and the per-day sticky headers (top:38px). */
+.ts-week-scroll {
+    position: relative;
+    height: calc(100vh - 220px);
+    min-height: 420px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
 /* ── Bead Necklace ── */
 .ts-bead {
     position: relative;
