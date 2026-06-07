@@ -259,7 +259,7 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
 
     const uri = `${darwinUri}/requirements?fields=${fields}`;
     // Include `fields` in the cache key so callers requesting different projections
-    // (e.g. DevServersView wants id,title; SwarmStartCard wants the processSort fields)
+    // (e.g. DevServersView wants id,title; SwarmStartCard wants id,requirement_status)
     // don't collide on a shared cache entry and render missing columns.
     // `requirementKeys.all(creatorFk)` stays the invalidation prefix — adding a trailing
     // `{ fields }` object still invalidates via TanStack Query's prefix match.
