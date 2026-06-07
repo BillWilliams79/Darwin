@@ -107,6 +107,83 @@ const formatWallSeconds = (v) => {
     return `${m}m ${r}s`;
 };
 
+// Extract the first balanced {...} JSON object that follows `fromIndex` in
+// `text`, tolerant of trailing content after the object. Returns the parsed
+// object or null. Used to pull structured blobs out of the free-text telemetry
+// column (which interleaves marker lines with embedded JSON).
+function extractBalancedJson(text, fromIndex) {
+    const start = text.indexOf('{', fromIndex);
+    if (start === -1) return null;
+    let depth = 0;
+    let inStr = false;   // inside a JSON string literal
+    let esc = false;     // previous char was a backslash inside a string
+    for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+        if (inStr) {
+            // Braces inside string values must not affect brace-balance.
+            if (esc) esc = false;
+            else if (ch === '\\') esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') inStr = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+                try { return JSON.parse(text.slice(start, i + 1)); }
+                catch { return null; }
+            }
+        }
+    }
+    return null;
+}
+
+// Parse the swarm_completes.telemetry blob into a per-phase breakdown.
+//   - Worker closeouts: the embedded TOKEN_TELEMETRY JSON carries a `phases`
+//     object with real per-phase TOKEN costs (each /swarm-complete phase —
+//     E2E, merge, deploy, prod-E2E — runs in its own LLM turn, so attribution
+//     is genuine).
+//   - Primary closeouts: the orchestrator is one Bash call (one turn), so token
+//     attribution collapses; instead it emits PRIMARY_PHASE_TIMINGS with
+//     deterministic per-phase WALL-CLOCK seconds.
+// Returns { tokenPhases, wallPhases } — either may be empty.
+function parsePhaseBreakdown(telemetry) {
+    const result = { tokenPhases: [], wallPhases: [] };
+    if (!telemetry || typeof telemetry !== 'string') return result;
+
+    let markerIdx = telemetry.indexOf('COMPLETE_TOKEN_TELEMETRY:');
+    if (markerIdx === -1) markerIdx = telemetry.indexOf('TOKEN_TELEMETRY:');
+    if (markerIdx !== -1) {
+        const tokenJson = extractBalancedJson(telemetry, markerIdx);
+        const phases = tokenJson && tokenJson.phases;
+        if (phases && typeof phases === 'object') {
+            for (const [phase, v] of Object.entries(phases)) {
+                const input = Number(v.input) || 0;
+                const output = Number(v.output) || 0;
+                const cacheWrite = Number(v.cache_write) || 0;
+                const cacheRead = Number(v.cache_read) || 0;
+                result.tokenPhases.push({
+                    phase, input, output, cacheWrite, cacheRead,
+                    turnCount: Number(v.turn_count) || 0,
+                    total: input + output + cacheWrite + cacheRead,
+                });
+            }
+        }
+    }
+
+    const wallIdx = telemetry.indexOf('PRIMARY_PHASE_TIMINGS:');
+    if (wallIdx !== -1) {
+        const wallJson = extractBalancedJson(telemetry, wallIdx);
+        if (wallJson && typeof wallJson === 'object') {
+            for (const [phase, secs] of Object.entries(wallJson)) {
+                result.wallPhases.push({ phase, wall: Number(secs) || 0 });
+            }
+        }
+    }
+    return result;
+}
+
 export default function SwarmCompleteDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -127,6 +204,11 @@ export default function SwarmCompleteDetail() {
     );
     const linkedLoading = sessionsLoading || junctionLoading;
     const linkedSectionRef = useRef(null);
+
+    const phaseBreakdown = useMemo(
+        () => parsePhaseBreakdown(row?.telemetry),
+        [row?.telemetry]
+    );
 
     const scrollToLinkedSessions = (e) => {
         if (e) e.preventDefault();
@@ -182,13 +264,7 @@ export default function SwarmCompleteDetail() {
             {/* 1. Invocation header */}
             <Box sx={{ mb: 3, ...NARROW }}>
                 <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Invocation</Typography>
-                <Typography variant="body2"
-                            sx={{ fontFamily: 'monospace',
-                                   bgcolor: 'action.hover',
-                                   px: 1.5, py: 1, borderRadius: 1 }}>
-                    /{row.skill_name} {row.arguments || <em>(no arguments)</em>}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Chip label={row.skill_name} size="small"
                           {...skillChipProps(row.skill_name)}
                           sx={{ fontFamily: 'monospace',
@@ -274,7 +350,15 @@ export default function SwarmCompleteDetail() {
                 </Box>
             </Box>
 
-            {/* 5. Raw telemetry */}
+            {/* 5. Per-phase cost breakdown (req #2497 — richer than swarm_starts) */}
+            {(phaseBreakdown.tokenPhases.length > 0 || phaseBreakdown.wallPhases.length > 0) && (
+                <Box sx={{ mb: 3, ...NARROW }} data-testid="swarm-complete-phase-breakdown">
+                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Per-phase breakdown</Typography>
+                    <PhaseBreakdown breakdown={phaseBreakdown} />
+                </Box>
+            )}
+
+            {/* 6. Raw telemetry */}
             <Accordion disableGutters elevation={0}
                        sx={{ '&:before': { display: 'none' }, ...NARROW }}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -363,6 +447,102 @@ function TokenStat({ label, value, raw }) {
             <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                 {value == null ? '—' : (raw ? value : Number(value).toLocaleString())}
             </Typography>
+        </Box>
+    );
+}
+
+// Renders the per-phase breakdown. Worker closeouts get a TOKEN table (with a
+// proportional cost bar showing each phase's share — the "deploy ate 60%"
+// signal); primary closeouts get a WALL-clock table.
+function PhaseBreakdown({ breakdown }) {
+    const { tokenPhases, wallPhases } = breakdown;
+    const tokenTotal = tokenPhases.reduce((s, p) => s + p.total, 0);
+    const wallTotal = wallPhases.reduce((s, p) => s + p.wall, 0);
+    return (
+        <Box>
+            {tokenPhases.length > 0 && (
+                <Table size="small" sx={{ mb: wallPhases.length > 0 ? 2 : 0,
+                                          '& td, & th': { fontSize: '0.8rem' } }}
+                       data-testid="phase-breakdown-tokens">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell sx={{ fontWeight: 600, bgcolor: 'action.hover' }}>Phase</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'action.hover' }}>Tokens</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'action.hover' }}>Turns</TableCell>
+                            <TableCell sx={{ fontWeight: 600, bgcolor: 'action.hover', width: '32%' }}>Share</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {tokenPhases.map((p) => {
+                            const pct = tokenTotal > 0 ? (p.total / tokenTotal) * 100 : 0;
+                            return (
+                                <TableRow key={p.phase}>
+                                    <TableCell sx={{ fontFamily: 'monospace' }}>{p.phase}</TableCell>
+                                    <TableCell align="right" sx={{ fontFamily: 'monospace' }}>
+                                        {p.total.toLocaleString()}
+                                    </TableCell>
+                                    <TableCell align="right" sx={{ fontFamily: 'monospace' }}>
+                                        {p.turnCount}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Box sx={{ flexGrow: 1, height: 8, borderRadius: 1,
+                                                       bgcolor: 'action.selected', overflow: 'hidden' }}>
+                                                <Box sx={{ width: `${pct}%`, height: '100%',
+                                                           bgcolor: '#26c6da' }} />
+                                            </Box>
+                                            <Typography variant="caption"
+                                                        sx={{ fontFamily: 'monospace', minWidth: 38,
+                                                              textAlign: 'right' }}>
+                                                {pct.toFixed(0)}%
+                                            </Typography>
+                                        </Box>
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })}
+                    </TableBody>
+                </Table>
+            )}
+            {wallPhases.length > 0 && (
+                <Table size="small" sx={{ '& td, & th': { fontSize: '0.8rem' } }}
+                       data-testid="phase-breakdown-wall">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell sx={{ fontWeight: 600, bgcolor: 'action.hover' }}>Phase</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'action.hover' }}>Wall</TableCell>
+                            <TableCell sx={{ fontWeight: 600, bgcolor: 'action.hover', width: '32%' }}>Share</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {wallPhases.map((p) => {
+                            const pct = wallTotal > 0 ? (p.wall / wallTotal) * 100 : 0;
+                            return (
+                                <TableRow key={p.phase}>
+                                    <TableCell sx={{ fontFamily: 'monospace' }}>{p.phase}</TableCell>
+                                    <TableCell align="right" sx={{ fontFamily: 'monospace' }}>
+                                        {formatWallSeconds(p.wall)}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Box sx={{ flexGrow: 1, height: 8, borderRadius: 1,
+                                                       bgcolor: 'action.selected', overflow: 'hidden' }}>
+                                                <Box sx={{ width: `${pct}%`, height: '100%',
+                                                           bgcolor: '#ffa726' }} />
+                                            </Box>
+                                            <Typography variant="caption"
+                                                        sx={{ fontFamily: 'monospace', minWidth: 38,
+                                                              textAlign: 'right' }}>
+                                                {pct.toFixed(0)}%
+                                            </Typography>
+                                        </Box>
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })}
+                    </TableBody>
+                </Table>
+            )}
         </Box>
     );
 }

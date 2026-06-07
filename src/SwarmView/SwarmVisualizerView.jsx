@@ -7,6 +7,7 @@ import {
     useRequirementsDone, useSessions, useAllCategories,
     useAllSwarmStarts, useAllSwarmStartSessions,
     useAllRequirements, useAllSwarmUndos,
+    useAllSwarmCompletes, useAllSwarmCompleteSessions,
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
@@ -112,6 +113,17 @@ const SwarmVisualizerView = () => {
         profile?.userName,
         { fields: 'id,swarm_start_fk_at_undo,req_id_at_undo,task_name,branch,coordination_type,reason,undone_at' },
     );
+    // Req #2497 — overlay completion termini on the session lanes. Small
+    // projection: completed_at + status drive the glyph/colour; wall_seconds the
+    // duration arc; token columns the two-segment build-vs-ship cost bar;
+    // skill_name distinguishes the primary-session lane (no requirement bubble).
+    const { data: swarmCompletes = [] } = useAllSwarmCompletes(
+        profile?.userName,
+        { fields: 'id,skill_name,status,session_count,wall_seconds,' +
+                  'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
+                  'started_at,completed_at' },
+    );
+    const { data: swarmCompleteSessions = [] } = useAllSwarmCompleteSessions(profile?.userName);
     // All requirements (any status) — needed so in-progress phantoms can render
     // the same datacard shape as completed bubbles (req #2504). Small projection
     // keeps the payload tight; the visualizer only consumes id/title/category/
@@ -157,6 +169,15 @@ const SwarmVisualizerView = () => {
         navigate(`/swarm/swarm-undos/${undoId}`, { state: { from: '/swarm' } });
     }, [navigate]);
 
+    // Completion-terminus click (req #2497) — open the swarm-complete detail.
+    // Mirrors the undo/swarm-start flows; SwarmCompleteDetail's Back honours
+    // state.from to return to this viewpoint.
+    const onCompleteClick = useCallback((completeId) => {
+        if (completeId == null) return;
+        sessionStorage.setItem('visualizer_scrollY', String(window.scrollY));
+        navigate(`/swarm/swarm-completes/${completeId}`, { state: { from: '/swarm' } });
+    }, [navigate]);
+
     const onCenterDateChange = useCallback((d) => {
         if (d && d !== currentDate) setCurrentDate(d);
     }, [currentDate, setCurrentDate]);
@@ -172,6 +193,8 @@ const SwarmVisualizerView = () => {
                 swarmStarts={swarmStarts}
                 swarmStartSessions={swarmStartSessions}
                 swarmUndos={swarmUndos}
+                swarmCompletes={swarmCompletes}
+                swarmCompleteSessions={swarmCompleteSessions}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 beadWindow={beadWindow}
@@ -185,6 +208,7 @@ const SwarmVisualizerView = () => {
                 onChipClick={onChipClick}
                 onSwarmStartClick={onSwarmStartClick}
                 onUndoClick={onUndoClick}
+                onCompleteClick={onCompleteClick}
                 onCenterDateChange={onCenterDateChange}
             />
         </div>

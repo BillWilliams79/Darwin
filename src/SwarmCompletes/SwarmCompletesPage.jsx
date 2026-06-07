@@ -14,26 +14,12 @@ import { formatDateTime } from '../utils/dateFormat';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
-const TABLE_WIDTH = 1200;
 
 const STATUS_VALUES = ['in_progress', 'ok', 'error'];
-
-// Reuse the swarm-starts coordination/autonomy palette so the visual
-// language is consistent across the two log pages.
-const coordinationChipProps = (filter) => {
-    if (!filter) return null;
-    switch (filter) {
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return { color: 'default' };
-    }
-};
 
 const statusChipProps = (status) => {
     switch (status) {
@@ -83,7 +69,8 @@ export default function SwarmCompletesPage() {
         {
             field: 'skill_name',
             headerName: 'Skill',
-            width: 200,
+            flex: 1,
+            minWidth: 200,
             renderCell: (params) => (
                 <Chip label={params.value} size="small"
                       {...skillChipProps(params.value)}
@@ -100,37 +87,8 @@ export default function SwarmCompletesPage() {
                       {...statusChipProps(params.value)} />
             ),
         },
-        { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
         { field: 'wall_seconds', headerName: 'Wall', width: 90, type: 'number',
             valueFormatter: formatWallSeconds },
-        {
-            field: 'arguments',
-            headerName: 'Arguments',
-            width: 320,
-            renderCell: (params) => (
-                <Tooltip title={params.value || '(empty)'}>
-                    <Typography variant="body2" component="span"
-                                sx={{ fontFamily: 'monospace',
-                                       overflow: 'hidden',
-                                       textOverflow: 'ellipsis',
-                                       whiteSpace: 'nowrap' }}
-                                data-testid={`swarm-complete-args-${params.row.id}`}>
-                        {params.value || <em>(empty)</em>}
-                    </Typography>
-                </Tooltip>
-            ),
-        },
-        {
-            field: 'coordination_type',
-            headerName: 'Coordination',
-            width: 130,
-            renderCell: (params) => params.value
-                ? <Chip label={params.value} size="small"
-                        {...coordinationChipProps(params.value)}
-                        sx={{ textTransform: 'capitalize',
-                              ...(coordinationChipProps(params.value)?.sx || {}) }} />
-                : <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>,
-        },
         // Token columns — hidden by default, revealable via the toolbar.
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
             valueFormatter: formatNum },
@@ -180,7 +138,7 @@ export default function SwarmCompletesPage() {
         <Box className="app-content-planpage">
             <Box className="app-content-view-toggle"
                  sx={{ display: 'flex', alignItems: 'center', gap: 2,
-                        mt: 3, mb: 1, px: 3, maxWidth: TABLE_WIDTH, flexWrap: 'wrap' }}>
+                        mt: 3, mb: 1, px: 3, flexWrap: 'wrap' }}>
                 <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}
                        data-testid="status-filter">
                     <Chip label="All" size="small"
@@ -211,7 +169,7 @@ export default function SwarmCompletesPage() {
                 </Typography>
             </Box>
             <Box className="app-content-tabpanel"
-                 sx={{ px: 3, pt: 0, maxWidth: TABLE_WIDTH }}>
+                 sx={{ px: 3, pt: 0 }}>
                 <DataGrid
                     rows={filteredRows}
                     columns={columns}
