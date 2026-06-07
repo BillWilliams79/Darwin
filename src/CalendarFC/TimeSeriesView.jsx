@@ -617,6 +617,16 @@ const BeadRow = ({
     // day's header sticks and the next day pushes it out as you scroll. Day view,
     // Sidewalk and Elevator keep the absolute date band + count badge.
     const weekStack = isWeekView && !sidewalkPanel;
+    // Orientation (req #2780). Top-anchored = wire/time-axis/date pinned at the
+    // TOP, bubbles stream DOWN with the latest chip (row 0) closest to the wire.
+    // This is the Sidewalk design rule, now unified onto EVERY day-granularity
+    // layout: the Sidewalk strip, the Elevator panels, AND the plain single Day
+    // view (which used to be bottom-anchored). Only the Week stack stays
+    // bottom-anchored (wire at the row's floor, earliest chip just above it).
+    // Decoupled from `sidewalkPanel` so the single Day view flips orientation
+    // while keeping its own window (24h/36h), card background, side padding, and
+    // larger bubble size — `sidewalkPanel` still gates those panel specifics.
+    const topAnchored = sidewalkPanel || !isWeekView;
     // Sidewalk panels: each panel shows exactly the 24h day, no hidden outer
     // bands — so adjacent panels flow together without visible seams.
     const baseHours    = sidewalkPanel ? 24 : (ZOOM_HOURS[zoomKey]?.['36h'] ?? 36);
@@ -630,16 +640,18 @@ const BeadRow = ({
     );
 
     // Layout constants:
-    //   Day view     — roomy; bubble sits above the wire/X-axis with clearance.
-    //   Week view    — compressed so 7 rows fit.
+    //   Day view     — roomy; top-anchored (req #2780) so the wire/X-axis sit at
+    //                  the top and bubbles stream down, matching the Sidewalk.
+    //   Week view    — compressed so 7 rows fit; bottom-anchored.
     //   Sidewalk     — top-down flow: wire/timeline pinned at top, bubbles stream
     //                  down from there with the LATEST chip at row 0 just below
     //                  the wire.
-    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored layouts
-    // (Day / Week). Sidewalk uses top-anchored positioning (see bubbleYCss
-    // below) so its bubbleOffset is the bottom-padding of the panel instead —
-    // kept only so the height formula below still computes a sane lower bound.
-    const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
+    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored Week
+    // layout. In the top-anchored layouts (Day / Sidewalk) bubbles are placed
+    // from the top (see bubbleYCss below), so bubbleOffset is just the panel's
+    // bottom padding — kept only so the height formula computes a sane lower
+    // bound (req #2780 dropped Day's 86 → 20 to match the Sidewalk).
+    const LAYOUT_DAY      = { bubbleOffset: 20, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
     // req #2744 — when the per-row time axis is suppressed (Week stack), the
     // bottom chrome that held the timeline (wire 64 + axis 10..54) collapses to
@@ -898,11 +910,11 @@ const BeadRow = ({
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
     //
-    // In Sidewalk the wire is at the TOP of the panel, so row 0 — the row
-    // rendered closest to the wire — must hold the LATEST chip. Thread
-    // `topDown = sidewalkPanel` through both assigners so they emit rows in
-    // the direction the layout below wants.
-    const topDown = sidewalkPanel;
+    // In every top-anchored layout (Day / Sidewalk / Elevator) the wire is at
+    // the TOP of the panel, so row 0 — the row rendered closest to the wire —
+    // must hold the LATEST chip. Thread `topDown = topAnchored` through both
+    // assigners so they emit rows in the direction the layout below wants.
+    const topDown = topAnchored;
     const allSwarmChips = (phantomChips.length || undoneChips.length)
         ? [...drawChips, ...phantomChips, ...undoneChips]
         : drawChips;
@@ -933,31 +945,32 @@ const BeadRow = ({
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
     // for every layout; only the chrome offset changes:
-    //   Day      → 46 (date band at top 26 + height 20)
-    //   Week     → 26 (no date chrome above the row)
-    //   Sidewalk → 80 (wire at CSS top: 68 after whitespace expansion for
-    //                   req #2331/#2364, plus ~12px breathing room before row 0).
+    //   Day / Sidewalk → 80 (top-anchored; wire at CSS top:68 after whitespace
+    //                    expansion for req #2331/#2364/#2780, plus ~12px
+    //                    breathing room before row 0).
+    //   Week           → 26 (bottom-anchored; no date chrome above the row).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
     // req #2744 — Elevator panels (sidewalkPanel) with the time axis suppressed
     // drop the time row (top:46..64), so the wire moves up to top:34 and row 0
     // starts at 46 instead of 80. Matching CSS: .ts-bead-sidewalk.ts-bead-no-timeline.
-    const chromeOffset  = sidewalkPanel
+    const chromeOffset  = topAnchored
         ? (hideTimeline ? 46 : 80)
-        : (isWeekView ? 26 : 46);
+        : 26;
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
                             + chromeOffset + dateClearance);
 
-    // Bubble positioning — top-anchored in Sidewalk (wire at top, row 0 = latest
-    // right below it) and bottom-anchored in Day/Week (wire at bottom, row 0 =
-    // earliest right above it). Either way row 0 renders closest to the wire;
-    // the row-assignment direction above decides which chip lands there.
-    const bubbleYCss      = sidewalkPanel
+    // Bubble positioning — top-anchored in Day/Sidewalk/Elevator (wire at top,
+    // row 0 = latest right below it) and bottom-anchored in the Week stack
+    // (wire at bottom, row 0 = earliest right above it). Either way row 0
+    // renders closest to the wire; the row-assignment direction above decides
+    // which chip lands there (req #2780 unified Day onto the top-anchored rule).
+    const bubbleYCss      = topAnchored
         ? (row) => ({ top:    `${chromeOffset + row * rowSpacing}px` })
         : (row) => ({ bottom: `${bubbleOffset + row * rowSpacing}px` });
-    const bubbleCenterCss = sidewalkPanel
+    const bubbleCenterCss = topAnchored
         ? (row) => `${chromeOffset + row * rowSpacing + circleDiameter / 2}px`
         : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
@@ -1201,14 +1214,15 @@ const BeadRow = ({
                         const halfBar = Math.max(6, circleDiameter / 2);
                         // Bar endpoints are bubble-center ± halfBar. The center
                         // is already expressed in the active anchoring by
-                        // bubbleCenterCss — top-anchored `${N}px` for sidewalk,
-                        // `calc(100% - ${N}px)` for Day/Week — so the bar
-                        // follows row 0 to whichever edge the wire is on.
+                        // bubbleCenterCss — top-anchored `${N}px` for
+                        // Day/Sidewalk/Elevator, `calc(100% - ${N}px)` for the
+                        // Week stack — so the bar follows row 0 to whichever
+                        // edge the wire is on (req #2780).
                         const yStride = chip.row * rowSpacing + circleDiameter / 2;
-                        const y1 = sidewalkPanel
+                        const y1 = topAnchored
                             ? `${chromeOffset + yStride - halfBar}px`
                             : `calc(100% - ${bubbleOffset + yStride - halfBar}px)`;
-                        const y2 = sidewalkPanel
+                        const y2 = topAnchored
                             ? `${chromeOffset + yStride + halfBar}px`
                             : `calc(100% - ${bubbleOffset + yStride + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
@@ -1272,10 +1286,10 @@ const BeadRow = ({
                 // anchor y mirrors the SVG circle's anchorY: 'left' mode → y2
                 // (wire-side end), other modes → y1 (outboard end).
                 const anchorAtWire = chip.markerMode === 'left';
-                const anchorYpx = sidewalkPanel
+                const anchorYpx = topAnchored
                     ? chromeOffset + yStride + (anchorAtWire ? halfBar : -halfBar)
                     : bubbleOffset + yStride + (anchorAtWire ? halfBar : -halfBar);
-                const yStyle = sidewalkPanel
+                const yStyle = topAnchored
                     ? { top:    `${anchorYpx - halfHit}px` }
                     : { bottom: `${anchorYpx - halfHit}px` };
                 const isReal = !!chip.swarmStartId;
