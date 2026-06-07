@@ -173,12 +173,16 @@
     z-index: 1;
 }
 
-/* Day view — roomy (default). Divider layer sits below the date area
-   (26-46 from top) and above the timeline top (68 from bottom), still
-   crossing the wire (78 from bottom). */
-.ts-bead-day  .ts-bead-wire            { bottom: 78px; }
-.ts-bead-day  .ts-bead-timeline        { bottom: 24px; }
-.ts-bead-day  .ts-bead-divider-layer   { top: 50px; bottom: 70px; }
+/* Day view — top-anchored (req #2780), unified with the Sidewalk design rules:
+   date on row 1, x-axis time on row 2, wire just beneath, bubbles stream down.
+   Mirrors the Sidewalk geometry (date top:8 / timeline top:46 / wire top:68) but
+   keeps the 16px side padding + card background from .ts-bead / .ts-bead-24h
+   (the seamless-panel padding:0/transparent only applies to .ts-bead-sidewalk).
+   The .ts-bead-sidewalk rules below override these for the actual strip panels
+   (which also carry .ts-bead-day), so this only affects the plain single Day. */
+.ts-bead-day  .ts-bead-wire            { top: 68px; bottom: auto; }
+.ts-bead-day  .ts-bead-timeline        { top: 46px; bottom: auto; height: 18px; }
+.ts-bead-day  .ts-bead-divider-layer   { top: 68px; bottom: 10px; }
 
 /* Week view — compressed so 7 rows fit. Divider layer sits below the date
    area (6-26 from top) and above the timeline top (54 from bottom), still
@@ -246,17 +250,24 @@ body.darwin-dark .ts-bead-day-count-inline {
     right: 0;
     height: 18px;
 }
-/* Tick label above the line so the numbers sit outside the bubble area */
-.ts-bead-sidewalk .ts-bead-tick {
+/* Tick label above the line so the numbers sit outside the bubble area.
+   Shared by the Sidewalk strip and the top-anchored Day view (req #2780) — both
+   put the time axis at the top with bubbles below, so the label belongs above
+   the tick line in each. */
+.ts-bead-sidewalk .ts-bead-tick,
+.ts-bead-day .ts-bead-tick {
     flex-direction: column-reverse;
 }
-.ts-bead-sidewalk .ts-bead-tick-line {
+.ts-bead-sidewalk .ts-bead-tick-line,
+.ts-bead-day .ts-bead-tick-line {
     height: 6px;
 }
-.ts-bead-sidewalk .ts-bead-tick-major .ts-bead-tick-line {
+.ts-bead-sidewalk .ts-bead-tick-major .ts-bead-tick-line,
+.ts-bead-day .ts-bead-tick-major .ts-bead-tick-line {
     height: 10px;
 }
-.ts-bead-sidewalk .ts-bead-tick-label {
+.ts-bead-sidewalk .ts-bead-tick-label,
+.ts-bead-day .ts-bead-tick-label {
     margin-top: 0;
     margin-bottom: 2px;
 }
@@ -327,8 +338,9 @@ body.darwin-dark .ts-bead-day-count-inline {
     z-index: 1;
 }
 
-/* Day view — add ~20px whitespace above the date/count so the bubble rail breathes. */
-.ts-bead-day .ts-bead-days { top: 26px; }
+/* Day view — top-anchored (req #2780): date row pinned near the top, above the
+   time axis (top:46) and wire (top:68); bubbles stream down beneath. */
+.ts-bead-day .ts-bead-days { top: 8px; height: 20px; }
 .ts-bead-day .ts-bead-count { top: 24px; }
 /* Day view — count pill inline to the LEFT of the date, centered as a group
    (req #2747; mirrors Sidewalk + the Week sticky header). */
