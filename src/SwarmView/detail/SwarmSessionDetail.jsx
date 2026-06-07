@@ -41,7 +41,7 @@ const SwarmSessionDetail = () => {
     const location = useLocation();
 
     const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { darwinOpsUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -67,7 +67,8 @@ const SwarmSessionDetail = () => {
 
     const sessionDelete = useConfirmDialog({
         onConfirm: ({ sessionId }) => {
-            const uri = `${darwinUri}/swarm_sessions`;
+            // Req #2697 — operational tables live exclusively in `darwin`.
+            const uri = `${darwinOpsUri}/swarm_sessions`;
             call_rest_api(uri, 'DELETE', { id: sessionId }, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
@@ -134,16 +135,10 @@ const SwarmSessionDetail = () => {
                                       onClick={() => navigate(`/swarm/swarm-starts/${swarmStart.id}`)}
                                       sx={{ cursor: 'pointer', mr: 1 }}
                                       data-testid="session-launched-by-chip" />
-                                {swarmStart.arguments
-                                    ? <Typography component="span" variant="body2"
-                                                  sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                                          /swarm-start {swarmStart.arguments}
-                                      </Typography>
-                                    : <Typography component="span" variant="body2"
-                                                  sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                                          /swarm-start (empty — all swarm-ready)
-                                      </Typography>
-                                }
+                                <Typography component="span" variant="body2"
+                                            sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                    /swarm-start{swarmStart.arguments ? ` ${swarmStart.arguments}` : ''}
+                                </Typography>
                             </Typography>
                         </Box>
                     }

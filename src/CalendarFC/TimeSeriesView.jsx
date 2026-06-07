@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
-import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12 } from '../utils/dateFormat';
+import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12, localDateStr } from '../utils/dateFormat';
 import {
     DEFAULT_FONT_SIZE,
     getFontSize, getCircleSize, formatCoordination, getCoordinationColor,
@@ -120,6 +120,163 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
     return null;
 };
 
+// Phantom placement decision (req #2649). For each in-progress (swarm-start,
+// session) pair, decide where the phantom bubble sits on a given panel and
+// whether its trailing line should be dashed-clamped to the panel's left
+// edge. Returns null when neither the start nor "now" falls in the panel
+// window — phantom is not rendered on that panel.
+//
+//   startPct → x% of the swarm_start.started_at on this panel, or null when
+//              the start falls outside the visible window.
+//   nowPct   → x% of "now" on this panel, or null when "now" falls outside
+//              the visible window (panels in the past relative to the wall
+//              clock).
+//
+// | startPct | nowPct   | Behaviour                                       |
+// |----------|----------|-------------------------------------------------|
+// | in       | in       | start at startPct, head at nowPct (same day)    |
+// | in       | null     | start at startPct, head at 100% (open-day panel |
+// |          |          |   viewed retrospectively — session was still    |
+// |          |          |   active at end of that panel)                  |
+// | null     | in       | start at 0% (clamped), head at nowPct           |
+// |          |          |   (today's panel; session opened earlier and    |
+// |          |          |   is still in progress) — dashed line trails    |
+// |          |          |   off the left edge, no vertical start bar     |
+// | null     | null     | skip — neither end visible on this panel        |
+//
+// Session statuses that suppress phantom-chip rendering (req #2650).
+// A "phantom" represents the in-progress portion of a session; statuses that
+// indicate the session is NOT actively running must not produce one:
+//   • null/empty   — session lacks a status, nothing to surface.
+//   • 'completed'  — the work is drawn as a real (non-phantom) chip when its
+//                    requirement's completed_at lands in the window.
+//   • 'paused'     — the user explicitly paused the session; it must not
+//                    appear as today's "unfinished business" until resumed.
+// Blacklist, not whitelist: any future session status defaults to rendering,
+// which is the safer failure mode (callers extend the list as needed).
+// Exported for unit-test coverage.
+export const isHiddenSwarmStatus = (status) => {
+    if (!status) return true;
+    return status === 'completed' || status === 'paused';
+};
+
+// Outer autonomy ring color for a chip (req #2423 completed chips, req #2755
+// phantom/in-progress chips). The ring is only present when the Coordination
+// data toggle is on; otherwise there is no ring (null). Shared by both the
+// completed-chip and phantom-chip construction paths so they stay in lockstep.
+// Exported for unit-test coverage.
+export const coordinationRingColor = (dataKey, coordinationType) =>
+    dataKey === 'coordination' ? getCoordinationColor(coordinationType) : null;
+
+// Exported for unit-test coverage.
+export const computePhantomPlacement = (startPct, nowPct) => {
+    const startIn = startPct !== null && startPct !== undefined;
+    const nowIn   = nowPct   !== null && nowPct   !== undefined;
+    if (startIn && nowIn) {
+        return { phantomStartPct: startPct, phantomLeftPct: nowPct, startClamped: false };
+    }
+    if (startIn && !nowIn) {
+        return { phantomStartPct: startPct, phantomLeftPct: 100, startClamped: false };
+    }
+    if (!startIn && nowIn) {
+        return { phantomStartPct: 0, phantomLeftPct: nowPct, startClamped: true };
+    }
+    return null;
+};
+
+// Req #2719 — undone-session chip builder. Pure function so it's testable in
+// isolation; the BeadRow memo wrapping it just supplies the live data + the
+// xPctFn closure.
+//
+// Math invariants (per memo comment above): startPct from swarm_start.started_at,
+// leftPct from undo.undone_at, markerMode resolves normal/clamped/left exactly
+// like a completed chip. Returns [] when vizKey != 'swarm' or no undos in
+// window.
+//
+// Exported for unit-test coverage.
+export const buildUndoneChips = ({
+    vizKey,
+    swarmUndos,
+    swarmStarts,
+    xPctFn,
+    timezone,
+    selectedDate,
+    requirementById,
+    categoryList,
+    // 1.5 default mirrors the BeadRow-local CLOSE_THRESHOLD_PCT — kept in sync
+    // by the unit test (any divergence shows up as a chip markerMode mismatch).
+    closeThresholdPct = 1.5,
+    formatHHMM = formatHM12,
+}) => {
+    if (vizKey !== 'swarm') return [];
+    if (!Array.isArray(swarmUndos) || swarmUndos.length === 0) return [];
+
+    const startById = new Map();
+    for (const ss of (swarmStarts || [])) {
+        if (ss && ss.id != null) startById.set(String(ss.id), ss);
+    }
+
+    const out = [];
+    for (const undo of swarmUndos) {
+        if (!undo || !undo.undone_at) continue;
+        const leftPct = xPctFn(undo.undone_at, timezone, selectedDate);
+        if (leftPct === null) continue;
+
+        const ss = undo.swarm_start_fk_at_undo != null
+            ? startById.get(String(undo.swarm_start_fk_at_undo))
+            : null;
+        const canonicalStartedAt = ss?.started_at || undo.undone_at;
+        const rawStart = canonicalStartedAt
+            ? xPctFn(canonicalStartedAt, timezone, selectedDate)
+            : null;
+        let startPct = rawStart;
+        let startClamped = false;
+        let markerMode = 'normal';
+        if (startPct === null && canonicalStartedAt) {
+            startPct = 0;
+            startClamped = true;
+            markerMode = 'clamped';
+        } else if (
+            startPct !== null &&
+            Math.abs(leftPct - startPct) < closeThresholdPct
+        ) {
+            markerMode = 'left';
+        }
+
+        const reqId = undo.req_id_at_undo != null ? String(undo.req_id_at_undo) : null;
+        const r = reqId && requirementById ? requirementById.get(reqId) : null;
+        const cat = r ? categoryList.find(c => c.id === r.category_fk) : null;
+
+        out.push({
+            id: r ? r.id : (undo.req_id_at_undo ?? null),
+            chipKey: `undone-${undo.id}`,
+            title: r?.title || undo.task_name || '(undone)',
+            completed_at: undo.undone_at,
+            category_fk: r?.category_fk ?? null,
+            requirement_status: r?.requirement_status ?? null,
+            coordination_type: r?.coordination_type
+                || undo.coordination_type
+                || null,
+            categoryName: cat?.category_name || null,
+            color: '#9E9E9E',
+            ringColor: null,
+            timeHHMM: formatHHMM(undo.undone_at, timezone),
+            leftPct,
+            startPct,
+            startClamped,
+            markerMode,
+            session: null,
+            swarmStartId: ss ? ss.id : null,
+            swarmStart: ss || null,
+            groupKey: canonicalStartedAt || '',
+            timezone,
+            isUndone: true,
+            undo,
+        });
+    }
+    return out;
+};
+
 // ─────────── Swarm-lane layout (Swarm mode) ───────────────────────────────────
 // Each (requirement, session) pair — or bare requirement with no session — gets
 // its own row. Sort order (req #2504 swarm-start grouping):
@@ -157,6 +314,27 @@ export const assignSwarmLanes = (chips, topDown = false) => {
         return topDown ? -key : key;
     });
     return sorted.map((chip, idx) => ({ ...chip, row: idx }));
+};
+
+// ─────────── Cross-day ghost occupants (Week stack) ──────────────────────────
+// Cross-day pass-through lines join THIS day's lane assignment as "ghost"
+// occupants so same-day bubbles pack around them instead of sharing a lane
+// (req #2747 — fixes a dashed line drawn over an unrelated bubble that closed on
+// an intermediate day). Each ghost carries the cluster `groupKey` + the
+// requirement's end-day `completed_at`, so assignSwarmLanes seats it contiguously
+// with its cluster-mates. The original `crossDay` entry rides along so the SVG
+// renderer can read role/pct/card after the lane is resolved. Returns [] for
+// non-swarm or empty input. Exported for unit-test coverage of the field mapping.
+export const buildCrossDayGhosts = (crossDays, vizKey) => {
+    if (vizKey !== 'swarm' || !Array.isArray(crossDays) || crossDays.length === 0) return [];
+    return crossDays.map((cd, i) => ({
+        chipKey: `xdghost-${cd.sessionId}-${cd.role}-${i}`,
+        id: cd.card?.id ?? null,
+        groupKey: cd.groupKey || '',
+        completed_at: cd.completedAt || null,
+        isCrossDayGhost: true,
+        crossDay: cd,
+    }));
 };
 
 // ─────────── Max-stack-row index (Elevator per-day sizing) ───────────────────
@@ -285,6 +463,26 @@ export const weekDates = (dateStr) => {
     return out;
 };
 
+// req #2779 follow-up — the elevator's FUTURE scroll is capped at the end of the
+// current ISO week (this week's Sunday); the past stays infinite. endOfWeek
+// returns the Sunday (local calendar) of the week containing `dateStr`.
+export const endOfWeek = (dateStr) => {
+    const wk = weekDates(dateStr);
+    return wk.length ? wk[wk.length - 1] : dateStr;
+};
+
+// Build a centered range, then drop any day after `maxFutureDate` (inclusive cap).
+// Used for the elevator's initial strip + chevron rebuilds so the future side
+// never renders past the cap. A falsy maxFutureDate → no cap (full range). If the
+// whole range is past the cap, fall back to a single capped day so the strip is
+// never empty.
+export const cappedCenteredRange = (centerDate, halfWidth, maxFutureDate) => {
+    const range = centeredDateRange(centerDate, halfWidth);
+    if (!maxFutureDate) return range;
+    const capped = range.filter(d => d <= maxFutureDate);
+    return capped.length ? capped : [maxFutureDate];
+};
+
 // Unified window-aware positioning. Anchors on noon of selectedDate in user tz.
 // baseHours    — total horizontal span (0..100% across it). Use ZOOM_HOURS[zoom]['36h'].
 // visibleHours — only chips whose offset from noon is ≤ visibleHours/2 render;
@@ -365,6 +563,19 @@ const BeadTimeline = ({ ticks }) => (
     </Box>
 );
 
+// req #2744 — single shared time axis rendered once at the top of the view
+// instead of once per day. Used by the Week stack (variant="week": sticky bar
+// above the 7 rows) and the Elevator (variant="elevator": bar pinned to the top
+// of the scrolling frame). Ticks are computed by the parent with the SAME
+// baseHours/visibleHours the rows use, so the labels line up with the per-row
+// vertical hour dividers that remain below. Labels sit above the tick lines,
+// which point down toward the rows (see .ts-shared-timeline CSS).
+const SharedTimeline = ({ ticks, variant }) => (
+    <Box className={`ts-shared-timeline ts-shared-timeline-${variant}`} aria-hidden="true">
+        <BeadTimeline ticks={ticks} />
+    </Box>
+);
+
 const formatDayLabel = (s, tz) => {
     if (!s) return '';
     const d = new Date(s + 'T12:00:00');
@@ -384,12 +595,14 @@ const DayLabels = ({ labels, timezone, inlineCount = null }) => (
             <span key={l.dateStr}
                   className={`ts-bead-day-label ${l.isSelected ? 'ts-bead-day-label-sel' : ''}`}
                   style={{ left: `${l.pct}%` }}>
-                {formatDayLabel(l.dateStr, timezone)}
+                {/* Count pill renders to the LEFT of the date (req #2747), matching
+                    the Week-stack sticky header. */}
                 {l.isSelected && inlineCount !== null && (
                     <span className="ts-bead-day-count-inline" data-testid="ts-bead-day-count-inline">
                         {inlineCount}
                     </span>
                 )}
+                {formatDayLabel(l.dateStr, timezone)}
             </span>
         ))}
     </Box>
@@ -402,8 +615,11 @@ const BeadRow = ({
     zoomKey = DEFAULT_ZOOM,
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     titlesOn = false,             // req #2556 — render req title to right of bubble
-    crossDays = [], onChipClick, isWeekView = false,
+    crossDays = [], onChipClick, onSwarmStartClick, onUndoClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
+    hideTimeline = false,    // req #2744 — suppress the per-row time axis; a single
+                             // shared axis is rendered once at the top of the view
+                             // (Week stack + Elevator). Compacts the freed chrome.
     sidewalkHeight,
     canonicalStartById,      // Map<string sessionId, ISO started_at> — swarm alignment
     clusterSizeById,         // Map<string sessionId, n members in its cluster>
@@ -411,9 +627,26 @@ const BeadRow = ({
     swarmStartById,          // Map<string sessionId, swarm_start_row | null> — req #2504
     swarmStarts = [],        // req #2504 — for in-progress phantom chip rendering
     swarmStartSessions = [], // req #2504 — junction for in-progress detection
+    swarmUndos = [],         // req #2719 — undo log rows for tombstone overlay
     requirementById,         // req #2504 — Map<string reqId, requirement> for phantom tooltips
 }) => {
     const window36h = beadWindow === '36h';
+    // Week stack (req #2747) — the only mode with a single shared sticky time
+    // axis at top:0 AND stacked day panels in page flow. Its per-panel date/count
+    // row becomes a sticky section header (top:38, under the axis) so the current
+    // day's header sticks and the next day pushes it out as you scroll. Day view,
+    // Sidewalk and Elevator keep the absolute date band + count badge.
+    const weekStack = isWeekView && !sidewalkPanel;
+    // Orientation (req #2780). Top-anchored = wire/time-axis/date pinned at the
+    // TOP, bubbles stream DOWN with the latest chip (row 0) closest to the wire.
+    // This is the Sidewalk design rule, now unified onto EVERY day-granularity
+    // layout: the Sidewalk strip, the Elevator panels, AND the plain single Day
+    // view (which used to be bottom-anchored). Only the Week stack stays
+    // bottom-anchored (wire at the row's floor, earliest chip just above it).
+    // Decoupled from `sidewalkPanel` so the single Day view flips orientation
+    // while keeping its own window (24h/36h), card background, side padding, and
+    // larger bubble size — `sidewalkPanel` still gates those panel specifics.
+    const topAnchored = sidewalkPanel || !isWeekView;
     // Sidewalk panels: each panel shows exactly the 24h day, no hidden outer
     // bands — so adjacent panels flow together without visible seams.
     const baseHours    = sidewalkPanel ? 24 : (ZOOM_HOURS[zoomKey]?.['36h'] ?? 36);
@@ -427,21 +660,29 @@ const BeadRow = ({
     );
 
     // Layout constants:
-    //   Day view     — roomy; bubble sits above the wire/X-axis with clearance.
-    //   Week view    — compressed so 7 rows fit.
+    //   Day view     — roomy; top-anchored (req #2780) so the wire/X-axis sit at
+    //                  the top and bubbles stream down, matching the Sidewalk.
+    //   Week view    — compressed so 7 rows fit; bottom-anchored.
     //   Sidewalk     — top-down flow: wire/timeline pinned at top, bubbles stream
     //                  down from there with the LATEST chip at row 0 just below
     //                  the wire.
-    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored layouts
-    // (Day / Week). Sidewalk uses top-anchored positioning (see bubbleYCss
-    // below) so its bubbleOffset is the bottom-padding of the panel instead —
-    // kept only so the height formula below still computes a sane lower bound.
-    const LAYOUT_DAY      = { bubbleOffset: 86, baseHeight: 172 };
+    // bubbleOffset is the CSS bottom for row 0 in the bottom-anchored Week
+    // layout. In the top-anchored layouts (Day / Sidewalk) bubbles are placed
+    // from the top (see bubbleYCss below), so bubbleOffset is just the panel's
+    // bottom padding — kept only so the height formula computes a sane lower
+    // bound (req #2780 dropped Day's 86 → 20 to match the Sidewalk).
+    const LAYOUT_DAY      = { bubbleOffset: 20, baseHeight: 172 };
     const LAYOUT_WEEK     = { bubbleOffset: 68, baseHeight: 116 };
+    // req #2744 — when the per-row time axis is suppressed (Week stack), the
+    // bottom chrome that held the timeline (wire 64 + axis 10..54) collapses to
+    // just the wire near the row's bottom, so bubbles ride lower and the row is
+    // shorter. The matching CSS (.ts-bead-week.ts-bead-no-timeline) pins the
+    // wire to bottom:20 and extends the divider layer down to it.
+    const LAYOUT_WEEK_NOTL = { bubbleOffset: 24, baseHeight: 80 };
     const LAYOUT_SIDEWALK = { bubbleOffset: 20, baseHeight: sidewalkHeight || 400 };
     const { bubbleOffset, baseHeight } =
         sidewalkPanel ? LAYOUT_SIDEWALK
-        : isWeekView   ? LAYOUT_WEEK
+        : isWeekView   ? (hideTimeline ? LAYOUT_WEEK_NOTL : LAYOUT_WEEK)
         :                LAYOUT_DAY;
 
     const sessionsByReq = useMemo(() => indexSessionsByRequirement(sessions), [sessions]);
@@ -458,9 +699,7 @@ const BeadRow = ({
             // toggle now layers an outer ring on top instead of replacing the fill,
             // so both encodings remain visible simultaneously.
             const color = cat?.color || null;
-            const ringColor = dataKey === 'coordination'
-                ? getCoordinationColor(r.coordination_type)
-                : null;
+            const ringColor = coordinationRingColor(dataKey, r.coordination_type);
             out.push({
                 id: r.id,
                 title: r.title || '',
@@ -573,7 +812,8 @@ const BeadRow = ({
     // session, its requirement) pair where:
     //   • the session is linked to a swarm_start via the junction
     //   • the swarm_start has a started_at that falls in this panel's window
-    //   • the session's swarm_status is not 'completed'
+    //   • the session's swarm_status is not "hidden" — see
+    //     isHiddenSwarmStatus (null/'completed'/'paused' per req #2650).
     //
     // Each phantom carries the FULL requirement datacard payload (title,
     // category, coordination, etc.) so its hover tooltip is identical in shape
@@ -602,17 +842,22 @@ const BeadRow = ({
             if (s && s.id != null) sessionById.set(String(s.id), s);
         }
 
-        const headPct = nowPct !== null ? nowPct : 100;
         const out = [];
         for (const ss of swarmStarts) {
             if (!ss || ss.id == null || !ss.started_at) continue;
             const startPct = xPctFn(ss.started_at, timezone, selectedDate);
-            if (startPct === null) continue;            // not in window
+            // req #2649: replace the old "drop phantom when startPct is null"
+            // short-circuit with a four-case placement helper. The phantom
+            // appears on today's panel for sessions opened earlier — the line
+            // is dashed-clamped to the left edge in that case.
+            const placement = computePhantomPlacement(startPct, nowPct);
+            if (placement === null) continue;            // neither end in window
+            const { phantomStartPct, phantomLeftPct, startClamped } = placement;
             const linked = sessionsByStartFk.get(String(ss.id)) || [];
             for (const sid of linked) {
                 const s = sessionById.get(sid);
                 if (!s) continue;
-                if (!s.swarm_status || s.swarm_status === 'completed') continue;
+                if (isHiddenSwarmStatus(s.swarm_status)) continue;
                 const reqId = parseSessionRequirementId(s.source_ref);
                 const r = reqId && requirementById ? requirementById.get(reqId) : null;
                 // If the session's requirement has already completed_at set
@@ -632,13 +877,16 @@ const BeadRow = ({
                     coordination_type: r?.coordination_type ?? null,
                     categoryName: cat?.category_name || null,
                     color: cat?.color || '#43A047',
-                    ringColor: null,
+                    // Autonomy ring — same derivation as completed chips (req #2755).
+                    // In-progress phantoms must show the coordination ring too when
+                    // the Coordination toggle is on; previously hard-coded null.
+                    ringColor: coordinationRingColor(dataKey, r?.coordination_type),
                     timeHHMM: null,
-                    leftPct: headPct,
+                    leftPct: phantomLeftPct,
                     timezone,
                     session: s,
-                    startPct,
-                    startClamped: false,
+                    startPct: phantomStartPct,
+                    startClamped,
                     markerMode: 'inprogress',
                     swarmStartId: ss.id,
                     swarmStart: ss,
@@ -650,20 +898,65 @@ const BeadRow = ({
         }
         return out;
     }, [vizKey, swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
-        selectedDate, nowPct, requirementById, categoryList]);
+        selectedDate, nowPct, requirementById, categoryList, dataKey]);
+
+    // Undone session chips (req #2719). One chip per `swarm_undos` row —
+    // driven directly by the undo log + the `swarm_starts` row it snapshots
+    // (`swarm_start_fk_at_undo`) rather than the live `swarm_sessions` row.
+    //
+    // Why undo-driven, not session-driven: per req #2697 the `swarm_sessions`
+    // hook (`ops: true`) reads from production `darwin`. A new feature like
+    // `swarm_undos` whose data lives in `darwin_dev` cannot rely on a matching
+    // session-status flip in production. The undo row + swarm_start row are
+    // both readable in dev (undos via the default `darwinUri`, swarm_starts
+    // via `darwinOpsUri`) — that pair is enough to render the chip without
+    // touching the live session at all. As a bonus this also works in the
+    // historical `/swarm-undo` model where the session row was deleted.
+    //
+    // Math is identical to a completed chip: startPct comes from the
+    // swarm_start.started_at (same source the green anchor uses); leftPct
+    // comes from undo.undone_at (treated as the session's completed_at).
+    // `markerMode` resolves to 'normal' / 'clamped' / 'left' via the same
+    // formula `drawChips` uses for completed chips.
+    const undoneChips = useMemo(
+        () => buildUndoneChips({
+            vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+            requirementById, categoryList,
+            closeThresholdPct: CLOSE_THRESHOLD_PCT,
+        }),
+        [vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+         requirementById, categoryList],
+    );
 
     // Placement: cluster-stack for Bead, swarm-lane for Swarm.
     //
-    // In Sidewalk the wire is at the TOP of the panel, so row 0 — the row
-    // rendered closest to the wire — must hold the LATEST chip. Thread
-    // `topDown = sidewalkPanel` through both assigners so they emit rows in
-    // the direction the layout below wants.
-    const topDown = sidewalkPanel;
-    const allSwarmChips = phantomChips.length ? [...drawChips, ...phantomChips] : drawChips;
-    const placed = vizKey === 'swarm'
-        ? assignSwarmLanes(allSwarmChips, topDown)
+    // In every top-anchored layout (Day / Sidewalk / Elevator) the wire is at
+    // the TOP of the panel, so row 0 — the row rendered closest to the wire —
+    // must hold the LATEST chip. Thread `topDown = topAnchored` through both
+    // assigners so they emit rows in the direction the layout below wants.
+    const topDown = topAnchored;
+    const allSwarmChips = (phantomChips.length || undoneChips.length)
+        ? [...drawChips, ...phantomChips, ...undoneChips]
+        : drawChips;
+
+    // Ghosts are filtered out of `placed` (so no bubble / start-bar / anchor
+    // renders for them); their assigned row drives the cross-day line Y via
+    // `crossDayPlaced` below. See buildCrossDayGhosts (module scope) for the
+    // field mapping + rationale (req #2747).
+    const crossDayGhosts = buildCrossDayGhosts(crossDays, vizKey);
+
+    const placedAll = vizKey === 'swarm'
+        ? assignSwarmLanes(crossDayGhosts.length ? [...allSwarmChips, ...crossDayGhosts] : allSwarmChips, topDown)
         : assignRows(drawChips, 1.2, topDown);
-    const maxStackRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
+    const placed = crossDayGhosts.length
+        ? placedAll.filter(c => !c.isCrossDayGhost)
+        : placedAll;
+    // Cross-day lines, now lane-assigned by the joint pass above. Spread the
+    // original entry (sessionId/role/pct/card) and attach the resolved `lane`.
+    const crossDayPlaced = crossDayGhosts.length
+        ? placedAll.filter(c => c.isCrossDayGhost).map(g => ({ ...g.crossDay, lane: g.row }))
+        : [];
+    const maxStackRow = placedAll.length ? Math.max(...placedAll.map(c => c.row)) : 0;
 
     // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
     const spaceMul = isWeekView ? 1 : getSpaceMultiplier(spaceKey);
@@ -672,40 +965,62 @@ const BeadRow = ({
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
     // for every layout; only the chrome offset changes:
-    //   Day      → 46 (date band at top 26 + height 20)
-    //   Week     → 26 (no date chrome above the row)
-    //   Sidewalk → 80 (wire at CSS top: 68 after whitespace expansion for
-    //                   req #2331/#2364, plus ~12px breathing room before row 0).
+    //   Day / Sidewalk → 80 (top-anchored; wire at CSS top:68 after whitespace
+    //                    expansion for req #2331/#2364/#2780, plus ~12px
+    //                    breathing room before row 0).
+    //   Week           → 26 (bottom-anchored; no date chrome above the row).
     // Panel uniformity in the Sidewalk strip is handled by the parent, which
     // passes a precomputed `sidewalkHeight` sized to the busiest day's lanes.
-    const chromeOffset  = sidewalkPanel ? 80 : (isWeekView ? 26 : 46);
+    // req #2744 — Elevator panels (sidewalkPanel) with the time axis suppressed
+    // drop the time row (top:46..64), so the wire moves up to top:34 and row 0
+    // starts at 46 instead of 80. Matching CSS: .ts-bead-sidewalk.ts-bead-no-timeline.
+    const chromeOffset  = topAnchored
+        ? (hideTimeline ? 46 : 80)
+        : 26;
     const dateClearance = Math.ceil(circleDiameter / 2) + 4;
     const height = Math.max(baseHeight,
                             maxStackRow * rowSpacing + bubbleOffset + circleDiameter
                             + chromeOffset + dateClearance);
 
-    // Bubble positioning — top-anchored in Sidewalk (wire at top, row 0 = latest
-    // right below it) and bottom-anchored in Day/Week (wire at bottom, row 0 =
-    // earliest right above it). Either way row 0 renders closest to the wire;
-    // the row-assignment direction above decides which chip lands there.
-    const bubbleYCss      = sidewalkPanel
+    // Bubble positioning — top-anchored in Day/Sidewalk/Elevator (wire at top,
+    // row 0 = latest right below it) and bottom-anchored in the Week stack
+    // (wire at bottom, row 0 = earliest right above it). Either way row 0
+    // renders closest to the wire; the row-assignment direction above decides
+    // which chip lands there (req #2780 unified Day onto the top-anchored rule).
+    const bubbleYCss      = topAnchored
         ? (row) => ({ top:    `${chromeOffset + row * rowSpacing}px` })
         : (row) => ({ bottom: `${bubbleOffset + row * rowSpacing}px` });
-    const bubbleCenterCss = sidewalkPanel
+    const bubbleCenterCss = topAnchored
         ? (row) => `${chromeOffset + row * rowSpacing + circleDiameter / 2}px`
         : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
     return (
-        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''}`}
+        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''} ${hideTimeline ? 'ts-bead-no-timeline' : ''}`}
              data-testid="ts-bead"
              data-date={selectedDate}
              style={{ height: `${height}px` }}>
 
-            <DayLabels
-                labels={dayLabels}
-                timezone={timezone}
-                inlineCount={sidewalkPanel ? windowChips.length : null}
-            />
+            {/* Week stack: sticky section header (date + count) that pins under
+                the shared time axis and is pushed out by the next day (req #2747). */}
+            {weekStack && (
+                <Box className="ts-bead-sticky-head" data-testid="ts-bead-sticky-head">
+                    <Box className="ts-bead-sticky-count" data-testid="ts-bead-count"
+                         title={`${windowChips.length} requirements met on ${formatDayLabel(selectedDate, timezone)}`}>
+                        {windowChips.length}
+                    </Box>
+                    <span className="ts-bead-sticky-date">
+                        {formatDayLabel(selectedDate, timezone)}
+                    </span>
+                </Box>
+            )}
+
+            {!weekStack && (
+                <DayLabels
+                    labels={dayLabels}
+                    timezone={timezone}
+                    inlineCount={windowChips.length}
+                />
+            )}
 
             {/* Midnight/noon divider layer — mirrors the timeline's horizontal
                 anchoring so dividers share the tick coordinate system and the
@@ -721,7 +1036,9 @@ const BeadRow = ({
             )}
 
             <Box className="ts-bead-wire" />
-            <BeadTimeline ticks={ticks} />
+            {/* req #2744 — the per-row time axis is hidden in Week/Elevator
+                where a single shared axis renders at the top of the view. */}
+            {!hideTimeline && <BeadTimeline ticks={ticks} />}
 
             {vizKey === 'swarm' && (
                 <svg className="ts-swarm-lines" data-testid="ts-swarm-lines"
@@ -734,13 +1051,14 @@ const BeadRow = ({
                             <path d="M0,0 L10,5 L0,10 z" fill="rgba(96,125,139,0.85)" />
                         </marker>
                     </defs>
-                    {/* Cross-day (multi-day) pass-through lines. Y lane matches the
-                        end-day's bubble lane (computed at parent) so the dashed line
-                        on intermediate days lands at the SAME Y as the bubble it leads
-                        to. Each 'start' entry also carries a vertical start bar with
-                        a datacard tooltip — gives starts without a same-day bubble
+                    {/* Cross-day (multi-day) pass-through lines. Y lane is assigned
+                        by THIS day's own assignSwarmLanes pass (req #2747 — the
+                        ghost-occupant merge above), so the dashed line never lands
+                        on a lane already held by a bubble that closed this day.
+                        Each 'start' entry also carries a vertical start bar with a
+                        datacard tooltip — gives starts without a same-day bubble
                         the same context the met bubble provides. */}
-                    {crossDays.map((cd, i) => {
+                    {crossDayPlaced.map((cd, i) => {
                         const yBottom = bubbleCenterCss(cd.lane);
                         const key = `xd-${cd.sessionId}-${cd.role}-${i}`;
                         const hLine = {
@@ -812,7 +1130,11 @@ const BeadRow = ({
                                     ) : ''}
                                 >
                                     <g data-testid={`ts-swarm-start-xd-${cd.sessionId}`}
-                                       data-real={card?.swarmStartId ? '1' : '0'}>
+                                       data-real={card?.swarmStartId ? '1' : '0'}
+                                       style={{ cursor: card?.swarmStartId ? 'pointer' : 'default' }}
+                                       onClick={card?.swarmStartId != null
+                                           ? () => onSwarmStartClick && onSwarmStartClick(card.swarmStartId)
+                                           : undefined}>
                                         {/* dashed horizontal tail from start to right edge */}
                                         <line {...hLine} x1={`${cd.pct}%`} x2="100%" />
                                         {/* solid vertical start bar at startPct.
@@ -855,7 +1177,12 @@ const BeadRow = ({
                             && chip.markerMode !== 'inprogress') return null;
                         const yCenter = bubbleCenterCss(chip.row);
                         const isInProgress = chip.markerMode === 'inprogress';
-                        const isClamped    = chip.markerMode === 'clamped';
+                        // Phantom-clamped (req #2649): when the real swarm-start
+                        // sits before the visible window, the phantom rides at
+                        // nowPct with startPct artificially pinned to 0. The
+                        // line gets the dashed `ts-swarm-line-clamped` styling
+                        // to convey "extends off the left edge."
+                        const isClamped    = chip.markerMode === 'clamped' || chip.startClamped === true;
                         // Omit the arrowhead when the line would be shorter than
                         // the arrow itself — happens for cluster-aligned chips
                         // whose canonical start sits close to the met bubble.
@@ -897,17 +1224,25 @@ const BeadRow = ({
                         a small anchor dot at the start so the user can tell real-data
                         clusters apart from estimated time-window clusters. */}
                     {placed.map(chip => {
+                        // Phantom-clamped (req #2649): startPct is artificially
+                        // 0 because the real swarm-start sits before the visible
+                        // window. Drawing a bar at the panel's left edge would
+                        // misrepresent the start location — skip both the bar
+                        // and the anchor; the dashed line already conveys
+                        // "extends off the left edge."
+                        if (chip.startClamped === true) return null;
                         const halfBar = Math.max(6, circleDiameter / 2);
                         // Bar endpoints are bubble-center ± halfBar. The center
                         // is already expressed in the active anchoring by
-                        // bubbleCenterCss — top-anchored `${N}px` for sidewalk,
-                        // `calc(100% - ${N}px)` for Day/Week — so the bar
-                        // follows row 0 to whichever edge the wire is on.
+                        // bubbleCenterCss — top-anchored `${N}px` for
+                        // Day/Sidewalk/Elevator, `calc(100% - ${N}px)` for the
+                        // Week stack — so the bar follows row 0 to whichever
+                        // edge the wire is on (req #2780).
                         const yStride = chip.row * rowSpacing + circleDiameter / 2;
-                        const y1 = sidewalkPanel
+                        const y1 = topAnchored
                             ? `${chromeOffset + yStride - halfBar}px`
                             : `calc(100% - ${bubbleOffset + yStride - halfBar}px)`;
-                        const y2 = sidewalkPanel
+                        const y2 = topAnchored
                             ? `${chromeOffset + yStride + halfBar}px`
                             : `calc(100% - ${bubbleOffset + yStride + halfBar}px)`;
                         const gap = circleDiameter / 2 + 3;
@@ -958,6 +1293,9 @@ const BeadRow = ({
                 none (lines and circles are decorative); this overlay restores
                 hover affordance for the anchor specifically. Req #2504. */}
             {vizKey === 'swarm' && placed.map(chip => {
+                // Phantom-clamped (req #2649) — no SVG anchor was rendered for
+                // this chip, so there's nothing to overlay a hover target on.
+                if (chip.startClamped === true) return null;
                 const halfBar = Math.max(6, circleDiameter / 2);
                 const yStride = chip.row * rowSpacing + circleDiameter / 2;
                 const gap = circleDiameter / 2 + 3;
@@ -968,10 +1306,10 @@ const BeadRow = ({
                 // anchor y mirrors the SVG circle's anchorY: 'left' mode → y2
                 // (wire-side end), other modes → y1 (outboard end).
                 const anchorAtWire = chip.markerMode === 'left';
-                const anchorYpx = sidewalkPanel
+                const anchorYpx = topAnchored
                     ? chromeOffset + yStride + (anchorAtWire ? halfBar : -halfBar)
                     : bubbleOffset + yStride + (anchorAtWire ? halfBar : -halfBar);
-                const yStyle = sidewalkPanel
+                const yStyle = topAnchored
                     ? { top:    `${anchorYpx - halfHit}px` }
                     : { bottom: `${anchorYpx - halfHit}px` };
                 const isReal = !!chip.swarmStartId;
@@ -1044,12 +1382,17 @@ const BeadRow = ({
                         <Box
                             data-testid={`ts-swarm-start-hit-${chip.chipKey}`}
                             data-real={isReal ? '1' : '0'}
+                            // Real anchors open the single swarm-start detail
+                            // (req #2747); estimated anchors have no row to open.
+                            onClick={isReal && chip.swarmStartId != null
+                                ? () => onSwarmStartClick && onSwarmStartClick(chip.swarmStartId)
+                                : undefined}
                             style={{
                                 position: 'absolute',
                                 left: `calc(${xCss} - ${halfHit}px)`,
                                 width:  `${hitPx}px`,
                                 height: `${hitPx}px`,
-                                cursor: 'pointer',     // match bubble cursor (req #2504 follow-up)
+                                cursor: isReal ? 'pointer' : 'default',
                                 zIndex: 1,             // below bubble (z:2), above SVG (z:1 visually)
                                 ...yStyle,
                             }}
@@ -1057,6 +1400,13 @@ const BeadRow = ({
                     </Tooltip>
                 );
             })}
+
+            {/* Tombstone overlay removed (req #2719 v2) — undone sessions now
+                render as regular chips through the normal placed[] pipeline
+                with a tombstone bubble swap in the chip render below. The
+                session row is preserved by /swarm-undo so the chip lives,
+                pays the same lane/cluster math, and inherits hover/datacard
+                identically. */}
 
             {placed.map(chip => (
                 <Tooltip
@@ -1099,11 +1449,42 @@ const BeadRow = ({
                                     </span>
                                 </div>
                             )}
-                            {!chip.isPhantom && (
+                            {!chip.session && chip.isUndone && chip.swarmStart?.started_at && (
+                                <div className="ts-datacard-row">
+                                    <span className="ts-datacard-key">Started</span>
+                                    <span>
+                                        {formatCardDateTime(chip.swarmStart.started_at, chip.timezone)}
+                                        {chip.startClamped ? ' (before window)' : ''}
+                                    </span>
+                                </div>
+                            )}
+                            {!chip.isPhantom && !chip.isUndone && (
                                 <div className="ts-datacard-row">
                                     <span className="ts-datacard-key">Closed</span>
                                     <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
                                 </div>
+                            )}
+                            {chip.isUndone && (
+                                <>
+                                    <div className="ts-datacard-row" data-testid={`ts-datacard-status-${chip.chipKey}`}>
+                                        <span className="ts-datacard-key">Status</span>
+                                        <span style={{ color: '#616161', fontWeight: 600 }}>
+                                            undone
+                                        </span>
+                                    </div>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Undone</span>
+                                        <span>{formatCardDateTime(chip.completed_at, chip.timezone)}</span>
+                                    </div>
+                                    {chip.undo?.reason && (
+                                        <div className="ts-datacard-row">
+                                            <span className="ts-datacard-key">Reason</span>
+                                            <span style={{ whiteSpace: 'pre-wrap' }}>
+                                                {chip.undo.reason}
+                                            </span>
+                                        </div>
+                                    )}
+                                </>
                             )}
                             {chip.swarmStart && (
                                 <div className="ts-datacard-row" data-testid={`ts-datacard-swarm-start-${chip.chipKey || chip.id}`}>
@@ -1144,30 +1525,152 @@ const BeadRow = ({
                             ...bubbleYCss(chip.row),
                         }}
                         onClick={() => {
-                            if (chip.isPhantom || chip.id == null) return;
+                            if (chip.isPhantom) return;
+                            // Tombstone (req #2747) → swarm-undo detail, not the
+                            // requirement. The undo data is the pertinent context
+                            // for an undone session; the requirement is one hop away.
+                            if (chip.isUndone) {
+                                onUndoClick && onUndoClick(chip.undo?.id);
+                                return;
+                            }
+                            if (chip.id == null) return;
                             onChipClick && onChipClick(chip.id);
                         }}
                     >
-                        <span
-                            className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
-                            data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
-                            style={chip.isPhantom ? {
-                                // Phantom: hollow green ring at the line's "now" end.
-                                // Same diameter as a regular bubble so layout is stable.
-                                backgroundColor: '#ffffff',
-                                border: '2px solid #43A047',
-                                boxSizing: 'border-box',
-                                borderRadius: '50%',
-                                width:  `${circleDiameter}px`,
-                                height: `${circleDiameter}px`,
-                                boxShadow: '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
-                            } : {
-                                backgroundColor: chip.color || '#90a4ae',
-                                width:  `${circleDiameter}px`,
-                                height: `${circleDiameter}px`,
-                                ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
-                            }}
-                        />
+                        {chip.isUndone ? (
+                            // Req #2719 — undone session bubble: textless
+                            // tombstone glyph sized to fill the same bubble
+                            // slot. Same diameter+halo+hover behavior as a
+                            // regular dot so lane/cluster math stays untouched.
+                            //
+                            // No "RIP" text — at 12-16px the text was illegible
+                            // in both light and dark mode. Replaced with a
+                            // mid-grey rounded-top stone + a thin etched cross
+                            // that holds shape at any size and contrasts
+                            // against both backgrounds. CSS class
+                            // `ts-bead-dot-tombstone` carries the theme-aware
+                            // outline color (see TimeSeriesView.css).
+                            (() => {
+                                const SZ = circleDiameter + 6;
+                                const cx = SZ / 2;
+                                const topR = SZ * 0.45;
+                                // Cross dimensions — traditional Latin-cross
+                                // (1:2) proportions per the spec the user
+                                // supplied: total height = 2 × total width,
+                                // arm thickness = arm-width / 3, horizontal
+                                // arm attached 1/4 down from the top.
+                                //
+                                // Driven by a single `crossH` knob (~66% of
+                                // the stone height); everything else falls
+                                // out of the ratio. The prior version used
+                                // equal stem-height and beam-width which
+                                // produced a Greek-cross (1:1) silhouette
+                                // — wrong shape for a tombstone glyph.
+                                const crossH = SZ * 0.66;
+                                const crossW = crossH / 2;
+                                const thick  = Math.max(2, Math.round(crossW / 3));
+                                const crossTop = SZ * 0.18;
+
+                                const stemW = thick;
+                                const stemH = Math.round(crossH);
+                                const beamW = Math.round(crossW);
+                                const beamH = thick;
+                                const stemY = Math.round(crossTop);
+                                const beamY = Math.round(crossTop + crossH / 4);
+                                return (
+                                    <span
+                                        className="ts-bead-dot ts-bead-dot-tombstone"
+                                        data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
+                                        style={{
+                                            backgroundColor: 'transparent',
+                                            boxShadow: 'none',
+                                            width: `${SZ}px`,
+                                            height: `${SZ}px`,
+                                            display: 'inline-block',
+                                            position: 'relative',
+                                        }}
+                                    >
+                                        <svg
+                                            width={SZ}
+                                            height={SZ}
+                                            viewBox={`0 0 ${SZ} ${SZ}`}
+                                            style={{ display: 'block' }}
+                                            aria-label="tombstone"
+                                        >
+                                            {/* Stone body — near-black fill
+                                                + mid-grey outline. Reads as
+                                                a silhouette against both
+                                                light and dark backgrounds
+                                                without needing a theme
+                                                override. */}
+                                            <path
+                                                d={`M 2 ${SZ - 1}
+                                                    L 2 ${topR}
+                                                    Q 2 1 ${cx} 1
+                                                    Q ${SZ - 2} 1 ${SZ - 2} ${topR}
+                                                    L ${SZ - 2} ${SZ - 1}
+                                                    Z`}
+                                                fill="#424242"
+                                                stroke="#9E9E9E"
+                                                strokeWidth="1"
+                                                strokeLinejoin="round"
+                                            />
+                                            {/* Etched cross — pure white on
+                                                near-black stone for maximum
+                                                internal contrast (~17:1).
+                                                Stem (vertical) drawn first,
+                                                beam (horizontal) drawn on
+                                                top so the joint reads as a
+                                                clean cross at any size. */}
+                                            <rect
+                                                x={cx - stemW / 2}
+                                                y={stemY}
+                                                width={stemW}
+                                                height={stemH}
+                                                fill="#FFFFFF"
+                                                rx="0.5"
+                                            />
+                                            <rect
+                                                x={cx - beamW / 2}
+                                                y={beamY}
+                                                width={beamW}
+                                                height={beamH}
+                                                fill="#FFFFFF"
+                                                rx="0.5"
+                                            />
+                                        </svg>
+                                    </span>
+                                );
+                            })()
+                        ) : (
+                            <span
+                                className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
+                                data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
+                                style={chip.isPhantom ? {
+                                    // Phantom: hollow green ring at the line's "now" end.
+                                    // Same diameter as a regular bubble so layout is stable.
+                                    backgroundColor: '#ffffff',
+                                    border: '2px solid #43A047',
+                                    boxSizing: 'border-box',
+                                    borderRadius: '50%',
+                                    width:  `${circleDiameter}px`,
+                                    height: `${circleDiameter}px`,
+                                    // req #2755 — when the Coordination toggle is on, layer the
+                                    // autonomy ring (6px coordination-color band) into the inline
+                                    // box-shadow. The inline value overrides the .ts-bead-dot-ringed
+                                    // CSS rule, so the ring must be emitted here to render on phantoms.
+                                    boxShadow: chip.ringColor
+                                        ? `0 0 0 2px #fff, 0 0 0 6px ${chip.ringColor}, 0 1px 3px rgba(0, 0, 0, 0.2)`
+                                        : '0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, 0.2)',
+                                    ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
+                                } : {
+                                    backgroundColor: chip.color || '#90a4ae',
+                                    width:  `${circleDiameter}px`,
+                                    height: `${circleDiameter}px`,
+                                    ...(chip.ringColor ? { '--ts-ring-color': chip.ringColor } : null),
+                                }}
+                            />
+                        )}
                         {/* req #2556 — title to right of bubble when toolbar Title toggle on. */}
                         {titlesOn && chip.title && (
                             <span
@@ -1181,13 +1684,9 @@ const BeadRow = ({
                 </Tooltip>
             ))}
 
-            {/* Count bubble — muted-green pill with just the number of requirements met. */}
-            <Box className="ts-bead-count" data-testid="ts-bead-count"
-                 title={`${windowChips.length} requirements met on ${formatDayLabel(selectedDate, timezone)}`}>
-                <Typography variant="caption">
-                    {windowChips.length}
-                </Typography>
-            </Box>
+            {/* Count pill is carried by the sticky header (Week stack) or inline to
+                the left of the date in DayLabels (Day / Sidewalk / Elevator) — the
+                standalone absolute badge was retired in req #2747. */}
         </Box>
     );
 };
@@ -1530,7 +2029,51 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 // stops where momentum ends (no snap-to-panel, matching Sidewalk). Adjacent
 // day panels butt up with no seam, so bubbles that straddle Sun→Mon feel
 // continuous (req #2383).
-const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+//
+// req #2744 — the frame reserves a top band (`padding-top`) for the single
+// shared time axis pinned at its top. `frameHeight` (clientHeight) still
+// includes that padding, so the scroll math must subtract it to get the real
+// visible content height — otherwise the bottom of the last panel is clipped
+// and centering is biased upward. `clientHeight - padding` equals the content
+// height regardless of box-sizing, so this correction is box-model-agnostic.
+const ELEVATOR_TOP_AXIS_PX = 34;
+// Small bias (px) for top-edge index detection so a panel that has just crossed
+// the viewport top is reported, not the one a hair above it (req #2781).
+const ELEVATOR_TOP_EPS = 2;
+
+// req #2779 — Elevator infinite scroll. Vertical analog of Sidewalk's
+// SIDEWALK_* buffer constants (same values): when the centered panel comes
+// within ELEVATOR_BUFFER_THRESHOLD of either end of `dates`, prepend/append
+// ELEVATOR_EXTEND_BY days; once the array exceeds ELEVATOR_MAX_PANELS, prune
+// the opposite end. There is no offset clamp — the strip is endless in both
+// directions, so the user can scroll arbitrarily far into past or future.
+const ELEVATOR_BUFFER_THRESHOLD = 5;
+const ELEVATOR_EXTEND_BY = 10;
+const ELEVATOR_MAX_PANELS = 60;
+
+// Base floor height for an Elevator day panel (px). Intentionally low — comfortably
+// clears the compact top chrome (req #2744: date row + wire ≈ 46px) plus breathing room.
+const ELEVATOR_PANEL_BASE_HEIGHT = 140;
+
+// Pixel height of one Elevator day panel, sized to THAT day's chip density.
+// Mirrors BeadRow's sidewalk + hideTimeline height formula so DOM heights match
+// what BeadRow lays out. Extracted to module scope (req #2779) so the
+// infinite-scroll extender can size freshly-prepended panels SYNCHRONOUSLY —
+// it must shift translateY by the new panels' summed height in the same task it
+// calls setDates, otherwise the visible panel would jump for one frame. Both the
+// panelHeights memo and maybeExtend call this, so the two can never drift.
+export const elevatorPanelHeight = (maxStackRow, circleDiameter, spaceKey) => {
+    const bubbleOffset  = 20;
+    const chromeBottom  = 46;   // matches BeadRow `chromeOffset = sidewalkPanel && hideTimeline ? 46`
+    const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+    const spaceMul      = getSpaceMultiplier(spaceKey);
+    const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    return Math.max(
+        ELEVATOR_PANEL_BASE_HEIGHT,
+        Math.max(0, maxStackRow) * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+    );
+};
+const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
@@ -1541,42 +2084,40 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     const reportTimeoutRef = React.useRef(null);   // trailing debounce of onCenterDateChange
     const pendingDateRef   = React.useRef(null);
     const hasDragged = React.useRef(false);
-    const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    // Future cap (req #2779 follow-up) — the end of the current ISO week (this
+    // week's Sunday, local). The elevator scrolls infinitely into the PAST but
+    // never past this day into the future. Computed once per mount; "today" is
+    // read from the wall clock so the deliberately-empty dep array is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const maxFutureDate = useMemo(() => endOfWeek(localDateStr(new Date())), []);
+    const [dates, setDates] = React.useState(() => cappedCenteredRange(centerDate, 10, maxFutureDate));
+    // Mirror of `dates` for synchronous reads inside drag/wheel/momentum handlers —
+    // lets maybeExtend check current length / size new panels without re-binding the
+    // drag effect on every extension (req #2779, mirrors Sidewalk's datesRef).
+    const datesRef = React.useRef(dates);
     const [frameHeight, setFrameHeight] = React.useState(0);
 
-    // Per-panel heights — one entry per date, sized to THAT day's chip density.
-    // Sidewalk uniforms every panel to the busiest day; Elevator lets light days
-    // stay short so a strip with one 12-chip day and 20 single-chip days isn't
-    // 21× the 12-chip height tall (req #2383 follow-up). Mirrors BeadRow's
-    // sidewalk-variant height formula so DOM heights match what BeadRow lays out.
-    //
-    // maxStackRow comes from indexMaxStackByDate, which reproduces BeadRow's
-    // placement for the active vizKey: bead uses cluster-stack (many chips
-    // collapse to a handful of rows when spread across the day), swarm uses
-    // one-lane-per-chip (maxRow = chips − 1). Without this, bead panels were
-    // sized to the swarm worst case and wasted ~80% of their vertical space.
-    //
-    // BASE_HEIGHT is intentionally low (140px) — enough to fit the top chrome
-    // (date + time-axis ≈ 122px minimum) plus a little breathing room.
-    const panelHeights = useMemo(() => {
-        const BASE_HEIGHT   = 140;
-        const bubbleOffset  = 20;
-        const chromeBottom  = 80;
-        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
-        const spaceMul      = getSpaceMultiplier(spaceKey);
-        const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
-        const maxRowByDate  = indexMaxStackByDate(requirements, sessions, timezone, vizKey);
-        return dates.map(d => {
-            const maxStackRow = maxRowByDate.get(d) || 0;
-            return Math.max(
-                BASE_HEIGHT,
-                maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
-            );
-        });
-    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
+    // Per-date max stack row — reproduces BeadRow's placement for the active
+    // vizKey: bead uses cluster-stack (many chips collapse to a handful of rows
+    // when spread across the day), swarm uses one-lane-per-chip (maxRow =
+    // chips − 1). Lifted to its own memo (req #2779) so maybeExtend can size
+    // freshly-prepended panels from the same source the render uses.
+    const maxRowByDate = useMemo(
+        () => indexMaxStackByDate(requirements, sessions, timezone, vizKey),
+        [requirements, sessions, timezone, vizKey],
+    );
+
+    // Per-panel heights — one entry per date, sized to THAT day's chip density via
+    // the shared elevatorPanelHeight helper. Sidewalk uniforms every panel to the
+    // busiest day; Elevator lets light days stay short so a strip with one 12-chip
+    // day and 20 single-chip days isn't 21× the 12-chip height tall (req #2383).
+    const panelHeights = useMemo(
+        () => dates.map(d => elevatorPanelHeight(maxRowByDate.get(d) || 0, circleDiameter, spaceKey)),
+        [dates, maxRowByDate, circleDiameter, spaceKey],
+    );
 
     // Cumulative offsets + total strip height — precomputed so indexForOffset /
-    // offsetForIndex / clampOffset don't re-scan on every frame.
+    // offsetForIndex don't re-scan on every frame.
     const panelGeom = useMemo(() => {
         const cumulative = new Array(panelHeights.length);
         let acc = 0;
@@ -1587,7 +2128,7 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         return { heights: panelHeights, cumulative, stripHeight: acc };
     }, [panelHeights]);
 
-    // Ref-mirror of panelGeom so offsetForIndex / clampOffset called from a
+    // Ref-mirror of panelGeom so offsetForIndex / maybeExtend called from a
     // rebuild-path requestAnimationFrame always see the LATEST geometry — not
     // the panelHeights captured when the centerDate effect ran. Without this, a
     // rebuild that also shifts per-panel density would position the first frame
@@ -1595,6 +2136,16 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     // useLayoutEffect so the ref is current before any rAF fires.
     const panelGeomRef = React.useRef(panelGeom);
     React.useLayoutEffect(() => { panelGeomRef.current = panelGeom; }, [panelGeom]);
+
+    // Ref-mirrors so maybeExtend (captured once by the drag effect) reads the
+    // LATEST data when sizing freshly-prepended panels (req #2779). datesRef is
+    // also written synchronously inside maybeExtend so a same-frame re-entry
+    // doesn't see the pre-extension array and re-extend.
+    React.useLayoutEffect(() => { datesRef.current = dates; }, [dates]);
+    const maxRowByDateRef = React.useRef(maxRowByDate);
+    React.useLayoutEffect(() => { maxRowByDateRef.current = maxRowByDate; }, [maxRowByDate]);
+    const sizingRef = React.useRef({ circleDiameter, spaceKey });
+    React.useLayoutEffect(() => { sizingRef.current = { circleDiameter, spaceKey }; }, [circleDiameter, spaceKey]);
 
     React.useLayoutEffect(() => {
         const measure = () => {
@@ -1628,7 +2179,7 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         stopAnim();
         const start = offsetRef.current;
         const delta = target - start;
-        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        if (Math.abs(delta) < 1) { applyOffset(target); maybeExtend(); return; }
         const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
         const t0 = performance.now();
         const step = (now) => {
@@ -1636,56 +2187,129 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             const eased = 1 - (1 - t) ** 3;
             applyOffset(start + delta * eased);
             if (t < 1) rafRef.current = requestAnimationFrame(step);
-            else { rafRef.current = null; reportCenterIfChanged(); }
+            else { rafRef.current = null; maybeExtend(); reportCenterIfChanged(); }
         };
         rafRef.current = requestAnimationFrame(step);
     };
 
     // Map current translateY to the panel whose [top, bottom] range contains
-    // the frame's vertical center. Linear scan over cumulative offsets — N≤21,
-    // no need for binary search.
+    // the TOP of the viewport — the focus day sits at the top of the frame
+    // (req #2781), so the day reported up as `currentDate` is the one the user
+    // reads at the top, matching the non-elevator week stack. Linear scan over
+    // cumulative offsets — N≤21, no need for binary search. The small epsilon
+    // biases the boundary toward the panel that has actually crossed the top
+    // edge so a pixel-perfect alignment doesn't flicker between two days.
     const indexForOffset = () => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0 || g.stripHeight === 0) return 0;
-        const frameCenterInStrip = -offsetRef.current + (frameHeight / 2);
+        const frameTopInStrip = -offsetRef.current + ELEVATOR_TOP_EPS;
         for (let i = 0; i < g.heights.length; i++) {
             const bottom = g.cumulative[i] + g.heights[i];
-            if (frameCenterInStrip < bottom) return i;
+            if (frameTopInStrip < bottom) return i;
         }
         return g.heights.length - 1;
     };
 
-    // Offset that places the panel at `idx` centered in the frame (or flush
-    // to the top when the strip is shorter than the frame).
+    // Offset that places the panel at `idx` flush against the TOP of the frame
+    // (req #2781 — focus day at the top of the view, not centered), then clamped
+    // by the one-sided future-cap clampOffset (req #2779 — a no-op until the
+    // strip reaches the cap; the past stays endless).
     const offsetForIndex = (idx) => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0) return 0;
         const i = Math.max(0, Math.min(g.heights.length - 1, idx));
-        const target = frameHeight / 2 - g.cumulative[i] - g.heights[i] / 2;
-        return clampOffset(target);
+        return clampOffset(-g.cumulative[i]);
     };
 
-    // Clamp offset so the user can't walk the strip off-screen. When the strip
-    // is shorter than the frame, lock to 0.
+    // One-sided scroll clamp for the FUTURE cap (req #2779 follow-up). The past
+    // is infinite, so there is NO upper (more-positive-offset) bound. The lower
+    // (more-negative) bound only engages once the strip's last day has reached
+    // maxFutureDate — until then the view scrolls freely and maybeExtend grows
+    // the strip toward the cap. At the cap, the strip's bottom is pinned to the
+    // viewport bottom so no empty space shows below the final day.
     const clampOffset = (y) => {
         const g = panelGeomRef.current;
-        if (!g || g.stripHeight <= frameHeight) return 0;
-        const minOffset = frameHeight - g.stripHeight;
-        return Math.max(minOffset, Math.min(0, y));
+        if (!g) return y;
+        const cur = datesRef.current;
+        const atCap = maxFutureDate && cur.length > 0 && cur[cur.length - 1] >= maxFutureDate;
+        if (!atCap) return y;
+        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
+        if (g.stripHeight <= viewportH) return y;   // strip shorter than viewport → don't fight past extension
+        const minOffset = viewportH - g.stripHeight;
+        return Math.max(minOffset, y);
     };
 
-    // If panel geometry changes mid-session (data updates shifting some day's
-    // chip count), re-clamp the current offset so it stays within the new
-    // [minOffset, 0] range. Does NOT re-center — the user's scroll position is
-    // preserved wherever it was.
-    React.useEffect(() => {
-        applyOffset(clampOffset(offsetRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [panelGeom]);
+    // Infinite-scroll buffer maintenance (req #2779) — vertical analog of
+    // Sidewalk's maybeExtend, adapted for variable panel heights. When the
+    // centered panel approaches either end, prepend/append ELEVATOR_EXTEND_BY
+    // days and prune the opposite end past ELEVATOR_MAX_PANELS.
+    //
+    // The translateY compensation is the only place that differs from Sidewalk's
+    // uniform-width math: prepending days grows the strip at the top by the new
+    // panels' summed height, so we subtract that from the offset BEFORE setDates
+    // (same synchronous task → no paint between, so the visible panel never
+    // jumps). New top panels are sized via the shared elevatorPanelHeight helper
+    // so the prediction matches what the panelHeights memo renders. When pruning
+    // the top (during a downward extend) we add the removed panels' height —
+    // read from the current geometry — back to the offset.
+    //
+    // datesRef is updated synchronously so a follow-up call within the same frame
+    // doesn't see the pre-extension array and re-extend.
+    const maybeExtend = () => {
+        if (frameHeight === 0) return;
+        const cur = datesRef.current;
+        if (!cur || cur.length === 0) return;
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length !== cur.length) return;   // geometry not yet synced
+        const idx = indexForOffset();
+        const distTop    = idx;
+        const distBottom = cur.length - 1 - idx;
+        const { circleDiameter: cd, spaceKey: sk } = sizingRef.current;
+        const rowMap = maxRowByDateRef.current;
+
+        if (distTop <= ELEVATOR_BUFFER_THRESHOLD) {
+            const extended = extendDates(cur, 'left', ELEVATOR_EXTEND_BY);
+            let addedTopHeight = 0;
+            for (let i = 0; i < ELEVATOR_EXTEND_BY; i++) {
+                addedTopHeight += elevatorPanelHeight(rowMap.get(extended[i]) || 0, cd, sk);
+            }
+            // Top growth pushes existing panels down; shift up to stay put.
+            applyOffset(offsetRef.current - addedTopHeight);
+            const pruned = pruneDates(extended, ELEVATOR_MAX_PANELS, 'right');
+            datesRef.current = pruned.dates;
+            setDates(pruned.dates);
+        } else if (distBottom <= ELEVATOR_BUFFER_THRESHOLD) {
+            // Future is capped at maxFutureDate (req #2779 follow-up): only add as
+            // many days as remain up to the cap. At/over the cap → add nothing
+            // (clampOffset holds the bottom wall).
+            const last = cur[cur.length - 1];
+            let addN = ELEVATOR_EXTEND_BY;
+            if (maxFutureDate) {
+                const room = Math.round(
+                    (new Date(maxFutureDate + 'T12:00:00') - new Date(last + 'T12:00:00')) / 86400000,
+                );
+                addN = Math.min(ELEVATOR_EXTEND_BY, Math.max(0, room));
+            }
+            if (addN === 0) return;   // already at the future cap
+            const extended = extendDates(cur, 'right', addN);
+            const pruned = pruneDates(extended, ELEVATOR_MAX_PANELS, 'left');
+            if (pruned.removedCount > 0) {
+                // Pruning the top removes those panels' height; everything shifts
+                // up by that much, so add it back to keep the visible panel put.
+                let removedTopHeight = 0;
+                for (let i = 0; i < pruned.removedCount; i++) removedTopHeight += g.heights[i];
+                applyOffset(offsetRef.current + removedTopHeight);
+            }
+            datesRef.current = pruned.dates;
+            setDates(pruned.dates);
+        }
+    };
 
     const REPORT_DEBOUNCE_MS = 150;
     const reportCenterIfChanged = () => {
-        const d = dates[indexForOffset()];
+        // Read from datesRef so a same-frame maybeExtend() that already updated
+        // the array (synchronously) is reflected here too.
+        const d = datesRef.current[indexForOffset()];
         if (!d || d === lastReported.current) return;
         lastReported.current = d;
         pendingDateRef.current = d;
@@ -1699,46 +2323,64 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
     };
 
     // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
+    // If centerDate is outside the current strip (chevron jump, or it scrolled
+    // out after extend/prune), rebuild the strip around it. Deps are
+    // [centerDate, frameHeight] ONLY (req #2779): extend/prune changes panelGeom
+    // every scroll frame, and if this effect re-ran on that it would yank the
+    // view back to a stale centerDate mid-scroll. Geometry is read from the live
+    // panelGeomRef instead, and dates from datesRef.
     React.useEffect(() => {
-        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (frameHeight === 0 || panelGeomRef.current.stripHeight === 0) return;
         if (centerDate === lastReported.current) return;
         if (reportTimeoutRef.current) {
             clearTimeout(reportTimeoutRef.current);
             reportTimeoutRef.current = null;
             pendingDateRef.current = null;
         }
-        const idx = dates.indexOf(centerDate);
+        const cur = datesRef.current;
+        const idx = cur.indexOf(centerDate);
         if (idx < 0) {
-            // Rebuild strip around the new centerDate and snap to its center.
-            const rebuilt = centeredDateRange(centerDate, 10);
+            // Rebuild strip around the new centerDate and snap it to the top
+            // (req #2781). Clamp the effective center to the future cap so a chevron jump past
+            // this week lands on the last allowed day instead of an empty strip.
+            const effCenter = (maxFutureDate && centerDate > maxFutureDate) ? maxFutureDate : centerDate;
+            const rebuilt = cappedCenteredRange(effCenter, 10, maxFutureDate);
+            datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
             requestAnimationFrame(() => {
-                const newIdx = rebuilt.indexOf(centerDate);
-                applyOffset(offsetForIndex(newIdx));
+                const dr = datesRef.current;
+                const newIdx = dr.indexOf(effCenter);
+                applyOffset(offsetForIndex(newIdx >= 0 ? newIdx : dr.length - 1));
             });
             return;
         }
         lastReported.current = centerDate;
         animateTo(offsetForIndex(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [centerDate, frameHeight, panelGeom.stripHeight]);
+    }, [centerDate, frameHeight]);
 
-    // Initial placement — put centerDate centered in the frame.
+    // Initial placement — put centerDate at the TOP of the frame (req #2781). Runs
+    // once when frameHeight first becomes non-zero (deps [frameHeight] only, so
+    // extend/prune never re-triggers a recenter mid-scroll).
     React.useEffect(() => {
-        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
-        const idx = dates.indexOf(centerDate);
+        if (frameHeight === 0 || panelGeomRef.current.stripHeight === 0) return;
+        const idx = datesRef.current.indexOf(centerDate);
         if (idx >= 0) applyOffset(offsetForIndex(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameHeight, panelGeom.stripHeight]);
+    }, [frameHeight]);
 
-    // Drag + momentum + wheel.
+    // Drag + momentum + wheel. Bind once per frameHeight — `dates.length` is read
+    // via `datesRef` inside maybeExtend so we can extend the strip without
+    // re-binding (which would lose in-progress drag state). onMove uses
+    // delta-from-last instead of cumulative-from-startOffset because maybeExtend
+    // can shift offsetRef mid-drag (top extension); a delta formulation stays
+    // correct after that shift (req #2779, mirrors Sidewalk).
     React.useEffect(() => {
         const frame = frameRef.current;
-        if (!frame || frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (!frame || frameHeight === 0) return;
         let isDown = false;
         let startPageY = 0;
-        let startOffset = 0;
         let lastPageY = 0;
         let lastT = 0;
 
@@ -1747,7 +2389,6 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             isDown = true;
             hasDragged.current = false;
             startPageY = e.pageY;
-            startOffset = offsetRef.current;
             lastPageY = e.pageY;
             lastT = performance.now();
             velocityRef.current = 0;
@@ -1757,9 +2398,11 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
         };
         const onMove = (e) => {
             if (!isDown) return;
-            const dy = e.pageY - startPageY;
-            if (Math.abs(dy) > 4) hasDragged.current = true;
-            applyOffset(clampOffset(startOffset + dy));
+            const totalDy = e.pageY - startPageY;
+            if (Math.abs(totalDy) > 4) hasDragged.current = true;
+            const deltaY = e.pageY - lastPageY;
+            applyOffset(clampOffset(offsetRef.current + deltaY));
+            maybeExtend();
             const now = performance.now();
             const dt = Math.max(1, now - lastT);
             velocityRef.current = ((e.pageY - lastPageY) / dt) * 16;
@@ -1774,13 +2417,15 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             const decay = () => {
                 if (Math.abs(velocityRef.current) < 0.4) {
                     rafRef.current = null;
-                    reportCenterIfChanged();
+                    reportCenterIfChanged();       // no snap — stop wherever momentum ends
                     return;
                 }
                 const raw = offsetRef.current + velocityRef.current;
                 const clamped = clampOffset(raw);
                 applyOffset(clamped);
+                maybeExtend();
                 if (clamped !== raw) {
+                    // Hit the future wall — kill momentum and stop here.
                     velocityRef.current = 0;
                     rafRef.current = null;
                     reportCenterIfChanged();
@@ -1806,6 +2451,7 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             e.preventDefault();
             stopAnim();
             applyOffset(clampOffset(offsetRef.current - dyRaw));
+            maybeExtend();
             reportCenterIfChanged();
         };
 
@@ -1823,16 +2469,21 @@ const Elevator = ({ centerDate, onCenterDateChange, ...rowProps }) => {
             stopAnim();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameHeight, panelGeom.stripHeight, dates.length]);
+    }, [frameHeight]);
 
     return (
         <Box className="ts-elevator" data-testid="ts-elevator" ref={frameRef}>
+            {/* req #2744 — single shared time axis pinned to the top of the
+                frame; panels scroll beneath it (the frame reserves padding-top
+                so dates/bubbles never slide under the bar). */}
+            <SharedTimeline variant="elevator" ticks={sharedTicks} />
             <Box className="ts-elevator-inner" ref={innerRef}>
                 {dates.map((d, i) => (
                     <Box key={d} className="ts-elevator-panel" data-date={d}
                          style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
+                                 hideTimeline={true}
                                  sidewalkHeight={panelHeights[i]}
                                  {...rowProps} />
                     </Box>
@@ -1849,6 +2500,7 @@ const TimeSeriesView = ({
     sessions = [],
     swarmStarts = [],          // req #2504 — real swarm-start rows for the user
     swarmStartSessions = [],   // req #2504 — junction (session_fk → swarm_start_fk)
+    swarmUndos = [],           // req #2719 — undo log rows; overlay tombstones
     selectedDate,
     timezone,
     beadWindow = '24h',
@@ -1860,6 +2512,8 @@ const TimeSeriesView = ({
     isWeekView = false,
     categoryList = [],
     onChipClick,
+    onSwarmStartClick,
+    onUndoClick,
     onCenterDateChange,
 }) => {
     // The UI Options amber bar was removed 2026-04-18 — Viz and Sidewalk
@@ -1873,6 +2527,17 @@ const TimeSeriesView = ({
         : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
     const tooltipFontSize = getFontSize(fontSizeKey);
     const circleDiameter  = getCircleSize(circleSizeKey);
+
+    // req #2744 — ticks for the single shared time axis. Each variant mirrors the
+    // base/visible hours its rows compute in BeadRow so the shared labels align
+    // with the per-row vertical dividers:
+    //   Week stack rows → non-sidewalk base (36h base, beadWindow-derived visible).
+    //   Elevator panels → sidewalk base (24h base, 24h visible).
+    const weekTicks = useMemo(
+        () => buildTicks(ZOOM_HOURS[zoomKey]?.['36h'] ?? 36, getZoomHours(zoomKey, beadWindow)),
+        [zoomKey, beadWindow],
+    );
+    const elevatorTicks = useMemo(() => buildTicks(24, 24), []);
 
     // Week view: 7 dates Mon..Sun rendered top=earliest → bottom=Sunday.
     // Stack always ends at Sunday (ISO week convention).
@@ -1918,42 +2583,20 @@ const TimeSeriesView = ({
     // category, status, coordination, session info) so BeadRow can wrap the
     // vertical start bar in a tooltip matching the bubble's datacard.
     //
-    // Lane alignment — each cross-day entry uses the row the session's chip
-    // will actually occupy on its end day (computed via assignSwarmLanes per
-    // day). That way the dashed line on prior days lands at the SAME Y as
-    // the bubble on the end day.
+    // Lane alignment (req #2747) — each cross-day entry carries the requirement's
+    // cluster `groupKey` (canonical swarm-start) and its end-day `completedAt`,
+    // but NOT a precomputed lane. BeadRow folds these entries into the
+    // destination day's own `assignSwarmLanes` pass as "ghost" occupants, so the
+    // dashed pass-through line gets a lane that does NOT collide with that day's
+    // same-day bubbles, and cluster-mates stay contiguous. (Previously the entry
+    // borrowed the row the chip occupies on its END day; that row was never
+    // reserved on the intermediate days, so two long-tail sessions could stack a
+    // dashed line directly over an unrelated bubble that closed that day.)
     const crossDayMap = useMemo(() => {
-        const map = new Map(); // date → [{ sessionId, role, lane, pct?, card? }]
+        const map = new Map(); // date → [{ sessionId, role, groupKey, completedAt, pct?, card? }]
         if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return map;
         const dateSet = new Set(rowDates);
         const sessionsByReq = indexSessionsByRequirement(sessions);
-
-        // Build the same swarm chip list BeadRow will build for each day, then
-        // run assignSwarmLanes to find each chip's row. Lets us look up
-        // `endDayLane(reqId, sessionId)` → row.
-        const dayLaneMap = new Map(); // date → Map(chipKey → row)
-        for (const d of rowDates) {
-            const chips = [];
-            for (const r of requirements) {
-                if (!r.completed_at) continue;
-                if (toLocaleDateString(r.completed_at, timezone) !== d) continue;
-                const linked = sessionsByReq.get(String(r.id)) || [];
-                if (linked.length === 0) {
-                    chips.push({ chipKey: String(r.id), id: r.id, completed_at: r.completed_at });
-                    continue;
-                }
-                for (const s of linked) {
-                    // groupKey mirrors BeadRow.drawChips so cross-day lane
-                    // positions match in-row positions (req #2504 grouping).
-                    const groupKey = canonicalStartById?.get(String(s.id)) || '';
-                    chips.push({ chipKey: `${r.id}-s${s.id}`, id: r.id, completed_at: r.completed_at, groupKey });
-                }
-            }
-            const placed = assignSwarmLanes(chips);
-            const m = new Map();
-            for (const c of placed) m.set(c.chipKey, c.row);
-            dayLaneMap.set(d, m);
-        }
 
         for (const r of requirements) {
             if (!r.completed_at) continue;
@@ -1967,12 +2610,10 @@ const TimeSeriesView = ({
                 if (startDay === endDay) continue;           // single-day session — skip
                 if (startDay > endDay) continue;             // nonsensical — skip
 
-                const chipKey = `${r.id}-s${s.id}`;
-                const endLane = dayLaneMap.get(endDay)?.get(chipKey) ?? 0;
-
                 // Datacard payload — shared by the vertical start bar's tooltip
                 // and the end-day bubble's tooltip.
                 const sKey = String(s.id);
+                const canonicalStart = canonicalStartById?.get(sKey) ?? s.started_at;
                 const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
                 const swarmStartRow = swarmStartById?.get(sKey) ?? null;
                 const card = {
@@ -1988,18 +2629,25 @@ const TimeSeriesView = ({
                     swarmStartId,
                     swarmStart: swarmStartRow,
                 };
+                // Shared fields BeadRow uses to seat the ghost lane occupant:
+                // groupKey clusters it with its swarm-start mates; completedAt
+                // (the end-day closure) orders it within that cluster.
+                const occupant = {
+                    sessionId: s.id,
+                    groupKey: canonicalStart || '',
+                    completedAt: r.completed_at,
+                    card,
+                };
 
                 // Start day entry — partial dashed line from startPct → 100%,
                 // plus a vertical start bar at startPct with a tooltip.
                 // Use the cluster's canonical started_at (req #2341) so cross-day
                 // cluster members share the same X on the start day.
                 if (dateSet.has(startDay)) {
-                    const canonicalStart =
-                        canonicalStartById.get(String(s.id)) ?? s.started_at;
                     const startPct = bead36hXPct(canonicalStart, timezone, startDay);
                     if (startPct !== null) {
                         const arr = map.get(startDay) || [];
-                        arr.push({ sessionId: s.id, role: 'start', lane: endLane, pct: startPct, card });
+                        arr.push({ ...occupant, role: 'start', pct: startPct });
                         map.set(startDay, arr);
                     }
                 }
@@ -2008,7 +2656,7 @@ const TimeSeriesView = ({
                 let cursor = shiftDateStr(startDay, 1);
                 while (cursor < endDay && dateSet.has(cursor)) {
                     const arr = map.get(cursor) || [];
-                    arr.push({ sessionId: s.id, role: 'middle', lane: endLane });
+                    arr.push({ ...occupant, role: 'middle' });
                     map.set(cursor, arr);
                     cursor = shiftDateStr(cursor, 1);
                 }
@@ -2019,6 +2667,102 @@ const TimeSeriesView = ({
     }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone,
         categoryList, canonicalStartById, swarmStartIdById, swarmStartById]);
 
+    // Non-elevator week stack lives inside its own fixed-height scroll frame
+    // (req #2781) — same outer box as the Elevator frame, so the page never
+    // window-scrolls in week view and toggling Elevator on/off keeps the viewport
+    // pinned. On focus-day change / mode toggle / data load, bring the selected
+    // day's row to the TOP of the frame (just below the 38px sticky shared
+    // timeline), mirroring the Elevator's top-anchored focus.
+    const weekFrameRef     = React.useRef(null);
+    const userScrolledRef  = React.useRef(false);  // user took manual control of the frame
+    const programmaticRef  = React.useRef(false);  // our own scrollTop write (ignore in listener)
+    const showWeekFrame = isWeekView && !elevatorOn && !sidewalkOn;
+
+    // A focus-day or mode change is an intentional re-anchor — clear the manual
+    // -scroll guard so the layout effect below pins the new focus day to the top.
+    // MUST be useLayoutEffect declared BEFORE the anchor effect: layout effects
+    // run in declaration order, so this clears the guard before the anchor reads
+    // it on the same commit (otherwise Today-after-a-manual-scroll would bail).
+    React.useLayoutEffect(() => {
+        userScrolledRef.current = false;
+    }, [showWeekFrame, selectedDate]);
+
+    // Mark genuine user scrolls so a background data refetch (which changes the
+    // `requirements`/`sessions` array refs even via structural sharing when ANY
+    // row in the broad fetch window changes) does not yank the user back to the
+    // focus day mid-read. Our own programmatic scrollTop writes are flagged and
+    // skipped here.
+    React.useEffect(() => {
+        if (!showWeekFrame) return undefined;
+        const frame = weekFrameRef.current;
+        if (!frame) return undefined;
+        const onScroll = () => {
+            if (programmaticRef.current) { programmaticRef.current = false; return; }
+            userScrolledRef.current = true;
+        };
+        frame.addEventListener('scroll', onScroll, { passive: true });
+        return () => frame.removeEventListener('scroll', onScroll);
+    }, [showWeekFrame]);
+
+    React.useLayoutEffect(() => {
+        if (!showWeekFrame) return;
+        if (userScrolledRef.current) return;   // user is scrolling — don't fight them
+        const frame = weekFrameRef.current;
+        if (!frame || !selectedDate) return;
+        const row = frame.querySelector(`.ts-bead[data-date="${selectedDate}"]`);
+        if (!row) return;
+        const WEEK_AXIS_PX = 38; // == .ts-shared-timeline-week height
+        const delta = row.getBoundingClientRect().top
+                    - frame.getBoundingClientRect().top
+                    - WEEK_AXIS_PX;
+        if (Math.abs(delta) < 1) return;       // already anchored — no scroll, no flag
+        const before = frame.scrollTop;
+        programmaticRef.current = true;
+        frame.scrollTop += delta;
+        // If the write was clamped to a no-op (focus row already at the bottom
+        // limit), no scroll event fires — clear the flag so it doesn't swallow
+        // the user's next real scroll.
+        if (frame.scrollTop === before) programmaticRef.current = false;
+    // Re-anchor on focus/mode change and on data-driven height changes — but the
+    // userScrolled guard above suppresses the data case once the user scrolls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showWeekFrame, selectedDate, requirements, sessions]);
+
+    // One BeadRow per row date (Day = [selectedDate]; Week = Mon..Sun). Shared by
+    // the framed week stack and the in-flow day view so the row props stay DRY.
+    const weekRows = rowDates.map(d => (
+        <BeadRow
+            key={d}
+            requirements={requirements}
+            sessions={sessions}
+            selectedDate={d}
+            timezone={timezone}
+            beadWindow={beadWindow}
+            vizKey={vizKey}
+            dataKey={dataKey}
+            titlesOn={titlesOn}
+            tooltipFontSize={tooltipFontSize}
+            circleDiameter={circleDiameter}
+            spaceKey={spaceKey}
+            zoomKey={zoomKey}
+            categoryList={categoryList}
+            isWeekView={isWeekView}
+            hideTimeline={isWeekView}
+            crossDays={crossDayMap.get(d) || []}
+            onChipClick={onChipClick}
+            onSwarmStartClick={onSwarmStartClick}
+            onUndoClick={onUndoClick}
+            canonicalStartById={canonicalStartById}
+            clusterSizeById={clusterSizeById}
+            swarmStartIdById={swarmStartIdById}
+            swarmStartById={swarmStartById}
+            swarmStarts={swarmStarts}
+            swarmStartSessions={swarmStartSessions}
+            swarmUndos={swarmUndos}
+            requirementById={requirementById}
+        />
+    ));
+
     return (
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
             {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
@@ -2028,6 +2772,7 @@ const TimeSeriesView = ({
                 <Elevator
                     centerDate={selectedDate}
                     onCenterDateChange={onCenterDateChange || (() => {})}
+                    sharedTicks={elevatorTicks}
                     requirements={requirements}
                     sessions={sessions}
                     timezone={timezone}
@@ -2042,12 +2787,15 @@ const TimeSeriesView = ({
                     categoryList={categoryList}
                     isWeekView={false}
                     onChipClick={onChipClick}
+                    onSwarmStartClick={onSwarmStartClick}
+                    onUndoClick={onUndoClick}
                     canonicalStartById={canonicalStartById}
                     clusterSizeById={clusterSizeById}
                     swarmStartIdById={swarmStartIdById}
                     swarmStartById={swarmStartById}
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
+                    swarmUndos={swarmUndos}
                     requirementById={requirementById}
                 />
             ) : sidewalkOn && !isWeekView ? (
@@ -2068,44 +2816,35 @@ const TimeSeriesView = ({
                     categoryList={categoryList}
                     isWeekView={false}
                     onChipClick={onChipClick}
+                    onSwarmStartClick={onSwarmStartClick}
+                    onUndoClick={onUndoClick}
                     canonicalStartById={canonicalStartById}
                     clusterSizeById={clusterSizeById}
                     swarmStartIdById={swarmStartIdById}
                     swarmStartById={swarmStartById}
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
+                    swarmUndos={swarmUndos}
                     requirementById={requirementById}
                 />
+            ) : isWeekView ? (
+                /* req #2744 — Week stack: one shared time axis above the 7 rows
+                   (sticky to the top of the frame) instead of a per-row axis.
+                   req #2781 — wrapped in a fixed-height .ts-week-scroll frame
+                   (same box as the Elevator) so the page does not window-scroll
+                   in week view; the focus day is scrolled to the top by the
+                   weekFrameRef layout effect above. */
+                <Box className="ts-week-scroll" data-testid="ts-week-scroll" ref={weekFrameRef}>
+                    <SharedTimeline variant="week" ticks={weekTicks} />
+                    <Box className="ts-rows ts-rows-week">
+                        {weekRows}
+                    </Box>
+                </Box>
             ) : (
-                <Box className={`ts-rows ${isWeekView ? 'ts-rows-week' : ''}`}>
-                    {rowDates.map(d => (
-                        <BeadRow
-                            key={d}
-                            requirements={requirements}
-                            sessions={sessions}
-                            selectedDate={d}
-                            timezone={timezone}
-                            beadWindow={beadWindow}
-                            vizKey={vizKey}
-                            dataKey={dataKey}
-                            titlesOn={titlesOn}
-                            tooltipFontSize={tooltipFontSize}
-                            circleDiameter={circleDiameter}
-                            spaceKey={spaceKey}
-                            zoomKey={zoomKey}
-                            categoryList={categoryList}
-                            isWeekView={isWeekView}
-                            crossDays={crossDayMap.get(d) || []}
-                            onChipClick={onChipClick}
-                            canonicalStartById={canonicalStartById}
-                            clusterSizeById={clusterSizeById}
-                            swarmStartIdById={swarmStartIdById}
-                            swarmStartById={swarmStartById}
-                            swarmStarts={swarmStarts}
-                            swarmStartSessions={swarmStartSessions}
-                            requirementById={requirementById}
-                        />
-                    ))}
+                /* Day view keeps its own per-row axis (hideTimeline stays off)
+                   and stays in normal page flow. */
+                <Box className="ts-rows">
+                    {weekRows}
                 </Box>
             )}
         </Box>

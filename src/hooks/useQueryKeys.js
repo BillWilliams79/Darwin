@@ -1,5 +1,12 @@
 // Centralized query key factory for TanStack Query
-// Ensures consistent keys across queries and invalidations
+// Ensures consistent keys across queries and invalidations.
+//
+// Devops data objects (dev_servers, swarm_sessions, swarm_starts,
+// swarm_start_sessions and any future addition) source their key factories
+// from `factory/devopsQueries.js` via the `createEntityQueries` factory
+// (req #2593). Their re-exports live at the bottom of this file.
+
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -52,40 +59,14 @@ export const requirementKeys = {
     swarmReady: (creatorFk) => ['requirements', creatorFk, { requirement_status: 'swarm_ready' }],
 };
 
-export const sessionKeys = {
-    all: (creatorFk) => ['swarm_sessions', creatorFk],
-    byId: (sessionId) => ['swarm_sessions', { id: sessionId }],
-};
-
-// Req #2422 — swarm_starts: one row per /swarm-start invocation.
-export const swarmStartKeys = {
-    all: (creatorFk) => ['swarm_starts', creatorFk],
-    byId: (creatorFk, id) => ['swarm_starts', creatorFk, { id }],
-};
-
-// Req #2422 — swarm_start_sessions junction: rows are global (no creator_fk).
-// We still scope the cache key by creatorFk so the map a consumer builds is
-// derived from the user's own swarm_starts, not someone else's.
-export const swarmStartSessionKeys = {
-    all: (creatorFk) => ['swarm_start_sessions', creatorFk],
-};
-
-// Req #2497 — swarm_completes: one row per /swarm-complete or /primary-ai-swarm-complete invocation.
-export const swarmCompleteKeys = {
-    all: (creatorFk) => ['swarm_completes', creatorFk],
-    byId: (creatorFk, id) => ['swarm_completes', creatorFk, { id }],
-};
-
-// Req #2497 — swarm_complete_sessions junction: rows are global (no creator_fk).
-// Same scoping rationale as swarmStartSessionKeys above.
-export const swarmCompleteSessionKeys = {
-    all: (creatorFk) => ['swarm_complete_sessions', creatorFk],
-};
-
-export const devServerKeys = {
-    all: (creatorFk) => ['dev_servers', creatorFk],
-    bySession: (sessionId) => ['dev_servers', { sessionId }],
-};
+// Devops key factories (req #2593) — produced by createEntityQueries via
+// factory/devopsQueries.js. Shapes are byte-identical to the legacy hand-
+// written versions; parity is locked down in __tests__/devopsQueriesParity.test.js.
+export const sessionKeys = sessions.keys;
+export const swarmStartKeys = swarmStarts.keys;
+export const swarmStartSessionKeys = swarmStartSessions.keys;
+export const swarmUndoKeys = swarmUndos.keys;
+export const devServerKeys = devServers.keys;
 
 export const recurringTaskKeys = {
     all: (creatorFk) => ['recurring_tasks', creatorFk],
@@ -155,4 +136,35 @@ export const testRunKeys = {
 
 export const testResultKeys = {
     byRun: (creatorFk, runId) => ['test_results', creatorFk, { runId }],
+};
+
+// Req #2604 — Customer Release. Customers are recipients of build releases
+// (HP, NVIDIA, Cisco, Google, …). `fields` is appended to the extended key
+// per req #2213 to avoid cross-projection cache collisions.
+export const customerKeys = {
+    all: (creatorFk) => ['customers', creatorFk],
+    byId: (creatorFk, id) => ['customers', creatorFk, { id }],
+};
+
+// Req #2606 — Customer Release Events + SQL-backed Build Visualizer.
+export const buildProjectKeys = {
+    all: (creatorFk) => ['build_projects', creatorFk],
+    byId: (creatorFk, id) => ['build_projects', creatorFk, { id }],
+};
+
+export const branchKeys = {
+    all: (creatorFk) => ['branches', creatorFk],
+    byProject: (creatorFk, projectId) => ['branches', creatorFk, { projectId }],
+};
+
+export const buildKeys = {
+    all: (creatorFk) => ['builds', creatorFk],
+    byBranch: (creatorFk, branchId) => ['builds', creatorFk, { branchId }],
+    byId: (creatorFk, id) => ['builds', creatorFk, { id }],
+};
+
+export const customerReleaseKeys = {
+    all: (creatorFk) => ['customer_releases', creatorFk],
+    byBuild: (creatorFk, buildId) => ['customer_releases', creatorFk, { buildId }],
+    byCustomer: (creatorFk, customerId) => ['customer_releases', creatorFk, { customerId }],
 };

@@ -39,6 +39,7 @@ const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs']
 const autonomyChipProps = (filter) => {
     if (!filter) return null;
     switch (filter) {
+        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
         case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
         case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
         case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
@@ -187,7 +188,7 @@ export default function SwarmStartDetail() {
                             sx={{ fontFamily: 'monospace',
                                    bgcolor: 'action.hover',
                                    px: 1.5, py: 1, borderRadius: 1 }}>
-                    /swarm-start {row.arguments || <em>(empty — all swarm-ready)</em>}
+                    /swarm-start{row.arguments ? ` ${row.arguments}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
                     {row.autonomy_filter && (

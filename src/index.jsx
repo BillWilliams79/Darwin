@@ -47,10 +47,12 @@ import TestPlansPage from './Features/TestPlansPage';
 import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
-import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
-import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
+import SwarmUndosPage from './SwarmUndos/SwarmUndosPage';
+import SwarmUndoDetail from './SwarmUndos/SwarmUndoDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
+import CustomersPage from './Customers/CustomersPage';
+import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -105,11 +107,11 @@ root.render(
                     <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
                                                              <SwarmStartDetail />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-completes" element= {<AuthenticatedRoute>
-                                                             <SwarmCompletesPage />
+                    <Route path="swarm/swarm-undos" element= {<AuthenticatedRoute>
+                                                             <SwarmUndosPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-completes/:id" element= {<AuthenticatedRoute>
-                                                             <SwarmCompleteDetail />
+                    <Route path="swarm/swarm-undos/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmUndoDetail />
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
@@ -159,6 +161,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="customers" element= {<AuthenticatedRoute>
+                                                             <CustomersPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="customer-releases" element= {<AuthenticatedRoute>
+                                                             <CustomerReleasesPage />
                                                          </AuthenticatedRoute>} />
                     {import.meta.env.DEV && <>
                       <Route path="systems2" element= {<AuthenticatedRoute>

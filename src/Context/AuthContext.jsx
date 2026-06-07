@@ -101,7 +101,7 @@ export const AuthContextProvider = ({ children }) => {
     // Mirrors LoggedIn.jsx's post-exchange logic: validates JWT, fetches profile,
     // sets React state, stores refresh token cookie, schedules background refresh.
     // Returns the merged profile so the caller can navigate based on timezone presence.
-    const loginWithTokens = useCallback(async (tokens, darwinUri) => {
+    const loginWithTokens = useCallback(async (tokens, darwinUri, darwinOpsUri) => {
         // Store refresh token in a Secure cookie for session persistence across reloads
         setCookie('refreshToken', tokens.refreshToken, {
             path: '/',
@@ -114,8 +114,13 @@ export const AuthContextProvider = ({ children }) => {
         setIdToken(tokens.idToken);
         setAccessToken(tokens.accessToken);
 
-        // Validate ID token via Lambda-JWT
-        const jwtUri = `${darwinUri}/jwt`;
+        // Validate ID token via Lambda-JWT. The /jwt route is an operational
+        // endpoint provisioned only under `…/darwin` (req #2697 — like the swarm
+        // ops tables); `…/darwin_dev/jwt` returns 403. Use the ops URI so dev-mode
+        // login (darwinUri = darwin_dev) works. No-op in production where
+        // darwinOpsUri === darwinUri === `…/darwin`. Falls back to darwinUri if a
+        // caller predates the ops-uri argument.
+        const jwtUri = `${darwinOpsUri || darwinUri}/jwt`;
         const jwtResult = await call_rest_api(jwtUri, 'POST', { idToken: tokens.idToken }, tokens.idToken);
 
         // Fetch user profile from DB

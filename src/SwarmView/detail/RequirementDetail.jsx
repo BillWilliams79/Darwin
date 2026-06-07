@@ -84,7 +84,7 @@ const RequirementDetail = () => {
     const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
-    const { darwinUri } = useContext(AppContext);
+    const { darwinUri, darwinOpsUri } = useContext(AppContext);
 
     const [requirement, setRequirement] = useState(isNew ? {
         id: null,
@@ -92,7 +92,7 @@ const RequirementDetail = () => {
         description: '',
         category_fk: null,
         requirement_status: 'authoring',
-        coordination_type: null,
+        coordination_type: 'implemented',
         started_at: null,
         completed_at: null,
         deferred_at: null,
@@ -153,7 +153,8 @@ const RequirementDetail = () => {
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
-                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
+                    // Req #2697 — `swarm_sessions` is an operational table; always read from `darwin`.
+                    call_rest_api(`${darwinOpsUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
@@ -177,7 +178,7 @@ const RequirementDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri, siblingStatuses.join()]);
+    }, [id, idToken, darwinUri, darwinOpsUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
         if (isNew) return;  // draft — nothing is saved until category is picked
@@ -262,8 +263,10 @@ const RequirementDetail = () => {
     };
 
     const handleCoordinationChange = (event, newVal) => {
+        // Autonomy is mandatory (req #2745) — newVal is always one of the four
+        // values; the chip can no longer deselect to null.
         setRequirement(prev => ({ ...prev, coordination_type: newVal }));
-        saveField('coordination_type', newVal === null ? 'NULL' : newVal);
+        saveField('coordination_type', newVal);
     };
 
     const handleCategoryChange = async (event) => {
@@ -466,6 +469,7 @@ const RequirementDetail = () => {
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
                             {[
+                                { value: 'discuss',     label: 'Discuss Req', chipSx: { bgcolor: '#f48fb1', color: '#000' } },
                                 { value: 'planned',     label: 'Planned',     chipSx: { bgcolor: '#90caf9', color: '#000' } },
                                 { value: 'implemented', label: 'Implemented', chipSx: { bgcolor: '#4caf50', color: '#fff' } },
                                 { value: 'deployed',    label: 'Deployed',    chipSx: { bgcolor: '#b39ddb', color: '#000' } },
@@ -477,7 +481,7 @@ const RequirementDetail = () => {
                                         label={label}
                                         size="small"
                                         disabled={!isEditable}
-                                        onClick={() => handleCoordinationChange(null, selected ? null : value)}
+                                        onClick={() => { if (!selected) handleCoordinationChange(null, value); }}
                                         {...(selected
                                             ? (chipSx ? { sx: { ...chipSx, cursor: isEditable ? 'pointer' : 'default' } } : { color, sx: { cursor: isEditable ? 'pointer' : 'default' } })
                                             : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }

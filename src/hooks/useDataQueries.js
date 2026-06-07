@@ -1,27 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import call_rest_api from '../RestApi/RestApi';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, sessionKeys, swarmStartKeys, swarmStartSessionKeys, swarmCompleteKeys, swarmCompleteSessionKeys, devServerKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys } from './useQueryKeys';
-
-// Extract .data from the REST envelope, handle 404 as empty array
-const fetchEntity = async (uri, idToken) => {
-    try {
-        const result = await call_rest_api(uri, 'GET', '', idToken);
-        // call_rest_api returns (not throws) on network errors (e.g. CORS) with httpStatus 503
-        // Treat non-2xx returns as errors so TanStack Query gets error state, not bad data
-        if (result.httpStatus.httpStatus < 200 || result.httpStatus.httpStatus >= 300) {
-            throw result;
-        }
-        return result.data;
-    } catch (error) {
-        if (error.httpStatus?.httpStatus === 404) {
-            return [];
-        }
-        throw error;
-    }
-};
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
+// `fetchEntity` is shared with the factory so both layers handle REST errors
+// identically (req #2593).
+import { fetchEntity } from './factory/createEntityQueries';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -203,36 +188,11 @@ export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requ
     });
 }
 
-export function useSessions(creatorFk, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_sessions`;
-    const queryKey = sessionKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-export function useSession(sessionId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_sessions?id=${sessionId}`;
-    const queryKey = sessionKeys.byId(sessionId);
-
-    return useQuery({
-        queryKey,
-        queryFn: async () => {
-            const data = await fetchEntity(uri, idToken);
-            return data.length > 0 ? data[0] : null;
-        },
-        enabled: enabled && !!sessionId && !!idToken,
-    });
-}
+// Req #2593 — devops query hooks produced by createEntityQueries.
+// See factory/devopsQueries.js. Public names + signatures preserved verbatim
+// for backwards compat (parity locked in __tests__/devopsQueriesParity.test.js).
+export const useSessions = sessions.useAll;
+export const useSession  = sessions.useById;
 
 // Req #2422 — swarm_starts: list every /swarm-start invocation, newest first.
 // Default fields include the captured invocation metadata + finalize-time
@@ -241,125 +201,18 @@ export function useSession(sessionId, { enabled = true } = {}) {
 // TEXT columns (start_summary, telemetry) are <3KB each at typical scale, so
 // including them in the list query is acceptable; the detail dialog reads them
 // without a separate fetch.
-const SWARM_START_DEFAULT_FIELDS =
-    'id,arguments,autonomy_filter,auto_start,session_count,' +
-    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
-    'wall_seconds,turn_count,start_summary,telemetry,started_at,creator_fk';
+//
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useAllSwarmStarts        = swarmStarts.useAll;
+export const useSwarmStartById        = swarmStarts.useById;
+export const useAllSwarmStartSessions = swarmStartSessions.useAll;
 
-export function useAllSwarmStarts(creatorFk, { fields = SWARM_START_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_starts?fields=${fields}&sort=started_at:desc`;
-    const queryKey = [...swarmStartKeys.all(creatorFk), { fields }];
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-// Req #2422 — single swarm_start by id. Used by the SwarmStartDetail page so
-// landing on /swarm/swarm-starts/:id directly (not via the list) still works.
-export function useSwarmStartById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_starts?id=${id}`;
-    const queryKey = swarmStartKeys.byId(creatorFk, id);
-
-    return useQuery({
-        queryKey,
-        queryFn: async () => {
-            const data = await fetchEntity(uri, idToken);
-            return data.length > 0 ? data[0] : null;
-        },
-        enabled: enabled && !!creatorFk && !!id && !!idToken,
-    });
-}
-
-// Req #2422 — junction rows linking swarm_starts to swarm_sessions.
-// The junction has no creator_fk; this returns ALL rows globally. Consumers
-// build a session_fk -> swarm_start_fk map and filter against the user's
-// own swarm_starts to scope. Acceptable at single-user Darwin scale; same
-// shape as requirement_sessions.
-export function useAllSwarmStartSessions(creatorFk, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_start_sessions?fields=swarm_start_fk,session_fk`;
-    const queryKey = swarmStartSessionKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-// Req #2497 — swarm_completes: list every closeout invocation, newest first.
-// Default fields include the captured invocation metadata + finalize-time
-// summary/telemetry/token rollups. `fields` is in the cache key (req #2213)
-// so callers requesting different projections don't collide on a shared
-// cache entry. TEXT columns (complete_summary, telemetry) are <3KB each at
-// typical scale; including them in the list query avoids a per-row detail
-// fetch — matches the swarm_starts pattern above.
-const SWARM_COMPLETE_DEFAULT_FIELDS =
-    'id,skill_name,arguments,coordination_type,status,session_count,' +
-    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
-    'wall_seconds,turn_count,complete_summary,telemetry,' +
-    'started_at,completed_at,creator_fk';
-
-export function useAllSwarmCompletes(creatorFk, { fields = SWARM_COMPLETE_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_completes?fields=${fields}&sort=started_at:desc`;
-    const queryKey = [...swarmCompleteKeys.all(creatorFk), { fields }];
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-// Req #2497 — single swarm_complete by id. Used by the SwarmCompleteDetail
-// page so landing on /swarm/swarm-completes/:id directly (not via the list)
-// still works.
-export function useSwarmCompleteById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_completes?id=${id}`;
-    const queryKey = swarmCompleteKeys.byId(creatorFk, id);
-
-    return useQuery({
-        queryKey,
-        queryFn: async () => {
-            const data = await fetchEntity(uri, idToken);
-            return data.length > 0 ? data[0] : null;
-        },
-        enabled: enabled && !!creatorFk && !!id && !!idToken,
-    });
-}
-
-// Req #2497 — junction rows linking swarm_completes to swarm_sessions.
-// Same global-rows shape as useAllSwarmStartSessions above.
-export function useAllSwarmCompleteSessions(creatorFk, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/swarm_complete_sessions?fields=swarm_complete_fk,session_fk`;
-    const queryKey = swarmCompleteSessionKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
+// Req #2719 — swarm_undos: one row per /swarm-undo invocation. Snapshot
+// columns (swarm_start_fk_at_undo, req_id_at_undo, …) outlive the cascading
+// session delete that /swarm-undo performs, so the visualizer can match
+// surviving swarm_starts against undone sessions.
+export const useAllSwarmUndos = swarmUndos.useAll;
+export const useSwarmUndoById = swarmUndos.useById;
 
 export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -391,6 +244,12 @@ export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
+        // Visualizer Sidewalk/Elevator scroll slides this date window as the
+        // centered day changes, producing a new query key per window. Keep the
+        // previous window's rows on screen while the next window loads so the
+        // strip scrolls smoothly instead of blanking out and re-rendering on
+        // every refetch (req #2777).
+        placeholderData: keepPreviousData,
     });
 }
 
@@ -413,20 +272,8 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
     });
 }
 
-export function useDevServers(creatorFk, { enabled = true, staleTime } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/dev_servers`;
-    const queryKey = devServerKeys.all(creatorFk);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-        ...(staleTime !== undefined ? { staleTime } : {}),
-    });
-}
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useDevServers = devServers.useAll;
 
 export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -456,19 +303,8 @@ export function usePriorityCardOrder(creatorFk, domainId, { enabled = true } = {
     });
 }
 
-export function useDevServersBySession(sessionId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-
-    const uri = `${darwinUri}/dev_servers?session_fk=${sessionId}`;
-    const queryKey = devServerKeys.bySession(sessionId);
-
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!sessionId && !!idToken,
-    });
-}
+// Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
+export const useDevServersBySession = devServers.useBySession;
 
 export function useRecurringTasks(creatorFk, {
     fields = 'id,description,recurrence,anchor_date,area_fk,priority,accumulate,insert_position,active,last_generated',
@@ -770,5 +606,101 @@ export function useTestResultsByRun(creatorFk, runId, { enabled = true } = {}) {
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!runId && !!idToken,
+    });
+}
+
+// ----- customers (req #2604) -----
+
+const CUSTOMER_DEFAULT_FIELDS = 'id,customer_name,description,closed,sort_order,create_ts';
+const CUSTOMER_FULL_FIELDS    = 'id,customer_name,description,creator_fk,closed,sort_order,create_ts,update_ts';
+
+export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customers?closed=0&fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...customerKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customers?id=${id}&fields=${CUSTOMER_FULL_FIELDS}`;
+    const queryKey = customerKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// ----- build_projects / branches / builds / customer_releases (req #2606) -----
+
+const BUILD_PROJECT_DEFAULT_FIELDS = 'id,title,description,project_status,trunk_branch_fk,category_fk,creator_fk,create_ts';
+const BRANCH_DEFAULT_FIELDS        = 'id,project_fk,branch_type,name,major,minor,parent_build_fk,side,row_order,label_end,sort_order,creator_fk';
+const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_number,dot_color,approved_for_release,creator_fk';
+const CUSTOMER_RELEASE_DEFAULT_FIELDS = 'id,customer_fk,build_fk,release_notes,creator_fk,create_ts,update_ts';
+
+export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/build_projects?fields=${fields}`;
+    const queryKey = [...buildProjectKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/branches?fields=${fields}`;
+    const queryKey = [...branchKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/builds?fields=${fields}`;
+    const queryKey = [...buildKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DEFAULT_FIELDS, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customer_releases?fields=${fields}`;
+    const queryKey = [...customerReleaseKeys.all(creatorFk), { fields }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useCustomerReleasesByBuild(creatorFk, buildId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/customer_releases?build_fk=${buildId}&fields=${CUSTOMER_RELEASE_DEFAULT_FIELDS}`;
+    const queryKey = customerReleaseKeys.byBuild(creatorFk, buildId);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!buildId && !!idToken,
     });
 }

@@ -14,7 +14,7 @@ import RequirementRow from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useRequirementsByStatus, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
+import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -23,9 +23,14 @@ import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 import { computeCategoryRankMap } from '../SwarmView/processSort';
 
-// Chip statuses shown on this card — same order as the Roadmap filter chips,
-// minus 'met' (completed work lives elsewhere — this card aggregates active work).
-const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred'];
+// Chip statuses shown on this card. Mirrors the Roadmap filter chips minus 'deferred'
+// (retired from the aggregator per req #2584). 'met' is special-cased: it shows only
+// the trailing-24h Met list — recent completions, not the full Met history.
+const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
+const MET_TRAILING_HOURS = 24;
+// Met window refresh cadence — also the quantum the window is rounded to so that
+// re-renders within a single quantum don't mint a new query key (req #2609).
+const MET_REFRESH_INTERVAL_MS = 60_000;
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -48,6 +53,18 @@ import SwapVertIcon from '@mui/icons-material/SwapVert';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { CircularProgress } from '@mui/material';
 
+// Quantize `now` to the nearest prior MET_REFRESH_INTERVAL_MS boundary, then
+// derive the trailing-24h window from that. Two calls within the same quantum
+// return value-equal strings so the consumer can preserve referential equality.
+const computeMetWindow = () => {
+    const nowMs = Math.floor(Date.now() / MET_REFRESH_INTERVAL_MS) * MET_REFRESH_INTERVAL_MS;
+    const startMs = nowMs - MET_TRAILING_HOURS * 60 * 60 * 1000;
+    return {
+        startStr: new Date(startMs).toISOString().slice(0, 19),
+        endStr: new Date(nowMs).toISOString().slice(0, 19),
+    };
+};
+
 const SwarmStartCard = () => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -65,8 +82,62 @@ const SwarmStartCard = () => {
 
     const showError = useSnackBarStore(s => s.showError);
 
-    // Fetch requirements for the currently selected status (global, cross-category).
-    const { data: serverRequirements } = useRequirementsByStatus(profile?.userName, selectedStatus);
+    // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
+    // with a now-invalid persisted value get re-pointed at the default. `effectiveStatus`
+    // is computed synchronously so the hook calls below never fire against the stale
+    // value (otherwise we'd pay one wasted fetch for 'deferred' before the useEffect ran).
+    const effectiveStatus = SWARM_START_STATUSES.includes(selectedStatus) ? selectedStatus : 'swarm_ready';
+    useEffect(() => {
+        if (selectedStatus !== effectiveStatus) {
+            setSelectedStatus(effectiveStatus);
+        }
+    }, [selectedStatus, effectiveStatus, setSelectedStatus]);
+
+    const isMet = effectiveStatus === 'met';
+
+    // Trailing-24h Met window — quantized to MET_REFRESH_INTERVAL_MS boundaries and
+    // bumped on a timer + tab-visibility return (req #2609). Quantization keeps the
+    // query key stable across re-renders within a single quantum (the property that
+    // motivated the original mount-time freeze) while still sliding the window
+    // forward without a full page refresh once the quantum elapses.
+    const [metWindow, setMetWindow] = useState(computeMetWindow);
+    useEffect(() => {
+        const tick = () => {
+            setMetWindow(prev => {
+                const next = computeMetWindow();
+                return (next.startStr === prev.startStr && next.endStr === prev.endStr)
+                    ? prev
+                    : next;
+            });
+        };
+        const intervalId = setInterval(tick, MET_REFRESH_INTERVAL_MS);
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') tick();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, []);
+
+    // Active-status query — disabled when Met is selected (the done query below
+    // is the row source in that case).
+    const { data: serverRequirements } = useRequirementsByStatus(profile?.userName, effectiveStatus, {
+        enabled: !isMet,
+    });
+
+    // Trailing-24h Met query — always enabled so the Met chip badge has a live count
+    // regardless of which chip is currently selected.
+    const { data: serverMetRequirements } = useRequirementsDone(
+        profile?.userName,
+        metWindow.startStr,
+        metWindow.endStr,
+        { fields: 'id,title,requirement_status,coordination_type,category_fk,completed_at' },
+    );
+
+    // The array that drives the card body for the currently selected chip.
+    const currentRequirements = isMet ? serverMetRequirements : serverRequirements;
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -93,17 +164,23 @@ const SwarmStartCard = () => {
 
     // Count requirements per status across all categories (req #2549). Reuses the
     // same useAllRequirements query that powers requirementRankMap — no extra fetch.
-    // Returns { authoring: N, approved: N, swarm_ready: N, development: N, deferred: N }.
+    // The 'met' count is overlaid from the trailing-24h Met query (req #2584), since
+    // useAllRequirements doesn't carry completed_at and can't be filtered to the
+    // 24-hour window here. Returns { authoring, approved, swarm_ready, development, met }.
     const statusCountMap = React.useMemo(() => {
         const counts = {};
         SWARM_START_STATUSES.forEach(s => { counts[s] = 0; });
-        if (!Array.isArray(allRequirementsForRanking)) return counts;
-        for (const r of allRequirementsForRanking) {
-            if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
-            if (counts[r.requirement_status] !== undefined) counts[r.requirement_status] += 1;
+        if (Array.isArray(allRequirementsForRanking)) {
+            for (const r of allRequirementsForRanking) {
+                if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
+                if (counts[r.requirement_status] !== undefined) counts[r.requirement_status] += 1;
+            }
+        }
+        if (Array.isArray(serverMetRequirements)) {
+            counts.met = serverMetRequirements.length;
         }
         return counts;
-    }, [allRequirementsForRanking]);
+    }, [allRequirementsForRanking, serverMetRequirements]);
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -113,22 +190,34 @@ const SwarmStartCard = () => {
         return a.id - b.id;
     };
 
+    // Met chip sort (req #2613): most-recently-completed first. Rows missing
+    // completed_at sink to the end; id DESC tiebreaker so same-instant completions
+    // surface the higher (typically newer) id first.
+    const metSort = (a, b) => {
+        if (a.id === '') return 1;
+        if (b.id === '') return -1;
+        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : -Infinity;
+        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : -Infinity;
+        if (aTime !== bTime) return bTime - aTime;
+        return b.id - a.id;
+    };
+
     // Seed local state from server data (re-runs on every fetch — including chip switch).
     // After req #2405 removed requirements.sort_order, 'hand' and 'created' sort modes
     // both resolve to id-ascending order; the toggle is retained only for UI continuity
     // and will be removed in a follow-up req.
     useEffect(() => {
-        if (!serverRequirements) {
+        if (!currentRequirements) {
             setRequirementsArray(undefined);
             return;
         }
-        const sorted = [...serverRequirements];
-        sorted.sort((a, b) => createdSort(a, b));
+        const sorted = [...currentRequirements];
+        sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
         // Template row (req #2414) — title-only entry; saving is deferred to the
         // requirement editor where the user must pick a category before any POST.
         sorted.push({ id: '', title: '', requirement_status: 'authoring', category_fk: null });
         setRequirementsArray(sorted);
-    }, [serverRequirements]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [currentRequirements, isMet]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Build session status map (same logic as CategoryCard)
     useEffect(() => {
@@ -158,13 +247,13 @@ const SwarmStartCard = () => {
         setSortMode(newMode);
         if (requirementsArray) {
             const sorted = [...requirementsArray];
-            sorted.sort((a, b) => createdSort(a, b));
+            sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
             setRequirementsArray(sorted);
         }
     };
 
     const handleChipClick = (status) => {
-        if (status === selectedStatus) return;
+        if (status === effectiveStatus) return;
         setSelectedStatus(status);
     };
 
@@ -233,7 +322,7 @@ const SwarmStartCard = () => {
                     showError(result, 'Unable to change requirement status');
                 } else {
                     // Item no longer matches the card's aggregate status — remove it.
-                    if (next !== selectedStatus) {
+                    if (next !== effectiveStatus) {
                         setRequirementsArray(prev => prev ? prev.filter(p => p.id !== requirementId) : prev);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     }
@@ -252,7 +341,9 @@ const SwarmStartCard = () => {
     };
 
     // Coordination click — mirrors CategoryCard
-    const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
+    // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
+    // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
+    const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
@@ -262,7 +353,7 @@ const SwarmStartCard = () => {
         const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, coordination_type: next === null ? 'NULL' : next }], idToken)
+            [{ id: requirementId, coordination_type: next }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     revert();
@@ -314,7 +405,7 @@ const SwarmStartCard = () => {
             requirementId,
             title: requirement?.title || '',
             coordination_type: requirement?.coordination_type || null,
-            requirement_status: requirement?.requirement_status || selectedStatus,
+            requirement_status: requirement?.requirement_status || effectiveStatus,
         });
     };
 
@@ -331,7 +422,7 @@ const SwarmStartCard = () => {
                      data-testid="swarm-start-card-status-filter">
                     <Stack direction="row" spacing={1.75} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
-                            const selected = status === selectedStatus;
+                            const selected = status === effectiveStatus;
                             const chipProps = requirementStatusChipProps(status);
                             const count = statusCountMap[status] ?? 0;
                             return (
@@ -411,10 +502,11 @@ const SwarmStartCard = () => {
                         sessionStatusMap,
                         categoryColorMap,
                         requirementRankMap,
+                        strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
                     }}>
                         {requirementsArray.filter(r => r.id !== '').length === 0 && (
                             <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
-                                No {requirementStatusLabel(selectedStatus).toLowerCase()} requirements
+                                No {requirementStatusLabel(effectiveStatus).toLowerCase()} requirements
                             </Typography>
                         )}
                         {requirementsArray.map((requirement, requirementIndex) => (

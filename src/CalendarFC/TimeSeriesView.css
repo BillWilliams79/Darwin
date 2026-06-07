@@ -74,6 +74,10 @@
     cursor: grab;
     user-select: none;
     touch-action: pan-x;       /* let horizontal page scroll pass through; we handle vertical */
+    /* req #2744 — reserve a band for the single shared time axis pinned at the
+       top of the frame so day panels scroll BENEATH it (no date/bubble overlap).
+       Matches .ts-shared-timeline-elevator height. */
+    padding-top: 34px;
 }
 .ts-elevator:active { cursor: grabbing; }
 .ts-elevator-inner {
@@ -100,6 +104,20 @@
 }
 .ts-rows-week {
     gap: 6px;
+}
+
+/* ── Week stack scroll frame (Week + !elevator + !sidewalk; req #2781) ──
+   Fixed-height internal scroller so the page never window-scrolls in week view
+   and the focus day can be pinned to the top. Height matches .ts-elevator so
+   toggling Elevator on/off does not move the frame box even a pixel. position:
+   relative makes it the offset/scroll context for the sticky week timeline
+   (top:0) and the per-day sticky headers (top:38px). */
+.ts-week-scroll {
+    position: relative;
+    height: calc(100vh - 220px);
+    min-height: 420px;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* ── Bead Necklace ── */
@@ -169,12 +187,16 @@
     z-index: 1;
 }
 
-/* Day view — roomy (default). Divider layer sits below the date area
-   (26-46 from top) and above the timeline top (68 from bottom), still
-   crossing the wire (78 from bottom). */
-.ts-bead-day  .ts-bead-wire            { bottom: 78px; }
-.ts-bead-day  .ts-bead-timeline        { bottom: 24px; }
-.ts-bead-day  .ts-bead-divider-layer   { top: 50px; bottom: 70px; }
+/* Day view — top-anchored (req #2780), unified with the Sidewalk design rules:
+   date on row 1, x-axis time on row 2, wire just beneath, bubbles stream down.
+   Mirrors the Sidewalk geometry (date top:8 / timeline top:46 / wire top:68) but
+   keeps the 16px side padding + card background from .ts-bead / .ts-bead-24h
+   (the seamless-panel padding:0/transparent only applies to .ts-bead-sidewalk).
+   The .ts-bead-sidewalk rules below override these for the actual strip panels
+   (which also carry .ts-bead-day), so this only affects the plain single Day. */
+.ts-bead-day  .ts-bead-wire            { top: 68px; bottom: auto; }
+.ts-bead-day  .ts-bead-timeline        { top: 46px; bottom: auto; height: 18px; }
+.ts-bead-day  .ts-bead-divider-layer   { top: 68px; bottom: 10px; }
 
 /* Week view — compressed so 7 rows fit. Divider layer sits below the date
    area (6-26 from top) and above the timeline top (54 from bottom), still
@@ -182,6 +204,14 @@
 .ts-bead-week .ts-bead-wire            { bottom: 64px; }
 .ts-bead-week .ts-bead-timeline        { bottom: 10px; }
 .ts-bead-week .ts-bead-divider-layer   { top: 28px; bottom: 56px; }
+
+/* req #2744 — Week stack with the per-row time axis suppressed (a single shared
+   axis renders at the top of the view). The freed bottom chrome collapses to
+   just the wire near the row's floor, so bubbles ride lower (JS bubbleOffset 24)
+   and the divider layer extends down to the wire so the hour gridlines still run
+   through the bubbles. */
+.ts-bead-week.ts-bead-no-timeline .ts-bead-wire          { bottom: 20px; }
+.ts-bead-week.ts-bead-no-timeline .ts-bead-divider-layer { top: 28px; bottom: 16px; }
 
 /* Sidewalk panel — chrome at top (date on row 1, x-axis time on row 2),
    bubbles stack bottom-up as usual. No side padding so adjacent 24h panels
@@ -234,17 +264,24 @@ body.darwin-dark .ts-bead-day-count-inline {
     right: 0;
     height: 18px;
 }
-/* Tick label above the line so the numbers sit outside the bubble area */
-.ts-bead-sidewalk .ts-bead-tick {
+/* Tick label above the line so the numbers sit outside the bubble area.
+   Shared by the Sidewalk strip and the top-anchored Day view (req #2780) — both
+   put the time axis at the top with bubbles below, so the label belongs above
+   the tick line in each. */
+.ts-bead-sidewalk .ts-bead-tick,
+.ts-bead-day .ts-bead-tick {
     flex-direction: column-reverse;
 }
-.ts-bead-sidewalk .ts-bead-tick-line {
+.ts-bead-sidewalk .ts-bead-tick-line,
+.ts-bead-day .ts-bead-tick-line {
     height: 6px;
 }
-.ts-bead-sidewalk .ts-bead-tick-major .ts-bead-tick-line {
+.ts-bead-sidewalk .ts-bead-tick-major .ts-bead-tick-line,
+.ts-bead-day .ts-bead-tick-major .ts-bead-tick-line {
     height: 10px;
 }
-.ts-bead-sidewalk .ts-bead-tick-label {
+.ts-bead-sidewalk .ts-bead-tick-label,
+.ts-bead-day .ts-bead-tick-label {
     margin-top: 0;
     margin-bottom: 2px;
 }
@@ -266,6 +303,12 @@ body.darwin-dark .ts-bead-day-count-inline {
     left: 0;
     right: 0;
 }
+/* req #2744 — Elevator panels with the per-panel time axis suppressed (a single
+   shared axis is pinned to the top of the frame). The time row (top:46..64) is
+   gone, so the wire and divider layer move up under the date row. Matching JS:
+   BeadRow chromeOffset 46, Elevator panelHeights chromeBottom 46. */
+.ts-bead-sidewalk.ts-bead-no-timeline .ts-bead-wire          { top: 34px; }
+.ts-bead-sidewalk.ts-bead-no-timeline .ts-bead-divider-layer { top: 34px; }
 /* Hide the standalone count badge — Sidewalk shows it inline with the date. */
 .ts-bead-sidewalk .ts-bead-count {
     display: none;
@@ -309,9 +352,17 @@ body.darwin-dark .ts-bead-day-count-inline {
     z-index: 1;
 }
 
-/* Day view — add ~20px whitespace above the date/count so the bubble rail breathes. */
-.ts-bead-day .ts-bead-days { top: 26px; }
+/* Day view — top-anchored (req #2780): date row pinned near the top, above the
+   time axis (top:46) and wire (top:68); bubbles stream down beneath. */
+.ts-bead-day .ts-bead-days { top: 8px; height: 20px; }
 .ts-bead-day .ts-bead-count { top: 24px; }
+/* Day view — count pill inline to the LEFT of the date, centered as a group
+   (req #2747; mirrors Sidewalk + the Week sticky header). */
+.ts-bead-day .ts-bead-day-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
 .ts-bead-day-label {
     position: absolute;
     transform: translateX(-50%);
@@ -325,6 +376,53 @@ body.darwin-dark .ts-bead-day-count-inline {
     color: rgba(0, 0, 0, 0.85);
     font-weight: 700;
 }
+
+/* Week stack — sticky per-day section header (req #2747). Sits directly under the
+   shared time axis (.ts-shared-timeline-week, height 38) and is constrained to its
+   own .ts-bead panel, so each day's header pins at top:38 while the panel is in
+   view and the next day's header pushes it out on scroll (iOS-style section
+   headers). Opaque background hides bubbles scrolling beneath it. Lives in normal
+   flow at the top of the panel; the ~26px top chrome already reserved for the date
+   absorbs its height, so bubbles (positioned from the bottom) are unaffected. */
+.ts-bead-week .ts-bead-sticky-head {
+    position: sticky;
+    top: 38px;               /* == .ts-shared-timeline-week height */
+    z-index: 3;              /* above bubbles/SVG (1–2), below the shared axis (5) */
+    height: 22px;
+    margin: 0 -16px;         /* span the panel's 16px side padding for a full-width bg */
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center; /* count pill + date sit together, centered (req #2747) */
+    gap: 6px;                /* count badge just to the left of the date */
+    background: #ffffff;
+}
+.ts-bead-week .ts-bead-sticky-count {
+    min-width: 20px;
+    padding: 0 6px;
+    text-align: center;
+    border-radius: 999px;
+    background: #6fa86f;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.ts-bead-week .ts-bead-sticky-date {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.85);
+    font-family: 'Roboto', sans-serif;
+    white-space: nowrap;
+}
+body.darwin-dark .ts-bead-week .ts-bead-sticky-head { background: #141210; }
+body.darwin-dark .ts-bead-week .ts-bead-sticky-count {
+    background: #2e3b2e;
+    border: 1px solid #4a7a4a;
+    color: #81c784;
+}
+body.darwin-dark .ts-bead-week .ts-bead-sticky-date { color: #fff; }
 
 /* Edge nav arrows */
 .ts-bead-nav {
@@ -479,6 +577,65 @@ body.darwin-dark .ts-bead-label {
     }
 }
 
+/* ── req #2744 — single shared time axis (Week stack + Elevator) ──
+   Renders the hour labels (12am 3am 6am …) once at the top of the view instead
+   of once per day row. The labels sit ABOVE their tick lines, which point down
+   toward the per-row vertical dividers that remain. An opaque background keeps
+   day content from showing through when it scrolls under the bar. */
+.ts-shared-timeline {
+    position: relative;
+}
+.ts-shared-timeline .ts-bead-tick {
+    flex-direction: column-reverse;   /* label on top, tick line below pointing down */
+}
+.ts-shared-timeline .ts-bead-tick-line       { height: 6px; }
+.ts-shared-timeline .ts-bead-tick-major .ts-bead-tick-line { height: 10px; }
+.ts-shared-timeline .ts-bead-tick-label {
+    margin-top: 0;
+    margin-bottom: 2px;
+}
+
+/* Week variant — sticky bar above the 7 rows. min-width matches .ts-bead so the
+   tick % positions map to the same content width as the rows below them. */
+.ts-shared-timeline-week {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    min-width: 720px;
+    height: 38px;
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+.ts-shared-timeline-week .ts-bead-timeline {
+    left: 16px;            /* match each row's .ts-bead padding so ticks align */
+    right: 16px;
+    top: 8px;
+    bottom: auto;
+    height: 26px;
+}
+
+/* Elevator variant — pinned to the top of the scrolling frame (frame reserves a
+   matching padding-top so panels scroll beneath it). Sidewalk panels have no
+   side padding, so the axis runs edge-to-edge to match their dividers. */
+.ts-shared-timeline-elevator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    height: 34px;
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    pointer-events: none;
+}
+.ts-shared-timeline-elevator .ts-bead-timeline {
+    left: 0;
+    right: 0;
+    top: 6px;
+    bottom: auto;
+    height: 24px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Dark mode — activated by <body class="darwin-dark">
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -551,4 +708,12 @@ body.darwin-dark .ts-swarm-start-tick {
 }
 body.darwin-dark .ts-swarm-lines marker path {
     fill: rgba(207, 216, 220, 0.85);
+}
+
+/* req #2744 — shared time axis bar: opaque dark background so panels scrolling
+   under it (Elevator) are occluded; matches the .ts-bead-label dark surface. */
+body.darwin-dark .ts-shared-timeline-week,
+body.darwin-dark .ts-shared-timeline-elevator {
+    background: #141210;
+    border-bottom-color: rgba(255, 255, 255, 0.14);
 }

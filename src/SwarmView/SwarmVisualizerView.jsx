@@ -6,18 +6,28 @@ import { useSwarmVisualizerStore } from '../stores/useSwarmVisualizerStore';
 import {
     useRequirementsDone, useSessions, useAllCategories,
     useAllSwarmStarts, useAllSwarmStartSessions,
-    useAllRequirements,
+    useAllRequirements, useAllSwarmUndos,
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
 
 // Shift a YYYY-MM-DD string by N days using local calendar parts, so east-of-UTC
 // timezones don't roll the result backward.
-const shiftDay = (dateStr, delta) => {
+export const shiftDay = (dateStr, delta) => {
     if (!dateStr) return dateStr;
     const d = new Date(dateStr + 'T12:00:00');
     d.setDate(d.getDate() + delta);
     return localDateStr(d);
+};
+
+// Monday of the week containing `dateStr` (local calendar). Used to quantize the
+// elevator fetch window to week boundaries so scrolling within a week never
+// slides the window (req #2777).
+export const mondayOf = (dateStr) => {
+    if (!dateStr) return dateStr;
+    const d = new Date(dateStr + 'T12:00:00');
+    const mondayOffset = (d.getDay() + 6) % 7;
+    return shiftDay(dateStr, -mondayOffset);
 };
 
 const SwarmVisualizerView = () => {
@@ -38,7 +48,7 @@ const SwarmVisualizerView = () => {
 
     // Query date range — matches the calendar's time-series logic verbatim:
     //   Sidewalk on (Day)      → ±15 days around currentDate (21-day panel strip)
-    //   Elevator on (Week)     → ±15 days around currentDate (vertical 21-day strip)
+    //   Elevator on (Week)     → Monday(currentDate) ±28d (infinite strip; req #2779/#2777)
     //   Week view              → Mon..Sun of currentDate's week, ±1 day edges
     //   Day view               → ±1 day around currentDate (tz spillover safety)
     const fetchRange = useMemo(() => {
@@ -46,7 +56,22 @@ const SwarmVisualizerView = () => {
             return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
         }
         if (elevatorOn && isWeekView) {
-            return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
+            // The elevator is an INFINITE vertical strip (req #2779) — drag/wheel/
+            // momentum extend it indefinitely into past/future. The scroll reports
+            // the TOP day up as `currentDate` (req #2781 — the focus day sits at the
+            // top of the frame), so `currentDate` tracks the day at the viewport top
+            // and the window follows the scroll. Anchoring the fetch window directly
+            // on `currentDate` slid it per-day, generating a new query key on every
+            // scroll tick and reloading the data (req #2777). Quantize the window to
+            // the Monday of currentDate's week and widen it to ±28d: that covers the
+            // handful of panels visible around the top day from any scroll position
+            // within the week, and it only changes when the top day crosses a week
+            // boundary (a handful of times per sweep), which
+            // keepPreviousData on the query masks without a blank flash. (A fast
+            // fling past the window briefly shows un-filled days until momentum
+            // settles and the debounced refetch lands.)
+            const monday = mondayOf(currentDate);
+            return { start: shiftDay(monday, -28), end: shiftDay(monday, 28) };
         }
         if (isWeekView) {
             const d = new Date(currentDate + 'T12:00:00');
@@ -79,6 +104,14 @@ const SwarmVisualizerView = () => {
         { fields: 'id,started_at,session_count,wall_seconds,turn_count,auto_start,arguments,autonomy_filter' },
     );
     const { data: swarmStartSessions = [] } = useAllSwarmStartSessions(profile?.userName);
+    // Req #2719 — overlay tombstones in place of swarm-start anchors for
+    // launches that were /swarm-undone. The snapshot column
+    // `swarm_start_fk_at_undo` survives the cascading session delete, so a
+    // small projection is enough.
+    const { data: swarmUndos = [] } = useAllSwarmUndos(
+        profile?.userName,
+        { fields: 'id,swarm_start_fk_at_undo,req_id_at_undo,task_name,branch,coordination_type,reason,undone_at' },
+    );
     // All requirements (any status) — needed so in-progress phantoms can render
     // the same datacard shape as completed bubbles (req #2504). Small projection
     // keeps the payload tight; the visualizer only consumes id/title/category/
@@ -104,6 +137,26 @@ const SwarmVisualizerView = () => {
         navigate(`/swarm/requirement/${reqId}`, { state: { from: 'visualizer' } });
     }, [navigate]);
 
+    // Swarm-start anchor click (req #2747) — open the single swarm-start detail,
+    // mirroring the requirement-chip flow. Save scroll first so the detail page's
+    // Back (navigate(-1) → /swarm, visualizer view persisted) lands on this exact
+    // viewpoint. Only real swarm-starts carry an id; estimated anchors pass null.
+    const onSwarmStartClick = useCallback((swarmStartId) => {
+        if (swarmStartId == null) return;
+        sessionStorage.setItem('visualizer_scrollY', String(window.scrollY));
+        navigate(`/swarm/swarm-starts/${swarmStartId}`, { state: { from: '/swarm' } });
+    }, [navigate]);
+
+    // Tombstone (undone session) click (req #2747) — open the swarm-undo detail
+    // rather than the requirement; the undo data is the pertinent context here,
+    // and the user can hop to the requirement from there. SwarmUndoDetail's Back
+    // honours `state.from`, returning to the visualizer.
+    const onUndoClick = useCallback((undoId) => {
+        if (undoId == null) return;
+        sessionStorage.setItem('visualizer_scrollY', String(window.scrollY));
+        navigate(`/swarm/swarm-undos/${undoId}`, { state: { from: '/swarm' } });
+    }, [navigate]);
+
     const onCenterDateChange = useCallback((d) => {
         if (d && d !== currentDate) setCurrentDate(d);
     }, [currentDate, setCurrentDate]);
@@ -118,6 +171,7 @@ const SwarmVisualizerView = () => {
                 sessions={sessions}
                 swarmStarts={swarmStarts}
                 swarmStartSessions={swarmStartSessions}
+                swarmUndos={swarmUndos}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 beadWindow={beadWindow}
@@ -129,6 +183,8 @@ const SwarmVisualizerView = () => {
                 isWeekView={isWeekView}
                 categoryList={categoryList}
                 onChipClick={onChipClick}
+                onSwarmStartClick={onSwarmStartClick}
+                onUndoClick={onUndoClick}
                 onCenterDateChange={onCenterDateChange}
             />
         </div>

@@ -197,8 +197,22 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         enabled: category.id !== '',
     });
 
-    // Seed local state from query data (hybrid pattern — local state owns template row)
+    // Seed local state from query data (hybrid pattern — local state owns template row).
+    //
+    // The template row (id === '') is a local-only construct, never sourced from
+    // the server. A background refetch (refetchOnWindowFocus / cache invalidation)
+    // changes `serverRequirements` by reference and re-runs this effect at
+    // user-uncontrolled times. Building a *fresh* empty template each time would
+    // discard whatever the user has typed/toggled into the template but not yet
+    // saved. Carry the existing template forward instead so in-progress add-row
+    // edits survive a re-seed (req #2747).
     useEffect(() => {
+        const buildTemplate = (prev) => {
+            const prevTemplate = prev && prev.find(r => r.id === '');
+            return prevTemplate
+                ? { ...prevTemplate, category_fk: parseInt(category.id) }
+                : { id: '', title: '', requirement_status: 'authoring', category_fk: parseInt(category.id) };
+        };
         if (serverRequirements && serverRequirements.length > 0) {
             let sortedRequirementsArray = [...serverRequirements];
 
@@ -208,12 +222,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             );
 
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': parseInt(category.id) });
-            setRequirementsArray(sortedRequirementsArray);
+            setRequirementsArray(prev => [...sortedRequirementsArray, buildTemplate(prev)]);
         } else if (serverRequirements && serverRequirements.length === 0) {
-            let sortedRequirementsArray = [];
-            sortedRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': parseInt(category.id) });
-            setRequirementsArray(sortedRequirementsArray);
+            setRequirementsArray(prev => [buildTemplate(prev)]);
         }
     }, [serverRequirements, requirementStatusFilter]);
 
@@ -549,7 +560,9 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             i === requirementIndex ? { ...r, requirement_status: next } : r));
     }
 
-    const COORD_CYCLE = [null, 'planned', 'implemented', 'deployed'];
+    // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
+    // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
+    const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
     const coordinationClick = (requirementIndex, requirementId) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
@@ -561,7 +574,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
 
             let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next === null ? 'NULL' : next}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'coordination_type': next}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         revert();
@@ -576,7 +589,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     showError(error, "Unable to change autonomy");
                 });
         } else if (savingRef.current) {
-            pendingMutationsRef.current.coordination_type = next === null ? 'NULL' : next;
+            pendingMutationsRef.current.coordination_type = next;
         }
         setRequirementsArray(prev => prev.map((r, i) =>
             i === requirementIndex ? { ...r, coordination_type: next } : r));

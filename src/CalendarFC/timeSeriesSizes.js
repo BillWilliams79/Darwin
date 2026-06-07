@@ -31,6 +31,7 @@ export function getCircleSize(key) {
 
 // Human-readable coordination labels for the hover datacard.
 export const COORDINATION_LABELS = {
+    discuss:     'Discuss Req',
     planned:     'Planned',
     implemented: 'Implemented',
     deployed:    'Deployed',
@@ -107,6 +108,7 @@ export const DEFAULT_DATA_KEY = 'category';
 // falls back to red, making "no setting" visible at a glance — matches the spec
 // in req #2382 ("red = no setting").
 export const COORDINATION_COLORS = {
+    discuss:     '#AB47BC',   // purple — needs discussion before any work (req #2745)
     planned:     '#FB8C00',   // orange — planning phase
     implemented: '#FDD835',   // yellow — built but not yet deployed
     deployed:    '#43A047',   // green — shipped

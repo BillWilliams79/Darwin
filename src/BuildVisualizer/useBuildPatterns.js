@@ -1,0 +1,324 @@
+// Req #2648 — SQL-backed project library for the Build Visualizer.
+//
+// Each "pattern" in the picker is a row in `build_projects`; the canvas loads
+// that project's branches + builds from SQL (see useBuildVisualizerData) when
+// it becomes active.
+//
+// Surface consumed by BuildPatternMenu + BuildVisualizerPage:
+//   { isReady, error, clearError, library, patterns, activeId, activePattern,
+//     selectPattern, createNew, rename, remove }
+//
+// Notes:
+//   • `library` is { version, activeId, patterns: {} } reassembled from the
+//     SQL result.
+//   • `patterns` is sorted by updatedAt desc.
+//   • `activePattern.projectId` is the SQL project id the canvas loads from.
+//   • create / rename / remove mutate `build_projects` via call_rest_api and
+//     invalidate the projects query on success.
+
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+import AppContext from '../Context/AppContext';
+import AuthContext from '../Context/AuthContext';
+import call_rest_api from '../RestApi/RestApi';
+import { fetchEntity } from '../hooks/factory/createEntityQueries';
+import { firstMainBuildVersion, toBuildRow } from './versionEngine';
+
+const ACTIVE_ID_STORAGE_KEY = 'darwin.buildVisualizer.activeProjectId.v1';
+
+const readActiveId = () => {
+    try {
+        const v = window.localStorage.getItem(ACTIVE_ID_STORAGE_KEY);
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    } catch (_) {
+        return null;
+    }
+};
+
+const writeActiveId = (id) => {
+    try {
+        if (id == null) window.localStorage.removeItem(ACTIVE_ID_STORAGE_KEY);
+        else window.localStorage.setItem(ACTIVE_ID_STORAGE_KEY, String(id));
+    } catch (_) { /* private mode — accept transient state */ }
+};
+
+function buildPatternFromProject(row) {
+    return {
+        id: row.id,
+        projectId: row.id,
+        name: row.title || row.name || `Project ${row.id}`,
+        createdAt: row.create_ts || null,
+        updatedAt: row.update_ts || row.create_ts || null,
+        description: row.description || '',
+    };
+}
+
+export function useBuildPatterns() {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const creatorFk = profile?.id || null;
+    const queryClient = useQueryClient();
+
+    const projectsQuery = useQuery({
+        queryKey: ['build_projects', creatorFk],
+        queryFn: () => fetchEntity(`${darwinUri}/build_projects`, idToken),
+        enabled: !!idToken && !!creatorFk && !!darwinUri,
+    });
+
+    const [activeId, setActiveId] = useState(() => readActiveId());
+    const [error, setError] = useState(null);
+
+    const patterns = useMemo(() => {
+        const rows = Array.isArray(projectsQuery.data) ? projectsQuery.data : [];
+        return rows
+            .map(buildPatternFromProject)
+            .sort((a, b) => {
+                if (!a.updatedAt && !b.updatedAt) return a.name.localeCompare(b.name);
+                if (!a.updatedAt) return 1;
+                if (!b.updatedAt) return -1;
+                return a.updatedAt < b.updatedAt ? 1 : -1;
+            });
+    }, [projectsQuery.data]);
+
+    // If the saved activeId no longer matches any project (deleted from another
+    // session, or first-ever load), fall back to the first available pattern.
+    useEffect(() => {
+        if (!projectsQuery.isSuccess) return;
+        // Don't reconcile activeId mid-refetch (req #2741). After createMutation
+        // sets activeId to the new project and invalidates, the refetch is
+        // briefly in flight with `patterns` still the OLD list — the new id
+        // isn't found yet. Resetting to patterns[0] here would yank the user
+        // back to a pre-existing project. Wait for the refetch to settle; once
+        // `patterns` includes the new project the `find` below passes and no
+        // reset happens.
+        if (projectsQuery.isFetching) return;
+        if (!patterns.length) {
+            // Req #2691: empty patterns at this point means the DB has no
+            // build_projects rows for the authenticated user. Most common
+            // cause: a full-stack deploy of #2648 that shipped the frontend
+            // without seeding production. Surface a loud one-time warning so
+            // future deploys with the same gap are easy to spot in the console.
+            console.warn(
+                '[Build Visualizer] No build_projects rows for the current user. ' +
+                'If this is darwin.one production, the seed step from ' +
+                'DarwinSQL/scripts/seed_build_projects.py + import_builds_json.py ' +
+                'has not been run yet. See requirement #2691: ' +
+                'https://www.darwin.one/swarm/requirement/2691',
+            );
+            if (activeId !== null) {
+                setActiveId(null);
+                writeActiveId(null);
+            }
+            return;
+        }
+        if (!activeId || !patterns.find(p => p.id === activeId)) {
+            const next = patterns[0].id;
+            setActiveId(next);
+            writeActiveId(next);
+        }
+    }, [projectsQuery.isSuccess, projectsQuery.isFetching, patterns, activeId]);
+
+    const activePattern = useMemo(
+        () => (activeId ? patterns.find(p => p.id === activeId) || null : null),
+        [activeId, patterns],
+    );
+
+    const invalidateProjects = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: ['build_projects', creatorFk] });
+    }, [queryClient, creatorFk]);
+
+    // -----------------------------------------------------------------------
+    // Mutations. All mutations talk directly to Lambda-Rest via call_rest_api
+    // so the hook owns its own write path (no separate mutation hook layer
+    // needed for v1). Each mutation invalidates the projects list on success.
+    // -----------------------------------------------------------------------
+
+    const handleApiResult = (result, opName) => {
+        if (!result || !result.httpStatus
+                || result.httpStatus.httpStatus < 200
+                || result.httpStatus.httpStatus >= 300) {
+            const msg = `${opName} failed (status=${result?.httpStatus?.httpStatus ?? '???'})`;
+            throw new Error(msg);
+        }
+        return result.data;
+    };
+
+    const createMutation = useMutation({
+        mutationFn: async ({ title, description, major = 1, minor = 0, initialBuildNumber = 1 }) => {
+            // The first main build's version comes from the VersionEngine — the
+            // single source of truth (req #2737). No inline version arithmetic.
+            const v = firstMainBuildVersion({ major, minor, initialBuildNumber });
+
+            // POST /build_projects
+            const projRes = await call_rest_api(
+                `${darwinUri}/build_projects`, 'POST',
+                {
+                    title,
+                    description: description || '',
+                    project_status: 'active',
+                },
+                idToken,
+            );
+            const proj = handleApiResult(projRes, 'POST build_projects');
+            const newProjectId = Array.isArray(proj) ? proj[0]?.id : proj?.id;
+            if (!newProjectId) throw new Error('build_projects POST returned no id');
+
+            // POST trunk branch. Stamp main's current M.m (= the declared M.m).
+            // external_id='main' marks the trunk.
+            const branchRes = await call_rest_api(
+                `${darwinUri}/branches`, 'POST',
+                {
+                    project_fk: newProjectId,
+                    branch_type: 'main',
+                    name: 'Main',
+                    major: v.major,
+                    minor: v.minor,
+                    external_id: 'main',
+                    side: 'center',
+                },
+                idToken,
+            );
+            const branch = handleApiResult(branchRes, 'POST branches');
+            const trunkId = Array.isArray(branch) ? branch[0]?.id : branch?.id;
+            if (!trunkId) throw new Error('branches POST returned no id');
+
+            // PUT project trunk_branch_fk.
+            await call_rest_api(
+                `${darwinUri}/build_projects`, 'PUT',
+                [{ id: newProjectId, trunk_branch_fk: trunkId }],
+                idToken,
+            );
+
+            // POST first build — version columns straight from the engine.
+            await call_rest_api(
+                `${darwinUri}/builds`, 'POST',
+                {
+                    branch_fk: trunkId,
+                    position: 0,
+                    ...toBuildRow(v),
+                    external_id: 'm1',
+                },
+                idToken,
+            );
+            return newProjectId;
+        },
+        onSuccess: (newId) => {
+            setActiveId(newId);
+            writeActiveId(newId);
+            invalidateProjects();
+        },
+        onError: (e) => setError(e?.message || 'create failed'),
+    });
+
+    const renameMutation = useMutation({
+        mutationFn: async ({ id, title }) => {
+            const res = await call_rest_api(
+                `${darwinUri}/build_projects`, 'PUT',
+                [{ id, title }],
+                idToken,
+            );
+            return handleApiResult(res, 'PUT build_projects (rename)');
+        },
+        onSuccess: invalidateProjects,
+        onError: (e) => setError(e?.message || 'rename failed'),
+    });
+
+    const removeMutation = useMutation({
+        mutationFn: async ({ id }) => {
+            const res = await call_rest_api(
+                `${darwinUri}/build_projects`, 'DELETE',
+                { id },
+                idToken,
+            );
+            return handleApiResult(res, 'DELETE build_projects');
+        },
+        onSuccess: () => {
+            // Active id may now point at a deleted project; the patterns effect
+            // re-resolves on the next render.
+            invalidateProjects();
+        },
+        onError: (e) => setError(e?.message || 'delete failed'),
+    });
+
+    // -----------------------------------------------------------------------
+    // Surface
+    // -----------------------------------------------------------------------
+
+    const library = useMemo(
+        () => ({
+            version: 1,
+            activeId,
+            patterns: Object.fromEntries(patterns.map(p => [p.id, p])),
+        }),
+        [activeId, patterns],
+    );
+
+    const selectPattern = useCallback((id) => {
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) return;
+        setActiveId(numericId);
+        writeActiveId(numericId);
+    }, []);
+
+    const createNew = useCallback(async (name, opts = {}) => {
+        const title = String(name || '').trim();
+        if (!title) return { ok: false, error: 'name required' };
+        const major = Number.isFinite(opts.major) && opts.major >= 0 ? opts.major : 1;
+        const minor = Number.isFinite(opts.minor) && opts.minor >= 0 ? opts.minor : 0;
+        const initialBuildNumber = Number.isFinite(opts.initialBuildNumber) && opts.initialBuildNumber > 0
+            ? opts.initialBuildNumber
+            : 1;
+        try {
+            await createMutation.mutateAsync({ title, major, minor, initialBuildNumber });
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, error: e?.message || 'create failed' };
+        }
+    }, [createMutation]);
+
+    const rename = useCallback(async (id, name) => {
+        const title = String(name || '').trim();
+        if (!title) return { ok: false, error: 'name required' };
+        try {
+            await renameMutation.mutateAsync({ id, title });
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, error: e?.message || 'rename failed' };
+        }
+    }, [renameMutation]);
+
+    const remove = useCallback(async (id) => {
+        // No last-project guard (req #2737) — deleting every project to reach a
+        // clean slate is a supported workflow. The empty state is handled: the
+        // patterns effect resets activeId to null and the canvas renders its
+        // "No branches" placeholder.
+        try {
+            await removeMutation.mutateAsync({ id });
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, error: e?.message || 'delete failed' };
+        }
+    }, [removeMutation]);
+
+    const isReady = !!projectsQuery.isSuccess || !!projectsQuery.data;
+    const liveError = error || projectsQuery.error?.message || null;
+
+    return {
+        isReady,
+        error: liveError,
+        clearError: useCallback(() => setError(null), []),
+        library,
+        patterns,
+        activeId,
+        activePattern,
+        selectPattern,
+        saveActiveData: () => {}, // no-op — see header comment
+        createNew,
+        rename,
+        remove,
+    };
+}
+
+export default useBuildPatterns;

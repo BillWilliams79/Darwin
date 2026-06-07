@@ -27,6 +27,16 @@ async function seedVisualizerState(
     }, { d: currentDate, v: viewType });
 }
 
+// Pin the browser timezone to UTC for this spec. Beads are placed by
+// toLocaleDateString(completed_at, timezone) where completed_at is stored UTC and
+// the test user's profile timezone is empty (→ host timezone). On a PDT host a
+// 03:15 UTC completion renders on the PREVIOUS day, so a chip seeded "today" (UTC)
+// falls outside the day-view window and never appears. testDate is computed via
+// toISOString() (UTC), so pinning the browser to UTC makes seed and render agree
+// deterministically on any host. (The app's prev-day placement is correct behavior;
+// this only removes host-timezone nondeterminism from the test.)
+test.use({ timezoneId: 'UTC' });
+
 test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', () => {
     let idToken: string;
     let testProjectId: string;

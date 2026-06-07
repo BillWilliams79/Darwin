@@ -29,8 +29,7 @@ function devserverMarker() {
   }
 }
 
-// Dev-only: mount the private Topology repo's systems2/ subdir on /systems2/*
-// AND the build-visualizer/ subdir on /build-visualizer/* (req #2564).
+// Dev-only: mount the private Topology repo's systems2/ subdir on /systems2/*.
 // `apply: 'serve'` excludes this plugin (and therefore the asset payload) from
 // `vite build`, so production bundles have zero topology content. See req #2521.
 // V1 (systems/ subdir, /systems route) was retired in req #2525.
@@ -89,84 +88,26 @@ function topologyDevAssets() {
         )
         return
       }
-      server.config.logger.info(`[topology-dev-assets] serving /systems2 and /build-visualizer from ${topologyPath}`)
-
-      // Persistence endpoint for the build visualizer (req #2564).
-      // POST /build-visualizer/builds.json rewrites builds.json in the Topology
-      // clone with the request body. Restricted to that exact path; refuses path
-      // traversal; DEV-only (this plugin sets `apply: 'serve'`).
-      server.middlewares.use((req, res, next) => {
-        if (req.method !== 'POST') return next()
-        const url = req.url || ''
-        if (!url.startsWith('/build-visualizer/builds.json')) return next()
-        const target = path.resolve(topologyPath, 'build-visualizer', 'builds.json')
-        const root = path.resolve(topologyPath, 'build-visualizer')
-        if (!target.startsWith(root + path.sep)) {
-          res.statusCode = 400
-          res.end('bad path')
-          return
-        }
-        const MAX_BYTES = 4 * 1024 * 1024 // 4 MB ceiling — JSON for ~thousands of builds tops out far below this
-        let body = ''
-        let aborted = false
-        req.setEncoding('utf8')
-        req.on('data', chunk => {
-          if (aborted) return
-          body += chunk
-          if (body.length > MAX_BYTES) {
-            aborted = true
-            res.statusCode = 413
-            res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-            res.end('payload too large')
-            try { req.destroy() } catch {}
-          }
-        })
-        req.on('end', () => {
-          if (aborted) return
-          try {
-            JSON.parse(body) // validate
-          } catch (e) {
-            res.statusCode = 400
-            res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-            res.end('invalid JSON: ' + e.message)
-            return
-          }
-          try {
-            fs.writeFileSync(target, body)
-            res.statusCode = 200
-            res.setHeader('Content-Type', 'application/json; charset=utf-8')
-            res.end('{"status":"ok"}')
-          } catch (e) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-            res.end('write failed: ' + e.message)
-          }
-        })
-        req.on('error', () => {
-          res.statusCode = 500
-          res.end('request error')
-        })
-      })
+      server.config.logger.info(`[topology-dev-assets] serving /systems2 from ${topologyPath}`)
 
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
-        const match = url.match(/^\/(systems2|build-visualizer)(?:\/(.*?))?(?:\?.*)?$/)
+        const match = url.match(/^\/systems2(?:\/(.*?))?(?:\?.*)?$/)
         if (!match) return next()
-        const subdir = match[1]
-        const rest = match[2]
-        // Bare /systems2 or /build-visualizer (with or without trailing slash)
-        // must fall through to the SPA router so the React wrappers mount inside
-        // the Darwin app shell (navbar + auth). Without this guard, hitting
-        // those paths directly or hard-refreshing bypassed React entirely and
-        // served the raw HTML, dropping the Darwin navbar (req #2524). The
-        // middleware now only serves explicit /<subdir>/<filename> asset paths;
-        // SystemsPage2.jsx and BuildVisualizerPage.jsx point their iframes at
-        // the entry HTML files so the assets still load via this middleware.
+        const rest = match[1]
+        // Bare /systems2 (with or without trailing slash) must fall through to
+        // the SPA router so the React wrapper mounts inside the Darwin app shell
+        // (navbar + auth). Without this guard, hitting the path directly or
+        // hard-refreshing bypassed React entirely and served the raw HTML,
+        // dropping the Darwin navbar (req #2524). The middleware now only serves
+        // explicit /systems2/<filename> asset paths; SystemsPage2.jsx points its
+        // iframe at the entry HTML file so the assets still load via this
+        // middleware.
         if (!rest) return next()
         // Path-traversal guard: reject any segment that resolves to ".."
         if (rest.split('/').some(seg => seg === '..' || seg === '')) return next()
 
-        const subdirRoot = path.resolve(topologyPath, subdir)
+        const subdirRoot = path.resolve(topologyPath, 'systems2')
         const filePath = path.resolve(subdirRoot, rest)
         // Defense-in-depth: after path.resolve, ensure the resolved path is
         // still under subdirRoot. The segment-level check above already
@@ -233,6 +174,22 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: { buffer: 'buffer/' },
+      // Force a single instance of these packages. A worktree's deps can be
+      // reachable via more than one physical path (e.g. a stray symlink into
+      // another clone's node_modules), and Vite's optimizeDeps will then
+      // nondeterministically resolve a subset of modules through the second
+      // path — loading two copies of @emotion/react + @mui. Two emotion caches
+      // means ThemeProvider's theme is invisible to half the components, which
+      // renders as random, partial dark-mode breakage. dedupe guarantees one
+      // instance regardless of how the package is reached. See req #2774.
+      dedupe: [
+        'react',
+        'react-dom',
+        '@emotion/react',
+        '@emotion/styled',
+        '@mui/material',
+        '@mui/system',
+      ],
     },
     worker: {
       format: 'es',

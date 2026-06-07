@@ -1,12 +1,14 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
+import AppContext from '../Context/AppContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
-    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY,
+    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
 import ProfileDialog from './ProfileDialog';
+import { prodRequirementUrl } from '../utils/prodUrl';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -39,6 +41,7 @@ const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
 
 const NavBarSidebar = () => {
     const { idToken, profile } = useContext(AuthContext);
+    const { database } = useContext(AppContext);
     const location = useLocation();
     const navigate = useNavigate();
     const isDesktop = useMediaQuery('(min-width:900px)');
@@ -63,19 +66,23 @@ const NavBarSidebar = () => {
         return row?.terminal_number ?? null;
     }, [devServersArray]);
 
-    // Filter nav groups/links based on profile app toggle settings
+    // Filter nav groups/links based on profile app toggle settings. Per-key
+    // default lives in GROUP_PROFILE_DEFAULT so Swarm Validate (default 0)
+    // doesn't accidentally light up when the profile row hasn't loaded yet.
+    const isGroupEnabled = (id) => {
+        const key = GROUP_PROFILE_KEY[id];
+        if (!key) return true;
+        const fallback = GROUP_PROFILE_DEFAULT[key] ?? 1;
+        return Number(profile?.[key] ?? fallback) === 1;
+    };
     const visibleGroups = useMemo(() =>
-        NAV_GROUPS.filter(g => {
-            const key = GROUP_PROFILE_KEY[g.id];
-            return !key || Number(profile?.[key] ?? 1) === 1;
-        }),
+        NAV_GROUPS.filter(g => isGroupEnabled(g.id)),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [profile]
     );
     const visibleLinks = useMemo(() =>
-        NAV_LINKS.filter(l => {
-            const key = GROUP_PROFILE_KEY[l.group];
-            return !key || Number(profile?.[key] ?? 1) === 1;
-        }),
+        NAV_LINKS.filter(l => isGroupEnabled(l.group)),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [profile]
     );
 
@@ -234,9 +241,21 @@ const NavBarSidebar = () => {
                                             Terminal - {currentDevTerminal}
                                         </Typography>
                                     )}
+                                    {/* Active DB — orange + (PROD) suffix when dev is pointing at production (req #2683) */}
+                                    <Typography sx={{
+                                        fontSize: 12,
+                                        color: database === 'darwin' ? DEV_ORANGE : 'rgba(255,255,255,0.9)',
+                                        fontWeight: database === 'darwin' ? 700 : 400,
+                                        lineHeight: 1.4,
+                                    }} data-testid="navbar-dev-database">
+                                        DB - {database}{database === 'darwin' ? ' (PROD)' : ''}
+                                    </Typography>
                                     {DEV_REQ_ID && (
                                         <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
-                                            <a href={`/swarm/requirement/${DEV_REQ_ID}`}
+                                            {/* Dev servers run against the darwin_dev debug DB where this
+                                                requirement may not exist, so link to production darwin.one
+                                                (req #2757) instead of the relative — local — origin. */}
+                                            <a href={prodRequirementUrl(DEV_REQ_ID)}
                                                target="_blank" rel="noopener noreferrer"
                                                style={{ color: '#90CAF9', textDecoration: 'none' }}
                                                data-testid="navbar-dev-req-link">
