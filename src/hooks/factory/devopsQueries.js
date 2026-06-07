@@ -95,3 +95,38 @@ export const swarmUndos = createEntityQueries({
     fieldsInKey: true,
     defaultSort: 'undone_at:desc',
 });
+
+// ---------------------------------------------------------------------------
+// swarm_completes (req #2497)
+// Hooks: useAllSwarmCompletes (fields-in-key, sort completed_at:desc) +
+// useSwarmCompleteById (creator-scoped key).
+//
+// Intentionally NOT ops:true — same rationale as swarm_undos above: a brand-new
+// data type whose rows should be readable from `darwin_dev` in dev-mode builds
+// (the prod `darwin` table lands at /swarm-complete time). Routing through the
+// default `darwinUri` lets dev-mode read seeded fixtures from `darwin_dev`.
+// ---------------------------------------------------------------------------
+const SWARM_COMPLETE_DEFAULT_FIELDS =
+    'id,skill_name,coordination_type,status,session_count,' +
+    'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
+    'wall_seconds,turn_count,complete_summary,telemetry,' +
+    'started_at,completed_at,creator_fk';
+
+export const swarmCompletes = createEntityQueries({
+    entity: 'swarm_completes',
+    defaultFields: SWARM_COMPLETE_DEFAULT_FIELDS,
+    fieldsInKey: true,
+    // started_at (always populated) not completed_at (NULL while in_progress) —
+    // matches the page DataGrid's client sort, so in-progress rows aren't
+    // shoved to the end by a NULL-last server sort.
+    defaultSort: 'started_at:desc',
+});
+
+// ---------------------------------------------------------------------------
+// swarm_complete_sessions junction (req #2497)
+// Hooks: useAllSwarmCompleteSessions (fixed projection, no fields in key).
+// ---------------------------------------------------------------------------
+export const swarmCompleteSessions = createEntityQueries({
+    entity: 'swarm_complete_sessions',
+    defaultFields: 'swarm_complete_fk,session_fk',
+});

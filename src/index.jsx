@@ -49,6 +49,8 @@ import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SwarmUndosPage from './SwarmUndos/SwarmUndosPage';
 import SwarmUndoDetail from './SwarmUndos/SwarmUndoDetail';
+import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
+import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -112,6 +114,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/swarm-undos/:id" element= {<AuthenticatedRoute>
                                                              <SwarmUndoDetail />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-completes" element= {<AuthenticatedRoute>
+                                                             <SwarmCompletesPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/swarm-completes/:id" element= {<AuthenticatedRoute>
+                                                             <SwarmCompleteDetail />
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />

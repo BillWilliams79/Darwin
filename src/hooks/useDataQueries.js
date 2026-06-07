@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -213,6 +213,14 @@ export const useAllSwarmStartSessions = swarmStartSessions.useAll;
 // surviving swarm_starts against undone sessions.
 export const useAllSwarmUndos = swarmUndos.useAll;
 export const useSwarmUndoById = swarmUndos.useById;
+
+// Req #2497 — swarm_completes: one row per /swarm-complete or
+// /primary-ai-swarm-complete invocation (the close-out counterpart to
+// swarm_starts). swarm_complete_sessions links a close-out to the session(s)
+// it closed; primary closeouts link a `primary-fix` session.
+export const useAllSwarmCompletes        = swarmCompletes.useAll;
+export const useSwarmCompleteById        = swarmCompletes.useById;
+export const useAllSwarmCompleteSessions = swarmCompleteSessions.useAll;
 
 export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);

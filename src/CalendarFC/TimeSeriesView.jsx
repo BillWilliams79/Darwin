@@ -628,6 +628,8 @@ const BeadRow = ({
     swarmStarts = [],        // req #2504 — for in-progress phantom chip rendering
     swarmStartSessions = [], // req #2504 — junction for in-progress detection
     swarmUndos = [],         // req #2719 — undo log rows for tombstone overlay
+    swarmCompleteBySession,  // req #2497 — Map<string sessionId, swarm_complete row>
+    onCompleteClick,         // req #2497 — open the swarm-complete detail
     requirementById,         // req #2504 — Map<string reqId, requirement> for phantom tooltips
 }) => {
     const window36h = beadWindow === '36h';
@@ -789,6 +791,7 @@ const BeadRow = ({
                     session: s,
                     swarmStartId,
                     swarmStart: swarmStartRow,
+                    swarmComplete: swarmCompleteBySession?.get(sKey) ?? null, // req #2497
                     // groupKey = canonical cluster start (req #2504 grouping).
                     // All chips that launched together share one key so
                     // assignSwarmLanes stacks them in contiguous rows.
@@ -798,7 +801,8 @@ const BeadRow = ({
         }
         return out;
     }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate,
-        canonicalStartById, clusterSizeById, swarmStartIdById, swarmStartById]);
+        canonicalStartById, clusterSizeById, swarmStartIdById, swarmStartById,
+        swarmCompleteBySession]);
 
     // "Now" position — used for in-progress phantom rendering AND the live-time
     // marker line below. Computed once per render (nowPct moves continuously by
@@ -1508,6 +1512,21 @@ const BeadRow = ({
                                     <span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span>
                                 </div>
                             )}
+                            {chip.swarmComplete && (
+                                <div className="ts-datacard-row" data-testid={`ts-datacard-swarm-complete-${chip.chipKey || chip.id}`}>
+                                    <span className="ts-datacard-key">Closed by</span>
+                                    <span>
+                                        #{chip.swarmComplete.id}
+                                        {` · ${chip.swarmComplete.status}`}
+                                        {chip.swarmComplete.skill_name === 'primary-ai-swarm-complete' ? ' · primary' : ''}
+                                        {chip.swarmComplete.wall_seconds != null
+                                            ? ` · ${chip.swarmComplete.wall_seconds < 60
+                                                ? `${chip.swarmComplete.wall_seconds}s`
+                                                : `${Math.floor(chip.swarmComplete.wall_seconds / 60)}m ${chip.swarmComplete.wall_seconds % 60}s`}`
+                                            : ''}
+                                    </span>
+                                </div>
+                            )}
                         </Box>
                     }
                 >
@@ -1537,6 +1556,49 @@ const BeadRow = ({
                             onChipClick && onChipClick(chip.id);
                         }}
                     >
+                        {/* Req #2497 — completion terminus badge. Restores the
+                            lifecycle symmetry rocket(start) → … → ✓(complete).
+                            Status-coloured (green ok / amber error); a flag glyph
+                            distinguishes a primary-ai closeout. Clickable through
+                            to the swarm-complete detail (stopPropagation so the
+                            bubble's own requirement click doesn't also fire). */}
+                        {chip.swarmComplete && !chip.isUndone && !chip.isPhantom && (() => {
+                            const sc = chip.swarmComplete;
+                            const ok = sc.status === 'ok';
+                            const bg = ok ? '#4caf50' : (sc.status === 'error' ? '#ffa726' : '#90a4ae');
+                            const isPrimary = sc.skill_name === 'primary-ai-swarm-complete';
+                            const glyph = isPrimary ? '⚑' : (ok ? '✓' : '!');
+                            const B = Math.max(12, Math.round(circleDiameter * 0.55));
+                            return (
+                                <span
+                                    className="ts-bead-complete-badge"
+                                    data-testid={`ts-complete-badge-${chip.chipKey || chip.id}`}
+                                    title={`Closed by complete #${sc.id} — ${sc.status}${isPrimary ? ' · primary' : ''}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onCompleteClick && onCompleteClick(sc.id);
+                                    }}
+                                    style={{
+                                        position: 'absolute',
+                                        top: -4, right: -4,
+                                        width: `${B}px`, height: `${B}px`,
+                                        borderRadius: '50%',
+                                        backgroundColor: bg,
+                                        color: ok ? '#fff' : '#000',
+                                        fontSize: `${Math.round(B * 0.62)}px`,
+                                        lineHeight: `${B}px`,
+                                        textAlign: 'center',
+                                        fontWeight: 700,
+                                        boxShadow: '0 0 0 1.5px var(--ts-bg, #fff)',
+                                        cursor: 'pointer',
+                                        zIndex: 3,
+                                        userSelect: 'none',
+                                    }}
+                                >
+                                    {glyph}
+                                </span>
+                            );
+                        })()}
                         {chip.isUndone ? (
                             // Req #2719 — undone session bubble: textless
                             // tombstone glyph sized to fill the same bubble
@@ -2501,6 +2563,8 @@ const TimeSeriesView = ({
     swarmStarts = [],          // req #2504 — real swarm-start rows for the user
     swarmStartSessions = [],   // req #2504 — junction (session_fk → swarm_start_fk)
     swarmUndos = [],           // req #2719 — undo log rows; overlay tombstones
+    swarmCompletes = [],       // req #2497 — close-out rows; terminus badge per session
+    swarmCompleteSessions = [],// req #2497 — junction (session_fk → swarm_complete_fk)
     selectedDate,
     timezone,
     beadWindow = '24h',
@@ -2514,6 +2578,7 @@ const TimeSeriesView = ({
     onChipClick,
     onSwarmStartClick,
     onUndoClick,
+    onCompleteClick,
     onCenterDateChange,
 }) => {
     // The UI Options amber bar was removed 2026-04-18 — Viz and Sidewalk
@@ -2573,6 +2638,27 @@ const TimeSeriesView = ({
             swarmStartById: rowMap,
         };
     }, [sessions, swarmStartSessions, swarmStarts]);
+
+    // Req #2497 — Map<String(sessionId), swarm_complete row> for the completion
+    // terminus badge. Multi-parent policy: most-recent close-out (highest fk)
+    // wins, mirroring the swarm_start reverse lookup on the session detail page.
+    const swarmCompleteBySession = useMemo(() => {
+        const m = new Map();
+        if (!Array.isArray(swarmCompleteSessions) || !Array.isArray(swarmCompletes)) return m;
+        const byId = new Map(swarmCompletes.map(c => [c.id, c]));
+        const bestFk = new Map();
+        for (const j of swarmCompleteSessions) {
+            if (!j || j.session_fk == null || j.swarm_complete_fk == null) continue;
+            const k = String(j.session_fk);
+            const prev = bestFk.get(k);
+            if (prev == null || j.swarm_complete_fk > prev) bestFk.set(k, j.swarm_complete_fk);
+        }
+        for (const [sKey, fk] of bestFk) {
+            const row = byId.get(fk);
+            if (row) m.set(sKey, row);
+        }
+        return m;
+    }, [swarmCompletes, swarmCompleteSessions]);
 
     // Cross-day session lines — only matters in Week + Swarm mode. For each
     // session whose started_at and linked requirement's completed_at fall on
@@ -2759,6 +2845,8 @@ const TimeSeriesView = ({
             swarmStarts={swarmStarts}
             swarmStartSessions={swarmStartSessions}
             swarmUndos={swarmUndos}
+            swarmCompleteBySession={swarmCompleteBySession}
+            onCompleteClick={onCompleteClick}
             requirementById={requirementById}
         />
     ));
@@ -2796,6 +2884,8 @@ const TimeSeriesView = ({
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
                     swarmUndos={swarmUndos}
+                    swarmCompleteBySession={swarmCompleteBySession}
+                    onCompleteClick={onCompleteClick}
                     requirementById={requirementById}
                 />
             ) : sidewalkOn && !isWeekView ? (
@@ -2825,6 +2915,8 @@ const TimeSeriesView = ({
                     swarmStarts={swarmStarts}
                     swarmStartSessions={swarmStartSessions}
                     swarmUndos={swarmUndos}
+                    swarmCompleteBySession={swarmCompleteBySession}
+                    onCompleteClick={onCompleteClick}
                     requirementById={requirementById}
                 />
             ) : isWeekView ? (

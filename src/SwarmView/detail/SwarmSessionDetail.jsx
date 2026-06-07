@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -61,6 +61,21 @@ const SwarmSessionDetail = () => {
         if (links.length === 0) return null;
         return swarmStarts.find(s => s.id === links[0].swarm_start_fk) || null;
     }, [swarmStartSessions, swarmStarts, id]);
+
+    // Req #2497 — reverse junction lookup for the swarm_complete that closed
+    // this session. Same multi-parent policy (most-recent fk wins). Works for
+    // both worker sessions (closed by /swarm-complete) and primary-fix sessions
+    // (closed by /primary-ai-swarm-complete).
+    const { data: swarmCompleteSessions } = useAllSwarmCompleteSessions(profile?.userName);
+    const { data: swarmCompletes } = useAllSwarmCompletes(profile?.userName);
+    const swarmComplete = React.useMemo(() => {
+        if (!swarmCompleteSessions || !swarmCompletes) return null;
+        const links = swarmCompleteSessions
+            .filter(j => String(j.session_fk) === String(id))
+            .sort((a, b) => b.swarm_complete_fk - a.swarm_complete_fk);
+        if (links.length === 0) return null;
+        return swarmCompletes.find(s => s.id === links[0].swarm_complete_fk) || null;
+    }, [swarmCompleteSessions, swarmCompletes, id]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -142,6 +157,33 @@ const SwarmSessionDetail = () => {
                             </Typography>
                         </Box>
                     }
+
+                    {swarmComplete && (() => {
+                        const toks = ['tokens_input', 'tokens_cache_write', 'tokens_cache_read', 'tokens_output']
+                            .reduce((sum, k) => sum + (Number(swarmComplete[k]) || 0), 0);
+                        const w = swarmComplete.wall_seconds;
+                        const wall = w == null ? null : (w < 60 ? `${w}s` : `${Math.floor(w / 60)}m ${w % 60}s`);
+                        const facts = [
+                            `status ${swarmComplete.status}`,
+                            wall ? `took ${wall}` : null,
+                            toks > 0 ? `cost ${toks.toLocaleString()} tok` : null,
+                        ].filter(Boolean).join(' · ');
+                        return (
+                            <Box sx={{ mb: 1 }} data-testid="session-closed-by">
+                                <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Closed by</Typography>
+                                <Typography variant="body2" component="div">
+                                    <Chip label={`Complete #${swarmComplete.id}`} size="small" variant="outlined"
+                                          onClick={() => navigate(`/swarm/swarm-completes/${swarmComplete.id}`)}
+                                          sx={{ cursor: 'pointer', mr: 1 }}
+                                          data-testid="session-closed-by-chip" />
+                                    <Typography component="span" variant="body2"
+                                                sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                        /{swarmComplete.skill_name} — {facts}
+                                    </Typography>
+                                </Typography>
+                            </Box>
+                        );
+                    })()}
 
                     {session.task_name &&
                         <Box sx={{ mb: 1 }}>
