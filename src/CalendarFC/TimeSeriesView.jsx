@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
-import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12 } from '../utils/dateFormat';
+import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12, localDateStr } from '../utils/dateFormat';
 import {
     DEFAULT_FONT_SIZE,
     getFontSize, getCircleSize, formatCoordination, getCoordinationColor,
@@ -461,6 +461,26 @@ export const weekDates = (dateStr) => {
         out.push(`${y}-${m}-${day}`);
     }
     return out;
+};
+
+// req #2779 follow-up — the elevator's FUTURE scroll is capped at the end of the
+// current ISO week (this week's Sunday); the past stays infinite. endOfWeek
+// returns the Sunday (local calendar) of the week containing `dateStr`.
+export const endOfWeek = (dateStr) => {
+    const wk = weekDates(dateStr);
+    return wk.length ? wk[wk.length - 1] : dateStr;
+};
+
+// Build a centered range, then drop any day after `maxFutureDate` (inclusive cap).
+// Used for the elevator's initial strip + chevron rebuilds so the future side
+// never renders past the cap. A falsy maxFutureDate → no cap (full range). If the
+// whole range is past the cap, fall back to a single capped day so the strip is
+// never empty.
+export const cappedCenteredRange = (centerDate, halfWidth, maxFutureDate) => {
+    const range = centeredDateRange(centerDate, halfWidth);
+    if (!maxFutureDate) return range;
+    const capped = range.filter(d => d <= maxFutureDate);
+    return capped.length ? capped : [maxFutureDate];
 };
 
 // Unified window-aware positioning. Anchors on noon of selectedDate in user tz.
@@ -2003,6 +2023,39 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
 // and centering is biased upward. `clientHeight - padding` equals the content
 // height regardless of box-sizing, so this correction is box-model-agnostic.
 const ELEVATOR_TOP_AXIS_PX = 34;
+
+// req #2779 — Elevator infinite scroll. Vertical analog of Sidewalk's
+// SIDEWALK_* buffer constants (same values): when the centered panel comes
+// within ELEVATOR_BUFFER_THRESHOLD of either end of `dates`, prepend/append
+// ELEVATOR_EXTEND_BY days; once the array exceeds ELEVATOR_MAX_PANELS, prune
+// the opposite end. There is no offset clamp — the strip is endless in both
+// directions, so the user can scroll arbitrarily far into past or future.
+const ELEVATOR_BUFFER_THRESHOLD = 5;
+const ELEVATOR_EXTEND_BY = 10;
+const ELEVATOR_MAX_PANELS = 60;
+
+// Base floor height for an Elevator day panel (px). Intentionally low — comfortably
+// clears the compact top chrome (req #2744: date row + wire ≈ 46px) plus breathing room.
+const ELEVATOR_PANEL_BASE_HEIGHT = 140;
+
+// Pixel height of one Elevator day panel, sized to THAT day's chip density.
+// Mirrors BeadRow's sidewalk + hideTimeline height formula so DOM heights match
+// what BeadRow lays out. Extracted to module scope (req #2779) so the
+// infinite-scroll extender can size freshly-prepended panels SYNCHRONOUSLY —
+// it must shift translateY by the new panels' summed height in the same task it
+// calls setDates, otherwise the visible panel would jump for one frame. Both the
+// panelHeights memo and maybeExtend call this, so the two can never drift.
+export const elevatorPanelHeight = (maxStackRow, circleDiameter, spaceKey) => {
+    const bubbleOffset  = 20;
+    const chromeBottom  = 46;   // matches BeadRow `chromeOffset = sidewalkPanel && hideTimeline ? 46`
+    const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+    const spaceMul      = getSpaceMultiplier(spaceKey);
+    const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    return Math.max(
+        ELEVATOR_PANEL_BASE_HEIGHT,
+        Math.max(0, maxStackRow) * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+    );
+};
 const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
@@ -2014,47 +2067,40 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     const reportTimeoutRef = React.useRef(null);   // trailing debounce of onCenterDateChange
     const pendingDateRef   = React.useRef(null);
     const hasDragged = React.useRef(false);
-    const [dates, setDates] = React.useState(() => centeredDateRange(centerDate, 10));
+    // Future cap (req #2779 follow-up) — the end of the current ISO week (this
+    // week's Sunday, local). The elevator scrolls infinitely into the PAST but
+    // never past this day into the future. Computed once per mount; "today" is
+    // read from the wall clock so the deliberately-empty dep array is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const maxFutureDate = useMemo(() => endOfWeek(localDateStr(new Date())), []);
+    const [dates, setDates] = React.useState(() => cappedCenteredRange(centerDate, 10, maxFutureDate));
+    // Mirror of `dates` for synchronous reads inside drag/wheel/momentum handlers —
+    // lets maybeExtend check current length / size new panels without re-binding the
+    // drag effect on every extension (req #2779, mirrors Sidewalk's datesRef).
+    const datesRef = React.useRef(dates);
     const [frameHeight, setFrameHeight] = React.useState(0);
 
-    // Per-panel heights — one entry per date, sized to THAT day's chip density.
-    // Sidewalk uniforms every panel to the busiest day; Elevator lets light days
-    // stay short so a strip with one 12-chip day and 20 single-chip days isn't
-    // 21× the 12-chip height tall (req #2383 follow-up). Mirrors BeadRow's
-    // sidewalk-variant height formula so DOM heights match what BeadRow lays out.
-    //
-    // maxStackRow comes from indexMaxStackByDate, which reproduces BeadRow's
-    // placement for the active vizKey: bead uses cluster-stack (many chips
-    // collapse to a handful of rows when spread across the day), swarm uses
-    // one-lane-per-chip (maxRow = chips − 1). Without this, bead panels were
-    // sized to the swarm worst case and wasted ~80% of their vertical space.
-    //
-    // BASE_HEIGHT is intentionally low (140px) — comfortably clears the compact
-    // top chrome (req #2744: date row + wire ≈ 46px, the per-panel time axis was
-    // moved to the single shared bar at the top of the frame) plus breathing room.
-    const panelHeights = useMemo(() => {
-        const BASE_HEIGHT   = 140;
-        const bubbleOffset  = 20;
-        // req #2744 — Elevator panels suppress their per-panel time axis (a single
-        // shared axis sits at the top of the frame), so the top chrome is the
-        // compact 46 (date row + wire) instead of 80. Must match BeadRow's
-        // `chromeOffset = sidewalkPanel && hideTimeline ? 46`.
-        const chromeBottom  = 46;
-        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
-        const spaceMul      = getSpaceMultiplier(spaceKey);
-        const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
-        const maxRowByDate  = indexMaxStackByDate(requirements, sessions, timezone, vizKey);
-        return dates.map(d => {
-            const maxStackRow = maxRowByDate.get(d) || 0;
-            return Math.max(
-                BASE_HEIGHT,
-                maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
-            );
-        });
-    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
+    // Per-date max stack row — reproduces BeadRow's placement for the active
+    // vizKey: bead uses cluster-stack (many chips collapse to a handful of rows
+    // when spread across the day), swarm uses one-lane-per-chip (maxRow =
+    // chips − 1). Lifted to its own memo (req #2779) so maybeExtend can size
+    // freshly-prepended panels from the same source the render uses.
+    const maxRowByDate = useMemo(
+        () => indexMaxStackByDate(requirements, sessions, timezone, vizKey),
+        [requirements, sessions, timezone, vizKey],
+    );
+
+    // Per-panel heights — one entry per date, sized to THAT day's chip density via
+    // the shared elevatorPanelHeight helper. Sidewalk uniforms every panel to the
+    // busiest day; Elevator lets light days stay short so a strip with one 12-chip
+    // day and 20 single-chip days isn't 21× the 12-chip height tall (req #2383).
+    const panelHeights = useMemo(
+        () => dates.map(d => elevatorPanelHeight(maxRowByDate.get(d) || 0, circleDiameter, spaceKey)),
+        [dates, maxRowByDate, circleDiameter, spaceKey],
+    );
 
     // Cumulative offsets + total strip height — precomputed so indexForOffset /
-    // offsetForIndex / clampOffset don't re-scan on every frame.
+    // offsetForIndex don't re-scan on every frame.
     const panelGeom = useMemo(() => {
         const cumulative = new Array(panelHeights.length);
         let acc = 0;
@@ -2065,7 +2111,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
         return { heights: panelHeights, cumulative, stripHeight: acc };
     }, [panelHeights]);
 
-    // Ref-mirror of panelGeom so offsetForIndex / clampOffset called from a
+    // Ref-mirror of panelGeom so offsetForIndex / maybeExtend called from a
     // rebuild-path requestAnimationFrame always see the LATEST geometry — not
     // the panelHeights captured when the centerDate effect ran. Without this, a
     // rebuild that also shifts per-panel density would position the first frame
@@ -2073,6 +2119,16 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     // useLayoutEffect so the ref is current before any rAF fires.
     const panelGeomRef = React.useRef(panelGeom);
     React.useLayoutEffect(() => { panelGeomRef.current = panelGeom; }, [panelGeom]);
+
+    // Ref-mirrors so maybeExtend (captured once by the drag effect) reads the
+    // LATEST data when sizing freshly-prepended panels (req #2779). datesRef is
+    // also written synchronously inside maybeExtend so a same-frame re-entry
+    // doesn't see the pre-extension array and re-extend.
+    React.useLayoutEffect(() => { datesRef.current = dates; }, [dates]);
+    const maxRowByDateRef = React.useRef(maxRowByDate);
+    React.useLayoutEffect(() => { maxRowByDateRef.current = maxRowByDate; }, [maxRowByDate]);
+    const sizingRef = React.useRef({ circleDiameter, spaceKey });
+    React.useLayoutEffect(() => { sizingRef.current = { circleDiameter, spaceKey }; }, [circleDiameter, spaceKey]);
 
     React.useLayoutEffect(() => {
         const measure = () => {
@@ -2106,7 +2162,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
         stopAnim();
         const start = offsetRef.current;
         const delta = target - start;
-        if (Math.abs(delta) < 1) { applyOffset(target); return; }
+        if (Math.abs(delta) < 1) { applyOffset(target); maybeExtend(); return; }
         const duration = Math.min(450, 180 + Math.abs(delta) * 0.4);
         const t0 = performance.now();
         const step = (now) => {
@@ -2114,7 +2170,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
             const eased = 1 - (1 - t) ** 3;
             applyOffset(start + delta * eased);
             if (t < 1) rafRef.current = requestAnimationFrame(step);
-            else { rafRef.current = null; reportCenterIfChanged(); }
+            else { rafRef.current = null; maybeExtend(); reportCenterIfChanged(); }
         };
         rafRef.current = requestAnimationFrame(step);
     };
@@ -2134,39 +2190,106 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
         return g.heights.length - 1;
     };
 
-    // Offset that places the panel at `idx` centered in the frame (or flush
-    // to the top when the strip is shorter than the frame).
+    // Offset that places the panel at `idx` centered in the frame, then clamped
+    // so the view never scrolls past the future cap (clampOffset is a no-op until
+    // the strip reaches the cap — the past stays endless).
     const offsetForIndex = (idx) => {
         const g = panelGeomRef.current;
         if (!g || g.heights.length === 0) return 0;
         const i = Math.max(0, Math.min(g.heights.length - 1, idx));
         const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
-        const target = viewportH / 2 - g.cumulative[i] - g.heights[i] / 2;
-        return clampOffset(target);
+        return clampOffset(viewportH / 2 - g.cumulative[i] - g.heights[i] / 2);
     };
 
-    // Clamp offset so the user can't walk the strip off-screen. When the strip
-    // is shorter than the frame, lock to 0.
+    // One-sided scroll clamp for the FUTURE cap (req #2779 follow-up). The past
+    // is infinite, so there is NO upper (more-positive-offset) bound. The lower
+    // (more-negative) bound only engages once the strip's last day has reached
+    // maxFutureDate — until then the view scrolls freely and maybeExtend grows
+    // the strip toward the cap. At the cap, the strip's bottom is pinned to the
+    // viewport bottom so no empty space shows below the final day.
     const clampOffset = (y) => {
         const g = panelGeomRef.current;
+        if (!g) return y;
+        const cur = datesRef.current;
+        const atCap = maxFutureDate && cur.length > 0 && cur[cur.length - 1] >= maxFutureDate;
+        if (!atCap) return y;
         const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
-        if (!g || g.stripHeight <= viewportH) return 0;
+        if (g.stripHeight <= viewportH) return y;   // strip shorter than viewport → don't fight past extension
         const minOffset = viewportH - g.stripHeight;
-        return Math.max(minOffset, Math.min(0, y));
+        return Math.max(minOffset, y);
     };
 
-    // If panel geometry changes mid-session (data updates shifting some day's
-    // chip count), re-clamp the current offset so it stays within the new
-    // [minOffset, 0] range. Does NOT re-center — the user's scroll position is
-    // preserved wherever it was.
-    React.useEffect(() => {
-        applyOffset(clampOffset(offsetRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [panelGeom]);
+    // Infinite-scroll buffer maintenance (req #2779) — vertical analog of
+    // Sidewalk's maybeExtend, adapted for variable panel heights. When the
+    // centered panel approaches either end, prepend/append ELEVATOR_EXTEND_BY
+    // days and prune the opposite end past ELEVATOR_MAX_PANELS.
+    //
+    // The translateY compensation is the only place that differs from Sidewalk's
+    // uniform-width math: prepending days grows the strip at the top by the new
+    // panels' summed height, so we subtract that from the offset BEFORE setDates
+    // (same synchronous task → no paint between, so the visible panel never
+    // jumps). New top panels are sized via the shared elevatorPanelHeight helper
+    // so the prediction matches what the panelHeights memo renders. When pruning
+    // the top (during a downward extend) we add the removed panels' height —
+    // read from the current geometry — back to the offset.
+    //
+    // datesRef is updated synchronously so a follow-up call within the same frame
+    // doesn't see the pre-extension array and re-extend.
+    const maybeExtend = () => {
+        if (frameHeight === 0) return;
+        const cur = datesRef.current;
+        if (!cur || cur.length === 0) return;
+        const g = panelGeomRef.current;
+        if (!g || g.heights.length !== cur.length) return;   // geometry not yet synced
+        const idx = indexForOffset();
+        const distTop    = idx;
+        const distBottom = cur.length - 1 - idx;
+        const { circleDiameter: cd, spaceKey: sk } = sizingRef.current;
+        const rowMap = maxRowByDateRef.current;
+
+        if (distTop <= ELEVATOR_BUFFER_THRESHOLD) {
+            const extended = extendDates(cur, 'left', ELEVATOR_EXTEND_BY);
+            let addedTopHeight = 0;
+            for (let i = 0; i < ELEVATOR_EXTEND_BY; i++) {
+                addedTopHeight += elevatorPanelHeight(rowMap.get(extended[i]) || 0, cd, sk);
+            }
+            // Top growth pushes existing panels down; shift up to stay put.
+            applyOffset(offsetRef.current - addedTopHeight);
+            const pruned = pruneDates(extended, ELEVATOR_MAX_PANELS, 'right');
+            datesRef.current = pruned.dates;
+            setDates(pruned.dates);
+        } else if (distBottom <= ELEVATOR_BUFFER_THRESHOLD) {
+            // Future is capped at maxFutureDate (req #2779 follow-up): only add as
+            // many days as remain up to the cap. At/over the cap → add nothing
+            // (clampOffset holds the bottom wall).
+            const last = cur[cur.length - 1];
+            let addN = ELEVATOR_EXTEND_BY;
+            if (maxFutureDate) {
+                const room = Math.round(
+                    (new Date(maxFutureDate + 'T12:00:00') - new Date(last + 'T12:00:00')) / 86400000,
+                );
+                addN = Math.min(ELEVATOR_EXTEND_BY, Math.max(0, room));
+            }
+            if (addN === 0) return;   // already at the future cap
+            const extended = extendDates(cur, 'right', addN);
+            const pruned = pruneDates(extended, ELEVATOR_MAX_PANELS, 'left');
+            if (pruned.removedCount > 0) {
+                // Pruning the top removes those panels' height; everything shifts
+                // up by that much, so add it back to keep the visible panel put.
+                let removedTopHeight = 0;
+                for (let i = 0; i < pruned.removedCount; i++) removedTopHeight += g.heights[i];
+                applyOffset(offsetRef.current + removedTopHeight);
+            }
+            datesRef.current = pruned.dates;
+            setDates(pruned.dates);
+        }
+    };
 
     const REPORT_DEBOUNCE_MS = 150;
     const reportCenterIfChanged = () => {
-        const d = dates[indexForOffset()];
+        // Read from datesRef so a same-frame maybeExtend() that already updated
+        // the array (synchronously) is reflected here too.
+        const d = datesRef.current[indexForOffset()];
         if (!d || d === lastReported.current) return;
         lastReported.current = d;
         pendingDateRef.current = d;
@@ -2180,46 +2303,64 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     };
 
     // Re-centre when parent changes centerDate (e.g. top prev/next chevrons).
+    // If centerDate is outside the current strip (chevron jump, or it scrolled
+    // out after extend/prune), rebuild the strip around it. Deps are
+    // [centerDate, frameHeight] ONLY (req #2779): extend/prune changes panelGeom
+    // every scroll frame, and if this effect re-ran on that it would yank the
+    // view back to a stale centerDate mid-scroll. Geometry is read from the live
+    // panelGeomRef instead, and dates from datesRef.
     React.useEffect(() => {
-        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (frameHeight === 0 || panelGeomRef.current.stripHeight === 0) return;
         if (centerDate === lastReported.current) return;
         if (reportTimeoutRef.current) {
             clearTimeout(reportTimeoutRef.current);
             reportTimeoutRef.current = null;
             pendingDateRef.current = null;
         }
-        const idx = dates.indexOf(centerDate);
+        const cur = datesRef.current;
+        const idx = cur.indexOf(centerDate);
         if (idx < 0) {
             // Rebuild strip around the new centerDate and snap to its center.
-            const rebuilt = centeredDateRange(centerDate, 10);
+            // Clamp the effective center to the future cap so a chevron jump past
+            // this week lands on the last allowed day instead of an empty strip.
+            const effCenter = (maxFutureDate && centerDate > maxFutureDate) ? maxFutureDate : centerDate;
+            const rebuilt = cappedCenteredRange(effCenter, 10, maxFutureDate);
+            datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
             requestAnimationFrame(() => {
-                const newIdx = rebuilt.indexOf(centerDate);
-                applyOffset(offsetForIndex(newIdx));
+                const dr = datesRef.current;
+                const newIdx = dr.indexOf(effCenter);
+                applyOffset(offsetForIndex(newIdx >= 0 ? newIdx : dr.length - 1));
             });
             return;
         }
         lastReported.current = centerDate;
         animateTo(offsetForIndex(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [centerDate, frameHeight, panelGeom.stripHeight]);
+    }, [centerDate, frameHeight]);
 
-    // Initial placement — put centerDate centered in the frame.
+    // Initial placement — put centerDate centered in the frame. Runs once when
+    // frameHeight first becomes non-zero (deps [frameHeight] only, so extend/prune
+    // never re-triggers a recenter mid-scroll).
     React.useEffect(() => {
-        if (frameHeight === 0 || panelGeom.stripHeight === 0) return;
-        const idx = dates.indexOf(centerDate);
+        if (frameHeight === 0 || panelGeomRef.current.stripHeight === 0) return;
+        const idx = datesRef.current.indexOf(centerDate);
         if (idx >= 0) applyOffset(offsetForIndex(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameHeight, panelGeom.stripHeight]);
+    }, [frameHeight]);
 
-    // Drag + momentum + wheel.
+    // Drag + momentum + wheel. Bind once per frameHeight — `dates.length` is read
+    // via `datesRef` inside maybeExtend so we can extend the strip without
+    // re-binding (which would lose in-progress drag state). onMove uses
+    // delta-from-last instead of cumulative-from-startOffset because maybeExtend
+    // can shift offsetRef mid-drag (top extension); a delta formulation stays
+    // correct after that shift (req #2779, mirrors Sidewalk).
     React.useEffect(() => {
         const frame = frameRef.current;
-        if (!frame || frameHeight === 0 || panelGeom.stripHeight === 0) return;
+        if (!frame || frameHeight === 0) return;
         let isDown = false;
         let startPageY = 0;
-        let startOffset = 0;
         let lastPageY = 0;
         let lastT = 0;
 
@@ -2228,7 +2369,6 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
             isDown = true;
             hasDragged.current = false;
             startPageY = e.pageY;
-            startOffset = offsetRef.current;
             lastPageY = e.pageY;
             lastT = performance.now();
             velocityRef.current = 0;
@@ -2238,9 +2378,11 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
         };
         const onMove = (e) => {
             if (!isDown) return;
-            const dy = e.pageY - startPageY;
-            if (Math.abs(dy) > 4) hasDragged.current = true;
-            applyOffset(clampOffset(startOffset + dy));
+            const totalDy = e.pageY - startPageY;
+            if (Math.abs(totalDy) > 4) hasDragged.current = true;
+            const deltaY = e.pageY - lastPageY;
+            applyOffset(clampOffset(offsetRef.current + deltaY));
+            maybeExtend();
             const now = performance.now();
             const dt = Math.max(1, now - lastT);
             velocityRef.current = ((e.pageY - lastPageY) / dt) * 16;
@@ -2255,13 +2397,15 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
             const decay = () => {
                 if (Math.abs(velocityRef.current) < 0.4) {
                     rafRef.current = null;
-                    reportCenterIfChanged();
+                    reportCenterIfChanged();       // no snap — stop wherever momentum ends
                     return;
                 }
                 const raw = offsetRef.current + velocityRef.current;
                 const clamped = clampOffset(raw);
                 applyOffset(clamped);
+                maybeExtend();
                 if (clamped !== raw) {
+                    // Hit the future wall — kill momentum and stop here.
                     velocityRef.current = 0;
                     rafRef.current = null;
                     reportCenterIfChanged();
@@ -2287,6 +2431,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
             e.preventDefault();
             stopAnim();
             applyOffset(clampOffset(offsetRef.current - dyRaw));
+            maybeExtend();
             reportCenterIfChanged();
         };
 
@@ -2304,7 +2449,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
             stopAnim();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameHeight, panelGeom.stripHeight, dates.length]);
+    }, [frameHeight]);
 
     return (
         <Box className="ts-elevator" data-testid="ts-elevator" ref={frameRef}>

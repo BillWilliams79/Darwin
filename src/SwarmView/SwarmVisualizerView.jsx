@@ -48,7 +48,7 @@ const SwarmVisualizerView = () => {
 
     // Query date range — matches the calendar's time-series logic verbatim:
     //   Sidewalk on (Day)      → ±15 days around currentDate (21-day panel strip)
-    //   Elevator on (Week)     → ±15 days around currentDate (vertical 21-day strip)
+    //   Elevator on (Week)     → Monday(currentDate) ±28d (infinite strip; req #2779/#2777)
     //   Week view              → Mon..Sun of currentDate's week, ±1 day edges
     //   Day view               → ±1 day around currentDate (tz spillover safety)
     const fetchRange = useMemo(() => {
@@ -56,16 +56,19 @@ const SwarmVisualizerView = () => {
             return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
         }
         if (elevatorOn && isWeekView) {
-            // The elevator renders a FIXED 21-day strip (±10 days) that only
-            // rebuilds on a chevron/Today jump — NOT while scrolling. Yet the
-            // scroll reports each crossed day up as `currentDate`. Anchoring the
+            // The elevator is an INFINITE vertical strip (req #2779) — drag/wheel/
+            // momentum extend it indefinitely into past/future. The scroll reports
+            // the centered day up as `currentDate`, so `currentDate` always tracks
+            // the visible center and the window follows the scroll. Anchoring the
             // fetch window directly on `currentDate` slid it per-day, generating a
             // new query key on every scroll tick and reloading the data (req #2777).
             // Quantize the window to the Monday of currentDate's week and widen it
-            // to ±28d so it fully covers the strip from any scroll position within
-            // that week; it then only changes when scrolling crosses a week
-            // boundary (a handful of times per sweep), which keepPreviousData on
-            // the query masks without a blank flash.
+            // to ±28d: that covers the handful of panels visible around center from
+            // any scroll position within the week, and it only changes when the
+            // center crosses a week boundary (a handful of times per sweep), which
+            // keepPreviousData on the query masks without a blank flash. (A fast
+            // fling past the window briefly shows un-filled days until momentum
+            // settles and the debounced refetch lands.)
             const monday = mondayOf(currentDate);
             return { start: shiftDay(monday, -28), end: shiftDay(monday, 28) };
         }
