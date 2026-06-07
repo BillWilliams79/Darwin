@@ -56,7 +56,8 @@ function buildPatternFromProject(row) {
 }
 
 export function useBuildPatterns() {
-    const { darwinUri } = useContext(AppContext);
+    // Build Visualizer is a dev-only tool pinned to `darwin_dev` (req #2760).
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const creatorFk = profile?.id || null;
     const queryClient = useQueryClient();

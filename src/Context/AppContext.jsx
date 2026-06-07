@@ -38,6 +38,22 @@ const API_BASE = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng';
 // `darwinUri` honors. Req #2697.
 const DARWIN_OPS_URI = `${API_BASE}/darwin`;
 
+// `darwinBuildVizUri` always points at the `darwin_dev` schema regardless of
+// dev/prod build mode. The Build Visualizer is a dev-only design tool whose 5
+// tables (build_projects, branches, builds, customers, customer_releases) were
+// removed from production `darwin` and now live ONLY in `darwin_dev` (req
+// #2760). Every consumer of those tables (the /build-visualizer page hooks, and
+// the /customers + /customer-releases pages) reads/writes through this URI.
+// Pinning here means build-viz works (a) when a dev server is deliberately
+// pointed at production (`VITE_DARWIN_DATABASE=darwin`) — the proximate cause of
+// the req #2754 confusion — and (b) for the /customers and /customer-releases
+// routes, which (unlike /build-visualizer) are NOT `import.meta.env.DEV`-gated
+// in index.jsx and so remain reachable by direct URL in production (their nav
+// links are hidden): without this pin they would 500 against the now-dropped
+// production tables. Never depends on the prod/dev USER-data split `darwinUri`
+// honors.
+const DARWIN_BUILDVIZ_URI = `${API_BASE}/darwin_dev`;
+
 // Context provider for general application data, URI and color schemes
 export const AppContextProvider = ({ children }) => {
 
@@ -47,6 +63,7 @@ export const AppContextProvider = ({ children }) => {
         <AppContext.Provider value={{
             darwinUri, setDarwinUri, database,
             darwinOpsUri: DARWIN_OPS_URI,
+            darwinBuildVizUri: DARWIN_BUILDVIZ_URI,
         }} >
             {children}
         </AppContext.Provider>
