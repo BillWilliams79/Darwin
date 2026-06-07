@@ -13,11 +13,21 @@ import TimeSeriesView from '../CalendarFC/TimeSeriesView';
 
 // Shift a YYYY-MM-DD string by N days using local calendar parts, so east-of-UTC
 // timezones don't roll the result backward.
-const shiftDay = (dateStr, delta) => {
+export const shiftDay = (dateStr, delta) => {
     if (!dateStr) return dateStr;
     const d = new Date(dateStr + 'T12:00:00');
     d.setDate(d.getDate() + delta);
     return localDateStr(d);
+};
+
+// Monday of the week containing `dateStr` (local calendar). Used to quantize the
+// elevator fetch window to week boundaries so scrolling within a week never
+// slides the window (req #2777).
+export const mondayOf = (dateStr) => {
+    if (!dateStr) return dateStr;
+    const d = new Date(dateStr + 'T12:00:00');
+    const mondayOffset = (d.getDay() + 6) % 7;
+    return shiftDay(dateStr, -mondayOffset);
 };
 
 const SwarmVisualizerView = () => {
@@ -46,7 +56,18 @@ const SwarmVisualizerView = () => {
             return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
         }
         if (elevatorOn && isWeekView) {
-            return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
+            // The elevator renders a FIXED 21-day strip (±10 days) that only
+            // rebuilds on a chevron/Today jump — NOT while scrolling. Yet the
+            // scroll reports each crossed day up as `currentDate`. Anchoring the
+            // fetch window directly on `currentDate` slid it per-day, generating a
+            // new query key on every scroll tick and reloading the data (req #2777).
+            // Quantize the window to the Monday of currentDate's week and widen it
+            // to ±28d so it fully covers the strip from any scroll position within
+            // that week; it then only changes when scrolling crosses a week
+            // boundary (a handful of times per sweep), which keepPreviousData on
+            // the query masks without a blank flash.
+            const monday = mondayOf(currentDate);
+            return { start: shiftDay(monday, -28), end: shiftDay(monday, 28) };
         }
         if (isWeekView) {
             const d = new Date(currentDate + 'T12:00:00');
