@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -244,6 +244,12 @@ export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
+        // Visualizer Sidewalk/Elevator scroll slides this date window as the
+        // centered day changes, producing a new query key per window. Keep the
+        // previous window's rows on screen while the next window loads so the
+        // strip scrolls smoothly instead of blanking out and re-rendering on
+        // every refetch (req #2777).
+        placeholderData: keepPreviousData,
     });
 }
 
