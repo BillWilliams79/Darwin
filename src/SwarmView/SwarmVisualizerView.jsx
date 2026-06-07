@@ -58,14 +58,15 @@ const SwarmVisualizerView = () => {
         if (elevatorOn && isWeekView) {
             // The elevator is an INFINITE vertical strip (req #2779) — drag/wheel/
             // momentum extend it indefinitely into past/future. The scroll reports
-            // the centered day up as `currentDate`, so `currentDate` always tracks
-            // the visible center and the window follows the scroll. Anchoring the
-            // fetch window directly on `currentDate` slid it per-day, generating a
-            // new query key on every scroll tick and reloading the data (req #2777).
-            // Quantize the window to the Monday of currentDate's week and widen it
-            // to ±28d: that covers the handful of panels visible around center from
-            // any scroll position within the week, and it only changes when the
-            // center crosses a week boundary (a handful of times per sweep), which
+            // the TOP day up as `currentDate` (req #2781 — the focus day sits at the
+            // top of the frame), so `currentDate` tracks the day at the viewport top
+            // and the window follows the scroll. Anchoring the fetch window directly
+            // on `currentDate` slid it per-day, generating a new query key on every
+            // scroll tick and reloading the data (req #2777). Quantize the window to
+            // the Monday of currentDate's week and widen it to ±28d: that covers the
+            // handful of panels visible around the top day from any scroll position
+            // within the week, and it only changes when the top day crosses a week
+            // boundary (a handful of times per sweep), which
             // keepPreviousData on the query masks without a blank flash. (A fast
             // fling past the window briefly shows un-filled days until momentum
             // settles and the debounced refetch lands.)
