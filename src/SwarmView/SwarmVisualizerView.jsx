@@ -43,6 +43,7 @@ const SwarmVisualizerView = () => {
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
+    const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
 
     const isWeekView = viewType === 'week';
@@ -203,6 +204,7 @@ const SwarmVisualizerView = () => {
                 elevatorOn={elevatorOn}
                 dataKey={dataKey}
                 titlesOn={titlesOn}
+                completesOn={completesOn}
                 isWeekView={isWeekView}
                 categoryList={categoryList}
                 onChipClick={onChipClick}

@@ -615,6 +615,7 @@ const BeadRow = ({
     zoomKey = DEFAULT_ZOOM,
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     titlesOn = false,             // req #2556 — render req title to right of bubble
+    completesOn = false,          // req #2790 — show completion-terminus badge (off by default)
     crossDays = [], onChipClick, onSwarmStartClick, onUndoClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     hideTimeline = false,    // req #2744 — suppress the per-row time axis; a single
@@ -1556,7 +1557,7 @@ const BeadRow = ({
                             distinguishes a primary-ai closeout. Clickable through
                             to the swarm-complete detail (stopPropagation so the
                             bubble's own requirement click doesn't also fire). */}
-                        {chip.swarmComplete && !chip.isUndone && !chip.isPhantom && (() => {
+                        {completesOn && chip.swarmComplete && !chip.isUndone && !chip.isPhantom && (() => {
                             const sc = chip.swarmComplete;
                             const ok = sc.status === 'ok';
                             const bg = ok ? '#4caf50' : (sc.status === 'error' ? '#ffa726' : '#90a4ae');
@@ -2567,6 +2568,7 @@ const TimeSeriesView = ({
     elevatorOn = false,
     dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
     titlesOn = false,                // req #2556 — render req title to right of bubble
+    completesOn = false,             // req #2790 — show completion-terminus badge (off by default)
     isWeekView = false,
     categoryList = [],
     onChipClick,
@@ -2821,6 +2823,8 @@ const TimeSeriesView = ({
             vizKey={vizKey}
             dataKey={dataKey}
             titlesOn={titlesOn}
+
+            completesOn={completesOn}
             tooltipFontSize={tooltipFontSize}
             circleDiameter={circleDiameter}
             spaceKey={spaceKey}
@@ -2862,6 +2866,8 @@ const TimeSeriesView = ({
                     vizKey={vizKey}
                     dataKey={dataKey}
                     titlesOn={titlesOn}
+
+                    completesOn={completesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -2893,6 +2899,8 @@ const TimeSeriesView = ({
                     vizKey={vizKey}
                     dataKey={dataKey}
                     titlesOn={titlesOn}
+
+                    completesOn={completesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}

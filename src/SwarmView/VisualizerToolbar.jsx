@@ -47,6 +47,7 @@ const VisualizerToolbar = () => {
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
+    const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setVizKey      = useSwarmVisualizerStore(s => s.setVizKey);
@@ -55,6 +56,7 @@ const VisualizerToolbar = () => {
     const setElevatorOn  = useSwarmVisualizerStore(s => s.setElevatorOn);
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
+    const setCompletesOn = useSwarmVisualizerStore(s => s.setCompletesOn);
 
     const isWeekView = viewType === 'week';
     const todayStr = useMemo(() => localDateStr(), []);
@@ -105,6 +107,10 @@ const VisualizerToolbar = () => {
     const handleTitlesClick = useCallback(() => {
         setTitlesOn(!titlesOn);
     }, [titlesOn, setTitlesOn]);
+
+    const handleCompletesClick = useCallback(() => {
+        setCompletesOn(!completesOn);
+    }, [completesOn, setCompletesOn]);
 
     // Auto-off sidewalk/elevator when the active layout stops applying.
     React.useEffect(() => {
@@ -179,6 +185,12 @@ const VisualizerToolbar = () => {
                               onChange={handleTitlesClick}
                               data-testid="timeseries-titles">
                     Title
+                </ToggleButton>
+                <ToggleButton value="completes" className="cal-toggle-btn"
+                              selected={completesOn}
+                              onChange={handleCompletesClick}
+                              data-testid="timeseries-completes">
+                    Done
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
