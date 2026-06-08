@@ -222,10 +222,13 @@ const RequirementDetail = () => {
     const executeStatusChange = (newStatus) => {
         const now = new Date().toISOString();
 
+        // wontfix is a terminal state like met — both set completed_at (req #2783)
+        const setsCompleted = newStatus === 'met' || newStatus === 'wontfix';
+
         const updates = {
             requirement_status: newStatus,
             started_at: newStatus === 'development' ? now : 'NULL',
-            completed_at: newStatus === 'met' ? now : 'NULL',
+            completed_at: setsCompleted ? now : 'NULL',
             deferred_at: newStatus === 'deferred' ? now : 'NULL',
         };
 
@@ -233,7 +236,7 @@ const RequirementDetail = () => {
             ...prev,
             requirement_status: newStatus,
             started_at: newStatus === 'development' ? now : null,
-            completed_at: newStatus === 'met' ? now : null,
+            completed_at: setsCompleted ? now : null,
             deferred_at: newStatus === 'deferred' ? now : null,
         }));
 
@@ -253,8 +256,8 @@ const RequirementDetail = () => {
     const handleStatusChange = (event, newStatus) => {
         if (newStatus === null || newStatus === currentStatus) return;
 
-        // Require confirmation when leaving met state
-        if (currentStatus === 'met') {
+        // Require confirmation when leaving a terminal state (met or wontfix — req #2783)
+        if (currentStatus === 'met' || currentStatus === 'wontfix') {
             requirementReopen.openDialog({ targetStatus: newStatus });
             return;
         }
@@ -398,6 +401,7 @@ const RequirementDetail = () => {
                         { value: 'development', label: 'Dev',       chipSx: { bgcolor: '#81c784', color: '#000' } },
                         { value: 'met',         label: 'Met',       chipSx: { bgcolor: '#2e7d32', color: '#fff' } },
                         { value: 'deferred',    label: 'Deferred',  chipSx: { bgcolor: '#ff9800', color: '#fff' } },
+                        { value: 'wontfix',     label: "Won't Fix", chipSx: { bgcolor: '#9e9e9e', color: '#fff' } },
                     ].map(({ value, label, color, chipSx }) => {
                         const selected = currentStatus === value;
                         return (
@@ -591,7 +595,7 @@ const RequirementDetail = () => {
                         </Typography>
                     </Box>
                     <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>Requirement Met</Typography>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>{requirement.requirement_status === 'wontfix' ? "Won't Fix" : 'Requirement Met'}</Typography>
                         <Typography variant="body2" data-testid="requirement-completed-at">
                             {requirement.completed_at ? formatDateTime(requirement.completed_at, timezone) : '—'}
                         </Typography>

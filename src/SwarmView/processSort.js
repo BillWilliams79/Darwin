@@ -2,13 +2,14 @@
 // Consumed by CategoryCard.jsx.
 
 export const STATUS_SORT_PROCESS = {
-    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5
+    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5, wontfix: 6
 };
 
 // Reverse-order rank for status sort (req #2406). Literal user spec:
-// deferred, met, development, swarm_ready, approved, authoring.
+// deferred, met, development, swarm_ready, approved, authoring. wontfix (req #2783)
+// is the last category overall, so it follows the terminal block (deferred, met).
 export const STATUS_SORT_PROCESS_REVERSE = {
-    deferred: 0, met: 1, development: 2, swarm_ready: 3, approved: 4, authoring: 5
+    deferred: 0, met: 1, wontfix: 2, development: 3, swarm_ready: 4, approved: 5, authoring: 6
 };
 
 // Within-group secondary sort. Shared by processSort and processSortReverse —
@@ -26,7 +27,9 @@ const secondarySort = (a, b) => {
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
             return bTime - aTime;  // most recently deferred first
         }
-        case 'met': {
+        case 'met':
+        case 'wontfix': {
+            // wontfix is terminal like met — both timestamp via completed_at (req #2783)
             const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
             const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
             return bTime - aTime;  // most recently completed first

@@ -47,7 +47,7 @@ const WRAP_CELL_SX = {
 };
 
 const STATUS_SORT_ORDER = {
-    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5,
+    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5, wontfix: 6,
 };
 
 const AUTONOMY_OPTIONS = ['discuss', 'planned', 'implemented', 'deployed'];

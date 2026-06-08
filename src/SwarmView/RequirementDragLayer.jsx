@@ -68,7 +68,7 @@ const RequirementDragLayer = () => {
                     value={item?.title || ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
-                    sx={{...(item?.requirement_status === 'met' && { textDecoration: 'line-through' })}}
+                    sx={{...(item?.requirement_status === 'met' && { textDecoration: 'line-through' }), ...((item?.requirement_status === 'deferred' || item?.requirement_status === 'wontfix') && { opacity: 0.5 })}}
                 />
                 <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
                     <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
