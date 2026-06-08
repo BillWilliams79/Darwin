@@ -102,7 +102,7 @@ const SwarmVisualizerView = () => {
     // session_count, wall_seconds, arguments for cluster + tooltip display.
     const { data: swarmStarts = [] } = useAllSwarmStarts(
         profile?.userName,
-        { fields: 'id,started_at,session_count,wall_seconds,turn_count,auto_start,arguments,autonomy_filter' },
+        { fields: 'id,started_at,session_count,wall_seconds,turn_count,auto_start,arguments' },
     );
     const { data: swarmStartSessions = [] } = useAllSwarmStartSessions(profile?.userName);
     // Req #2719 — overlay tombstones in place of swarm-start anchors for

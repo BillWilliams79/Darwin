@@ -49,7 +49,7 @@ export const sessions = createEntityQueries({
 // useSwarmStartById (creator-scoped key).
 // ---------------------------------------------------------------------------
 const SWARM_START_DEFAULT_FIELDS =
-    'id,arguments,autonomy_filter,auto_start,session_count,' +
+    'id,arguments,auto_start,session_count,' +
     'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
     'wall_seconds,turn_count,start_summary,telemetry,started_at,creator_fk';
 

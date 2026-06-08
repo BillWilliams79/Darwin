@@ -36,17 +36,6 @@ import { DataGrid } from '@mui/x-data-grid';
 
 const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs'];
 
-const autonomyChipProps = (filter) => {
-    if (!filter) return null;
-    switch (filter) {
-        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return { color: 'default' };
-    }
-};
-
 const swarmStatusChipProps = (status) => {
     switch (status) {
         case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
@@ -191,10 +180,6 @@ export default function SwarmStartDetail() {
                     /swarm-start{row.arguments ? ` ${row.arguments}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                    {row.autonomy_filter && (
-                        <Chip label={`autonomy: ${row.autonomy_filter}`} size="small"
-                              {...autonomyChipProps(row.autonomy_filter)} />
-                    )}
                     {row.auto_start ? <Chip label="auto-start" size="small" color="primary" /> : null}
                     {/* Req #2494 — chip is now a real anchor link to the Linked Sessions
                         table below; smooth-scrolls into view on click and is keyboard-
