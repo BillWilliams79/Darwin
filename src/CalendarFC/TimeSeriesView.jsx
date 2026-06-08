@@ -1349,12 +1349,6 @@ const BeadRow = ({
                                 <span>{ss.turn_count}</span>
                             </div>
                         )}
-                        {ss.autonomy_filter && (
-                            <div className="ts-datacard-row">
-                                <span className="ts-datacard-key">Autonomy</span>
-                                <span>{ss.autonomy_filter}</span>
-                            </div>
-                        )}
                         {ss.auto_start ? (
                             <div className="ts-datacard-row">
                                 <span className="ts-datacard-key">Auto-Start</span>

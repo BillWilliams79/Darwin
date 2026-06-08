@@ -36,8 +36,6 @@ const WALL_BUCKETS = [
 // session_count histogram buckets: each integer 0..5 is its own bucket, 6+ collapsed.
 const SESSION_BUCKETS = ['0', '1', '2', '3', '4', '5', '6+'];
 
-const AUTONOMY_VALUES = ['discuss', 'planned', 'implemented', 'deployed'];
-
 // Pure aggregator — rows → stats object. Exported for unit testing.
 export function computeSwarmStartStats(rows) {
     const total = rows.length;
@@ -53,8 +51,6 @@ export function computeSwarmStartStats(rows) {
             sessionsHistogram: SESSION_BUCKETS.map(label => ({ label, count: 0 })),
             wallHistogram: WALL_BUCKETS.map(b => ({ label: b.label, count: 0 })),
             topPatterns: [],
-            autonomyBreakdown: AUTONOMY_VALUES.map(v => ({ label: v, count: 0 }))
-                                              .concat([{ label: 'none', count: 0 }]),
         };
     }
 
@@ -70,9 +66,6 @@ export function computeSwarmStartStats(rows) {
     const sessionsHistMap = Object.fromEntries(SESSION_BUCKETS.map(b => [b, 0]));
     const wallHistMap = Object.fromEntries(WALL_BUCKETS.map(b => [b.label, 0]));
     const patterns = new Map(); // key → {pattern, invocations, sessions, wallSum, wallCount}
-    const autonomyMap = Object.fromEntries(
-        AUTONOMY_VALUES.concat(['none']).map(v => [v, 0])
-    );
 
     for (const row of rows) {
         const sessionCount = Number(row.session_count) || 0;
@@ -111,12 +104,6 @@ export function computeSwarmStartStats(rows) {
             existing.wallCount += 1;
         }
         patterns.set(argsKey, existing);
-
-        // Autonomy breakdown
-        const autonomy = row.autonomy_filter && AUTONOMY_VALUES.includes(row.autonomy_filter)
-            ? row.autonomy_filter
-            : 'none';
-        autonomyMap[autonomy] += 1;
     }
 
     const topPatterns = Array.from(patterns.values())
@@ -140,9 +127,6 @@ export function computeSwarmStartStats(rows) {
         sessionsHistogram: SESSION_BUCKETS.map(label => ({ label, count: sessionsHistMap[label] || 0 })),
         wallHistogram: WALL_BUCKETS.map(b => ({ label: b.label, count: wallHistMap[b.label] || 0 })),
         topPatterns,
-        autonomyBreakdown: AUTONOMY_VALUES.concat(['none']).map(label => ({
-            label, count: autonomyMap[label] || 0,
-        })),
     };
 }
 
@@ -215,7 +199,7 @@ export default function SwarmStartsStatsView({ rows = [] }) {
         return (
             <Box sx={{ px: 3, pt: 1, maxWidth: STATS_WIDTH }} data-testid="swarm-starts-stats-empty">
                 <Typography color="text.secondary">
-                    No /swarm-start invocations match the current filter.
+                    No /swarm-start invocations recorded.
                 </Typography>
             </Box>
         );
@@ -285,28 +269,6 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                             <RTooltip {...tooltipStyle}
                                       formatter={(v) => [`${v} invocation${v === 1 ? '' : 's'}`, null]} />
                             <Bar dataKey="count" fill="#7E57C2" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                <ChartCard
-                    title="Autonomy Filter Breakdown"
-                    subtitle="How often each autonomy keyword is used"
-                    height={200}
-                    testId="chart-autonomy-breakdown"
-                >
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={stats.autonomyBreakdown}
-                                  layout="vertical"
-                                  margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                            <XAxis type="number" allowDecimals={false}
-                                   tick={{ fill: '#9a9186', fontSize: 12 }} />
-                            <YAxis type="category" dataKey="label" width={100}
-                                   tick={{ fill: '#9a9186', fontSize: 12, textTransform: 'capitalize' }} />
-                            <RTooltip {...tooltipStyle}
-                                      formatter={(v) => [`${v} invocation${v === 1 ? '' : 's'}`, null]} />
-                            <Bar dataKey="count" fill="#42A5F5" radius={[0, 4, 4, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
                 </ChartCard>
