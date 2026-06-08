@@ -148,18 +148,6 @@ export default function SwarmUndoDetail() {
                         sx={{ textTransform: 'capitalize',
                               ...((coordinationChipProps(undo.coordination_type)?.sx) || {}) }} />
                 : <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>],
-            ['Session', undo.session_fk
-                ? <Box component="span"
-                       sx={{ fontFamily: 'monospace', cursor: 'pointer',
-                              color: 'primary.main' }}
-                       onClick={() => navigate(`/swarm/session/${undo.session_fk}`,
-                                               { state: { from: location.pathname } })}>
-                    #{undo.session_fk}
-                  </Box>
-                : <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                              title="Session row was deleted by /swarm-undo; snapshot columns preserve link history.">
-                    (gone)
-                  </Typography>],
             ['Swarm Start', undo.swarm_start_fk_at_undo
                 ? <Box component="span"
                        sx={{ fontFamily: 'monospace', cursor: 'pointer',

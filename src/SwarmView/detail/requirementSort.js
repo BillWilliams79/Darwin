@@ -1,6 +1,6 @@
 // Sort helpers for the RequirementDetail sibling list.
-// Must stay in sync with CategoryCard.activeSort so the row number on the
-// card matches the displayIndex in the single-requirement editor.
+// Must stay in sync with CategoryCard.activeSort so prev/next navigation in the
+// single-requirement editor matches the row order shown on the category card.
 
 export const STATUS_SORT = {
     authoring: 0,

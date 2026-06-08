@@ -340,7 +340,6 @@ const RequirementDetail = () => {
 
     const prevId = currentIndex > 0 ? sortedSiblings[currentIndex - 1]?.id : null;
     const nextId = currentIndex >= 0 && currentIndex < sortedSiblings.length - 1 ? sortedSiblings[currentIndex + 1]?.id : null;
-    const displayIndex = currentIndex >= 0 ? currentIndex + 1 : null;
 
     const titleOverflow = Math.max(0, (requirement?.title || '').length - TITLE_SOFT_LIMIT);
 
@@ -536,10 +535,7 @@ const RequirementDetail = () => {
                     <Box component="span">—</Box>
                 )}
                 {!isNew && (
-                    <>
-                        <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
-                        <Box component="span">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Category Order - <span data-testid="requirement-index">{displayIndex ?? '—'}</span></Box>
-                    </>
+                    <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
                 )}
             </Box>
 
