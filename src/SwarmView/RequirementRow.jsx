@@ -20,6 +20,7 @@ import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import RateReviewIcon from '@mui/icons-material/RateReview';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
+import BlockIcon from '@mui/icons-material/Block';
 import DescriptionIcon from '@mui/icons-material/Description';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
@@ -168,6 +169,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         if (requirement.id === '') return null;
         if (status === 'met')          return <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />;
         if (status === 'deferred')     return <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />;
+        if (status === 'wontfix')      return <BlockIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />;
         if (sessionStatus === 'review') return <RateReviewIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
         if (sessionStatus === 'paused') return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
         if (sessionStatus)             return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
@@ -178,7 +180,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     };
 
     const statusTooltip = {
-        met: 'Met', deferred: 'Deferred', development: 'Development',
+        met: 'Met', deferred: 'Deferred', wontfix: "Won't Fix", development: 'Development',
         swarm_ready: 'Swarm-Start — click to cycle', approved: 'Approved — click to cycle',
         authoring: 'Authoring — click to cycle',
     };
@@ -353,7 +355,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...(status === 'deferred' && {opacity: 0.5}),}}
+                        sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...((status === 'deferred' || status === 'wontfix') && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         key={`title-${requirement.id}`}

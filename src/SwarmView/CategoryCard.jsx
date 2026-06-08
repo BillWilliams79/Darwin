@@ -679,7 +679,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     // STATUS_SORT_PROCESS, processSort, processSortReverse imported from ./processSort
 
-    const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2 };
+    const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2, wontfix: 3 };
 
     const activeSort = (a, b) => {
         if (a.id === '') return 1;
@@ -698,6 +698,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
             const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
             const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
+            if (aTime !== bTime) return bTime - aTime;  // most recent first
+        }
+        if (a.requirement_status === 'wontfix' && b.requirement_status === 'wontfix') {
+            // wontfix timestamps via completed_at (terminal, like met — req #2783)
+            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;  // most recent first
         }
         // Hand mode (req #2417): sort_order ASC within the active group, NULL last,

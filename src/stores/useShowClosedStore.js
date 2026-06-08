@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 export const ALL_SESSION_STATUSES = ['starting', 'active', 'review', 'paused', 'completing', 'completed'];
 export const DEFAULT_SESSION_STATUSES = ['starting', 'active', 'review', 'completing'];
 
-export const ALL_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred', 'met'];
+export const ALL_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred', 'met', 'wontfix'];
 export const DEFAULT_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development'];
 
 export const useShowClosedStore = create(
