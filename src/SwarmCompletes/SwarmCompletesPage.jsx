@@ -69,8 +69,7 @@ export default function SwarmCompletesPage() {
         {
             field: 'skill_name',
             headerName: 'Skill',
-            flex: 1,
-            minWidth: 200,
+            width: 250,
             renderCell: (params) => (
                 <Chip label={params.value} size="small"
                       {...skillChipProps(params.value)}
