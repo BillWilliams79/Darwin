@@ -148,7 +148,9 @@ function extractBalancedJson(text, fromIndex) {
 //     attribution collapses; instead it emits PRIMARY_PHASE_TIMINGS with
 //     deterministic per-phase WALL-CLOCK seconds.
 // Returns { tokenPhases, wallPhases } — either may be empty.
-function parsePhaseBreakdown(telemetry) {
+// Exported so the stats view (SwarmCompletesStatsView, req #2794) can aggregate
+// per-phase token costs across every closeout without duplicating the parser.
+export function parsePhaseBreakdown(telemetry) {
     const result = { tokenPhases: [], wallPhases: [] };
     if (!telemetry || typeof telemetry !== 'string') return result;
 
@@ -166,6 +168,10 @@ function parsePhaseBreakdown(telemetry) {
                 result.tokenPhases.push({
                     phase, input, output, cacheWrite, cacheRead,
                     turnCount: Number(v.turn_count) || 0,
+                    // Per-phase wall is carried alongside the token costs in the
+                    // same JSON; surfaced for the stats Phase Cost Leaderboard
+                    // (req #2794). The detail page ignores it harmlessly.
+                    wall: Number(v.wall_seconds) || 0,
                     total: input + output + cacheWrite + cacheRead,
                 });
             }
