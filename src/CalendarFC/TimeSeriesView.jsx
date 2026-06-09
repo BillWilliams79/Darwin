@@ -59,6 +59,10 @@ export const countChipsForDate = (requirements, sessions, date, timezone, vizKey
 // |Δ leftPct| so the direction of traversal doesn't change what counts as a
 // cluster. Exported for unit-test coverage.
 const MAX_ROWS = 24;
+// Stable empty array (req #2796) — used as the week-stack `crossDays` fallback so
+// a day with no cross-day entries passes the SAME reference every parent render
+// instead of a fresh `[]` literal, which would defeat BeadRow's React.memo.
+const EMPTY_CROSS_DAYS = [];
 export const assignRows = (chips, minGapPct, topDown = false) => {
     const sorted = [...chips].sort((a, b) =>
         topDown ? b.leftPct - a.leftPct : a.leftPct - b.leftPct
@@ -609,7 +613,15 @@ const DayLabels = ({ labels, timezone, inlineCount = null }) => (
 );
 
 // ─────────── Per-day bead row (reusable — 1 instance for day, 7 for week) ─────
-const BeadRow = ({
+// React.memo (req #2796) — the visualizer strip (Sidewalk/Elevator) maps this
+// component once per day panel (up to 60). Every scroll tick updates state
+// (infinite-scroll `setDates` + debounced `setCurrentDate`), re-running the
+// parent `dates.map(...)`. Without memo, ALL panels re-render and reconcile
+// thousands of SVG nodes even when their date/data are unchanged — the
+// 300–1000ms long-task violations. With memo + the stable refs feeding
+// {...rowProps} (memoized Maps, useCallback'd handlers, week-quantized query
+// data per req #2777), only the 1–2 panels whose props actually change re-render.
+const BeadRow = React.memo(({
     requirements, sessions, categoryList, selectedDate, timezone,
     beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
@@ -1746,7 +1758,8 @@ const BeadRow = ({
                 standalone absolute badge was retired in req #2747. */}
         </Box>
     );
-};
+});
+BeadRow.displayName = 'BeadRow';
 
 // ─────────── Sidewalk — transform-based pure-drag horizontal scroller ─────────
 // The outer frame is fixed (width: 100%, overflow: hidden). The inner flex strip
@@ -2832,7 +2845,7 @@ const TimeSeriesView = ({
             categoryList={categoryList}
             isWeekView={isWeekView}
             hideTimeline={isWeekView}
-            crossDays={crossDayMap.get(d) || []}
+            crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
             onChipClick={onChipClick}
             onSwarmStartClick={onSwarmStartClick}
             onUndoClick={onUndoClick}
