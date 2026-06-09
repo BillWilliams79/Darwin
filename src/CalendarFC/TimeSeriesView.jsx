@@ -136,12 +136,20 @@ export const swarmStartBarX = (markerMode, leftPct, startPct, gapPx) => {
 //              the visible window (panels in the past relative to the wall
 //              clock).
 //
+// The phantom BUBBLE is the "in progress, right now" marker, so it renders
+// ONLY on the panel that contains "now" (the current day). On the start day and
+// any intervening day of a multi-day session the line must continue to the panel
+// edge with NO bubble — that pass-through is drawn by the cross-day line path
+// (`crossDayMap`, req #2798), not the phantom. Hence the `in / null` case below
+// returns null instead of parking a bubble at the right edge (req #2798 — was
+// the "bubble at midnight" bug).
+//
 // | startPct | nowPct   | Behaviour                                       |
 // |----------|----------|-------------------------------------------------|
 // | in       | in       | start at startPct, head at nowPct (same day)    |
-// | in       | null     | start at startPct, head at 100% (open-day panel |
-// |          |          |   viewed retrospectively — session was still    |
-// |          |          |   active at end of that panel)                  |
+// | in       | null     | null — not the current day; cross-day line draws|
+// |          |          |   the pass-through to the edge, no bubble here   |
+// |          |          |   (req #2798)                                    |
 // | null     | in       | start at 0% (clamped), head at nowPct           |
 // |          |          |   (today's panel; session opened earlier and    |
 // |          |          |   is still in progress) — dashed line trails    |
@@ -180,7 +188,10 @@ export const computePhantomPlacement = (startPct, nowPct) => {
         return { phantomStartPct: startPct, phantomLeftPct: nowPct, startClamped: false };
     }
     if (startIn && !nowIn) {
-        return { phantomStartPct: startPct, phantomLeftPct: 100, startClamped: false };
+        // Start visible but "now" is on a later panel — this is the start (or an
+        // intervening) day of a multi-day in-progress session. No bubble belongs
+        // here; the cross-day dashed line carries it to the panel edge (req #2798).
+        return null;
     }
     if (!startIn && nowIn) {
         return { phantomStartPct: 0, phantomLeftPct: nowPct, startClamped: true };
@@ -1078,10 +1089,14 @@ const BeadRow = React.memo(({
                     {crossDayPlaced.map((cd, i) => {
                         const yBottom = bubbleCenterCss(cd.lane);
                         const key = `xd-${cd.sessionId}-${cd.role}-${i}`;
+                        // Req #2798 — an in-progress session's pass-through reads as
+                        // one live line across every day: green (#43A047, 2px) to
+                        // match today's phantom line + ring. Completed sessions keep
+                        // the grey-blue tail. Both stay dashed (ts-swarm-line-clamped).
                         const hLine = {
                             className: 'ts-swarm-line ts-swarm-line-clamped',
-                            stroke: 'rgba(96,125,139,0.85)',
-                            strokeWidth: 1.5,
+                            stroke: cd.inProgress ? '#43A047' : 'rgba(96,125,139,0.85)',
+                            strokeWidth: cd.inProgress ? 2 : 1.5,
                             y1: yBottom,
                             y2: yBottom,
                         };
@@ -1118,8 +1133,8 @@ const BeadRow = React.memo(({
                                                 </div>
                                             )}
                                             <div className="ts-datacard-row">
-                                                <span className="ts-datacard-key">Closed</span>
-                                                <span>{formatCardDateTime(card.completed_at, card.timezone)}</span>
+                                                <span className="ts-datacard-key">{card.inProgress ? 'Status' : 'Closed'}</span>
+                                                <span>{card.inProgress ? 'in progress' : formatCardDateTime(card.completed_at, card.timezone)}</span>
                                             </div>
                                             {card.swarmStart && (
                                                 <div className="ts-datacard-row">
@@ -2688,19 +2703,40 @@ const TimeSeriesView = ({
     // reserved on the intermediate days, so two long-tail sessions could stack a
     // dashed line directly over an unrelated bubble that closed that day.)
     const crossDayMap = useMemo(() => {
-        const map = new Map(); // date → [{ sessionId, role, groupKey, completedAt, pct?, card? }]
+        const map = new Map(); // date → [{ sessionId, role, groupKey, completedAt, inProgress, pct?, card? }]
         if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return map;
         const dateSet = new Set(rowDates);
         const sessionsByReq = indexSessionsByRequirement(sessions);
+        // Req #2798 — in-progress multi-day sessions end "now" (today). A session
+        // kept open across days must show the dashed pass-through on EVERY day,
+        // with the in-progress bubble only on today's panel (the phantom path).
+        const todayStr = toLocaleDateString(new Date().toISOString(), timezone);
 
         for (const r of requirements) {
-            if (!r.completed_at) continue;
-            const endDay = toLocaleDateString(r.completed_at, timezone);
-            if (!dateSet.has(endDay)) continue;
+            const completedDay = r.completed_at ? toLocaleDateString(r.completed_at, timezone) : null;
+            // Completed requirements scope to a visible end day (existing rule).
+            // In-progress requirements (no completed_at) fall through to the
+            // per-session in-progress branch below where endDay = today.
+            if (completedDay && !dateSet.has(completedDay)) continue;
             const linked = sessionsByReq.get(String(r.id)) || [];
             const cat = categoryList.find(c => c.id === r.category_fk);
             for (const s of linked) {
                 if (!s.started_at) continue;
+
+                // End day + in-progress flag. Completed → completion day (met
+                // bubble draws the end). In-progress → today (the phantom draws
+                // the bubble on today's panel). Sessions whose status is hidden
+                // (completed/paused/none, req #2650) get no in-flight line.
+                let endDay;
+                let inProgress;
+                if (completedDay) {
+                    endDay = completedDay;
+                    inProgress = false;
+                } else {
+                    if (isHiddenSwarmStatus(s.swarm_status)) continue;
+                    endDay = todayStr;
+                    inProgress = true;
+                }
                 const startDay = toLocaleDateString(s.started_at, timezone);
                 if (startDay === endDay) continue;           // single-day session — skip
                 if (startDay > endDay) continue;             // nonsensical — skip
@@ -2718,7 +2754,8 @@ const TimeSeriesView = ({
                     color: cat?.color || null,
                     requirement_status: r.requirement_status || null,
                     coordination_type: r.coordination_type || null,
-                    completed_at: r.completed_at,
+                    completed_at: r.completed_at || null,
+                    inProgress,
                     timezone,
                     session: s,
                     swarmStartId,
@@ -2726,11 +2763,14 @@ const TimeSeriesView = ({
                 };
                 // Shared fields BeadRow uses to seat the ghost lane occupant:
                 // groupKey clusters it with its swarm-start mates; completedAt
-                // (the end-day closure) orders it within that cluster.
+                // orders it within that cluster — for in-progress sessions use
+                // the session start (mirrors the phantom's within-group sort key
+                // at line ~891) so the dashed line stays in the phantom's lane.
                 const occupant = {
                     sessionId: s.id,
                     groupKey: canonicalStart || '',
-                    completedAt: r.completed_at,
+                    completedAt: inProgress ? s.started_at : r.completed_at,
+                    inProgress,
                     card,
                 };
 
@@ -2747,7 +2787,9 @@ const TimeSeriesView = ({
                     }
                 }
 
-                // Middle days — full-width pass-through
+                // Middle days — full-width pass-through (up to, but not including,
+                // the end day — today for in-progress; the met bubble's day for
+                // completed).
                 let cursor = shiftDateStr(startDay, 1);
                 while (cursor < endDay && dateSet.has(cursor)) {
                     const arr = map.get(cursor) || [];
@@ -2755,7 +2797,8 @@ const TimeSeriesView = ({
                     map.set(cursor, arr);
                     cursor = shiftDateStr(cursor, 1);
                 }
-                // End day — bubble + in-row clamped line handle it.
+                // End day — completed: met bubble + in-row clamped line.
+                //           in-progress: phantom ring + dashed line (today only).
             }
         }
         return map;
