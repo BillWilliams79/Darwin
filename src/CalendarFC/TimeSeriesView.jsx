@@ -49,6 +49,34 @@ export const countChipsForDate = (requirements, sessions, date, timezone, vizKey
     return indexChipsByDate(requirements, sessions, timezone, vizKey).get(date) || 0;
 };
 
+// Stable empty array (req #2800) — the per-day fallback for Sidewalk/Elevator
+// panels whose day has no completions. Sharing ONE reference across every empty
+// panel keeps their `requirements` prop referentially stable across a window
+// refetch, so BeadRow's React.memo (req #2796) skips them instead of re-rendering
+// all ≤60 panels at once (the long-task violation storm in req #2800).
+export const EMPTY_REQS = [];
+
+// Bucket completed requirements by their tz-local completion date (req #2800).
+// The Sidewalk/Elevator strips render one 24h panel per day, and a 24h panel
+// only ever shows its own day's chips — `positionFor` rejects anything outside
+// ±12h of noon. So each panel needs only its own day's slice, not the whole
+// `requirements` array. Handing each panel a per-day slice (with EMPTY_REQS for
+// empty days) lets BeadRow's memo engage: a window refetch then re-renders only
+// the handful of panels whose day-data actually changed. Exported for tests.
+export const bucketByDate = (requirements, timezone) => {
+    const map = new Map();
+    if (!Array.isArray(requirements)) return map;
+    for (const r of requirements) {
+        if (!r?.completed_at) continue;
+        const d = toLocaleDateString(r.completed_at, timezone);
+        if (!d) continue;
+        let arr = map.get(d);
+        if (!arr) { arr = []; map.set(d, arr); }
+        arr.push(r);
+    }
+    return map;
+};
+
 // ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
 // Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
 // it extends the stack upward; otherwise a new stack begins at row 0.
@@ -1871,7 +1899,7 @@ const SIDEWALK_BUFFER_THRESHOLD = 5;
 const SIDEWALK_EXTEND_BY = 10;
 const SIDEWALK_MAX_PANELS = 60;
 
-const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
+const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowProps }) => {
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
@@ -2175,10 +2203,15 @@ const Sidewalk = ({ centerDate, onCenterDateChange, ...rowProps }) => {
                 {dates.map(d => (
                     <Box key={d} className="ts-sidewalk-panel" data-date={d}
                          style={{ width: frameWidth || '100%', flex: `0 0 ${frameWidth || 1}px` }}>
+                        {/* Per-day slice (req #2800) — overrides the full
+                            `requirements` carried in rowProps so unchanged/empty
+                            panels keep a stable prop reference and BeadRow's memo
+                            engages across a window refetch. */}
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
                                  sidewalkHeight={sidewalkHeight}
-                                 {...rowProps} />
+                                 {...rowProps}
+                                 requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
                     </Box>
                 ))}
             </Box>
@@ -2204,6 +2237,33 @@ const ELEVATOR_TOP_AXIS_PX = 34;
 // Small bias (px) for top-edge index detection so a panel that has just crossed
 // the viewport top is reported, not the one a hair above it (req #2781).
 const ELEVATOR_TOP_EPS = 2;
+
+// Scroll-anchor offset delta (req #2800). When the per-day panel geometry changes
+// because a data refetch landed (NOT an extend/prune — those change the dates
+// array and self-compensate), the panels above the viewport top grow or shrink.
+// Since the scroll position is a fixed-pixel translateY, that height change
+// shoves the visible content up or down — the "jump" reported in req #2800,
+// worst when a far window's `met` rows 404 → resolve to [] and every panel
+// collapses to the base height at once.
+//
+// Re-pin the panel currently at the viewport top: find it under the OLD geometry,
+// then return the offset delta that keeps its top exactly the same distance below
+// the viewport top under the NEW geometry. delta = oldCumulative[i] -
+// newCumulative[i] for that panel i; adding it to the offset preserves
+// `cumulative[i] + offset` (the panel-top-to-viewport-top distance) exactly,
+// regardless of how the panel's own height changed. Returns 0 (no shift) when the
+// geometries are incomparable (different panel counts, empty, or same ref).
+// Exported for unit-test coverage.
+export const anchorDelta = (prev, next, currentOffset, topEps = ELEVATOR_TOP_EPS) => {
+    if (!prev || !next || prev === next) return 0;
+    if (prev.heights.length !== next.heights.length || prev.heights.length === 0) return 0;
+    const frameTopInStrip = -currentOffset + topEps;
+    let anchorIdx = prev.heights.length - 1;
+    for (let i = 0; i < prev.heights.length; i++) {
+        if (frameTopInStrip < prev.cumulative[i] + prev.heights[i]) { anchorIdx = i; break; }
+    }
+    return prev.cumulative[anchorIdx] - next.cumulative[anchorIdx];
+};
 
 // req #2779 — Elevator infinite scroll. Vertical analog of Sidewalk's
 // SIDEWALK_* buffer constants (same values): when the centered panel comes
@@ -2237,10 +2297,13 @@ export const elevatorPanelHeight = (maxStackRow, circleDiameter, spaceKey) => {
         Math.max(0, maxStackRow) * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
     );
 };
-const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
-    // Read-only destructure (rowProps is still spread to each BeadRow below, so
-    // naming these here does NOT remove them from the spread). The swarm extras
-    // feed per-day phantom/undone lane counts into the panel sizing (req #2797).
+const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByDate, ...rowProps }) => {
+    // `requirementsByDate` (req #2800) is pulled out as a named param so it is NOT
+    // spread into each BeadRow (it changes ref on every refetch and would bust the
+    // memo); the per-panel `requirements` slice is applied explicitly in the map
+    // below. The swarm extras are a read-only destructure (rowProps is still spread
+    // to each BeadRow, so naming them here does NOT remove them from the spread);
+    // they feed per-day phantom/undone lane counts into the panel sizing (req #2797).
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
             swarmStarts, swarmStartSessions, swarmUndos, requirementById } = rowProps;
     const frameRef = React.useRef(null);
@@ -2315,7 +2378,25 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     // using the old geometry and the strip would briefly sit at the wrong offset.
     // useLayoutEffect so the ref is current before any rAF fires.
     const panelGeomRef = React.useRef(panelGeom);
-    React.useLayoutEffect(() => { panelGeomRef.current = panelGeom; }, [panelGeom]);
+    // Scroll anchoring (req #2800). On a panel-geometry change that is NOT an
+    // extend/prune — i.e. a data refetch re-sized the per-day panels while the
+    // `dates` array is unchanged — re-pin the panel at the viewport top so the
+    // day the user is reading stays put while the data fills in (see anchorDelta).
+    // Guarded to data-only changes: extend/prune already compensate the offset
+    // synchronously before setDates AND change the `dates` ref, so skipping those
+    // here avoids double-compensation.
+    const anchorDatesRef = React.useRef(dates);
+    React.useLayoutEffect(() => {
+        const prev = panelGeomRef.current;
+        if (anchorDatesRef.current === dates) {          // data-only change
+            const delta = anchorDelta(prev, panelGeom, offsetRef.current);
+            if (delta) applyOffset(offsetRef.current + delta);
+        }
+        panelGeomRef.current = panelGeom;
+        anchorDatesRef.current = dates;
+    // applyOffset only closes over refs; including it would refire every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [panelGeom, dates]);
 
     // Ref-mirrors so maybeExtend (captured once by the drag effect) reads the
     // LATEST data when sizing freshly-prepended panels (req #2779). datesRef is
@@ -2661,11 +2742,13 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
                 {dates.map((d, i) => (
                     <Box key={d} className="ts-elevator-panel" data-date={d}
                          style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
+                        {/* Per-day slice (req #2800) — see Sidewalk note above. */}
                         <BeadRow selectedDate={d}
                                  sidewalkPanel={true}
                                  hideTimeline={true}
                                  sidewalkHeight={panelHeights[i]}
-                                 {...rowProps} />
+                                 {...rowProps}
+                                 requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
                     </Box>
                 ))}
             </Box>
@@ -2741,6 +2824,21 @@ const TimeSeriesView = ({
         }
         return m;
     }, [allRequirements]);
+
+    // Per-day requirements bucket (req #2800) — Map<YYYY-MM-DD, requirement[]>.
+    // Handed to the Sidewalk/Elevator strips so each 24h day panel receives only
+    // its own day's slice instead of the whole `requirements` array. A 24h panel
+    // only ever renders same-day chips (positionFor rejects anything outside ±12h
+    // of noon), so the slice is sufficient; days with no completions fall back to
+    // the shared stable EMPTY_REQS. Without this, one window refetch changes the
+    // `requirements` prop reference for ALL ≤60 panels at once, busting BeadRow's
+    // React.memo (req #2796) and re-rendering every panel's SVG in a single
+    // synchronous task — the 'message'/'setTimeout' long-task violations in
+    // req #2800.
+    const requirementsByDate = useMemo(
+        () => bucketByDate(requirements, timezone),
+        [requirements, timezone],
+    );
 
     // Swarm start-time clustering (req #2341 + req #2504). Real swarm_start
     // data wins when present (junction row + swarm_start.started_at); the
@@ -3011,6 +3109,7 @@ const TimeSeriesView = ({
                     onCenterDateChange={onCenterDateChange || (() => {})}
                     sharedTicks={elevatorTicks}
                     requirements={requirements}
+                    requirementsByDate={requirementsByDate}
                     sessions={sessions}
                     timezone={timezone}
                     beadWindow={beadWindow}
@@ -3044,6 +3143,7 @@ const TimeSeriesView = ({
                     centerDate={selectedDate}
                     onCenterDateChange={onCenterDateChange || (() => {})}
                     requirements={requirements}
+                    requirementsByDate={requirementsByDate}
                     sessions={sessions}
                     timezone={timezone}
                     beadWindow={beadWindow}
