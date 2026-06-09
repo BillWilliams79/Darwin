@@ -341,13 +341,88 @@ export const buildCrossDayGhosts = (crossDays, vizKey) => {
     }));
 };
 
+// ─────────── Extra swarm chips per date (Elevator per-day sizing) ────────────
+// `indexChipsByDate` only buckets COMPLETED-requirement chips. But a swarm
+// BeadRow's lane stack (`placedAll`) also seats two other chip kinds that the
+// Elevator must size for, or a panel that carries them is too short and its
+// bottom bubbles bleed into the next day's header (req #2797):
+//
+//   • In-progress PHANTOM chips (req #2504). Mirrors BeadRow.phantomChips +
+//     computePhantomPlacement: each not-hidden session linked to a swarm_start
+//     whose requirement is NOT yet completed shows a phantom on the
+//     swarm-start's start-day panel (startPct in window) AND — clamped — on
+//     TODAY's panel (nowPct in window). The two coincide when the start day is
+//     today, so it contributes a single lane there.
+//   • UNDONE tombstone chips (req #2719). Mirrors BeadRow.undoneChips: one chip
+//     on the undo's `undone_at` day.
+//
+// A 24h sidewalk/elevator panel's window IS its calendar day, so membership is
+// a `toLocaleDateString` bucket — the same shortcut `indexChipsByDate` uses for
+// completed chips. Returns Map<YYYY-MM-DD, count>. Exported for unit-test
+// coverage. `today` is passed in (not read from the wall clock) so the helper
+// stays pure/testable.
+export const indexSwarmExtraChipsByDate = ({
+    swarmStarts = [],
+    swarmStartSessions = [],
+    swarmUndos = [],
+    requirementById = null,
+    sessions = [],
+    timezone,
+    today = null,
+}) => {
+    const out = new Map();
+    const bump = (d) => { if (d) out.set(d, (out.get(d) || 0) + 1); };
+
+    // Phantom chips — one per (in-progress session, swarm-start) on the start
+    // day, plus a clamped copy on today's panel (when today differs).
+    if (Array.isArray(swarmStarts) && swarmStarts.length) {
+        const sessionsByStartFk = new Map();
+        for (const j of (swarmStartSessions || [])) {
+            if (!j || j.swarm_start_fk == null || j.session_fk == null) continue;
+            const k = String(j.swarm_start_fk);
+            if (!sessionsByStartFk.has(k)) sessionsByStartFk.set(k, []);
+            sessionsByStartFk.get(k).push(String(j.session_fk));
+        }
+        const sessionById = new Map();
+        for (const s of (sessions || [])) {
+            if (s && s.id != null) sessionById.set(String(s.id), s);
+        }
+        for (const ss of swarmStarts) {
+            if (!ss || ss.id == null || !ss.started_at) continue;
+            const startDay = toLocaleDateString(ss.started_at, timezone);
+            const linked = sessionsByStartFk.get(String(ss.id)) || [];
+            for (const sid of linked) {
+                const s = sessionById.get(sid);
+                if (!s) continue;
+                if (isHiddenSwarmStatus(s.swarm_status)) continue;
+                const reqId = parseSessionRequirementId(s.source_ref);
+                const r = reqId && requirementById ? requirementById.get(reqId) : null;
+                if (r && r.completed_at) continue;   // completed → real chip handles it
+                bump(startDay);
+                if (today && today !== startDay) bump(today);
+            }
+        }
+    }
+
+    // Undone tombstone chips — one on the undone_at day.
+    for (const undo of (swarmUndos || [])) {
+        if (!undo || !undo.undone_at) continue;
+        bump(toLocaleDateString(undo.undone_at, timezone));
+    }
+    return out;
+};
+
 // ─────────── Max-stack-row index (Elevator per-day sizing) ───────────────────
 // Return Map<YYYY-MM-DD, maxRow> where maxRow is the row index BeadRow will
 // assign to its tallest chip on that date. Elevator uses this to size each day
 // panel to its actual rendered content instead of the swarm worst case:
 //
-//   • Swarm: every chip (req + per-session fan-out) gets its own lane via
-//     `assignSwarmLanes`, so maxRow = chipsByDate(date) - 1.
+//   • Swarm: every chip (req + per-session fan-out, plus in-progress phantom
+//     and undone tombstone chips) gets its own lane via `assignSwarmLanes`, so
+//     maxRow = (completedChips + extraSwarmChips)(date) - 1. The `extras` arg
+//     supplies the swarm-start / undo data needed to count the phantom/undone
+//     lanes (req #2797); omit it (4-arg call) and only completed chips count,
+//     preserving the original behavior for non-Elevator callers + unit tests.
 //   • Bead:  chips cluster-stack via `assignRows` with minGapPct=1.2 on leftPct.
 //     leftPct in a 24h sidewalk panel = time-of-day fraction × 100, so we can
 //     reproduce the placement here without going through positionFor.
@@ -356,13 +431,17 @@ export const buildCrossDayGhosts = (crossDays, vizKey) => {
 // row 3 or 4, not row 38 — this is what makes the per-day heights differ
 // between bead and swarm for the same dataset (req #2383 follow-up).
 // Exported for unit-test coverage.
-export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey) => {
+export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey, extras = {}) => {
     const out = new Map();
     if (!Array.isArray(requirements)) return out;
 
     if (vizKey === 'swarm') {
-        const chipsByDate = indexChipsByDate(requirements, sessions, timezone, vizKey);
-        for (const [date, n] of chipsByDate) {
+        const totals = new Map(indexChipsByDate(requirements, sessions, timezone, vizKey));
+        const extraByDate = indexSwarmExtraChipsByDate({ ...extras, sessions, timezone });
+        for (const [date, n] of extraByDate) {
+            totals.set(date, (totals.get(date) || 0) + n);
+        }
+        for (const [date, n] of totals) {
             out.set(date, Math.max(0, n - 1));
         }
         return out;
@@ -2144,7 +2223,11 @@ export const elevatorPanelHeight = (maxStackRow, circleDiameter, spaceKey) => {
     );
 };
 const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) => {
-    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
+    // Read-only destructure (rowProps is still spread to each BeadRow below, so
+    // naming these here does NOT remove them from the spread). The swarm extras
+    // feed per-day phantom/undone lane counts into the panel sizing (req #2797).
+    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+            swarmStarts, swarmStartSessions, swarmUndos, requirementById } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
     const offsetRef = React.useRef(0);      // current translateY in px (negative = panels above)
@@ -2160,6 +2243,11 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     // read from the wall clock so the deliberately-empty dep array is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const maxFutureDate = useMemo(() => endOfWeek(localDateStr(new Date())), []);
+    // Today (local) — drives the clamped in-progress phantom lane that BeadRow
+    // seats on today's panel for every still-open session (req #2797). Stable
+    // per mount, same as maxFutureDate; the empty dep array is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const todayStr = useMemo(() => localDateStr(new Date()), []);
     const [dates, setDates] = React.useState(() => cappedCenteredRange(centerDate, 10, maxFutureDate));
     // Mirror of `dates` for synchronous reads inside drag/wheel/momentum handlers —
     // lets maybeExtend check current length / size new panels without re-binding the
@@ -2170,11 +2258,18 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, ...rowProps }) 
     // Per-date max stack row — reproduces BeadRow's placement for the active
     // vizKey: bead uses cluster-stack (many chips collapse to a handful of rows
     // when spread across the day), swarm uses one-lane-per-chip (maxRow =
-    // chips − 1). Lifted to its own memo (req #2779) so maybeExtend can size
-    // freshly-prepended panels from the same source the render uses.
+    // chips − 1). For swarm the chip count must include the in-progress phantom
+    // and undone tombstone lanes BeadRow also stacks, or a panel carrying them
+    // is too short and its bottom bubbles bleed into the next day's header
+    // (req #2797) — hence the swarm-extras passed through. Lifted to its own
+    // memo (req #2779) so maybeExtend can size freshly-prepended panels from the
+    // same source the render uses.
     const maxRowByDate = useMemo(
-        () => indexMaxStackByDate(requirements, sessions, timezone, vizKey),
-        [requirements, sessions, timezone, vizKey],
+        () => indexMaxStackByDate(requirements, sessions, timezone, vizKey, {
+            swarmStarts, swarmStartSessions, swarmUndos, requirementById, today: todayStr,
+        }),
+        [requirements, sessions, timezone, vizKey, swarmStarts, swarmStartSessions,
+         swarmUndos, requirementById, todayStr],
     );
 
     // Per-panel heights — one entry per date, sized to THAT day's chip density via

@@ -5,6 +5,7 @@ import {
     countChipsForDate,
     indexChipsByDate,
     indexMaxStackByDate,
+    indexSwarmExtraChipsByDate,
     centeredDateRange,
     extendDates,
     pruneDates,
@@ -379,6 +380,154 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
         const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
         expect(map.get(D1)).toBe(0);
         expect(map.size).toBe(1);
+    });
+
+    // req #2797 — swarm panels also stack in-progress phantom + undone chips.
+    it('swarm mode: counts in-progress phantom lanes on the start-day panel', () => {
+        // One completed req on D1 (1 chip) + one in-progress session whose
+        // swarm-start fired on D1 (1 phantom). Stack should be 2 chips → maxRow 1,
+        // not 0 as the completed-only count would give.
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
+        const sessions = [
+            { id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` },
+            { id: 99, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'active' },
+        ];
+        const extras = {
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            // req 2 has no completed_at → phantom is rendered (not the real chip).
+            requirementById: new Map([['2', { id: 2 }]]),
+            today: D2,   // today differs from D1 so the start-day branch is exercised
+        };
+        const withExtras = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        expect(withExtras.get(D1)).toBe(1);   // completed(1) + phantom(1) = 2 → maxRow 1
+        const withoutExtras = indexMaxStackByDate(reqs, sessions, TZ, 'swarm');
+        expect(withoutExtras.get(D1)).toBe(0);   // backward-compat: completed-only
+    });
+
+    it('swarm mode: clamps an in-progress phantom onto today\'s panel too', () => {
+        // Session started on D1, today is D2. The phantom appears on BOTH D1
+        // (start day) and D2 (clamped to today).
+        const reqs = [];
+        const sessions = [
+            { id: 99, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'active' },
+        ];
+        const extras = {
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            requirementById: new Map([['2', { id: 2 }]]),
+            today: D2,
+        };
+        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        expect(map.get(D1)).toBe(0);   // 1 phantom → maxRow 0
+        expect(map.get(D2)).toBe(0);   // 1 clamped phantom on today → maxRow 0
+    });
+
+    it('swarm mode: hidden-status sessions and completed reqs do NOT add phantom lanes', () => {
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
+        const sessions = [
+            { id: 91, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'paused' },     // hidden
+            { id: 92, source_ref: 'requirement:1', started_at: `${D1} 07:30:00`, swarm_status: 'active' },     // req completed → real chip
+            { id: 93, source_ref: 'requirement:1', started_at: `${D1} 06:00:00` },                             // completed-req session (counted by indexChipsByDate)
+        ];
+        const extras = {
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [
+                { swarm_start_fk: 500, session_fk: 91 },
+                { swarm_start_fk: 500, session_fk: 92 },
+            ],
+            requirementById: new Map([['1', { id: 1, completed_at: `${D1} 09:00:00` }], ['2', { id: 2 }]]),
+            today: D2,
+        };
+        // req 1 has 2 linked sessions (92,93) → 2 completed chips → maxRow 1.
+        // No phantom added: 91 is paused (hidden), 92's req is completed.
+        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        expect(map.get(D1)).toBe(1);
+    });
+
+    it('swarm mode: counts undone tombstone lanes on the undone_at day', () => {
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
+        const extras = {
+            swarmUndos: [
+                { id: 1, undone_at: `${D1} 12:00:00` },
+                { id: 2, undone_at: `${D1} 13:00:00` },
+                { id: 3, undone_at: `${D2} 10:00:00` },
+            ],
+            today: D2,
+        };
+        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', extras);
+        expect(map.get(D1)).toBe(2);   // completed(1) + undone(2) = 3 → maxRow 2
+        expect(map.get(D2)).toBe(0);   // undone(1) only → maxRow 0
+    });
+});
+
+describe('indexSwarmExtraChipsByDate (req #2797 phantom + undone per-day counts)', () => {
+    const TZ = 'UTC';
+    const D1 = '2026-04-17';
+    const D2 = '2026-04-18';
+
+    it('returns an empty Map when no swarm extras are supplied', () => {
+        expect(indexSwarmExtraChipsByDate({ timezone: TZ }).size).toBe(0);
+    });
+
+    it('buckets a start-day phantom and a clamped today phantom from one session', () => {
+        const out = indexSwarmExtraChipsByDate({
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            sessions: [{ id: 99, source_ref: 'requirement:2', swarm_status: 'active' }],
+            requirementById: new Map([['2', { id: 2 }]]),
+            timezone: TZ,
+            today: D2,
+        });
+        expect(out.get(D1)).toBe(1);   // start day
+        expect(out.get(D2)).toBe(1);   // clamped to today
+    });
+
+    it('does not double-count when the start day IS today', () => {
+        const out = indexSwarmExtraChipsByDate({
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            sessions: [{ id: 99, source_ref: 'requirement:2', swarm_status: 'active' }],
+            requirementById: new Map([['2', { id: 2 }]]),
+            timezone: TZ,
+            today: D1,
+        });
+        expect(out.get(D1)).toBe(1);   // single lane, no clamped duplicate
+    });
+
+    it('skips hidden-status sessions and completed-requirement sessions', () => {
+        const out = indexSwarmExtraChipsByDate({
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [
+                { swarm_start_fk: 500, session_fk: 91 },   // paused → hidden
+                { swarm_start_fk: 500, session_fk: 92 },   // req completed → real chip
+            ],
+            sessions: [
+                { id: 91, source_ref: 'requirement:2', swarm_status: 'paused' },
+                { id: 92, source_ref: 'requirement:1', swarm_status: 'active' },
+            ],
+            requirementById: new Map([
+                ['1', { id: 1, completed_at: `${D1} 09:00:00` }],
+                ['2', { id: 2 }],
+            ]),
+            timezone: TZ,
+            today: D1,
+        });
+        expect(out.size).toBe(0);
+    });
+
+    it('counts one undone chip per undone_at day', () => {
+        const out = indexSwarmExtraChipsByDate({
+            swarmUndos: [
+                { id: 1, undone_at: `${D1} 12:00:00` },
+                { id: 2, undone_at: `${D2} 10:00:00` },
+                { id: 3, undone_at: null },   // ignored
+            ],
+            timezone: TZ,
+        });
+        expect(out.get(D1)).toBe(1);
+        expect(out.get(D2)).toBe(1);
+        expect(out.size).toBe(2);
     });
 });
 
