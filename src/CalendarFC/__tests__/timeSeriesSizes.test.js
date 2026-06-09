@@ -1188,12 +1188,13 @@ describe('computePhantomPlacement (in-progress phantom placement, req #2649)', (
         expect(p).toEqual({ phantomStartPct: 0, phantomLeftPct: 50, startClamped: false });
     });
 
-    it('Case B — start in window, now null → line runs to right edge', () => {
-        // Looking at the day the session opened, but "now" is on a later
-        // panel (i.e. retrospective view). Session was still active at the
-        // end of this panel — line extends to 100%.
-        const p = computePhantomPlacement(45, null);
-        expect(p).toEqual({ phantomStartPct: 45, phantomLeftPct: 100, startClamped: false });
+    it('Case B — start in window, now null → null (no bubble; cross-day line draws it, req #2798)', () => {
+        // Looking at the day the session opened (or an intervening day), but
+        // "now" is on a later panel. The in-progress bubble belongs ONLY on
+        // today's panel — here the dashed cross-day pass-through line carries the
+        // session to the panel edge with no bubble (req #2798 fixed the old
+        // "bubble parked at midnight/100%" behaviour).
+        expect(computePhantomPlacement(45, null)).toBeNull();
     });
 
     it('Case C — start null, now in window → dashed line from left edge to nowPct (req #2649 fix)', () => {
