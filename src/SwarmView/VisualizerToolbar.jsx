@@ -197,7 +197,7 @@ const VisualizerToolbar = () => {
                 <IconButton onClick={handlePrev} size="small" data-testid="visualizer-prev">
                     <ChevronLeftIcon />
                 </IconButton>
-                <Typography sx={{
+                <Typography data-testid="visualizer-date-title" sx={{
                     fontFamily: "'Roboto',sans-serif", fontSize: '1em', fontWeight: 500,
                     textAlign: 'center', minWidth: 170, whiteSpace: 'nowrap',
                 }}>

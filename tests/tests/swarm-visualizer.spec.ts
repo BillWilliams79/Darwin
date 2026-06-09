@@ -260,4 +260,55 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         expect(bg).not.toBe('rgba(0, 0, 0, 0)');
         expect(bg).not.toBe('transparent');
     });
+
+    // req #2799 — `currentDate` is navigation state, not a saved preference. A
+    // pre-#2799 build persisted it, so a stale date (the elevator scrolled to a
+    // dense late-May day, or a chevron jump) would reload instead of today — the
+    // "late-May affinity." The store now drops currentDate from persistence and
+    // strips any already-persisted date on migrate, so every fresh load is today.
+    test('TS-12: a stale persisted currentDate does not survive a reload — resets to today (req #2799)', async ({ page }) => {
+        await page.goto('/swarm');
+        // Seed a returning user's localStorage: a stale late-May date under a
+        // pre-#2799 schema version, exactly the reported reproduction.
+        await page.evaluate(() => {
+            localStorage.setItem('darwin_swarm_visualizer', JSON.stringify({
+                state: {
+                    viewType: 'day',
+                    currentDate: '2026-05-22',
+                    vizKey: 'bead',
+                    beadWindow: '24h',
+                    sidewalkOn: false,
+                    elevatorOn: false,
+                    dataKey: 'category',
+                },
+                version: 4,
+            }));
+            localStorage.setItem('darwin-swarm-view', 'visualizer');
+        });
+        await page.reload();
+
+        const title = page.getByTestId('visualizer-date-title');
+        await expect(title).toBeVisible({ timeout: 10000 });
+
+        // Compute today's title with the SAME logic the toolbar uses (localDateStr
+        // + formatDayTitle, browser locale, pinned UTC) — the view must show today,
+        // not the seeded May 22.
+        const expectedToday = await page.evaluate(() => {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const d = new Date(`${y}-${m}-${day}T12:00:00`);
+            return d.toLocaleDateString(undefined, {
+                weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+            });
+        });
+        await expect(title).toHaveText(expectedToday);
+
+        // And the rewritten blob must no longer carry currentDate (partialize),
+        // so it can never re-seed a stale date on the next load.
+        const persisted = await page.evaluate(() =>
+            JSON.parse(localStorage.getItem('darwin_swarm_visualizer') || '{}'));
+        expect(persisted.state).not.toHaveProperty('currentDate');
+    });
 });
