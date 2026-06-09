@@ -72,6 +72,28 @@ describe('siblingActiveSort', () => {
         expect(sorted.map(i => i.id)).toEqual([3, 2, 1]);
     });
 
+    it('places wontfix last — after active, deferred, and met (req #2783)', () => {
+        const items = [
+            r(1, 'met',     { completed_at: '2026-04-01T00:00:00Z' }),
+            r(2, 'wontfix', { completed_at: '2026-04-01T00:00:00Z' }),
+            r(3, 'authoring'),
+            r(4, 'deferred', { deferred_at: '2026-04-01T00:00:00Z' }),
+        ];
+        const sorted = sortBy('hand', items);
+        // active(0) → authoring, deferred(1), met(2), wontfix(3) last
+        expect(sorted.map(i => i.id)).toEqual([3, 4, 1, 2]);
+    });
+
+    it('wontfix: most recently completed appears first within the wontfix group (req #2783)', () => {
+        const items = [
+            r(1, 'wontfix', { completed_at: '2026-01-01T00:00:00Z' }),
+            r(2, 'wontfix', { completed_at: '2026-04-10T00:00:00Z' }),
+            r(3, 'wontfix', { completed_at: '2026-02-15T00:00:00Z' }),
+        ];
+        const sorted = sortBy('hand', items);
+        expect(sorted.map(i => i.id)).toEqual([2, 3, 1]);
+    });
+
     it('met: most recently completed appears first within the met group', () => {
         const items = [
             r(1, 'met', { completed_at: '2026-01-01T00:00:00Z' }),
@@ -89,6 +111,7 @@ describe('siblingActiveSort', () => {
         expect(STATUS_SORT.development).toBe(0);
         expect(STATUS_SORT.deferred).toBe(1);
         expect(STATUS_SORT.met).toBe(2);
+        expect(STATUS_SORT.wontfix).toBe(3);
     });
 });
 
@@ -102,6 +125,7 @@ describe('siblingActiveSort — process mode', () => {
         expect(STATUS_SORT_PROCESS.development).toBe(3);
         expect(STATUS_SORT_PROCESS.deferred).toBe(4);
         expect(STATUS_SORT_PROCESS.met).toBe(5);
+        expect(STATUS_SORT_PROCESS.wontfix).toBe(6);
     });
 
     it('process order: authoring before approved before swarm_ready before development before deferred before met', () => {
@@ -191,14 +215,15 @@ describe('siblingActiveSort — reverse mode (req #2406)', () => {
         expect(STATUS_SORT_PROCESS_REVERSE).toEqual({
             deferred: 0,
             met: 1,
-            development: 2,
-            swarm_ready: 3,
-            approved: 4,
-            authoring: 5,
+            wontfix: 2,
+            development: 3,
+            swarm_ready: 4,
+            approved: 5,
+            authoring: 6,
         });
     });
 
-    it('reverse order: deferred, met, development, swarm_ready, approved, authoring', () => {
+    it('reverse order: deferred, met, wontfix, development, swarm_ready, approved, authoring', () => {
         const items = [
             r(0, 'authoring'),
             r(1, 'approved'),
@@ -206,10 +231,11 @@ describe('siblingActiveSort — reverse mode (req #2406)', () => {
             r(3, 'development', { started_at: '2026-04-01T00:00:00Z' }),
             r(4, 'deferred',    { deferred_at: '2026-04-01T00:00:00Z' }),
             r(5, 'met',         { completed_at: '2026-04-01T00:00:00Z' }),
+            r(6, 'wontfix',     { completed_at: '2026-04-01T00:00:00Z' }),
         ];
         const sorted = sortBy(items);
         expect(sorted.map(i => i.requirement_status)).toEqual([
-            'deferred', 'met', 'development', 'swarm_ready', 'approved', 'authoring',
+            'deferred', 'met', 'wontfix', 'development', 'swarm_ready', 'approved', 'authoring',
         ]);
     });
 

@@ -39,7 +39,8 @@ const formatDate = (v) => v ? new Date(v).toLocaleDateString() : '';
 
 export default function CustomersPage() {
     const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    // Customers is a Build Visualizer entity, pinned to `darwin_dev` (req #2760).
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 

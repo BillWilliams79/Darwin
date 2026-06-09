@@ -79,6 +79,16 @@ export const DEFAULT_OPTS = {
     sideGap: 70,
     // Gap between adjacent lanes within a stratum.
     laneGap: 70,
+    // Extra vertical room reserved ABOVE any row (lane / main / dev lane) whose
+    // builds carry a customer release event. Such a row renders a star glyph
+    // row at dot.y − 22 and raises its name label to dot.y − 34 (vs the normal
+    // dot.y − 16) — both extend higher than a release-free row, so without this
+    // reservation the version labels of the row directly above collide with the
+    // stars + raised label (req #2772). Sized as the star-row height (~14) plus
+    // the label-raise delta (34 − 16 = 18) ≈ 30 px; applied only to the gap
+    // directly above a release-bearing row, so release-free layouts are
+    // unchanged and no global whitespace is added.
+    releaseClearance: 30,
     // Gap between adjacent strata (e.g. between Hot Fix's farthest lane and
     // Bootleg's closest-to-main lane). Bumped to 70 (= laneGap) so the
     // staggered far-lane version labels of an upper stratum's bottom lane
@@ -302,74 +312,83 @@ export function computeLayout(model, opts = {}) {
     // Within the Dev stratum (below main), lane 0 is INNERMOST = TOP of
     // band; lane N-1 is OUTERMOST = BOTTOM.
 
-    // Compute Y of the bottom of each above stratum (i.e. lane 0).
     const ABOVE_STRATA = STRATA.filter(s => s.side === 'above');
     const DEV_STRATA = STRATA.filter(s => s.side === 'below');
 
+    // A branch "bears a release" when any of its builds carries a customer
+    // release event. Such a branch renders a star row ABOVE its dots and a
+    // raised name label, so the row directly above it must reserve extra
+    // clearance (req #2772 — see DEFAULT_OPTS.releaseClearance).
+    const branchBearsRelease = (b) =>
+        (b.buildIds || []).some(bid => (releaseEvents[bid]?.length || 0) > 0);
+    const laneBearsRelease = (stratumId, lane) =>
+        (branchesByStratum.get(stratumId) || []).some(
+            b => (laneByBranch.get(b.id) || 0) === lane && branchBearsRelease(b)
+        );
+    const mainBearsRelease = branchBearsRelease(main);
+
+    // Build the ordered list of horizontal rows, top-to-bottom, then walk it
+    // ONCE accumulating Y. Each row carries the base gap that precedes it and a
+    // flag for whether it needs release clearance ABOVE it. This replaces the
+    // prior uniform `lane * laneGap` spacing so a release-bearing row ANYWHERE
+    // (any above stratum/lane, main, or a dev lane) widens only the single gap
+    // directly above it — release-free layouts are byte-for-byte unchanged.
+    const keyOf = (sid, lane) => `${sid}:${lane}`;
+    const aboveNonEmpty = ABOVE_STRATA.filter(s => (laneCountByStratum.get(s.id) || 0) > 0);
+    const devNonEmpty = DEV_STRATA.filter(s => (laneCountByStratum.get(s.id) || 0) > 0);
+    const gapFor = (stratum, fallback) => (stratum.gapAfter != null ? stratum.gapAfter : fallback);
+    const rows = [];
+    // Above strata top-to-bottom: farthest stratum first; within a stratum the
+    // OUTERMOST lane (highest index) is highest on canvas, lane 0 nearest main.
+    aboveNonEmpty.forEach((s, si) => {
+        const lanes = laneCountByStratum.get(s.id);
+        for (let lane = lanes - 1; lane >= 0; lane--) {
+            // The very first (topmost) row sits a full laneGap below canvasPadTop
+            // — the prior engine bottom-aligned the topmost stratum's band there,
+            // so this reproduces the old absolute Y exactly for release-free
+            // layouts (and leaves headroom for that lane's label/stars).
+            const gapAbove = lane === lanes - 1
+                ? (si === 0 ? o.laneGap : gapFor(aboveNonEmpty[si - 1], o.stratumGap))
+                : o.laneGap;
+            rows.push({ key: keyOf(s.id, lane), gapAbove, bearsRelease: laneBearsRelease(s.id, lane) });
+        }
+    });
+    // Main — a sideGap below the closest above stratum (and a sideGap below
+    // canvasPadTop when there are no above strata, matching the prior layout).
+    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease });
+    // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
+    devNonEmpty.forEach((s, di) => {
+        const lanes = laneCountByStratum.get(s.id);
+        for (let lane = 0; lane < lanes; lane++) {
+            const gapAbove = lane === 0
+                ? (di === 0 ? o.sideGap : gapFor(devNonEmpty[di - 1], o.stratumGap))
+                : o.laneGap;
+            rows.push({ key: keyOf(s.id, lane), gapAbove, bearsRelease: laneBearsRelease(s.id, lane) });
+        }
+    });
+
+    // Single top-to-bottom walk assigning Y to every row. The release clearance
+    // is added to the gap ABOVE each release-bearing row (including the very
+    // first row, so its stars/label don't clip the top of the canvas).
+    const laneY = new Map();
     let mainY = o.canvasPadTop;
-    // Cumulative height of all above strata + stratum gaps + sideGap from
-    // the topmost above stratum to mainY.
-    for (let i = 0; i < ABOVE_STRATA.length; i++) {
-        const stratum = ABOVE_STRATA[i];
-        const lanes = laneCountByStratum.get(stratum.id) || 0;
-        if (lanes > 0) {
-            mainY += lanes * o.laneGap;
-            // Stratum-gap between adjacent non-empty above strata.
-            // Use per-stratum gapAfter when defined (e.g. release→sample
-            // gets a larger gap for visual differentiation).
-            const nextNonEmpty = ABOVE_STRATA
-                .slice(i + 1)
-                .find(s => (laneCountByStratum.get(s.id) || 0) > 0);
-            if (nextNonEmpty) {
-                mainY += (stratum.gapAfter != null ? stratum.gapAfter : o.stratumGap);
-            }
-        }
-    }
-    // Add sideGap between the closest above stratum (Sample) and main.
-    mainY += o.sideGap;
-
-    // Re-walk to assign each above stratum's lane-0 Y (innermost, near main).
-    // Outermost lanes (higher index) sit FURTHER from main = HIGHER in SVG.
-    const stratumLane0Y = new Map();
     {
-        let cursor = mainY - o.sideGap; // sample lane 0 sits here
-        for (let i = ABOVE_STRATA.length - 1; i >= 0; i--) {
-            const stratum = ABOVE_STRATA[i];
-            const lanes = laneCountByStratum.get(stratum.id) || 0;
-            if (lanes === 0) { stratumLane0Y.set(stratum.id, cursor); continue; }
-            stratumLane0Y.set(stratum.id, cursor);
-            // Reserve room for this stratum's lanes; cursor moves UP by
-            // (lanes-1) × laneGap (lanes occupy from cursor up to
-            // cursor - (lanes-1)*laneGap), then gap to the next stratum.
-            cursor -= (lanes - 1) * o.laneGap;
-            // If there's a non-empty stratum above this one, apply the
-            // per-stratum gapAfter from that stratum (it sits above us, so
-            // its gapAfter is the gap between IT and us). Walk upward to
-            // find it, then read its gapAfter.
-            const nextAbove = ABOVE_STRATA
-                .slice(0, i)
-                .reverse()
-                .find(s => (laneCountByStratum.get(s.id) || 0) > 0);
-            if (nextAbove) {
-                cursor -= (nextAbove.gapAfter != null ? nextAbove.gapAfter : o.stratumGap);
-            }
+        let cursor = o.canvasPadTop;
+        for (const row of rows) {
+            cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0);
+            if (row.main) mainY = cursor;
+            else laneY.set(row.key, cursor);
         }
     }
-    // Dev: lane 0 sits at mainY + sideGap, growing DOWN by laneGap per lane.
-    if (DEV_STRATA.length) {
-        stratumLane0Y.set(DEV_STRATA[0].id, mainY + o.sideGap);
-    }
 
-    // Map each branch to its Y.
+    // Map each branch to its row Y.
     const branchY = new Map([[main.id, mainY]]);
     for (const b of visible) {
         const stratumId = STRATUM_BY_TYPE.get(b.type) || 'sample';
-        const stratumDef = STRATA.find(s => s.id === stratumId);
         const lane = laneByBranch.get(b.id) || 0;
-        const lane0Y = stratumLane0Y.get(stratumId);
-        if (lane0Y == null) continue;
-        const direction = stratumDef.side === 'above' ? -1 : 1;
-        branchY.set(b.id, lane0Y + lane * o.laneGap * direction);
+        const y = laneY.get(keyOf(stratumId, lane));
+        if (y == null) continue;
+        branchY.set(b.id, y);
     }
 
     // Update build Y values now that branch Y is known.
@@ -594,11 +613,16 @@ export function computeLayout(model, opts = {}) {
     const strataBands = ABOVE_STRATA.concat(DEV_STRATA).map(s => {
         const lanes = laneCountByStratum.get(s.id) || 0;
         if (lanes === 0) return null;
-        const lane0Y = stratumLane0Y.get(s.id);
-        const direction = s.side === 'above' ? -1 : 1;
-        const lastLaneY = lane0Y + (lanes - 1) * o.laneGap * direction;
-        const yTop = Math.min(lane0Y, lastLaneY) - o.laneGap * 0.5;
-        const yBottom = Math.max(lane0Y, lastLaneY) + o.laneGap * 0.5;
+        // Read each lane's actual Y (lane spacing is no longer uniform once a
+        // release-bearing lane has reserved extra clearance — req #2772).
+        const laneYs = [];
+        for (let lane = 0; lane < lanes; lane++) {
+            const y = laneY.get(keyOf(s.id, lane));
+            if (y != null) laneYs.push(y);
+        }
+        if (!laneYs.length) return null;
+        const yTop = Math.min(...laneYs) - o.laneGap * 0.5;
+        const yBottom = Math.max(...laneYs) + o.laneGap * 0.5;
         return {
             id: s.id,
             label: s.label,

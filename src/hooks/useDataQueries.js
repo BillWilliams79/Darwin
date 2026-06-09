@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -214,6 +214,14 @@ export const useAllSwarmStartSessions = swarmStartSessions.useAll;
 export const useAllSwarmUndos = swarmUndos.useAll;
 export const useSwarmUndoById = swarmUndos.useById;
 
+// Req #2497 — swarm_completes: one row per /swarm-complete or
+// /primary-ai-swarm-complete invocation (the close-out counterpart to
+// swarm_starts). swarm_complete_sessions links a close-out to the session(s)
+// it closed; primary closeouts link a `primary-fix` session.
+export const useAllSwarmCompletes        = swarmCompletes.useAll;
+export const useSwarmCompleteById        = swarmCompletes.useById;
+export const useAllSwarmCompleteSessions = swarmCompleteSessions.useAll;
+
 export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
@@ -244,6 +252,12 @@ export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!startStr && !!endStr && !!idToken,
+        // Visualizer Sidewalk/Elevator scroll slides this date window as the
+        // centered day changes, producing a new query key per window. Keep the
+        // previous window's rows on screen while the next window loads so the
+        // strip scrolls smoothly instead of blanking out and re-rendering on
+        // every refetch (req #2777).
+        placeholderData: keepPreviousData,
     });
 }
 
@@ -253,7 +267,7 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
 
     const uri = `${darwinUri}/requirements?fields=${fields}`;
     // Include `fields` in the cache key so callers requesting different projections
-    // (e.g. DevServersView wants id,title; SwarmStartCard wants the processSort fields)
+    // (e.g. DevServersView wants id,title; SwarmStartCard wants id,requirement_status)
     // don't collide on a shared cache entry and render missing columns.
     // `requirementKeys.all(creatorFk)` stays the invalidation prefix — adding a trailing
     // `{ fields }` object still invalidates via TanStack Query's prefix match.
@@ -609,7 +623,7 @@ const CUSTOMER_DEFAULT_FIELDS = 'id,customer_name,description,closed,sort_order,
 const CUSTOMER_FULL_FIELDS    = 'id,customer_name,description,creator_fk,closed,sort_order,create_ts,update_ts';
 
 export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customers?closed=0&fields=${fields}&sort=sort_order:asc`;
     const queryKey = [...customerKeys.all(creatorFk), { fields }];
@@ -621,7 +635,7 @@ export function useAllCustomers(creatorFk, { fields = CUSTOMER_DEFAULT_FIELDS, e
 }
 
 export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customers?id=${id}&fields=${CUSTOMER_FULL_FIELDS}`;
     const queryKey = customerKeys.byId(creatorFk, id);
@@ -640,7 +654,7 @@ const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_
 const CUSTOMER_RELEASE_DEFAULT_FIELDS = 'id,customer_fk,build_fk,release_notes,creator_fk,create_ts,update_ts';
 
 export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/build_projects?fields=${fields}`;
     const queryKey = [...buildProjectKeys.all(creatorFk), { fields }];
@@ -652,7 +666,7 @@ export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_
 }
 
 export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/branches?fields=${fields}`;
     const queryKey = [...branchKeys.all(creatorFk), { fields }];
@@ -664,7 +678,7 @@ export function useAllBranches(creatorFk, { fields = BRANCH_DEFAULT_FIELDS, enab
 }
 
 export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/builds?fields=${fields}`;
     const queryKey = [...buildKeys.all(creatorFk), { fields }];
@@ -676,7 +690,7 @@ export function useAllBuilds(creatorFk, { fields = BUILD_DEFAULT_FIELDS, enabled
 }
 
 export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customer_releases?fields=${fields}`;
     const queryKey = [...customerReleaseKeys.all(creatorFk), { fields }];
@@ -688,7 +702,7 @@ export function useAllCustomerReleases(creatorFk, { fields = CUSTOMER_RELEASE_DE
 }
 
 export function useCustomerReleasesByBuild(creatorFk, buildId, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const uri = `${darwinUri}/customer_releases?build_fk=${buildId}&fields=${CUSTOMER_RELEASE_DEFAULT_FIELDS}`;
     const queryKey = customerReleaseKeys.byBuild(creatorFk, buildId);

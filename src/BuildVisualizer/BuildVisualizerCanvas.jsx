@@ -90,10 +90,13 @@ function ReleaseTooltipContent({ build, branchName }) {
     const details = build.releaseDetails?.length
         ? build.releaseDetails
         : (build.releaseCustomers || []).map(name => ({ name, date: null }));
+    // Every release event on a build shares one type (derived from the branch
+    // type — req #2772). Surface it in the header.
+    const releaseType = details.find(d => d.releaseType)?.releaseType;
     return (
         <Box sx={{ py: 0.25 }}>
             <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
-                Released — Build {build.version}
+                {releaseType ? `${releaseType} release` : 'Released'} — Build {build.version}
             </Typography>
             {branchName ? (
                 <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>

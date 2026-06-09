@@ -8,9 +8,13 @@ import {
     centeredDateRange,
     extendDates,
     pruneDates,
+    elevatorPanelHeight,
+    endOfWeek,
+    cappedCenteredRange,
     assignSwarmLanes,
     buildCrossDayGhosts,
 } from '../TimeSeriesView';
+import { getSpaceMultiplier } from '../timeSeriesSizes';
 
 describe('trimTo35', () => {
     it('returns empty for null/undefined/empty', () => {
@@ -472,8 +476,10 @@ describe('pruneDates (Sidewalk infinite scroll)', () => {
         expect(NINE_DATES).toEqual(original);
     });
 
-    it('extension + prune is the bounded steady-state for one-directional scroll', () => {
+    it('extension + prune is the bounded steady-state for one-directional scroll (elevator + sidewalk share this)', () => {
         // Simulate ten right-extensions of 10 panels each, capped at 60.
+        // Both Sidewalk (req #2396) and Elevator (req #2779) drive the same
+        // extendDates/pruneDates pair with EXTEND_BY=10, MAX_PANELS=60.
         let dates = centeredDateRange('2026-04-17', 10);   // 21 panels
         for (let i = 0; i < 10; i++) {
             const extended = extendDates(dates, 'right', 10);
@@ -490,6 +496,113 @@ describe('pruneDates (Sidewalk infinite scroll)', () => {
         const m = String(expectedLast.getMonth() + 1).padStart(2, '0');
         const day = String(expectedLast.getDate()).padStart(2, '0');
         expect(lastEntry).toBe(`${y}-${m}-${day}`);
+    });
+});
+
+describe('elevatorPanelHeight (req #2779 — shared by panelHeights memo + maybeExtend)', () => {
+    // Reference implementation of the formula the helper must match. Kept inline
+    // (not imported) so a drift in either the helper OR the renderer is caught.
+    const expected = (maxStackRow, circleDiameter, spaceKey) => {
+        const BASE = 140, bubbleOffset = 20, chromeBottom = 46;
+        const dateClearance = Math.ceil(circleDiameter / 2) + 4;
+        const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * getSpaceMultiplier(spaceKey)));
+        return Math.max(
+            BASE,
+            Math.max(0, maxStackRow) * rowSpacing + bubbleOffset + circleDiameter + chromeBottom + dateClearance,
+        );
+    };
+
+    it('matches the reference formula across a grid of inputs', () => {
+        for (const rows of [0, 1, 3, 8, 20]) {
+            for (const cd of [10, 16, 24]) {
+                for (const sk of [1, 2, 3, 4]) {
+                    expect(elevatorPanelHeight(rows, cd, sk)).toBe(expected(rows, cd, sk));
+                }
+            }
+        }
+    });
+
+    it('never returns less than the 140px base floor (light days stay short, not tiny)', () => {
+        expect(elevatorPanelHeight(0, 16, 2)).toBe(140);
+        // A single-chip day (row 0) is still floored at base.
+        expect(elevatorPanelHeight(0, 24, 4)).toBe(140);
+    });
+
+    it('is monotonic non-decreasing in maxStackRow (busier days are never shorter)', () => {
+        let prev = -Infinity;
+        for (const rows of [0, 1, 2, 5, 10, 30]) {
+            const h = elevatorPanelHeight(rows, 16, 2);
+            expect(h).toBeGreaterThanOrEqual(prev);
+            prev = h;
+        }
+    });
+
+    it('clamps a negative maxStackRow to 0 (defensive — base floor)', () => {
+        // Callers always pass `map.get(d) || 0`, so the input is a number; the
+        // Math.max(0, …) guard just keeps a stray negative from underflowing.
+        expect(elevatorPanelHeight(-5, 16, 2)).toBe(140);
+    });
+
+    it('unknown spaceKey falls back to the default multiplier (matches getSpaceMultiplier)', () => {
+        expect(elevatorPanelHeight(5, 16, 99)).toBe(expected(5, 16, 99));
+        expect(elevatorPanelHeight(5, 16, 99)).toBe(elevatorPanelHeight(5, 16, 2));
+    });
+});
+
+describe('endOfWeek (req #2779 — elevator future cap = this week\'s Sunday)', () => {
+    it('returns the Sunday of the ISO week for every weekday', () => {
+        // Week of Mon 2026-06-08 .. Sun 2026-06-14.
+        for (const d of ['2026-06-08', '2026-06-09', '2026-06-10', '2026-06-11',
+                         '2026-06-12', '2026-06-13', '2026-06-14']) {
+            expect(endOfWeek(d)).toBe('2026-06-14');
+        }
+    });
+
+    it('a Sunday is its own end-of-week', () => {
+        expect(endOfWeek('2026-06-14')).toBe('2026-06-14');
+    });
+
+    it('handles a week that spans a month/year boundary', () => {
+        // Thu 2026-12-31 is in the Mon 2026-12-28 .. Sun 2027-01-03 week.
+        expect(endOfWeek('2026-12-31')).toBe('2027-01-03');
+    });
+
+    it('passes empty through (degenerate)', () => {
+        expect(endOfWeek('')).toBe('');
+    });
+});
+
+describe('cappedCenteredRange (req #2779 — initial/rebuild strip never crosses the cap)', () => {
+    it('with no cap, equals the uncapped centered range', () => {
+        expect(cappedCenteredRange('2026-06-10', 10, null)).toEqual(centeredDateRange('2026-06-10', 10));
+    });
+
+    it('drops every day after the cap, keeps the cap itself and all earlier days', () => {
+        // Center Wed 2026-06-10, cap = Sun 2026-06-14. Range is 06-00..06-20;
+        // future side must stop at 06-14.
+        const out = cappedCenteredRange('2026-06-10', 10, '2026-06-14');
+        expect(out[out.length - 1]).toBe('2026-06-14');
+        expect(out.every(d => d <= '2026-06-14')).toBe(true);
+        // Past side is untouched: 10 days before center are present.
+        expect(out[0]).toBe('2026-05-31');
+        // Contiguous, no gaps.
+        for (let i = 1; i < out.length; i++) {
+            const prev = new Date(out[i - 1] + 'T12:00:00');
+            const cur  = new Date(out[i]     + 'T12:00:00');
+            expect(Math.round((cur - prev) / 86400000)).toBe(1);
+        }
+    });
+
+    it('when the center is the cap, the cap is the last entry (only past below it)', () => {
+        const out = cappedCenteredRange('2026-06-14', 10, '2026-06-14');
+        expect(out[out.length - 1]).toBe('2026-06-14');
+        expect(out.length).toBe(11);   // center + 10 past, zero future
+    });
+
+    it('when the whole range is past the cap, falls back to a single capped day (never empty)', () => {
+        // Center two weeks ahead of the cap — every generated day is after it.
+        const out = cappedCenteredRange('2026-06-30', 10, '2026-06-14');
+        expect(out).toEqual(['2026-06-14']);
     });
 });
 

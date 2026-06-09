@@ -23,6 +23,19 @@ setup('authenticate', async ({ page }) => {
     }
   } catch { /* best-effort */ }
 
+  // The E2E suite exercises the Swarm feature area (Requirements, Sessions, Swarm
+  // Starts/Undos, Dev Servers). That nav group is gated by the profile app-flag
+  // app_swarm, which defaults to 0 for the dedicated test users — hiding the links
+  // and breaking every swarm and dev-servers test. Force the flags the suite needs
+  // ON in the profile we hand to the app. This is non-destructive — only the
+  // cookie/localStorage profile is modified, never the DB row (NavBar reads app-flags
+  // from the AuthContext profile, not a fresh DB fetch — see AuthContext silentRefresh
+  // fallback path). app_swarm_validate is left OFF (default): no E2E specs exercise the
+  // Validate views, and enabling it surfaces a "Test Plans" nav link that collides with
+  // loose name matchers (e.g. ERR-01's /plan/i).
+  fullProfile = { ...fullProfile, app_tasks: 1, app_maps: 1, app_swarm: 1 };
+  dbProfileJson = JSON.stringify(fullProfile);
+
   // Navigate to the app first so we can set cookies on the correct origin
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');

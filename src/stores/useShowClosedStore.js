@@ -4,7 +4,8 @@ import { persist } from 'zustand/middleware';
 export const ALL_SESSION_STATUSES = ['starting', 'active', 'review', 'paused', 'completing', 'completed'];
 export const DEFAULT_SESSION_STATUSES = ['starting', 'active', 'review', 'completing'];
 
-export const ALL_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'deferred', 'met'];
+// req #2784 reordered filter chips to met-before-deferred; req #2783 appends wontfix last.
+export const ALL_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met', 'deferred', 'wontfix'];
 export const DEFAULT_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development'];
 
 export const useShowClosedStore = create(

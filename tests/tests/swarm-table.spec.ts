@@ -1,6 +1,82 @@
 import { test, expect } from '@playwright/test';
+import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
 test.describe('Swarm Table View', () => {
+
+  // The table view (DataGrid) renders the current user's requirements. A clean
+  // E2E user has none, which leaves the grid empty and breaks every row-dependent
+  // assertion (row click, bulk-select, status sort, session chip). Seed a project
+  // + category + one requirement per coordination_type (exercises the #2745
+  // 'discuss' value in the Autonomy column) + a linked swarm session for the
+  // Sessions-chip test. afterAll tears it all down (req #2750 — no data pollution).
+  let idToken: string;
+  let seedProjectId: string;
+  let seedCategoryId: string;
+  let seedSessionId: string;
+  const seedReqIds: string[] = [];
+  const seedProjectName = uniqueName('TblProj');
+  const seedCategoryName = uniqueName('TblCat');
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(60000);
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    idToken = await getIdToken(page);
+    await context.close();
+
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+
+    const projResult = await apiCall('projects', 'POST', {
+      creator_fk: sub, project_name: seedProjectName, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!projResult?.length) throw new Error('Failed to seed project');
+    seedProjectId = projResult[0].id;
+
+    const catResult = await apiCall('categories', 'POST', {
+      creator_fk: sub, category_name: seedCategoryName, project_fk: seedProjectId,
+      closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    if (!catResult?.length) throw new Error('Failed to seed category');
+    seedCategoryId = catResult[0].id;
+
+    // One requirement per coordination_type, all 'authoring' so they appear under
+    // the default status filter and the Status asc-sort lands an authoring row first.
+    const coords = ['discuss', 'planned', 'implemented', 'deployed'];
+    for (const coord of coords) {
+      const r = await apiCall('requirements', 'POST', {
+        creator_fk: sub, title: uniqueName(`TblReq-${coord}`), category_fk: seedCategoryId,
+        requirement_status: 'authoring', coordination_type: coord,
+      }, idToken) as Array<{ id: string }>;
+      if (!r?.length) throw new Error(`Failed to seed requirement (${coord})`);
+      seedReqIds.push(r[0].id);
+    }
+
+    // Swarm session linked to the first requirement via source_ref — drives the
+    // Sessions-column chip exercised by CTB-15.
+    const sessResult = await apiCall('swarm_sessions', 'POST', {
+      creator_fk: sub,
+      branch: 'feature/e2e-swarm-table',
+      task_name: 'e2e-swarm-table',
+      source_type: 'roadmap',
+      source_ref: `requirement:${seedReqIds[0]}`,
+      title: 'E2E Swarm Table Session',
+      swarm_status: 'active',
+    }, idToken) as Array<{ id: string }>;
+    if (!sessResult?.length) throw new Error('Failed to seed swarm session');
+    seedSessionId = sessResult[0].id;
+    await apiCall('requirement_sessions', 'POST', {
+      requirement_fk: seedReqIds[0], session_fk: seedSessionId,
+    }, idToken);
+  });
+
+  test.afterAll(async () => {
+    test.setTimeout(60000);
+    // FK-safe teardown: junction → session → requirements → project (CASCADE categories).
+    try { await apiDelete('requirement_sessions', `${seedReqIds[0]}`, idToken); } catch {}
+    try { await apiDelete('swarm_sessions', seedSessionId, idToken); } catch {}
+    for (const id of seedReqIds) { try { await apiDelete('requirements', id, idToken); } catch {} }
+    try { await apiDelete('projects', seedProjectId, idToken); } catch {}
+  });
 
   test.beforeEach(async ({ page }) => {
     // Reset view to cards and default status filter before each test

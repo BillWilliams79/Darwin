@@ -47,7 +47,7 @@ const WRAP_CELL_SX = {
 };
 
 const STATUS_SORT_ORDER = {
-    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5,
+    authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5, wontfix: 6,
 };
 
 const AUTONOMY_OPTIONS = ['discuss', 'planned', 'implemented', 'deployed'];
@@ -331,28 +331,32 @@ const RequirementsTableView = () => {
                 </Box>
             )}
 
-            <DataGrid
-                rows={filteredRequirements}
-                columns={columns}
-                loading={reqLoading || catLoading}
-                getRowHeight={() => 'auto'}
-                slots={{ toolbar: GridToolbar }}
-                slotProps={{ toolbar: { showQuickFilter: true } }}
-                initialState={{
-                    pagination: {
-                        paginationModel: { pageSize: 25 },
-                    },
-                }}
-                pageSizeOptions={[25, 50, 100]}
-                checkboxSelection
-                disableRowSelectionOnClick
-                rowSelectionModel={rowSelectionModel}
-                onRowSelectionModelChange={setRowSelectionModel}
-                onCellClick={handleCellClick}
-                density="compact"
-                sx={{ cursor: 'pointer' }}
-                data-testid="requirements-datagrid"
-            />
+            {/* Wrap the DataGrid in a Box that carries the testid: MUI X v8 does not
+                forward an arbitrary `data-testid` prop to a queryable DOM node, so the
+                testid must live on a real element (mirrors DevServersView's pattern). */}
+            <Box data-testid="requirements-datagrid">
+                <DataGrid
+                    rows={filteredRequirements}
+                    columns={columns}
+                    loading={reqLoading || catLoading}
+                    getRowHeight={() => 'auto'}
+                    slots={{ toolbar: GridToolbar }}
+                    slotProps={{ toolbar: { showQuickFilter: true } }}
+                    initialState={{
+                        pagination: {
+                            paginationModel: { pageSize: 25 },
+                        },
+                    }}
+                    pageSizeOptions={[25, 50, 100]}
+                    checkboxSelection
+                    disableRowSelectionOnClick
+                    rowSelectionModel={rowSelectionModel}
+                    onRowSelectionModelChange={setRowSelectionModel}
+                    onCellClick={handleCellClick}
+                    density="compact"
+                    sx={{ cursor: 'pointer' }}
+                />
+            </Box>
 
             {/* Bulk edit dialog */}
             <Dialog

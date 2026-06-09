@@ -10,6 +10,7 @@ export const requirementStatusChipProps = (status) => {
         case 'swarm_ready':  return { sx: { bgcolor: '#1976d2', color: '#fff' } };
         case 'development':  return { sx: { bgcolor: '#81c784', color: '#000' } };
         case 'deferred':     return { sx: { bgcolor: '#ff9800', color: '#fff' } };
+        case 'wontfix':      return { sx: { bgcolor: '#9e9e9e', color: '#fff' } };
         case 'met':          return { sx: { bgcolor: '#2e7d32', color: '#fff' } };
         default:             return { color: 'default' };
     }
@@ -19,6 +20,7 @@ export const requirementStatusLabel = (status) => {
     switch (status) {
         case 'swarm_ready':  return 'Swarm-Start';
         case 'development':  return 'Dev';
+        case 'wontfix':      return "Won't Fix";
         default:             return status;
     }
 };

@@ -7,7 +7,7 @@
 // `parseSummary` is exported so the SwarmStartDetail page (and the unit test)
 // can reuse it without duplicating the parser.
 
-import { useCallback, useContext, useMemo, useState } from 'react';
+import { useCallback, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
@@ -22,8 +22,6 @@ import { selectRequirementsForSwarmStart } from './requirementsList';
 import SwarmStartsStatsView from './SwarmStartsStatsView';
 
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -42,20 +40,6 @@ const TABLE_WIDTH = 1500;
 // 0-session row two lines of vertical padding equal to the prior fixed height.
 const REQ_LINE_HEIGHT = 18;
 const REQ_BASE_HEIGHT = 52;
-
-// Closed whitelist matching the swarm-start skill (req #2339).
-const AUTONOMY_VALUES = ['discuss', 'planned', 'implemented', 'deployed'];
-
-const autonomyChipProps = (filter) => {
-    if (!filter) return null;
-    switch (filter) {
-        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return { color: 'default' };
-    }
-};
 
 const formatNum = (v) => (v == null ? '—' : Number(v).toLocaleString());
 const formatWallSeconds = (v) => {
@@ -80,21 +64,9 @@ export default function SwarmStartsPage() {
     const { data: sessionsArray = [] } = useSessions(creatorFk);
     const { data: junction = [] } = useAllSwarmStartSessions(creatorFk);
 
-    // Autonomy filter chip-selector. null = All (no filter applied).
-    // 'none' = rows with autonomy_filter IS NULL (the launch had no autonomy keyword).
-    const [autonomyFilter, setAutonomyFilter] = useState(null);
-
     // View toggle (Table | Stats) — req #2686.
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
     const handleViewChange = (_event, newView) => setView(newView);
-
-    const filteredRows = useMemo(() => {
-        if (autonomyFilter === null) return swarmStarts;
-        if (autonomyFilter === 'none') {
-            return swarmStarts.filter(r => !r.autonomy_filter);
-        }
-        return swarmStarts.filter(r => r.autonomy_filter === autonomyFilter);
-    }, [swarmStarts, autonomyFilter]);
 
     // swarm_start.id → [{ reqId, title, sessionId, startedAt }], built once
     // per (sessions, junction) change. The DataGrid's `valueGetter` and
@@ -195,17 +167,6 @@ export default function SwarmStartsPage() {
                 );
             },
         },
-        {
-            field: 'autonomy_filter',
-            headerName: 'Autonomy',
-            width: 120,
-            renderCell: (params) => params.value
-                ? <Chip label={params.value} size="small"
-                        {...autonomyChipProps(params.value)}
-                        sx={{ textTransform: 'capitalize',
-                              ...(autonomyChipProps(params.value)?.sx || {}) }} />
-                : <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>,
-        },
         // Token columns — hidden by default, revealable via column-visibility toolbar.
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
             valueFormatter: formatNum },
@@ -265,44 +226,12 @@ export default function SwarmStartsPage() {
             <Box className="app-content-view-toggle"
                  sx={{ display: 'flex', alignItems: 'center', gap: 2,
                         mt: 3, mb: 1, px: 3, maxWidth: TABLE_WIDTH, flexWrap: 'wrap' }}>
-                <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}
-                       data-testid="autonomy-filter">
-                    <Chip label="All" size="small"
-                          onClick={() => setAutonomyFilter(null)}
-                          color={autonomyFilter === null ? 'primary' : 'default'}
-                          variant={autonomyFilter === null ? 'filled' : 'outlined'}
-                          sx={{ cursor: 'pointer' }}
-                          data-testid="autonomy-chip-all" />
-                    {AUTONOMY_VALUES.map(v => {
-                        const selected = autonomyFilter === v;
-                        const props = autonomyChipProps(v);
-                        return (
-                            <Chip key={v} label={v} size="small"
-                                  onClick={() => setAutonomyFilter(v)}
-                                  variant={selected ? 'filled' : 'outlined'}
-                                  sx={{ cursor: 'pointer',
-                                         textTransform: 'capitalize',
-                                         ...(selected && props?.sx ? props.sx : {}),
-                                         ...(!selected && props?.sx
-                                             ? { borderColor: props.sx.bgcolor, opacity: 0.7 }
-                                             : {}) }}
-                                  data-testid={`autonomy-chip-${v}`} />
-                        );
-                    })}
-                    <Chip label="None" size="small"
-                          title="No autonomy filter recorded"
-                          onClick={() => setAutonomyFilter('none')}
-                          color={autonomyFilter === 'none' ? 'primary' : 'default'}
-                          variant={autonomyFilter === 'none' ? 'filled' : 'outlined'}
-                          sx={{ cursor: 'pointer' }}
-                          data-testid="autonomy-chip-none" />
-                </Stack>
-                <Box sx={{ flexGrow: 1 }} />
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                     {view === 'table'
-                        ? `${filteredRows.length} of ${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
-                        : `${filteredRows.length} of ${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
+                        ? `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
+                        : `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
                 </Typography>
+                <Box sx={{ flexGrow: 1 }} />
                 <ToggleButtonGroup
                     value={view}
                     exclusive
@@ -327,7 +256,7 @@ export default function SwarmStartsPage() {
                 <Box className="app-content-tabpanel"
                      sx={{ px: 3, pt: 0, maxWidth: TABLE_WIDTH }}>
                     <DataGrid
-                        rows={filteredRows}
+                        rows={swarmStarts}
                         columns={columns}
                         getRowHeight={getRowHeight}
                         density="compact"
@@ -342,7 +271,7 @@ export default function SwarmStartsPage() {
                 </Box>
             )}
             {view === 'stats' && (
-                <SwarmStartsStatsView rows={filteredRows} />
+                <SwarmStartsStatsView rows={swarmStarts} />
             )}
         </Box>
     );

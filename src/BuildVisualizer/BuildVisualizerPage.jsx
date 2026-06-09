@@ -56,6 +56,7 @@ import {
     isThemeVariant,
 } from './themeVariants';
 import { canDeleteBuild, canDeleteBranch } from './deleteRules';
+import { readinessLabelFor } from './readinessRules';
 import { formatBranchLocation } from './buildLocation';
 import ThemeContext from '../Theme/ThemeContext';
 import AppContext from '../Context/AppContext';
@@ -70,9 +71,10 @@ const MAX_BRANCHES_PER_HOLD = 5;
 // Common hold-to-count timing for BOTH builds and branches (req #2741): one
 // start delay + one dwell, only the cap differs. Derived from the prior branch
 // cadence — start delay 2× the old 200 ms (the wait before the count leaves 1),
-// dwell = the old branch dwell (2× builds = 450) made 25% longer.
-const HOLD_START_DELAY_MS = 400;        // 2× the prior 200 ms
-const HOLD_DWELL_MS = 450 * 1.25;       // 562.5 ms — 25% longer than the old branch dwell
+// dwell = the inter-increment step, decreased ~33% from the prior 562.5 ms so the
+// count ramps faster while the start-delay offset is unchanged.
+const HOLD_START_DELAY_MS = 400;        // 2× the prior 200 ms (offset before count leaves 1)
+const HOLD_DWELL_MS = 375;              // ~33% faster than the prior 562.5 ms (= 562.5 × ⅔)
 // Only these branch types support hold-to-make-multiple; others are single.
 const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 
@@ -123,7 +125,8 @@ const BuildVisualizerPage = () => {
         return firstBuild ? formatVersion(fromModelBuild(firstBuild)) : '';
     }, [model]);
 
-    const { darwinUri } = useContext(AppContext);
+    // Build Visualizer is a dev-only tool pinned to `darwin_dev` (req #2760).
+    const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
 
@@ -1046,8 +1049,9 @@ const BuildVisualizerPage = () => {
                             data-testid="bv-menu-add-build"
                         />
 
-                        {/* Production Ready — two-state toggle (req #2737). Off = not
-                            production ready (default); On = production ready. */}
+                        {/* Readiness — two-state toggle (req #2737). Off = not ready
+                            (default); On = ready. The label varies by branch type
+                            (req #2772): Production / Sample / Debug / Hot Fix Ready. */}
                         <MenuItem onClick={handleToggleApproved} data-testid="bv-menu-approve">
                             <FormControlLabel
                                 sx={{ m: 0, pointerEvents: 'none' }}
@@ -1059,7 +1063,7 @@ const BuildVisualizerPage = () => {
                                         inputProps={{ readOnly: true, 'data-testid': 'bv-menu-approve-switch' }}
                                     />
                                 )}
-                                label="Production Ready"
+                                label={readinessLabelFor(dotMenu?.buildRecord?.branchType)}
                             />
                         </MenuItem>
 

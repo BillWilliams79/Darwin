@@ -3,7 +3,6 @@ import { computeSwarmStartStats } from '../SwarmStartsStatsView';
 
 const mkRow = (overrides = {}) => ({
     arguments: '',
-    autonomy_filter: null,
     auto_start: 0,
     session_count: 0,
     wall_seconds: null,
@@ -25,8 +24,6 @@ describe('computeSwarmStartStats (req #2686)', () => {
         expect(s.wallHistogram).toHaveLength(6);
         expect(s.wallHistogram.every(b => b.count === 0)).toBe(true);
         expect(s.topPatterns).toEqual([]);
-        expect(s.autonomyBreakdown).toHaveLength(5);
-        expect(s.autonomyBreakdown.every(b => b.count === 0)).toBe(true);
     });
 
     it('aggregates total sessions and avg-sessions-per-invocation', () => {
@@ -132,24 +129,6 @@ describe('computeSwarmStartStats (req #2686)', () => {
         const s = computeSwarmStartStats(rows);
         expect(s.autoStartCount).toBe(2);
         expect(s.autoStartRatio).toBe(0.5);
-    });
-
-    it('breaks down autonomy_filter, treating unknown / null as "none"', () => {
-        const rows = [
-            mkRow({ autonomy_filter: 'discuss' }),
-            mkRow({ autonomy_filter: 'planned' }),
-            mkRow({ autonomy_filter: 'planned' }),
-            mkRow({ autonomy_filter: 'implemented' }),
-            mkRow({ autonomy_filter: null }),
-            mkRow({ autonomy_filter: 'bogus' }),
-        ];
-        const s = computeSwarmStartStats(rows);
-        const counts = Object.fromEntries(s.autonomyBreakdown.map(b => [b.label, b.count]));
-        expect(counts.discuss).toBe(1);
-        expect(counts.planned).toBe(2);
-        expect(counts.implemented).toBe(1);
-        expect(counts.deployed).toBe(0);
-        expect(counts.none).toBe(2);
     });
 
     // Req #2747 — largest launch by requirements generated (max session_count).

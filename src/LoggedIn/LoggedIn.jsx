@@ -25,7 +25,7 @@ function LoggedIn() {
             setAccessToken,
             profile, setProfile,
             scheduleRefresh } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { darwinUri, darwinOpsUri } = useContext(AppContext);
 
     const [cookies, setCookie, removeCookie] = useCookies(['csrfToken', 'refreshToken']);
 
@@ -80,7 +80,10 @@ function LoggedIn() {
                 setAccessToken(tokens.accessToken);
 
                 // STEP 3: Validate ID token via Lambda-JWT (same as before)
-                const jwtUri = `${darwinUri}/jwt`;
+                // /jwt is an ops-only endpoint (req #2697) — provisioned under
+                // `…/darwin`, not `…/darwin_dev`. Use the ops URI so dev-mode login
+                // works; no-op in production where the two URIs are identical.
+                const jwtUri = `${darwinOpsUri || darwinUri}/jwt`;
                 const jwtBody = {'idToken': tokens.idToken};
 
                 return call_rest_api(jwtUri, 'POST', jwtBody, tokens.idToken)
