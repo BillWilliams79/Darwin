@@ -2333,7 +2333,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             velocityRef.current = 0;
             stopAnim();
             frame.style.cursor = 'grabbing';
-            e.preventDefault();
+            // Mouse: suppress text/image drag. Touch/pen (req #2802): do NOT
+            // preventDefault — `touch-action: pan-y` (CSS) already arbitrates the
+            // gesture (horizontal → us, vertical → page), and preventing default
+            // would swallow the tap-`click` that selects a chip.
+            if (e.pointerType === 'mouse') e.preventDefault();
         };
         const onMove = (e) => {
             if (!isDown) return;
@@ -2385,15 +2389,21 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             reportCenterIfChanged();
         };
 
-        frame.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        // Pointer events (req #2802) unify mouse + touch + pen, so the strip
+        // hand-scrolls on mobile (mouse-only listeners never fired for touch).
+        // `pointercancel` ends a drag the browser reclaims (e.g. it decides the
+        // gesture is a vertical page-pan under touch-action:pan-y).
+        frame.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
         frame.addEventListener('click', onClickCapture, true);
         frame.addEventListener('wheel', onWheel, { passive: false });
         return () => {
-            frame.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             frame.removeEventListener('click', onClickCapture, true);
             frame.removeEventListener('wheel', onWheel);
             stopAnim();
@@ -2884,7 +2894,11 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
             velocityRef.current = 0;
             stopAnim();
             frame.style.cursor = 'grabbing';
-            e.preventDefault();
+            // Mouse: suppress text/image drag. Touch/pen (req #2802): do NOT
+            // preventDefault — `touch-action: pan-x` (CSS) already arbitrates the
+            // gesture (vertical → us, horizontal → page), and preventing default
+            // would swallow the tap-`click` that selects a chip.
+            if (e.pointerType === 'mouse') e.preventDefault();
         };
         const onMove = (e) => {
             if (!isDown) return;
@@ -2945,15 +2959,21 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
             reportCenterIfChanged();
         };
 
-        frame.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        // Pointer events (req #2802) unify mouse + touch + pen, so the strip
+        // hand-scrolls on mobile (mouse-only listeners never fired for touch).
+        // `pointercancel` ends a drag the browser reclaims (e.g. it decides the
+        // gesture is a horizontal page-pan under touch-action:pan-x).
+        frame.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
         frame.addEventListener('click', onClickCapture, true);
         frame.addEventListener('wheel', onWheel, { passive: false });
         return () => {
-            frame.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             frame.removeEventListener('click', onClickCapture, true);
             frame.removeEventListener('wheel', onWheel);
             stopAnim();
