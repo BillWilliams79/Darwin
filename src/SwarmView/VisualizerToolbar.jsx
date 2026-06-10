@@ -41,7 +41,6 @@ const formatWeekTitle = (dateStr) => {
 const VisualizerToolbar = () => {
     const viewType    = useSwarmVisualizerStore(s => s.viewType);
     const currentDate = useSwarmVisualizerStore(s => s.currentDate);
-    const vizKey      = useSwarmVisualizerStore(s => s.vizKey);
     const beadWindow  = useSwarmVisualizerStore(s => s.beadWindow);
     const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
@@ -50,7 +49,6 @@ const VisualizerToolbar = () => {
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
-    const setVizKey      = useSwarmVisualizerStore(s => s.setVizKey);
     const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
     const setSidewalkOn  = useSwarmVisualizerStore(s => s.setSidewalkOn);
     const setElevatorOn  = useSwarmVisualizerStore(s => s.setElevatorOn);
@@ -76,10 +74,6 @@ const VisualizerToolbar = () => {
         if (!next) return;
         setViewType(next);
     }, [setViewType]);
-
-    const handleVizClick = useCallback((viz) => {
-        setVizKey(viz);
-    }, [setVizKey]);
 
     const handleSidewalkClick = useCallback(() => {
         const next = !sidewalkOn;
@@ -135,18 +129,6 @@ const VisualizerToolbar = () => {
             </Button>
             <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
                                data-testid="timeseries-group">
-                <ToggleButton value="bead" className="cal-toggle-btn"
-                              selected={vizKey === 'bead'}
-                              onChange={() => handleVizClick('bead')}
-                              data-testid="timeseries-viz-bead">
-                    Bead
-                </ToggleButton>
-                <ToggleButton value="swarm" className="cal-toggle-btn"
-                              selected={vizKey === 'swarm'}
-                              onChange={() => handleVizClick('swarm')}
-                              data-testid="timeseries-viz-swarm">
-                    Swarm
-                </ToggleButton>
                 <ToggleButton value="24h" className="cal-toggle-btn"
                               selected={beadWindow === '24h'}
                               onChange={() => setBeadWindow('24h')}
