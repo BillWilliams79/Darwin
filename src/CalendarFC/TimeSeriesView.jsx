@@ -87,6 +87,10 @@ export const bucketByDate = (requirements, timezone) => {
 // |Δ leftPct| so the direction of traversal doesn't change what counts as a
 // cluster. Exported for unit-test coverage.
 const MAX_ROWS = 24;
+// req #2805 — rendered pixel height of a `.ts-bead-label` title (CSS line-height
+// 16px + 1px padding top/bottom). Kept in sync with TimeSeriesView.css so the
+// Week-stack row-spacing buffer reserves exactly enough room for a title.
+const TITLE_LABEL_HEIGHT = 18;
 // Stable empty array (req #2796) — used as the week-stack `crossDays` fallback so
 // a day with no cross-day entries passes the SAME reference every parent render
 // instead of a fresh `[]` literal, which would defeat BeadRow's React.memo.
@@ -1255,7 +1259,21 @@ const BeadRow = React.memo(({
 
     // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
     const spaceMul = isWeekView ? 1 : getSpaceMultiplier(spaceKey);
-    const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    let rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    // req #2805 — the Week stack forces spaceMul=1 (tightest) so 7 rows fit, which
+    // leaves only ~24px between rows. With the "Title" toggle on, the title label
+    // (TITLE_LABEL_HEIGHT px, rendered to the right of the bubble and vertically
+    // centered on it) then overlaps both the neighbouring row's title AND the
+    // bubble directly below it. Day view (roomy spaceMul) and the Elevator panels
+    // (rendered with isWeekView=false → user space preference) already have room,
+    // which is why the overlap only shows in the Week stack. Raise rowSpacing to a
+    // label-aware minimum so every item gets a common vertical slot that fully
+    // clears the title: half the bubble + the full label height + a small gap.
+    // Scoped to the Week stack — the Elevator/Sidewalk size their panels through a
+    // separate helper, so widening here would drift from that math.
+    if (titlesOn && isWeekView && !sidewalkPanel) {
+        rowSpacing = Math.max(rowSpacing, Math.ceil(circleDiameter / 2) + TITLE_LABEL_HEIGHT + 4);
+    }
 
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
