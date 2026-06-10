@@ -178,9 +178,9 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
     const OTHER = '2026-04-18';
 
     it('returns 0 for empty / invalid input', () => {
-        expect(countChipsForDate([], [], DAY, TZ, 'swarm')).toBe(0);
-        expect(countChipsForDate(null, [], DAY, TZ, 'swarm')).toBe(0);
-        expect(countChipsForDate([{ id: 1, completed_at: `${DAY} 12:00:00` }], [], null, TZ, 'bead'))
+        expect(countChipsForDate([], [], DAY, TZ)).toBe(0);
+        expect(countChipsForDate(null, [], DAY, TZ)).toBe(0);
+        expect(countChipsForDate([{ id: 1, completed_at: `${DAY} 12:00:00` }], [], null, TZ))
             .toBe(0);
     });
 
@@ -189,7 +189,7 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
             { id: 1, completed_at: null },
             { id: 2, completed_at: `${DAY} 10:00:00` },
         ];
-        expect(countChipsForDate(reqs, [], DAY, TZ, 'bead')).toBe(1);
+        expect(countChipsForDate(reqs, [], DAY, TZ)).toBe(1);
     });
 
     it('filters out requirements whose completed_at lands on a different day', () => {
@@ -198,24 +198,11 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
             { id: 2, completed_at: `${OTHER} 09:00:00` },
             { id: 3, completed_at: `${DAY} 23:00:00` },
         ];
-        expect(countChipsForDate(reqs, [], DAY, TZ, 'bead')).toBe(2);
-        expect(countChipsForDate(reqs, [], OTHER, TZ, 'bead')).toBe(1);
+        expect(countChipsForDate(reqs, [], DAY, TZ)).toBe(2);
+        expect(countChipsForDate(reqs, [], OTHER, TZ)).toBe(1);
     });
 
-    it('bead mode: one chip per same-day requirement (sessions ignored)', () => {
-        const reqs = [
-            { id: 1, completed_at: `${DAY} 09:00:00` },
-            { id: 2, completed_at: `${DAY} 10:00:00` },
-            { id: 3, completed_at: `${DAY} 11:00:00` },
-        ];
-        const sessions = [
-            { id: 10, source_ref: 'requirement:1', started_at: `${DAY} 08:00:00` },
-            { id: 11, source_ref: 'requirement:1', started_at: `${DAY} 08:30:00` },
-        ];
-        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'bead')).toBe(3);
-    });
-
-    it('swarm mode: one chip per (requirement, session) pair', () => {
+    it('one chip per (requirement, session) pair', () => {
         const reqs = [
             { id: 1, completed_at: `${DAY} 09:00:00` },
             { id: 2, completed_at: `${DAY} 10:00:00` },
@@ -226,10 +213,10 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
             { id: 20, source_ref: 'requirement:2', started_at: `${DAY} 09:30:00` },
         ];
         // req 1 has 2 sessions + req 2 has 1 session → 3 chips
-        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(3);
+        expect(countChipsForDate(reqs, sessions, DAY, TZ)).toBe(3);
     });
 
-    it('swarm mode: bare-requirement fallback when no linked session', () => {
+    it('bare-requirement fallback when no linked session', () => {
         const reqs = [
             { id: 1, completed_at: `${DAY} 09:00:00` },   // no sessions
             { id: 2, completed_at: `${DAY} 10:00:00` },   // 2 sessions
@@ -239,10 +226,10 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
             { id: 21, source_ref: 'requirement:2', started_at: `${DAY} 09:15:00` },
         ];
         // req 1 = 1 bare chip, req 2 = 2 session chips → 3 chips
-        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(3);
+        expect(countChipsForDate(reqs, sessions, DAY, TZ)).toBe(3);
     });
 
-    it('swarm mode: sessions whose requirement falls on a different day do not count', () => {
+    it('sessions whose requirement falls on a different day do not count', () => {
         const reqs = [
             { id: 1, completed_at: `${OTHER} 09:00:00` },
         ];
@@ -250,7 +237,7 @@ describe('countChipsForDate (Sidewalk uniform-height precomputation)', () => {
             { id: 10, source_ref: 'requirement:1', started_at: `${DAY} 08:00:00` },
             { id: 11, source_ref: 'requirement:1', started_at: `${DAY} 08:30:00` },
         ];
-        expect(countChipsForDate(reqs, sessions, DAY, TZ, 'swarm')).toBe(0);
+        expect(countChipsForDate(reqs, sessions, DAY, TZ)).toBe(0);
     });
 });
 
@@ -260,24 +247,24 @@ describe('indexChipsByDate (Sidewalk single-pass bucket)', () => {
     const D2 = '2026-04-18';
 
     it('returns empty Map for invalid / empty input', () => {
-        expect(indexChipsByDate(null, [], TZ, 'swarm').size).toBe(0);
-        expect(indexChipsByDate([], [], TZ, 'bead').size).toBe(0);
+        expect(indexChipsByDate(null, [], TZ).size).toBe(0);
+        expect(indexChipsByDate([], [], TZ).size).toBe(0);
     });
 
-    it('bead mode: one count per same-day requirement, grouped by date', () => {
+    it('bare requirements (no sessions) count one chip per same-day requirement', () => {
         const reqs = [
             { id: 1, completed_at: `${D1} 09:00:00` },
             { id: 2, completed_at: `${D1} 10:00:00` },
             { id: 3, completed_at: `${D2} 11:00:00` },
             { id: 4, completed_at: null },
         ];
-        const map = indexChipsByDate(reqs, [], TZ, 'bead');
+        const map = indexChipsByDate(reqs, [], TZ);
         expect(map.get(D1)).toBe(2);
         expect(map.get(D2)).toBe(1);
         expect(map.size).toBe(2);
     });
 
-    it('swarm mode: sessions bucket under their requirement\'s completed_at date', () => {
+    it('sessions bucket under their requirement\'s completed_at date', () => {
         const reqs = [
             { id: 1, completed_at: `${D1} 09:00:00` },    // 2 sessions
             { id: 2, completed_at: `${D2} 10:00:00` },    // 0 sessions → bare-req fallback
@@ -286,7 +273,7 @@ describe('indexChipsByDate (Sidewalk single-pass bucket)', () => {
             { id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` },
             { id: 11, source_ref: 'requirement:1', started_at: `${D1} 08:30:00` },
         ];
-        const map = indexChipsByDate(reqs, sessions, TZ, 'swarm');
+        const map = indexChipsByDate(reqs, sessions, TZ);
         expect(map.get(D1)).toBe(2);    // 2 (req,session) chips on D1
         expect(map.get(D2)).toBe(1);    // 1 bare-req chip on D2
     });
@@ -302,11 +289,9 @@ describe('indexChipsByDate (Sidewalk single-pass bucket)', () => {
             { id: 11, source_ref: 'requirement:2', started_at: `${D1} 09:00:00` },
             { id: 12, source_ref: 'requirement:3', started_at: `${D2} 10:00:00` },
         ];
-        for (const vizKey of ['bead', 'swarm']) {
-            const map = indexChipsByDate(reqs, sessions, TZ, vizKey);
-            for (const d of [D1, D2]) {
-                expect(map.get(d) || 0).toBe(countChipsForDate(reqs, sessions, d, TZ, vizKey));
-            }
+        const map = indexChipsByDate(reqs, sessions, TZ);
+        for (const d of [D1, D2]) {
+            expect(map.get(d) || 0).toBe(countChipsForDate(reqs, sessions, d, TZ));
         }
     });
 });
@@ -317,11 +302,11 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
     const D2 = '2026-04-18';
 
     it('returns empty Map for invalid / empty input', () => {
-        expect(indexMaxStackByDate(null, [], TZ, 'bead').size).toBe(0);
-        expect(indexMaxStackByDate([], [], TZ, 'swarm').size).toBe(0);
+        expect(indexMaxStackByDate(null, [], TZ).size).toBe(0);
+        expect(indexMaxStackByDate([], [], TZ).size).toBe(0);
     });
 
-    it('swarm mode: maxRow = chips − 1 per date (one lane per chip)', () => {
+    it('maxRow = chips − 1 per date (one lane per chip)', () => {
         const reqs = [
             { id: 1, completed_at: `${D1} 09:00:00` },
             { id: 2, completed_at: `${D1} 10:00:00` },
@@ -332,59 +317,33 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
             { id: 11, source_ref: 'requirement:1', started_at: `${D1} 08:30:00` },
             { id: 12, source_ref: 'requirement:2', started_at: `${D1} 09:30:00` },
         ];
-        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm');
+        const map = indexMaxStackByDate(reqs, sessions, TZ);
         expect(map.get(D1)).toBe(2);    // 3 chips → rows 0,1,2 → maxRow 2
         expect(map.get(D2)).toBe(0);    // 1 bare-req chip → row 0
     });
 
-    it('bead mode: well-separated chips collapse to row 0 (no stacking)', () => {
-        const reqs = [
-            { id: 1, completed_at: `${D1} 00:00:00` },   // leftPct ≈ 0
-            { id: 2, completed_at: `${D1} 08:00:00` },   // ≈ 33.3
-            { id: 3, completed_at: `${D1} 16:00:00` },   // ≈ 66.6
-            { id: 4, completed_at: `${D1} 23:00:00` },   // ≈ 95.8
-        ];
-        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
-        expect(map.get(D1)).toBe(0);
-    });
-
-    it('bead mode: chips within minGapPct cluster and stack', () => {
-        // Same-minute requirements → identical leftPct → guaranteed to cluster.
-        const reqs = [
-            { id: 1, completed_at: `${D1} 09:00:00` },
-            { id: 2, completed_at: `${D1} 09:00:01` },
-            { id: 3, completed_at: `${D1} 09:00:02` },
-        ];
-        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
-        expect(map.get(D1)).toBe(2);    // 3 clustered chips → rows 0,1,2
-    });
-
-    it('bead mode vs swarm mode: bead can be much shorter than swarm for the same data', () => {
-        // 10 requirements spread evenly through the day — bead clusters them
-        // into row 0 only; swarm gives each its own lane.
+    it('gives each of 10 same-day requirements its own lane', () => {
         const reqs = Array.from({ length: 10 }, (_, i) => ({
             id: i + 1,
             completed_at: `${D1} ${String(2 + i * 2).padStart(2, '0')}:00:00`,
         }));
-        const beadMap = indexMaxStackByDate(reqs, [], TZ, 'bead');
-        const swarmMap = indexMaxStackByDate(reqs, [], TZ, 'swarm');
-        expect(beadMap.get(D1)).toBeLessThan(swarmMap.get(D1));
-        expect(swarmMap.get(D1)).toBe(9);   // 10 chips → rows 0..9
+        const map = indexMaxStackByDate(reqs, [], TZ);
+        expect(map.get(D1)).toBe(9);   // 10 chips → rows 0..9
     });
 
-    it('bead mode: ignores requirements with null completed_at', () => {
+    it('ignores requirements with null completed_at', () => {
         const reqs = [
             { id: 1, completed_at: `${D1} 09:00:00` },
             { id: 2, completed_at: null },
             { id: 3, completed_at: undefined },
         ];
-        const map = indexMaxStackByDate(reqs, [], TZ, 'bead');
+        const map = indexMaxStackByDate(reqs, [], TZ);
         expect(map.get(D1)).toBe(0);
         expect(map.size).toBe(1);
     });
 
-    // req #2797 — swarm panels also stack in-progress phantom + undone chips.
-    it('swarm mode: counts in-progress phantom lanes on the start-day panel', () => {
+    // req #2797 — panels also stack in-progress phantom + undone chips.
+    it('counts in-progress phantom lanes on the start-day panel', () => {
         // One completed req on D1 (1 chip) + one in-progress session whose
         // swarm-start fired on D1 (1 phantom). Stack should be 2 chips → maxRow 1,
         // not 0 as the completed-only count would give.
@@ -400,9 +359,9 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
             requirementById: new Map([['2', { id: 2 }]]),
             today: D2,   // today differs from D1 so the start-day branch is exercised
         };
-        const withExtras = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        const withExtras = indexMaxStackByDate(reqs, sessions, TZ, extras);
         expect(withExtras.get(D1)).toBe(1);   // completed(1) + phantom(1) = 2 → maxRow 1
-        const withoutExtras = indexMaxStackByDate(reqs, sessions, TZ, 'swarm');
+        const withoutExtras = indexMaxStackByDate(reqs, sessions, TZ);
         expect(withoutExtras.get(D1)).toBe(0);   // backward-compat: completed-only
     });
 
@@ -419,7 +378,7 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
             requirementById: new Map([['2', { id: 2 }]]),
             today: D2,
         };
-        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        const map = indexMaxStackByDate(reqs, sessions, TZ, extras);
         expect(map.get(D1)).toBe(0);   // 1 phantom → maxRow 0
         expect(map.get(D2)).toBe(0);   // 1 clamped phantom on today → maxRow 0
     });
@@ -442,7 +401,7 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
         };
         // req 1 has 2 linked sessions (92,93) → 2 completed chips → maxRow 1.
         // No phantom added: 91 is paused (hidden), 92's req is completed.
-        const map = indexMaxStackByDate(reqs, sessions, TZ, 'swarm', extras);
+        const map = indexMaxStackByDate(reqs, sessions, TZ, extras);
         expect(map.get(D1)).toBe(1);
     });
 
@@ -456,7 +415,7 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
             ],
             today: D2,
         };
-        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', extras);
+        const map = indexMaxStackByDate(reqs, [], TZ, extras);
         expect(map.get(D1)).toBe(2);   // completed(1) + undone(2) = 3 → maxRow 2
         expect(map.get(D2)).toBe(0);   // undone(1) only → maxRow 0
     });
@@ -470,23 +429,16 @@ describe('indexMaxStackByDate — cross-day ghost lanes (req #2798)', () => {
     it('folds crossDayCountByDate additively into swarm totals', () => {
         const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];   // 1 completed chip on D1
         const extras = { crossDayCountByDate: new Map([[D1, 2], [D2, 1]]) };
-        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', extras);
+        const map = indexMaxStackByDate(reqs, [], TZ, extras);
         expect(map.get(D1)).toBe(2);   // completed(1) + xd(2) = 3 → maxRow 2
         expect(map.get(D2)).toBe(0);   // xd(1) only = 1 → maxRow 0
     });
 
     it('is a no-op when crossDayCountByDate is absent (backward compat)', () => {
         const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
-        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', {});
+        const map = indexMaxStackByDate(reqs, [], TZ, {});
         expect(map.get(D1)).toBe(0);
         expect(map.has(D2)).toBe(false);
-    });
-
-    it('ignores crossDayCountByDate in bead mode', () => {
-        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
-        const extras = { crossDayCountByDate: new Map([[D1, 5]]) };
-        const map = indexMaxStackByDate(reqs, [], TZ, 'bead', extras);
-        expect(map.get(D1)).toBe(0);   // bead clusters; cross-day extra not applied
     });
 });
 
@@ -961,18 +913,14 @@ describe('buildCrossDayGhosts (req #2747)', () => {
           completedAt: '2026-05-29T10:00:00Z', card: { id: 2716 } },
     ];
 
-    it('returns [] when vizKey is not swarm', () => {
-        expect(buildCrossDayGhosts(sampleCrossDays, 'bead')).toEqual([]);
-    });
-
     it('returns [] for empty / non-array input', () => {
-        expect(buildCrossDayGhosts([], 'swarm')).toEqual([]);
-        expect(buildCrossDayGhosts(undefined, 'swarm')).toEqual([]);
-        expect(buildCrossDayGhosts(null, 'swarm')).toEqual([]);
+        expect(buildCrossDayGhosts([])).toEqual([]);
+        expect(buildCrossDayGhosts(undefined)).toEqual([]);
+        expect(buildCrossDayGhosts(null)).toEqual([]);
     });
 
     it('maps each entry to a ghost carrying groupKey, end-day completed_at, and the original crossDay', () => {
-        const ghosts = buildCrossDayGhosts(sampleCrossDays, 'swarm');
+        const ghosts = buildCrossDayGhosts(sampleCrossDays);
         expect(ghosts).toHaveLength(2);
         expect(ghosts[0]).toEqual({
             chipKey: 'xdghost-4-middle-0',
@@ -992,7 +940,7 @@ describe('buildCrossDayGhosts (req #2747)', () => {
     it('feeds assignSwarmLanes so ghosts get distinct rows from same-day chips', () => {
         const sameDay = [{ chipKey: '2708-s1', groupKey: '2026-05-27T08:00:00Z',
                            completed_at: '2026-05-28T10:00:00Z' }];
-        const ghosts = buildCrossDayGhosts(sampleCrossDays, 'swarm');
+        const ghosts = buildCrossDayGhosts(sampleCrossDays);
         const placed = assignSwarmLanes([...sameDay, ...ghosts]);
         const rows = placed.map(c => c.row);
         expect(new Set(rows).size).toBe(rows.length);   // every occupant a unique lane
@@ -1003,7 +951,7 @@ describe('buildCrossDayGhosts (req #2747)', () => {
 
     it('handles a null card without throwing (id falls back to null)', () => {
         const ghosts = buildCrossDayGhosts(
-            [{ sessionId: 9, role: 'middle', groupKey: 'g', completedAt: 't' }], 'swarm');
+            [{ sessionId: 9, role: 'middle', groupKey: 'g', completedAt: 't' }]);
         expect(ghosts[0].id).toBeNull();
     });
 });

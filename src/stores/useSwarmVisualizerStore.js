@@ -19,7 +19,9 @@ export const persistPartialize = (state) => {
 // `currentDate` (req #2799) and back-fills the fields added since v1 with their
 // defaults so an old blob upgrades cleanly. Exported for unit-test coverage.
 export const migrateVisualizerState = (persisted) => {
-    const { currentDate, ...rest } = persisted || {};   // drop stale persisted date (req #2799)
+    // drop stale persisted date (req #2799); drop the removed vizKey (req #2806 —
+    // the bead/swarm mode selector is gone, swarm is the only visualization).
+    const { currentDate, vizKey, ...rest } = persisted || {};
     return {
         ...rest,
         // v1 → v2: req #2383 elevatorOn, req #2382 dataKey.
@@ -37,7 +39,6 @@ export const useSwarmVisualizerStore = create(
         (set) => ({
             viewType: 'day',             // 'day' | 'week'
             currentDate: localDateStr(), // YYYY-MM-DD — navigation state, NOT persisted (req #2799)
-            vizKey: 'bead',              // 'bead' | 'swarm'
             beadWindow: '24h',           // '24h' | '36h'
             sidewalkOn: false,           // horizontal 21-day strip (day view)
             elevatorOn: false,           // vertical 21-day strip (week view) — req #2383
@@ -47,7 +48,6 @@ export const useSwarmVisualizerStore = create(
 
             setViewType: (viewType) => set({ viewType }),
             setCurrentDate: (currentDate) => set({ currentDate }),
-            setVizKey: (vizKey) => set({ vizKey }),
             setBeadWindow: (beadWindow) => set({ beadWindow }),
             setSidewalkOn: (on) => set({ sidewalkOn: !!on }),
             setElevatorOn: (on) => set({ elevatorOn: !!on }),
@@ -58,10 +58,12 @@ export const useSwarmVisualizerStore = create(
         }),
         {
             name: 'darwin_swarm_visualizer',
-            // v4 → v5 (req #2799): currentDate no longer persisted. Bumping the
+            // v4 → v5 (req #2799): currentDate no longer persisted.
+            // v5 → v6 (req #2806): vizKey (bead/swarm mode) removed. Bumping the
             // version forces migrate to run once for existing users so a stale
-            // date already in localStorage is stripped on first load.
-            version: 5,
+            // date OR a persisted vizKey already in localStorage is stripped on
+            // first load.
+            version: 6,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,

@@ -15,7 +15,6 @@ async function seedVisualizerState(
             state: {
                 viewType: v,
                 currentDate: d,
-                vizKey: 'bead',
                 beadWindow: '24h',
                 sidewalkOn: false,
                 elevatorOn: false,
@@ -37,7 +36,7 @@ async function seedVisualizerState(
 // this only removes host-timezone nondeterminism from the test.)
 test.use({ timezoneId: 'UTC' });
 
-test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', () => {
+test.describe('Swarm Visualizer — Sidewalk toolbar on /swarm', () => {
     let idToken: string;
     let testProjectId: string;
     let testCategoryId: string;
@@ -122,7 +121,7 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         expect(countA).not.toBe(countB);
     });
 
-    test('TS-04: Bead click → requirement detail', async ({ page }) => {
+    test('TS-04: chip click → requirement detail', async ({ page }) => {
         await page.goto('/swarm');
         await seedVisualizerState(page, testDate);
         await page.reload();
@@ -141,11 +140,11 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
 
         await page.getByTestId('view-toggle-cards').click();
         await expect(page.getByTestId('time-series-view')).toHaveCount(0);
-        await expect(page.getByTestId('timeseries-viz-bead')).toHaveCount(0);
+        await expect(page.getByTestId('timeseries-group')).toHaveCount(0);
 
         await page.getByTestId('view-toggle-visualizer').click();
         await expect(page.getByTestId('time-series-view')).toBeVisible({ timeout: 5000 });
-        await expect(page.getByTestId('timeseries-viz-bead')).toBeVisible();
+        await expect(page.getByTestId('timeseries-group')).toBeVisible();
     });
 
     test('TS-06: Sidewalk button — disabled in Week view, enabled in Day view', async ({ page }) => {
@@ -167,7 +166,6 @@ test.describe('Swarm Visualizer — Bead / Swarm / Sidewalk toolbar on /swarm', 
         await page.goto('/swarm');
         await seedVisualizerState(page, testDate);
         await page.reload();
-        await page.getByTestId('timeseries-viz-swarm').click();
         await expect(page.getByTestId('ts-bead')).toBeVisible({ timeout: 10000 });
 
         const id = createdRequirementIds[0];
