@@ -14,6 +14,7 @@ import {
     cappedCenteredRange,
     assignSwarmLanes,
     buildCrossDayGhosts,
+    buildCrossDayMap,
 } from '../TimeSeriesView';
 import { getSpaceMultiplier } from '../timeSeriesSizes';
 
@@ -458,6 +459,148 @@ describe('indexMaxStackByDate (Elevator per-panel sizing)', () => {
         const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', extras);
         expect(map.get(D1)).toBe(2);   // completed(1) + undone(2) = 3 → maxRow 2
         expect(map.get(D2)).toBe(0);   // undone(1) only → maxRow 0
+    });
+});
+
+describe('indexMaxStackByDate — cross-day ghost lanes (req #2798)', () => {
+    const TZ = 'UTC';
+    const D1 = '2026-04-15';
+    const D2 = '2026-04-16';
+
+    it('folds crossDayCountByDate additively into swarm totals', () => {
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];   // 1 completed chip on D1
+        const extras = { crossDayCountByDate: new Map([[D1, 2], [D2, 1]]) };
+        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', extras);
+        expect(map.get(D1)).toBe(2);   // completed(1) + xd(2) = 3 → maxRow 2
+        expect(map.get(D2)).toBe(0);   // xd(1) only = 1 → maxRow 0
+    });
+
+    it('is a no-op when crossDayCountByDate is absent (backward compat)', () => {
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
+        const map = indexMaxStackByDate(reqs, [], TZ, 'swarm', {});
+        expect(map.get(D1)).toBe(0);
+        expect(map.has(D2)).toBe(false);
+    });
+
+    it('ignores crossDayCountByDate in bead mode', () => {
+        const reqs = [{ id: 1, completed_at: `${D1} 09:00:00` }];
+        const extras = { crossDayCountByDate: new Map([[D1, 5]]) };
+        const map = indexMaxStackByDate(reqs, [], TZ, 'bead', extras);
+        expect(map.get(D1)).toBe(0);   // bead clusters; cross-day extra not applied
+    });
+});
+
+describe('buildCrossDayMap (multi-day session pass-through, req #2798)', () => {
+    const TZ = 'UTC';
+    const D1 = '2026-04-15';
+    const D2 = '2026-04-16';
+    const D3 = '2026-04-17';
+    const CATS = [{ id: 1, category_name: 'Swarm', color: '#43A047' }];
+
+    it('returns an empty map for empty dates', () => {
+        expect(buildCrossDayMap([], { timezone: TZ }).size).toBe(0);
+        expect(buildCrossDayMap(null, { timezone: TZ }).size).toBe(0);
+    });
+
+    it('completed span: start on D1, middle on D2, NO entry on the completion day', () => {
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [{ id: 1, completed_at: `${D3} 09:00:00`, title: 'X', category_fk: 1 }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 25,
+        });
+        expect(map.get(D1)).toHaveLength(1);
+        expect(map.get(D1)[0].role).toBe('start');
+        expect(map.get(D1)[0].pct).toBe(25);
+        expect(map.get(D1)[0].inProgress).toBe(false);
+        expect(map.get(D1)[0].card.categoryName).toBe('Swarm');
+        expect(map.get(D2)[0].role).toBe('middle');
+        expect(map.has(D3)).toBe(false);   // completion bubble terminates the line
+    });
+
+    it('in-progress span: swarm-start linked session, end day = today (no end entry)', () => {
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [],   // open requirement is NOT in the completed-only list
+            sessions: [{ id: 99, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'active' }],
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            requirementById: new Map([['2', { id: 2, title: 'Open' }]]),
+            categoryList: CATS, timezone: TZ, startXPct: () => 40, today: D3,
+        });
+        expect(map.get(D1)[0].role).toBe('start');
+        expect(map.get(D1)[0].inProgress).toBe(true);
+        expect(map.get(D2)[0].role).toBe('middle');
+        expect(map.get(D2)[0].inProgress).toBe(true);
+        expect(map.has(D3)).toBe(false);   // today's bubble is the phantom, not a line
+    });
+
+    it('skips single-day sessions (start day === end day)', () => {
+        const map = buildCrossDayMap([D1], {
+            requirements: [{ id: 1, completed_at: `${D1} 10:00:00` }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 20,
+        });
+        expect(map.size).toBe(0);
+    });
+
+    it('skips hidden-status in-progress sessions (paused/completed)', () => {
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [],
+            sessions: [{ id: 99, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'paused' }],
+            swarmStarts: [{ id: 500, started_at: `${D1} 07:00:00` }],
+            swarmStartSessions: [{ swarm_start_fk: 500, session_fk: 99 }],
+            requirementById: new Map([['2', { id: 2 }]]),
+            categoryList: CATS, timezone: TZ, startXPct: () => 40, today: D3,
+        });
+        expect(map.size).toBe(0);
+    });
+
+    it('partial window: start day off-strip still draws middle lines on loaded days', () => {
+        const map = buildCrossDayMap([D2, D3], {
+            requirements: [{ id: 1, completed_at: `${D3} 09:00:00` }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 20,
+        });
+        expect(map.has(D1)).toBe(false);    // not a loaded date
+        expect(map.get(D2)[0].role).toBe('middle');
+        expect(map.has(D3)).toBe(false);    // completion day
+    });
+
+    it('drops the start entry when startXPct returns null but keeps middle lines', () => {
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [{ id: 1, completed_at: `${D3} 09:00:00` }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => null,
+        });
+        expect(map.has(D1)).toBe(false);    // start bar off-window → skipped
+        expect(map.get(D2)[0].role).toBe('middle');
+    });
+
+    it('skips a completed span whose completion day is off-window (dangling-line guard)', () => {
+        const map = buildCrossDayMap([D1, D2], {
+            requirements: [{ id: 1, completed_at: `${D3} 09:00:00` }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 20,
+        });
+        expect(map.size).toBe(0);
+    });
+
+    it('draws one line for a session linked to multiple swarm-starts', () => {
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [],
+            sessions: [{ id: 99, source_ref: 'requirement:2', started_at: `${D1} 07:00:00`, swarm_status: 'active' }],
+            swarmStarts: [
+                { id: 500, started_at: `${D1} 07:00:00` },
+                { id: 501, started_at: `${D1} 07:05:00` },
+            ],
+            swarmStartSessions: [
+                { swarm_start_fk: 500, session_fk: 99 },
+                { swarm_start_fk: 501, session_fk: 99 },
+            ],
+            requirementById: new Map([['2', { id: 2 }]]),
+            categoryList: CATS, timezone: TZ, startXPct: () => 40, today: D3,
+        });
+        expect(map.get(D1)).toHaveLength(1);   // de-duped, not two lines
+        expect(map.get(D2)).toHaveLength(1);
     });
 });
 

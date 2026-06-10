@@ -213,7 +213,18 @@ const SwarmView = () => {
                          sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 3, mb: 1, px: 3,
                                minHeight: '72px',
                                borderBottom: 1, borderColor: 'divider',
-                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }) }}
+                               ...(view === 'table' && { maxWidth: SWARM_TABLE_WIDTH }),
+                               // Req #2802 — the visualizer's wide toolbar overflowed the
+                               // viewport on mobile, scrolling the whole page left/right.
+                               // Constrain the row to its grid track and let the toolbar
+                               // scroll within its own band instead (children keep their
+                               // natural width; the flex-grow spacer still right-aligns
+                               // settings when everything fits → no scrollbar on desktop).
+                               ...(view === 'visualizer' && {
+                                   minWidth: 0,
+                                   overflowX: 'auto',
+                                   '& > *': { flexShrink: 0 },
+                               }) }}
                          data-testid="swarm-view-toggle-row"
                     >
                         <ToggleButtonGroup

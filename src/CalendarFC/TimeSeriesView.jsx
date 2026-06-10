@@ -480,6 +480,17 @@ export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey, ex
         for (const [date, n] of extraByDate) {
             totals.set(date, (totals.get(date) || 0) + n);
         }
+        // Req #2798 — cross-day pass-through "ghost" lanes also occupy a row in
+        // the swarm lane stack (BeadRow folds them into assignSwarmLanes). The
+        // Elevator/Sidewalk pass a Map<date, ghostCount> so start/interim days
+        // size for the dashed lines and their bubbles don't clip. Absent →
+        // no-op (preserves the original 4/5-arg behavior + unit tests).
+        const xdCounts = extras.crossDayCountByDate;
+        if (xdCounts instanceof Map) {
+            for (const [date, n] of xdCounts) {
+                totals.set(date, (totals.get(date) || 0) + n);
+            }
+        }
         for (const [date, n] of totals) {
             out.set(date, Math.max(0, n - 1));
         }
@@ -631,6 +642,155 @@ export const positionFor = (completedAt, timezone, selectedDate, baseHours, visi
 // shift when zoom is X.
 const bead36hXPct = (completedAt, timezone, selectedDate) =>
     positionFor(completedAt, timezone, selectedDate, 36, 36);
+
+// 24h coordinate — the Sidewalk + Elevator render one 24h day panel per date, so
+// a cross-day 'start' bar on those panels must be positioned in the panel's own
+// 24h window, not the 36h Week bead. Mirror of bead36hXPct for the 24h base.
+const bead24hXPct = (completedAt, timezone, selectedDate) =>
+    positionFor(completedAt, timezone, selectedDate, 24, 24);
+
+// ─────────── Cross-day pass-through map (Week stack + Sidewalk + Elevator) ────
+// Build Map<YYYY-MM-DD, crossDayEntry[]> for every multi-day session span that
+// touches one of `dates`. A "span" is a (session, requirement) pair whose
+// started_at day differs from its end day:
+//   • completed requirement → end day = completion day (the met bubble draws it)
+//   • in-progress session    → end day = today (the phantom draws today's bubble)
+// On each day strictly between start and end a full-width 'middle' dashed line is
+// emitted; on the start day a 'start' entry (partial dashed tail + swarm-start
+// bar) is emitted. The end day itself gets NO entry — its own bubble terminates
+// the line (req #2798).
+//
+// Two span SOURCES, mirroring the two bubble paths so the lines and bubbles
+// always agree on which sessions are multi-day:
+//   A. Completed — iterate `requirements` (completed-in-window) × linked sessions.
+//   B. In-progress — iterate `swarmStarts` × junction sessions whose requirement
+//      (looked up in `requirementById`, sourced from allRequirements) is NOT yet
+//      completed and whose status is not hidden. THIS is the path the old
+//      single-source map missed: `requirements` only ever holds COMPLETED rows
+//      (it is `useRequirementsDone`), so the in-progress branch there was dead and
+//      open multi-day sessions drew no pass-through line on any day (req #2798
+//      re-open, item 1).
+//
+// `startXPct(t, tz, day)` positions the start bar in the panel's own coordinate
+// system — bead36hXPct for the 36h Week bead, bead24hXPct for the 24h Sidewalk/
+// Elevator panels. Returns null off-window; such 'start' entries are skipped.
+// Exported for unit-test coverage.
+export const buildCrossDayMap = (dates, {
+    requirements = [],
+    sessions = [],
+    swarmStarts = [],
+    swarmStartSessions = [],
+    requirementById = null,
+    categoryList = [],
+    canonicalStartById = null,
+    swarmStartIdById = null,
+    swarmStartById = null,
+    timezone,
+    startXPct,
+    today = null,
+} = {}) => {
+    const map = new Map();
+    if (!Array.isArray(dates) || dates.length === 0) return map;
+    const dateSet = new Set(dates);
+    const todayStr = today || toLocaleDateString(new Date().toISOString(), timezone);
+    const catById = new Map((categoryList || []).map(c => [c.id, c]));
+
+    const push = (d, entry) => {
+        const arr = map.get(d);
+        if (arr) arr.push(entry); else map.set(d, [entry]);
+    };
+
+    // Emit start/middle entries for one multi-day span across the visible dates.
+    const emitSpan = (s, r, endDay, inProgress) => {
+        if (!s || !s.started_at || !endDay) return;
+        const startDay = toLocaleDateString(s.started_at, timezone);
+        if (!startDay || startDay >= endDay) return;   // single-day / nonsensical
+        const sKey = String(s.id);
+        const canonicalStart = canonicalStartById?.get(sKey) ?? s.started_at;
+        const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
+        const swarmStartRow = swarmStartById?.get(sKey) ?? null;
+        const cat = r ? catById.get(r.category_fk) : null;
+        const card = {
+            id: r ? r.id : null,
+            title: r?.title || '',
+            categoryName: cat?.category_name || null,
+            color: cat?.color || null,
+            requirement_status: r?.requirement_status || null,
+            coordination_type: r?.coordination_type || null,
+            completed_at: r?.completed_at || null,
+            inProgress,
+            timezone,
+            session: s,
+            swarmStartId,
+            swarmStart: swarmStartRow,
+        };
+        const occupant = {
+            sessionId: s.id,
+            // groupKey clusters the ghost with its swarm-start mates; completedAt
+            // orders it within that cluster (in-progress uses the session start,
+            // mirroring the phantom's within-group sort key).
+            groupKey: canonicalStart || '',
+            completedAt: inProgress ? s.started_at : (r?.completed_at || null),
+            inProgress,
+            card,
+        };
+        for (const d of dates) {
+            if (d === startDay) {
+                const startPct = startXPct ? startXPct(canonicalStart, timezone, d) : null;
+                if (startPct === null || startPct === undefined) continue;
+                push(d, { ...occupant, role: 'start', pct: startPct });
+            } else if (d > startDay && d < endDay) {
+                push(d, { ...occupant, role: 'middle' });
+            }
+        }
+    };
+
+    // A. Completed spans — completion bubble draws the end day; cross-day lines
+    // carry the earlier days. Skip when the completion day is off-window (the
+    // dangling-line guard the week stack always used).
+    const sessionsByReq = indexSessionsByRequirement(sessions);
+    for (const r of (requirements || [])) {
+        if (!r || !r.completed_at) continue;
+        const completedDay = toLocaleDateString(r.completed_at, timezone);
+        if (!completedDay || !dateSet.has(completedDay)) continue;
+        const linked = sessionsByReq.get(String(r.id)) || [];
+        for (const s of linked) emitSpan(s, r, completedDay, false);
+    }
+
+    // B. In-progress spans — swarm-start linked, mirroring BeadRow.phantomChips +
+    // indexSwarmExtraChipsByDate so the dashed line and today's phantom bubble
+    // agree on which open sessions are multi-day.
+    if (Array.isArray(swarmStarts) && swarmStarts.length) {
+        const sessionsByStartFk = new Map();
+        for (const j of (swarmStartSessions || [])) {
+            if (!j || j.swarm_start_fk == null || j.session_fk == null) continue;
+            const k = String(j.swarm_start_fk);
+            if (!sessionsByStartFk.has(k)) sessionsByStartFk.set(k, []);
+            sessionsByStartFk.get(k).push(String(j.session_fk));
+        }
+        const sessionById = new Map();
+        for (const s of (sessions || [])) {
+            if (s && s.id != null) sessionById.set(String(s.id), s);
+        }
+        const seen = new Set();   // a session linked to >1 start draws one line
+        for (const ss of swarmStarts) {
+            if (!ss || ss.id == null) continue;
+            const linked = sessionsByStartFk.get(String(ss.id)) || [];
+            for (const sid of linked) {
+                if (seen.has(sid)) continue;
+                const s = sessionById.get(sid);
+                if (!s) continue;
+                if (isHiddenSwarmStatus(s.swarm_status)) continue;
+                const reqId = parseSessionRequirementId(s.source_ref);
+                const r = reqId && requirementById ? requirementById.get(reqId) : null;
+                if (r && r.completed_at) continue;   // completed → path A / met bubble
+                seen.add(sid);
+                emitSpan(s, r, todayStr, true);
+            }
+        }
+    }
+    return map;
+};
 
 // ─────────── Tick / day-label builders (zoom-aware) ───────────────────────────
 // Tick interval depends on visible span: dense for small windows, coarser for
@@ -1212,8 +1372,20 @@ const BeadRow = React.memo(({
                         }
                         if (cd.role === 'start') {
                             const barHalf = Math.max(6, circleDiameter / 2);
-                            const yTop = `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 + barHalf}px)`;
-                            const yBot = `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 - barHalf}px)`;
+                            // Vertical start bar straddles the lane's bubble center
+                            // by ±barHalf. yTop is the upper (smaller-y) endpoint.
+                            // Anchoring must match the panel: top-anchored (Day /
+                            // Sidewalk / Elevator) measures from the top; the Week
+                            // stack measures from the bottom (req #2798 — the
+                            // hard-coded calc(100% - …) put the bar off-lane in the
+                            // top-anchored Elevator/Sidewalk panels).
+                            const laneCenter = cd.lane * rowSpacing + circleDiameter / 2;
+                            const yTop = topAnchored
+                                ? `${chromeOffset + laneCenter - barHalf}px`
+                                : `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 + barHalf}px)`;
+                            const yBot = topAnchored
+                                ? `${chromeOffset + laneCenter + barHalf}px`
+                                : `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 - barHalf}px)`;
                             const card = cd.card;
                             return (
                                 <Tooltip
@@ -1900,7 +2072,13 @@ const SIDEWALK_EXTEND_BY = 10;
 const SIDEWALK_MAX_PANELS = 60;
 
 const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowProps }) => {
-    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey } = rowProps;
+    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+            swarmStarts, swarmStartSessions, swarmUndos, requirementById,
+            categoryList, canonicalStartById, swarmStartIdById, swarmStartById } = rowProps;
+    // Today (local) — stable per mount; drives in-progress cross-day spans + the
+    // clamped phantom lane sizing, same convention as the Elevator (req #2798).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const todayStr = useMemo(() => localDateStr(new Date()), []);
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
     const offsetRef = React.useRef(0);      // current translateX in px (negative = panels to the left)
@@ -1917,12 +2095,28 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     const datesRef = React.useRef(dates);
     const [frameWidth, setFrameWidth] = React.useState(0);
 
+    // Req #2798 — cross-day pass-through lines for multi-day sessions, keyed by
+    // each day panel in the strip, with the 24h start-bar coordinate.
+    const crossDayMap = useMemo(() => {
+        if (vizKey !== 'swarm') return new Map();
+        return buildCrossDayMap(dates, {
+            requirements, sessions, swarmStarts, swarmStartSessions,
+            requirementById, categoryList,
+            canonicalStartById, swarmStartIdById, swarmStartById,
+            timezone, startXPct: bead24hXPct, today: todayStr,
+        });
+    }, [vizKey, dates, requirements, sessions, swarmStarts, swarmStartSessions,
+        requirementById, categoryList, canonicalStartById, swarmStartIdById,
+        swarmStartById, timezone, todayStr]);
+
     // Uniform panel height — sized to the busiest day in the visible strip so
     // every panel shows all its lanes below the top chrome. Mirrors BeadRow's
     // height formula (sidewalk branch: chromeOffset=80, bubbleOffset=20).
     // Single-pass bucket via indexChipsByDate so 21-day strips stay O(R+S+D)
     // instead of O(D × (R+S)) — matters during scroll, when requirements
-    // refetches churn this memo.
+    // refetches churn this memo. Swarm mode also folds in the phantom/undone
+    // (req #2797) and cross-day pass-through (req #2798) lanes so a busy day's
+    // dashed lines don't clip below the uniform height; bead mode is unchanged.
     const sidewalkHeight = useMemo(() => {
         const BASE_HEIGHT   = 400;
         const bubbleOffset  = 20;
@@ -1931,9 +2125,18 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
         const chipsByDate   = indexChipsByDate(requirements, sessions, timezone, vizKey);
+        const extraByDate   = vizKey === 'swarm'
+            ? indexSwarmExtraChipsByDate({
+                swarmStarts, swarmStartSessions, swarmUndos, requirementById,
+                sessions, timezone, today: todayStr,
+              })
+            : null;
         let maxChips = 0;
         for (const d of dates) {
-            const n = chipsByDate.get(d) || 0;
+            let n = chipsByDate.get(d) || 0;
+            if (vizKey === 'swarm') {
+                n += (extraByDate.get(d) || 0) + (crossDayMap.get(d)?.length || 0);
+            }
             if (n > maxChips) maxChips = n;
         }
         const maxStackRow = Math.max(0, maxChips - 1);
@@ -1941,7 +2144,8 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             BASE_HEIGHT,
             maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeOffset + dateClearance,
         );
-    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey]);
+    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+        crossDayMap, swarmStarts, swarmStartSessions, swarmUndos, requirementById, todayStr]);
 
     // Measure frame width; re-measure on resize. `layoutEffect` so initial paint has a width.
     React.useLayoutEffect(() => {
@@ -2129,7 +2333,11 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             velocityRef.current = 0;
             stopAnim();
             frame.style.cursor = 'grabbing';
-            e.preventDefault();
+            // Mouse: suppress text/image drag. Touch/pen (req #2802): do NOT
+            // preventDefault — `touch-action: pan-y` (CSS) already arbitrates the
+            // gesture (horizontal → us, vertical → page), and preventing default
+            // would swallow the tap-`click` that selects a chip.
+            if (e.pointerType === 'mouse') e.preventDefault();
         };
         const onMove = (e) => {
             if (!isDown) return;
@@ -2181,15 +2389,21 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             reportCenterIfChanged();
         };
 
-        frame.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        // Pointer events (req #2802) unify mouse + touch + pen, so the strip
+        // hand-scrolls on mobile (mouse-only listeners never fired for touch).
+        // `pointercancel` ends a drag the browser reclaims (e.g. it decides the
+        // gesture is a vertical page-pan under touch-action:pan-y).
+        frame.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
         frame.addEventListener('click', onClickCapture, true);
         frame.addEventListener('wheel', onWheel, { passive: false });
         return () => {
-            frame.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             frame.removeEventListener('click', onClickCapture, true);
             frame.removeEventListener('wheel', onWheel);
             stopAnim();
@@ -2211,6 +2425,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
                                  sidewalkPanel={true}
                                  sidewalkHeight={sidewalkHeight}
                                  {...rowProps}
+                                 crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
                                  requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
                     </Box>
                 ))}
@@ -2305,7 +2520,8 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     // to each BeadRow, so naming them here does NOT remove them from the spread);
     // they feed per-day phantom/undone lane counts into the panel sizing (req #2797).
     const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
-            swarmStarts, swarmStartSessions, swarmUndos, requirementById } = rowProps;
+            swarmStarts, swarmStartSessions, swarmUndos, requirementById,
+            categoryList, canonicalStartById, swarmStartIdById, swarmStartById } = rowProps;
     const frameRef = React.useRef(null);
     const innerRef = React.useRef(null);
     const offsetRef = React.useRef(0);      // current translateY in px (negative = panels above)
@@ -2342,12 +2558,35 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     // (req #2797) — hence the swarm-extras passed through. Lifted to its own
     // memo (req #2779) so maybeExtend can size freshly-prepended panels from the
     // same source the render uses.
+    // Req #2798 — cross-day pass-through lines for multi-day sessions, keyed by
+    // each loaded panel date. Built over the FULL elevator `dates` strip (not a
+    // single 7-day week) with the 24h start-bar coordinate. Per-panel slices are
+    // handed to each BeadRow below; the per-date ghost counts feed panel sizing
+    // so start/interim dashed lines don't clip their day's bubbles.
+    const crossDayMap = useMemo(() => {
+        if (vizKey !== 'swarm') return new Map();
+        return buildCrossDayMap(dates, {
+            requirements, sessions, swarmStarts, swarmStartSessions,
+            requirementById, categoryList,
+            canonicalStartById, swarmStartIdById, swarmStartById,
+            timezone, startXPct: bead24hXPct, today: todayStr,
+        });
+    }, [vizKey, dates, requirements, sessions, swarmStarts, swarmStartSessions,
+        requirementById, categoryList, canonicalStartById, swarmStartIdById,
+        swarmStartById, timezone, todayStr]);
+    const crossDayCountByDate = useMemo(() => {
+        const m = new Map();
+        for (const [d, arr] of crossDayMap) m.set(d, arr.length);
+        return m;
+    }, [crossDayMap]);
+
     const maxRowByDate = useMemo(
         () => indexMaxStackByDate(requirements, sessions, timezone, vizKey, {
             swarmStarts, swarmStartSessions, swarmUndos, requirementById, today: todayStr,
+            crossDayCountByDate,
         }),
         [requirements, sessions, timezone, vizKey, swarmStarts, swarmStartSessions,
-         swarmUndos, requirementById, todayStr],
+         swarmUndos, requirementById, todayStr, crossDayCountByDate],
     );
 
     // Per-panel heights — one entry per date, sized to THAT day's chip density via
@@ -2655,7 +2894,11 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
             velocityRef.current = 0;
             stopAnim();
             frame.style.cursor = 'grabbing';
-            e.preventDefault();
+            // Mouse: suppress text/image drag. Touch/pen (req #2802): do NOT
+            // preventDefault — `touch-action: pan-x` (CSS) already arbitrates the
+            // gesture (vertical → us, horizontal → page), and preventing default
+            // would swallow the tap-`click` that selects a chip.
+            if (e.pointerType === 'mouse') e.preventDefault();
         };
         const onMove = (e) => {
             if (!isDown) return;
@@ -2716,15 +2959,21 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
             reportCenterIfChanged();
         };
 
-        frame.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        // Pointer events (req #2802) unify mouse + touch + pen, so the strip
+        // hand-scrolls on mobile (mouse-only listeners never fired for touch).
+        // `pointercancel` ends a drag the browser reclaims (e.g. it decides the
+        // gesture is a horizontal page-pan under touch-action:pan-x).
+        frame.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
         frame.addEventListener('click', onClickCapture, true);
         frame.addEventListener('wheel', onWheel, { passive: false });
         return () => {
-            frame.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            frame.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             frame.removeEventListener('click', onClickCapture, true);
             frame.removeEventListener('wheel', onWheel);
             stopAnim();
@@ -2748,6 +2997,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
                                  hideTimeline={true}
                                  sidewalkHeight={panelHeights[i]}
                                  {...rowProps}
+                                 crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
                                  requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
                     </Box>
                 ))}
@@ -2812,6 +3062,12 @@ const TimeSeriesView = ({
         if (!isWeekView) return [selectedDate];
         return weekDates(selectedDate); // Mon..Sun ascending
     }, [isWeekView, selectedDate]);
+
+    // Today (local) — mount-stable, so the in-progress cross-day spans end on a
+    // deterministic day and the crossDayMap memo stays pure (matches the Elevator
+    // / Sidewalk convention; avoids a wall-clock read inside the memo). req #2798.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const todayStr = useMemo(() => localDateStr(new Date()), []);
 
     // Map<string reqId, requirement> — used by BeadRow to populate phantom
     // datacards for in-progress sessions whose requirement isn't in the
@@ -2895,108 +3151,22 @@ const TimeSeriesView = ({
     // borrowed the row the chip occupies on its END day; that row was never
     // reserved on the intermediate days, so two long-tail sessions could stack a
     // dashed line directly over an unrelated bubble that closed that day.)
+    // Req #2798 — delegate to the module-scope buildCrossDayMap, which sources
+    // BOTH completed spans (from `requirements`) AND in-progress spans (from
+    // `swarmStarts` × junction, via `requirementById`). The previous inline map
+    // iterated only `requirements` (completed-only), so its in-progress branch
+    // was dead and open multi-day sessions never drew a pass-through line.
     const crossDayMap = useMemo(() => {
-        const map = new Map(); // date → [{ sessionId, role, groupKey, completedAt, inProgress, pct?, card? }]
-        if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return map;
-        const dateSet = new Set(rowDates);
-        const sessionsByReq = indexSessionsByRequirement(sessions);
-        // Req #2798 — in-progress multi-day sessions end "now" (today). A session
-        // kept open across days must show the dashed pass-through on EVERY day,
-        // with the in-progress bubble only on today's panel (the phantom path).
-        const todayStr = toLocaleDateString(new Date().toISOString(), timezone);
-
-        for (const r of requirements) {
-            const completedDay = r.completed_at ? toLocaleDateString(r.completed_at, timezone) : null;
-            // Completed requirements scope to a visible end day (existing rule).
-            // In-progress requirements (no completed_at) fall through to the
-            // per-session in-progress branch below where endDay = today.
-            if (completedDay && !dateSet.has(completedDay)) continue;
-            const linked = sessionsByReq.get(String(r.id)) || [];
-            const cat = categoryList.find(c => c.id === r.category_fk);
-            for (const s of linked) {
-                if (!s.started_at) continue;
-
-                // End day + in-progress flag. Completed → completion day (met
-                // bubble draws the end). In-progress → today (the phantom draws
-                // the bubble on today's panel). Sessions whose status is hidden
-                // (completed/paused/none, req #2650) get no in-flight line.
-                let endDay;
-                let inProgress;
-                if (completedDay) {
-                    endDay = completedDay;
-                    inProgress = false;
-                } else {
-                    if (isHiddenSwarmStatus(s.swarm_status)) continue;
-                    endDay = todayStr;
-                    inProgress = true;
-                }
-                const startDay = toLocaleDateString(s.started_at, timezone);
-                if (startDay === endDay) continue;           // single-day session — skip
-                if (startDay > endDay) continue;             // nonsensical — skip
-
-                // Datacard payload — shared by the vertical start bar's tooltip
-                // and the end-day bubble's tooltip.
-                const sKey = String(s.id);
-                const canonicalStart = canonicalStartById?.get(sKey) ?? s.started_at;
-                const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
-                const swarmStartRow = swarmStartById?.get(sKey) ?? null;
-                const card = {
-                    id: r.id,
-                    title: r.title || '',
-                    categoryName: cat?.category_name || null,
-                    color: cat?.color || null,
-                    requirement_status: r.requirement_status || null,
-                    coordination_type: r.coordination_type || null,
-                    completed_at: r.completed_at || null,
-                    inProgress,
-                    timezone,
-                    session: s,
-                    swarmStartId,
-                    swarmStart: swarmStartRow,
-                };
-                // Shared fields BeadRow uses to seat the ghost lane occupant:
-                // groupKey clusters it with its swarm-start mates; completedAt
-                // orders it within that cluster — for in-progress sessions use
-                // the session start (mirrors the phantom's within-group sort key
-                // at line ~891) so the dashed line stays in the phantom's lane.
-                const occupant = {
-                    sessionId: s.id,
-                    groupKey: canonicalStart || '',
-                    completedAt: inProgress ? s.started_at : r.completed_at,
-                    inProgress,
-                    card,
-                };
-
-                // Start day entry — partial dashed line from startPct → 100%,
-                // plus a vertical start bar at startPct with a tooltip.
-                // Use the cluster's canonical started_at (req #2341) so cross-day
-                // cluster members share the same X on the start day.
-                if (dateSet.has(startDay)) {
-                    const startPct = bead36hXPct(canonicalStart, timezone, startDay);
-                    if (startPct !== null) {
-                        const arr = map.get(startDay) || [];
-                        arr.push({ ...occupant, role: 'start', pct: startPct });
-                        map.set(startDay, arr);
-                    }
-                }
-
-                // Middle days — full-width pass-through (up to, but not including,
-                // the end day — today for in-progress; the met bubble's day for
-                // completed).
-                let cursor = shiftDateStr(startDay, 1);
-                while (cursor < endDay && dateSet.has(cursor)) {
-                    const arr = map.get(cursor) || [];
-                    arr.push({ ...occupant, role: 'middle' });
-                    map.set(cursor, arr);
-                    cursor = shiftDateStr(cursor, 1);
-                }
-                // End day — completed: met bubble + in-row clamped line.
-                //           in-progress: phantom ring + dashed line (today only).
-            }
-        }
-        return map;
-    }, [isWeekView, vizKey, rowDates, requirements, sessions, timezone,
-        categoryList, canonicalStartById, swarmStartIdById, swarmStartById]);
+        if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return new Map();
+        return buildCrossDayMap(rowDates, {
+            requirements, sessions, swarmStarts, swarmStartSessions,
+            requirementById, categoryList,
+            canonicalStartById, swarmStartIdById, swarmStartById,
+            timezone, startXPct: bead36hXPct, today: todayStr,
+        });
+    }, [isWeekView, vizKey, rowDates, requirements, sessions, swarmStarts,
+        swarmStartSessions, requirementById, categoryList,
+        canonicalStartById, swarmStartIdById, swarmStartById, timezone, todayStr]);
 
     // Non-elevator week stack lives inside its own fixed-height scroll frame
     // (req #2781) — same outer box as the Elevator frame, so the page never
