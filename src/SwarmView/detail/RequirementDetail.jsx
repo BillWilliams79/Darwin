@@ -549,6 +549,11 @@ const RequirementDetail = () => {
                 <Box component="span">Category -&nbsp;</Box>
                 {allCategories ? (
                     <Select
+                        // Req #2815: when the category is unset (the aggregator-template /
+                        // "new" case) focus the category select, not description. The user
+                        // presses ArrowDown to open the list, picks a category, and then
+                        // lands in description (which autofocuses once a category is set).
+                        autoFocus={categoryUnset}
                         value={requirement.category_fk || ''}
                         onChange={handleCategoryChange}
                         displayEmpty
@@ -600,7 +605,7 @@ const RequirementDetail = () => {
                     multiline
                     minRows={3}
                     autoComplete="off"
-                    autoFocus
+                    autoFocus={!categoryUnset}
                     size="small"
                     data-testid="requirement-description"
                     sx={categoryUnset ? { '& .MuiInputBase-input': { color: 'error.main' } } : undefined}
