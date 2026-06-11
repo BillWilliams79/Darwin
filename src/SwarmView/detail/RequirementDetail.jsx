@@ -30,6 +30,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
 
@@ -131,6 +132,38 @@ const RequirementDetail = () => {
                 .catch(error => showError(error, 'Unable to delete requirement'));
         }
     });
+
+    // Requirement Duplicator (req #2808): clone the opened requirement into a NEW
+    // requirement that shares ONLY the title, description and category. Status and
+    // coordination fall back to defaults (status 'authoring'; coordination_type
+    // omitted so the server applies its NOT NULL default). The title gets a
+    // "COPY of {origin id}" suffix. Nothing else is copied — dates, sessions,
+    // sort_order and project_fk are deliberately left off the POST body.
+    const handleDuplicate = async () => {
+        if (isNew || !requirement) return;
+        // requirements.title is VARCHAR(256). Always keep the "COPY of {id}" suffix
+        // and truncate the base title so the combined string fits the column.
+        const suffix = ` COPY of ${id}`;
+        const baseTitle = (requirement.title || '').slice(0, 256 - suffix.length);
+        const draft = {
+            title: `${baseTitle}${suffix}`,
+            description: requirement.description || '',
+            category_fk: requirement.category_fk,
+            requirement_status: 'authoring',
+        };
+        const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
+            .catch(() => null);
+        if (!postResult || !postResult.httpStatus || postResult.httpStatus.httpStatus !== 200 ||
+            !postResult.data || !postResult.data[0]) {
+            const err = postResult && postResult.httpStatus
+                ? postResult
+                : { httpStatus: { httpStatus: 'network error' } };
+            showError(err, 'Unable to duplicate requirement');
+            return;
+        }
+        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+        navigate(`/swarm/requirement/${postResult.data[0].id}`);
+    };
 
     useEffect(() => {
         if (isNew) return;  // no fetch — local draft only
@@ -443,6 +476,17 @@ const RequirementDetail = () => {
                         </IconButton>
                     </span>
                 </Tooltip>
+                {!isNew && (
+                    <Tooltip title="Duplicate requirement" enterDelay={400} enterNextDelay={200}>
+                        <IconButton
+                            onClick={handleDuplicate}
+                            data-testid="btn-duplicate-requirement"
+                            sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                        >
+                            <ContentCopyIcon />
+                        </IconButton>
+                    </Tooltip>
+                )}
                 <Tooltip title="Delete requirement" enterDelay={400} enterNextDelay={200}>
                     <IconButton
                         onClick={() => requirementDelete.openDialog({ requirementId: parseInt(id) })}
