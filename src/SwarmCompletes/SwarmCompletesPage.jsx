@@ -99,7 +99,7 @@ export default function SwarmCompletesPage() {
                       {...statusChipProps(params.value)} />
             ),
         },
-        { field: 'wall_seconds', headerName: 'Wall', width: 90, type: 'number',
+        { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
             valueFormatter: formatWallSeconds },
         // Token columns — hidden by default, revealable via the toolbar.
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
