@@ -1958,10 +1958,15 @@ const BeadRow = React.memo(({
                                 className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
                                 data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
                                 style={chip.isPhantom ? {
-                                    // Phantom: hollow green ring at the line's "now" end.
-                                    // Same diameter as a regular bubble so layout is stable.
+                                    // Phantom (unfinished requirement): white core + a coloured
+                                    // inner ring at the line's "now" end. Same diameter as a regular
+                                    // bubble so layout is stable. req #2807 — the inner ring is the
+                                    // requirement's own colour (category colour, `chip.color`) rather
+                                    // than a fixed green, so an in-progress bead echoes the colour its
+                                    // finished (solid-fill) counterpart will take. Green stays as the
+                                    // no-category-colour fallback (matches the phantom chip default).
                                     backgroundColor: '#ffffff',
-                                    border: '2px solid #43A047',
+                                    border: `2px solid ${chip.color || '#43A047'}`,
                                     boxSizing: 'border-box',
                                     borderRadius: '50%',
                                     width:  `${circleDiameter}px`,
