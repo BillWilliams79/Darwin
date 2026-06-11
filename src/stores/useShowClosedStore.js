@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export const ALL_SESSION_STATUSES = ['starting', 'active', 'review', 'paused', 'completing', 'completed'];
+// req #2810: 'paused' moved to the end of the selector order (was after 'review').
+export const ALL_SESSION_STATUSES = ['starting', 'active', 'review', 'completing', 'completed', 'paused'];
 export const DEFAULT_SESSION_STATUSES = ['starting', 'active', 'review', 'completing'];
 
 // req #2784 reordered filter chips to met-before-deferred; req #2783 appends wontfix last.
