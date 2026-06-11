@@ -37,7 +37,6 @@ const SwarmVisualizerView = () => {
 
     const viewType    = useSwarmVisualizerStore(s => s.viewType);
     const currentDate = useSwarmVisualizerStore(s => s.currentDate);
-    const vizKey      = useSwarmVisualizerStore(s => s.vizKey);
     const beadWindow  = useSwarmVisualizerStore(s => s.beadWindow);
     const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
     const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
@@ -199,7 +198,6 @@ const SwarmVisualizerView = () => {
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 beadWindow={beadWindow}
-                vizKey={vizKey}
                 sidewalkOn={sidewalkOn}
                 elevatorOn={elevatorOn}
                 dataKey={dataKey}

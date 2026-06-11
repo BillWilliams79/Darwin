@@ -6,7 +6,7 @@ import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM1
 import {
     DEFAULT_FONT_SIZE,
     getFontSize, getCircleSize, formatCoordination, getCoordinationColor,
-    DEFAULT_VIZ, DEFAULT_DATA_KEY,
+    DEFAULT_DATA_KEY,
     DEFAULT_SPACE, getSpaceMultiplier,
     DEFAULT_ZOOM, getZoomHours, ZOOM_HOURS,
     indexSessionsByRequirement,
@@ -17,36 +17,33 @@ import {
 import './TimeSeriesView.css';
 
 // ─────────── Chip-count helpers (used by Sidewalk height precomputation) ─────
-// Bucket chips by their tz-local date string. Bead mode: one chip per same-day
-// requirement. Swarm mode: one chip per (requirement, session) pair, or a
-// single bare-requirement chip when a requirement has no linked session.
+// Bucket chips by their tz-local date string: one chip per (requirement, session)
+// pair, or a single bare-requirement chip when a requirement has no linked
+// session.
 //
 // Single pass over `requirements` and `sessions` so the Sidewalk parent can
 // size 21 panels without 21 × O(R+S) work (was the 100-200ms stall on scroll
 // that made the strip feel frozen — req #2334 follow-up). Callers that want a
 // specific date's count can use `countChipsForDate`, which just delegates here.
 // Exported for unit-test coverage.
-export const indexChipsByDate = (requirements, sessions, timezone, vizKey) => {
+export const indexChipsByDate = (requirements, sessions, timezone) => {
     const map = new Map();
     if (!Array.isArray(requirements)) return map;
-    const sessionsByReq = vizKey === 'swarm' ? indexSessionsByRequirement(sessions) : null;
+    const sessionsByReq = indexSessionsByRequirement(sessions);
     for (const r of requirements) {
         if (!r?.completed_at) continue;
         const d = toLocaleDateString(r.completed_at, timezone);
         if (!d) continue;
-        let n = 1;
-        if (vizKey === 'swarm') {
-            const linked = sessionsByReq.get(String(r.id)) || [];
-            n = linked.length > 0 ? linked.length : 1;
-        }
+        const linked = sessionsByReq.get(String(r.id)) || [];
+        const n = linked.length > 0 ? linked.length : 1;
         map.set(d, (map.get(d) || 0) + n);
     }
     return map;
 };
 
-export const countChipsForDate = (requirements, sessions, date, timezone, vizKey) => {
+export const countChipsForDate = (requirements, sessions, date, timezone) => {
     if (!date) return 0;
-    return indexChipsByDate(requirements, sessions, timezone, vizKey).get(date) || 0;
+    return indexChipsByDate(requirements, sessions, timezone).get(date) || 0;
 };
 
 // Stable empty array (req #2800) — the per-day fallback for Sidewalk/Elevator
@@ -77,46 +74,14 @@ export const bucketByDate = (requirements, timezone) => {
     return map;
 };
 
-// ─────────── Cluster-stack layout (Bead mode) ─────────────────────────────────
-// Chips sorted by leftPct. If a chip is within minGapPct of the previous chip,
-// it extends the stack upward; otherwise a new stack begins at row 0.
-//
-// `topDown` reverses the walk direction (descending leftPct). Sidewalk mode uses
-// this so the latest chip in a cluster gets row 0 — the row rendered closest to
-// the wire (which is at the TOP of a sidewalk panel). Cluster-gap detection uses
-// |Δ leftPct| so the direction of traversal doesn't change what counts as a
-// cluster. Exported for unit-test coverage.
-const MAX_ROWS = 24;
+// req #2805 — rendered pixel height of a `.ts-bead-label` title (CSS line-height
+// 16px + 1px padding top/bottom). Kept in sync with TimeSeriesView.css so the
+// Week-stack row-spacing buffer reserves exactly enough room for a title.
+const TITLE_LABEL_HEIGHT = 18;
 // Stable empty array (req #2796) — used as the week-stack `crossDays` fallback so
 // a day with no cross-day entries passes the SAME reference every parent render
 // instead of a fresh `[]` literal, which would defeat BeadRow's React.memo.
 const EMPTY_CROSS_DAYS = [];
-export const assignRows = (chips, minGapPct, topDown = false) => {
-    const sorted = [...chips].sort((a, b) =>
-        topDown ? b.leftPct - a.leftPct : a.leftPct - b.leftPct
-    );
-    const out = [];
-    let stackRow = -1;
-    let lastPct = null;
-    for (const chip of sorted) {
-        const isCluster = lastPct !== null
-            && Math.abs(chip.leftPct - lastPct) < minGapPct;
-        if (isCluster) {
-            const nextRow = stackRow + 1;
-            if (nextRow < MAX_ROWS) {
-                out.push({ ...chip, row: nextRow });
-                stackRow = nextRow;
-            } else {
-                out.push({ ...chip, row: MAX_ROWS - 1 });
-            }
-        } else {
-            out.push({ ...chip, row: 0 });
-            stackRow = 0;
-        }
-        lastPct = chip.leftPct;
-    }
-    return out;
-};
 
 // ─────────── Vertical start-bar x-position (Swarm mode) ─────────────────────
 // Returns the SVG x-coordinate string for the vertical start tick, or null
@@ -233,12 +198,10 @@ export const computePhantomPlacement = (startPct, nowPct) => {
 //
 // Math invariants (per memo comment above): startPct from swarm_start.started_at,
 // leftPct from undo.undone_at, markerMode resolves normal/clamped/left exactly
-// like a completed chip. Returns [] when vizKey != 'swarm' or no undos in
-// window.
+// like a completed chip. Returns [] when no undos in window.
 //
 // Exported for unit-test coverage.
 export const buildUndoneChips = ({
-    vizKey,
     swarmUndos,
     swarmStarts,
     xPctFn,
@@ -251,7 +214,6 @@ export const buildUndoneChips = ({
     closeThresholdPct = 1.5,
     formatHHMM = formatHM12,
 }) => {
-    if (vizKey !== 'swarm') return [];
     if (!Array.isArray(swarmUndos) || swarmUndos.length === 0) return [];
 
     const startById = new Map();
@@ -367,9 +329,9 @@ export const assignSwarmLanes = (chips, topDown = false) => {
 // requirement's end-day `completed_at`, so assignSwarmLanes seats it contiguously
 // with its cluster-mates. The original `crossDay` entry rides along so the SVG
 // renderer can read role/pct/card after the lane is resolved. Returns [] for
-// non-swarm or empty input. Exported for unit-test coverage of the field mapping.
-export const buildCrossDayGhosts = (crossDays, vizKey) => {
-    if (vizKey !== 'swarm' || !Array.isArray(crossDays) || crossDays.length === 0) return [];
+// empty input. Exported for unit-test coverage of the field mapping.
+export const buildCrossDayGhosts = (crossDays) => {
+    if (!Array.isArray(crossDays) || crossDays.length === 0) return [];
     return crossDays.map((cd, i) => ({
         chipKey: `xdghost-${cd.sessionId}-${cd.role}-${i}`,
         id: cd.card?.id ?? null,
@@ -454,65 +416,38 @@ export const indexSwarmExtraChipsByDate = ({
 // ─────────── Max-stack-row index (Elevator per-day sizing) ───────────────────
 // Return Map<YYYY-MM-DD, maxRow> where maxRow is the row index BeadRow will
 // assign to its tallest chip on that date. Elevator uses this to size each day
-// panel to its actual rendered content instead of the swarm worst case:
+// panel to its actual rendered content instead of the worst case:
 //
-//   • Swarm: every chip (req + per-session fan-out, plus in-progress phantom
-//     and undone tombstone chips) gets its own lane via `assignSwarmLanes`, so
+//   • Every chip (req + per-session fan-out, plus in-progress phantom and undone
+//     tombstone chips) gets its own lane via `assignSwarmLanes`, so
 //     maxRow = (completedChips + extraSwarmChips)(date) - 1. The `extras` arg
 //     supplies the swarm-start / undo data needed to count the phantom/undone
-//     lanes (req #2797); omit it (4-arg call) and only completed chips count,
+//     lanes (req #2797); omit it (3-arg call) and only completed chips count,
 //     preserving the original behavior for non-Elevator callers + unit tests.
-//   • Bead:  chips cluster-stack via `assignRows` with minGapPct=1.2 on leftPct.
-//     leftPct in a 24h sidewalk panel = time-of-day fraction × 100, so we can
-//     reproduce the placement here without going through positionFor.
 //
-// A 39-req day in bead mode that's spread across the day might only stack to
-// row 3 or 4, not row 38 — this is what makes the per-day heights differ
-// between bead and swarm for the same dataset (req #2383 follow-up).
 // Exported for unit-test coverage.
-export const indexMaxStackByDate = (requirements, sessions, timezone, vizKey, extras = {}) => {
+export const indexMaxStackByDate = (requirements, sessions, timezone, extras = {}) => {
     const out = new Map();
     if (!Array.isArray(requirements)) return out;
 
-    if (vizKey === 'swarm') {
-        const totals = new Map(indexChipsByDate(requirements, sessions, timezone, vizKey));
-        const extraByDate = indexSwarmExtraChipsByDate({ ...extras, sessions, timezone });
-        for (const [date, n] of extraByDate) {
+    const totals = new Map(indexChipsByDate(requirements, sessions, timezone));
+    const extraByDate = indexSwarmExtraChipsByDate({ ...extras, sessions, timezone });
+    for (const [date, n] of extraByDate) {
+        totals.set(date, (totals.get(date) || 0) + n);
+    }
+    // Req #2798 — cross-day pass-through "ghost" lanes also occupy a row in
+    // the swarm lane stack (BeadRow folds them into assignSwarmLanes). The
+    // Elevator/Sidewalk pass a Map<date, ghostCount> so start/interim days
+    // size for the dashed lines and their bubbles don't clip. Absent →
+    // no-op (preserves the original 3/4-arg behavior + unit tests).
+    const xdCounts = extras.crossDayCountByDate;
+    if (xdCounts instanceof Map) {
+        for (const [date, n] of xdCounts) {
             totals.set(date, (totals.get(date) || 0) + n);
         }
-        // Req #2798 — cross-day pass-through "ghost" lanes also occupy a row in
-        // the swarm lane stack (BeadRow folds them into assignSwarmLanes). The
-        // Elevator/Sidewalk pass a Map<date, ghostCount> so start/interim days
-        // size for the dashed lines and their bubbles don't clip. Absent →
-        // no-op (preserves the original 4/5-arg behavior + unit tests).
-        const xdCounts = extras.crossDayCountByDate;
-        if (xdCounts instanceof Map) {
-            for (const [date, n] of xdCounts) {
-                totals.set(date, (totals.get(date) || 0) + n);
-            }
-        }
-        for (const [date, n] of totals) {
-            out.set(date, Math.max(0, n - 1));
-        }
-        return out;
     }
-
-    // Bead: bucket leftPcts by date, then run assignRows per date.
-    const leftPctsByDate = new Map();
-    for (const r of requirements) {
-        if (!r?.completed_at) continue;
-        const d = toLocaleDateString(r.completed_at, timezone);
-        if (!d) continue;
-        const frac = getTimeOfDayFraction(r.completed_at, timezone);
-        if (frac === null || frac === undefined) continue;
-        if (!leftPctsByDate.has(d)) leftPctsByDate.set(d, []);
-        leftPctsByDate.get(d).push(frac * 100);
-    }
-    for (const [date, leftPcts] of leftPctsByDate) {
-        const chips = leftPcts.map(p => ({ leftPct: p }));
-        const placed = assignRows(chips, 1.2);
-        const maxRow = placed.length ? Math.max(...placed.map(c => c.row)) : 0;
-        out.set(date, maxRow);
+    for (const [date, n] of totals) {
+        out.set(date, Math.max(0, n - 1));
     }
     return out;
 };
@@ -901,7 +836,7 @@ const DayLabels = ({ labels, timezone, inlineCount = null }) => (
 // data per req #2777), only the 1–2 panels whose props actually change re-render.
 const BeadRow = React.memo(({
     requirements, sessions, categoryList, selectedDate, timezone,
-    beadWindow, vizKey, tooltipFontSize, circleDiameter, spaceKey = 1,
+    beadWindow, tooltipFontSize, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     titlesOn = false,             // req #2556 — render req title to right of bubble
@@ -1011,9 +946,9 @@ const BeadRow = React.memo(({
         return out;
     }, [requirements, categoryList, selectedDate, timezone, xPctFn, dataKey]);
 
-    // Bead: one chip per requirement. Swarm: one chip per (req, session) pair;
-    // requirements with zero sessions get a lone chip with markerMode='left' —
-    // rendered as a short vertical bar immediately left of the met bubble.
+    // One chip per (requirement, session) pair; requirements with zero sessions
+    // get a lone chip with markerMode='left' — rendered as a short vertical bar
+    // immediately left of the met bubble.
     //
     // markerMode values:
     //   'normal'  — session fully inside window; horizontal line + vertical tick at started_at
@@ -1027,7 +962,6 @@ const BeadRow = React.memo(({
     // chips (which force 'normal' even at tiny gaps) still skip the arrow.
     const ARROW_OMIT_THRESHOLD_PCT = 2.5;
     const drawChips = useMemo(() => {
-        if (vizKey !== 'swarm') return windowChips;
         const out = [];
         for (const chip of windowChips) {
             const sess = sessionsByReq.get(String(chip.id)) || [];
@@ -1091,7 +1025,7 @@ const BeadRow = React.memo(({
             }
         }
         return out;
-    }, [vizKey, windowChips, sessionsByReq, xPctFn, timezone, selectedDate,
+    }, [windowChips, sessionsByReq, xPctFn, timezone, selectedDate,
         canonicalStartById, clusterSizeById, swarmStartIdById, swarmStartById,
         swarmCompleteBySession]);
 
@@ -1119,7 +1053,6 @@ const BeadRow = React.memo(({
     // sort by the swarm_start.started_at (used as the surrogate completed_at)
     // so they interleave with completed chips in time order.
     const phantomChips = useMemo(() => {
-        if (vizKey !== 'swarm') return [];
         if (!Array.isArray(swarmStarts) || swarmStarts.length === 0) return [];
         if (!Array.isArray(sessions)) return [];
 
@@ -1192,7 +1125,7 @@ const BeadRow = React.memo(({
             }
         }
         return out;
-    }, [vizKey, swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
+    }, [swarmStarts, swarmStartSessions, sessions, xPctFn, timezone,
         selectedDate, nowPct, requirementById, categoryList, dataKey]);
 
     // Undone session chips (req #2719). One chip per `swarm_undos` row —
@@ -1215,15 +1148,15 @@ const BeadRow = React.memo(({
     // formula `drawChips` uses for completed chips.
     const undoneChips = useMemo(
         () => buildUndoneChips({
-            vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+            swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
             requirementById, categoryList,
             closeThresholdPct: CLOSE_THRESHOLD_PCT,
         }),
-        [vizKey, swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
+        [swarmUndos, swarmStarts, xPctFn, timezone, selectedDate,
          requirementById, categoryList],
     );
 
-    // Placement: cluster-stack for Bead, swarm-lane for Swarm.
+    // Placement: every chip gets its own swarm lane.
     //
     // In every top-anchored layout (Day / Sidewalk / Elevator) the wire is at
     // the TOP of the panel, so row 0 — the row rendered closest to the wire —
@@ -1238,11 +1171,12 @@ const BeadRow = React.memo(({
     // renders for them); their assigned row drives the cross-day line Y via
     // `crossDayPlaced` below. See buildCrossDayGhosts (module scope) for the
     // field mapping + rationale (req #2747).
-    const crossDayGhosts = buildCrossDayGhosts(crossDays, vizKey);
+    const crossDayGhosts = buildCrossDayGhosts(crossDays);
 
-    const placedAll = vizKey === 'swarm'
-        ? assignSwarmLanes(crossDayGhosts.length ? [...allSwarmChips, ...crossDayGhosts] : allSwarmChips, topDown)
-        : assignRows(drawChips, 1.2, topDown);
+    const placedAll = assignSwarmLanes(
+        crossDayGhosts.length ? [...allSwarmChips, ...crossDayGhosts] : allSwarmChips,
+        topDown,
+    );
     const placed = crossDayGhosts.length
         ? placedAll.filter(c => !c.isCrossDayGhost)
         : placedAll;
@@ -1255,7 +1189,21 @@ const BeadRow = React.memo(({
 
     // Space multiplier (Day view only — Week stays tight so 7 rows still fit).
     const spaceMul = isWeekView ? 1 : getSpaceMultiplier(spaceKey);
-    const rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    let rowSpacing = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
+    // req #2805 — the Week stack forces spaceMul=1 (tightest) so 7 rows fit, which
+    // leaves only ~24px between rows. With the "Title" toggle on, the title label
+    // (TITLE_LABEL_HEIGHT px, rendered to the right of the bubble and vertically
+    // centered on it) then overlaps both the neighbouring row's title AND the
+    // bubble directly below it. Day view (roomy spaceMul) and the Elevator panels
+    // (rendered with isWeekView=false → user space preference) already have room,
+    // which is why the overlap only shows in the Week stack. Raise rowSpacing to a
+    // label-aware minimum so every item gets a common vertical slot that fully
+    // clears the title: half the bubble + the full label height + a small gap.
+    // Scoped to the Week stack — the Elevator/Sidewalk size their panels through a
+    // separate helper, so widening here would drift from that math.
+    if (titlesOn && isWeekView && !sidewalkPanel) {
+        rowSpacing = Math.max(rowSpacing, Math.ceil(circleDiameter / 2) + TITLE_LABEL_HEIGHT + 4);
+    }
 
     // Vertical height — must clear the top chrome by at least half a bubble so
     // the tallest bubble never crowds the date / time-axis header. Same formula
@@ -1335,10 +1283,11 @@ const BeadRow = React.memo(({
                 where a single shared axis renders at the top of the view. */}
             {!hideTimeline && <BeadTimeline ticks={ticks} />}
 
-            {vizKey === 'swarm' && (
-                <svg className="ts-swarm-lines" data-testid="ts-swarm-lines"
-                     aria-hidden="true" preserveAspectRatio="none"
-                     width="100%" height="100%">
+            {/* Swarm duration lines + start bars (req #2806 — the only render
+                mode now that the bead necklace is gone). */}
+            <svg className="ts-swarm-lines" data-testid="ts-swarm-lines"
+                 aria-hidden="true" preserveAspectRatio="none"
+                 width="100%" height="100%">
                     <defs>
                         <marker id={`ts-swarm-arrow-${selectedDate}`} viewBox="0 0 10 10"
                                 refX="9" refY="5" markerWidth="7" markerHeight="7"
@@ -1592,8 +1541,7 @@ const BeadRow = React.memo(({
                             </g>
                         );
                     })}
-                </svg>
-            )}
+            </svg>
 
             {/* Swarm-start anchor hover targets — invisible HTML boxes overlay
                 each SVG anchor circle. Hover shows a "Swarm-Start #N" datacard:
@@ -1603,7 +1551,7 @@ const BeadRow = React.memo(({
                 The hover is needed because the SVG layer has pointer-events:
                 none (lines and circles are decorative); this overlay restores
                 hover affordance for the anchor specifically. Req #2504. */}
-            {vizKey === 'swarm' && placed.map(chip => {
+            {placed.map(chip => {
                 // Phantom-clamped (req #2649) — no SVG anchor was rendered for
                 // this chip, so there's nothing to overlay a hover target on.
                 if (chip.startClamped === true) return null;
@@ -2010,10 +1958,15 @@ const BeadRow = React.memo(({
                                 className={`ts-bead-dot${chip.ringColor ? ' ts-bead-dot-ringed' : ''}${chip.isPhantom ? ' ts-bead-dot-phantom' : ''}`}
                                 data-testid={`ts-bead-dot-${chip.chipKey || chip.id}`}
                                 style={chip.isPhantom ? {
-                                    // Phantom: hollow green ring at the line's "now" end.
-                                    // Same diameter as a regular bubble so layout is stable.
+                                    // Phantom (unfinished requirement): white core + a coloured
+                                    // inner ring at the line's "now" end. Same diameter as a regular
+                                    // bubble so layout is stable. req #2807 — the inner ring is the
+                                    // requirement's own colour (category colour, `chip.color`) rather
+                                    // than a fixed green, so an in-progress bead echoes the colour its
+                                    // finished (solid-fill) counterpart will take. Green stays as the
+                                    // no-category-colour fallback (matches the phantom chip default).
                                     backgroundColor: '#ffffff',
-                                    border: '2px solid #43A047',
+                                    border: `2px solid ${chip.color || '#43A047'}`,
                                     boxSizing: 'border-box',
                                     borderRadius: '50%',
                                     width:  `${circleDiameter}px`,
@@ -2072,7 +2025,7 @@ const SIDEWALK_EXTEND_BY = 10;
 const SIDEWALK_MAX_PANELS = 60;
 
 const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowProps }) => {
-    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+    const { requirements, sessions, timezone, circleDiameter, spaceKey,
             swarmStarts, swarmStartSessions, swarmUndos, requirementById,
             categoryList, canonicalStartById, swarmStartIdById, swarmStartById } = rowProps;
     // Today (local) — stable per mount; drives in-progress cross-day spans + the
@@ -2098,14 +2051,13 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // Req #2798 — cross-day pass-through lines for multi-day sessions, keyed by
     // each day panel in the strip, with the 24h start-bar coordinate.
     const crossDayMap = useMemo(() => {
-        if (vizKey !== 'swarm') return new Map();
         return buildCrossDayMap(dates, {
             requirements, sessions, swarmStarts, swarmStartSessions,
             requirementById, categoryList,
             canonicalStartById, swarmStartIdById, swarmStartById,
             timezone, startXPct: bead24hXPct, today: todayStr,
         });
-    }, [vizKey, dates, requirements, sessions, swarmStarts, swarmStartSessions,
+    }, [dates, requirements, sessions, swarmStarts, swarmStartSessions,
         requirementById, categoryList, canonicalStartById, swarmStartIdById,
         swarmStartById, timezone, todayStr]);
 
@@ -2114,9 +2066,9 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // height formula (sidewalk branch: chromeOffset=80, bubbleOffset=20).
     // Single-pass bucket via indexChipsByDate so 21-day strips stay O(R+S+D)
     // instead of O(D × (R+S)) — matters during scroll, when requirements
-    // refetches churn this memo. Swarm mode also folds in the phantom/undone
-    // (req #2797) and cross-day pass-through (req #2798) lanes so a busy day's
-    // dashed lines don't clip below the uniform height; bead mode is unchanged.
+    // refetches churn this memo. Also folds in the phantom/undone (req #2797)
+    // and cross-day pass-through (req #2798) lanes so a busy day's dashed lines
+    // don't clip below the uniform height.
     const sidewalkHeight = useMemo(() => {
         const BASE_HEIGHT   = 400;
         const bubbleOffset  = 20;
@@ -2124,19 +2076,16 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
         const dateClearance = Math.ceil(circleDiameter / 2) + 4;
         const spaceMul      = getSpaceMultiplier(spaceKey);
         const rowSpacing    = Math.max(16, Math.round((circleDiameter + 4) * spaceMul));
-        const chipsByDate   = indexChipsByDate(requirements, sessions, timezone, vizKey);
-        const extraByDate   = vizKey === 'swarm'
-            ? indexSwarmExtraChipsByDate({
-                swarmStarts, swarmStartSessions, swarmUndos, requirementById,
-                sessions, timezone, today: todayStr,
-              })
-            : null;
+        const chipsByDate   = indexChipsByDate(requirements, sessions, timezone);
+        const extraByDate   = indexSwarmExtraChipsByDate({
+            swarmStarts, swarmStartSessions, swarmUndos, requirementById,
+            sessions, timezone, today: todayStr,
+        });
         let maxChips = 0;
         for (const d of dates) {
-            let n = chipsByDate.get(d) || 0;
-            if (vizKey === 'swarm') {
-                n += (extraByDate.get(d) || 0) + (crossDayMap.get(d)?.length || 0);
-            }
+            const n = (chipsByDate.get(d) || 0)
+                + (extraByDate.get(d) || 0)
+                + (crossDayMap.get(d)?.length || 0);
             if (n > maxChips) maxChips = n;
         }
         const maxStackRow = Math.max(0, maxChips - 1);
@@ -2144,7 +2093,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             BASE_HEIGHT,
             maxStackRow * rowSpacing + bubbleOffset + circleDiameter + chromeOffset + dateClearance,
         );
-    }, [dates, requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+    }, [dates, requirements, sessions, timezone, circleDiameter, spaceKey,
         crossDayMap, swarmStarts, swarmStartSessions, swarmUndos, requirementById, todayStr]);
 
     // Measure frame width; re-measure on resize. `layoutEffect` so initial paint has a width.
@@ -2519,7 +2468,7 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     // below. The swarm extras are a read-only destructure (rowProps is still spread
     // to each BeadRow, so naming them here does NOT remove them from the spread);
     // they feed per-day phantom/undone lane counts into the panel sizing (req #2797).
-    const { requirements, sessions, timezone, vizKey, circleDiameter, spaceKey,
+    const { requirements, sessions, timezone, circleDiameter, spaceKey,
             swarmStarts, swarmStartSessions, swarmUndos, requirementById,
             categoryList, canonicalStartById, swarmStartIdById, swarmStartById } = rowProps;
     const frameRef = React.useRef(null);
@@ -2549,10 +2498,8 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     const datesRef = React.useRef(dates);
     const [frameHeight, setFrameHeight] = React.useState(0);
 
-    // Per-date max stack row — reproduces BeadRow's placement for the active
-    // vizKey: bead uses cluster-stack (many chips collapse to a handful of rows
-    // when spread across the day), swarm uses one-lane-per-chip (maxRow =
-    // chips − 1). For swarm the chip count must include the in-progress phantom
+    // Per-date max stack row — reproduces BeadRow's placement: one-lane-per-chip
+    // (maxRow = chips − 1). The chip count must include the in-progress phantom
     // and undone tombstone lanes BeadRow also stacks, or a panel carrying them
     // is too short and its bottom bubbles bleed into the next day's header
     // (req #2797) — hence the swarm-extras passed through. Lifted to its own
@@ -2564,14 +2511,13 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     // handed to each BeadRow below; the per-date ghost counts feed panel sizing
     // so start/interim dashed lines don't clip their day's bubbles.
     const crossDayMap = useMemo(() => {
-        if (vizKey !== 'swarm') return new Map();
         return buildCrossDayMap(dates, {
             requirements, sessions, swarmStarts, swarmStartSessions,
             requirementById, categoryList,
             canonicalStartById, swarmStartIdById, swarmStartById,
             timezone, startXPct: bead24hXPct, today: todayStr,
         });
-    }, [vizKey, dates, requirements, sessions, swarmStarts, swarmStartSessions,
+    }, [dates, requirements, sessions, swarmStarts, swarmStartSessions,
         requirementById, categoryList, canonicalStartById, swarmStartIdById,
         swarmStartById, timezone, todayStr]);
     const crossDayCountByDate = useMemo(() => {
@@ -2581,11 +2527,11 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     }, [crossDayMap]);
 
     const maxRowByDate = useMemo(
-        () => indexMaxStackByDate(requirements, sessions, timezone, vizKey, {
+        () => indexMaxStackByDate(requirements, sessions, timezone, {
             swarmStarts, swarmStartSessions, swarmUndos, requirementById, today: todayStr,
             crossDayCountByDate,
         }),
-        [requirements, sessions, timezone, vizKey, swarmStarts, swarmStartSessions,
+        [requirements, sessions, timezone, swarmStarts, swarmStartSessions,
          swarmUndos, requirementById, todayStr, crossDayCountByDate],
     );
 
@@ -3019,7 +2965,6 @@ const TimeSeriesView = ({
     selectedDate,
     timezone,
     beadWindow = '24h',
-    vizKey = DEFAULT_VIZ,
     sidewalkOn = false,
     elevatorOn = false,
     dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
@@ -3039,9 +2984,7 @@ const TimeSeriesView = ({
     const fontSizeKey  = DEFAULT_FONT_SIZE;
     const spaceKey     = DEFAULT_SPACE;
     const zoomKey      = DEFAULT_ZOOM;
-    const circleSizeKey = (sidewalkOn || elevatorOn)
-        ? 1                                              // 21-day strips always use size 1
-        : (isWeekView ? 1 : (vizKey === 'swarm' ? 1 : 3));
+    const circleSizeKey = 1;   // swarm visualizer uses size 1 across every layout
     const tooltipFontSize = getFontSize(fontSizeKey);
     const circleDiameter  = getCircleSize(circleSizeKey);
 
@@ -3157,14 +3100,14 @@ const TimeSeriesView = ({
     // iterated only `requirements` (completed-only), so its in-progress branch
     // was dead and open multi-day sessions never drew a pass-through line.
     const crossDayMap = useMemo(() => {
-        if (!isWeekView || vizKey !== 'swarm' || !rowDates.length) return new Map();
+        if (!isWeekView || !rowDates.length) return new Map();
         return buildCrossDayMap(rowDates, {
             requirements, sessions, swarmStarts, swarmStartSessions,
             requirementById, categoryList,
             canonicalStartById, swarmStartIdById, swarmStartById,
             timezone, startXPct: bead36hXPct, today: todayStr,
         });
-    }, [isWeekView, vizKey, rowDates, requirements, sessions, swarmStarts,
+    }, [isWeekView, rowDates, requirements, sessions, swarmStarts,
         swarmStartSessions, requirementById, categoryList,
         canonicalStartById, swarmStartIdById, swarmStartById, timezone, todayStr]);
 
@@ -3239,7 +3182,6 @@ const TimeSeriesView = ({
             selectedDate={d}
             timezone={timezone}
             beadWindow={beadWindow}
-            vizKey={vizKey}
             dataKey={dataKey}
             titlesOn={titlesOn}
 
@@ -3283,7 +3225,6 @@ const TimeSeriesView = ({
                     sessions={sessions}
                     timezone={timezone}
                     beadWindow={beadWindow}
-                    vizKey={vizKey}
                     dataKey={dataKey}
                     titlesOn={titlesOn}
 
@@ -3317,7 +3258,6 @@ const TimeSeriesView = ({
                     sessions={sessions}
                     timezone={timezone}
                     beadWindow={beadWindow}
-                    vizKey={vizKey}
                     dataKey={dataKey}
                     titlesOn={titlesOn}
 

@@ -48,7 +48,6 @@ const requirementById = new Map([[String(baseRequirement.id), baseRequirement]])
 const categoryList = [{ id: 1186, category_name: 'Topology', color: '#470486' }];
 
 const callArgs = (overrides = {}) => ({
-    vizKey: 'swarm',
     swarmUndos: [baseUndo],
     swarmStarts: [baseSwarmStart],
     xPctFn: inWindowXPct,
@@ -62,10 +61,6 @@ const callArgs = (overrides = {}) => ({
 });
 
 describe('buildUndoneChips', () => {
-    it('returns [] when vizKey is not "swarm"', () => {
-        expect(buildUndoneChips(callArgs({ vizKey: 'bead' }))).toEqual([]);
-    });
-
     it('returns [] for empty/missing undos', () => {
         expect(buildUndoneChips(callArgs({ swarmUndos: [] }))).toEqual([]);
         expect(buildUndoneChips(callArgs({ swarmUndos: null }))).toEqual([]);

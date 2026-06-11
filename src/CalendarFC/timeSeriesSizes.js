@@ -93,11 +93,6 @@ export function getZoomHours(zoomKey, beadWindow) {
     return row[beadWindow] || row['24h'];
 }
 
-// Visualization mode — Bead Necklace (default) or Swarm Visualizer.
-export const VIZ_KEYS = ['bead', 'swarm'];
-export const VIZ_LABELS = { bead: 'Bead', swarm: 'Swarm' };
-export const DEFAULT_VIZ = 'bead';
-
 // Time Series data-selection mode (req #2382).
 // 'category'    — chip color from requirement.category_fk → category.color (default / unchanged).
 // 'coordination' — chip color from requirement.coordination_type (red/orange/yellow/green).

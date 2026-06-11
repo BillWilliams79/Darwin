@@ -14,7 +14,6 @@ describe('persistPartialize (req #2799)', () => {
         const out = persistPartialize({
             viewType: 'week',
             currentDate: '2026-05-22',
-            vizKey: 'swarm',
             beadWindow: '24h',
             sidewalkOn: false,
             elevatorOn: true,
@@ -29,7 +28,6 @@ describe('persistPartialize (req #2799)', () => {
         const out = persistPartialize({
             viewType: 'week',
             currentDate: '2026-05-22',
-            vizKey: 'swarm',
             beadWindow: '36h',
             sidewalkOn: true,
             elevatorOn: true,
@@ -39,7 +37,6 @@ describe('persistPartialize (req #2799)', () => {
         });
         expect(out).toEqual({
             viewType: 'week',
-            vizKey: 'swarm',
             beadWindow: '36h',
             sidewalkOn: true,
             elevatorOn: true,
@@ -50,18 +47,17 @@ describe('persistPartialize (req #2799)', () => {
     });
 
     it('does not mutate the input state', () => {
-        const input = { viewType: 'day', currentDate: '2026-05-25', vizKey: 'bead' };
+        const input = { viewType: 'day', currentDate: '2026-05-25' };
         persistPartialize(input);
         expect(input.currentDate).toBe('2026-05-25');
     });
 });
 
-describe('migrateVisualizerState (req #2799)', () => {
+describe('migrateVisualizerState (req #2799, req #2806)', () => {
     it('strips a stale persisted currentDate (the late-May affinity)', () => {
         const out = migrateVisualizerState({
             viewType: 'week',
             currentDate: '2026-05-23',
-            vizKey: 'bead',
             beadWindow: '24h',
             sidewalkOn: false,
             elevatorOn: true,
@@ -70,18 +66,26 @@ describe('migrateVisualizerState (req #2799)', () => {
         expect(out).not.toHaveProperty('currentDate');
     });
 
+    it('strips a persisted vizKey (bead/swarm mode removed, req #2806)', () => {
+        const out = migrateVisualizerState({
+            viewType: 'week',
+            currentDate: '2026-05-23',
+            vizKey: 'bead',
+            beadWindow: '24h',
+        });
+        expect(out).not.toHaveProperty('vizKey');
+    });
+
     it('preserves preferences carried by an old (v2) blob', () => {
         const out = migrateVisualizerState({
             viewType: 'week',
             currentDate: '2026-05-22',
-            vizKey: 'swarm',
             beadWindow: '24h',
             sidewalkOn: false,
             elevatorOn: true,
             dataKey: 'coordination',
         });
         expect(out.viewType).toBe('week');
-        expect(out.vizKey).toBe('swarm');
         expect(out.elevatorOn).toBe(true);
         expect(out.dataKey).toBe('coordination');
     });
@@ -91,7 +95,6 @@ describe('migrateVisualizerState (req #2799)', () => {
         const out = migrateVisualizerState({
             viewType: 'day',
             currentDate: '2026-05-25',
-            vizKey: 'bead',
             beadWindow: '24h',
             sidewalkOn: false,
         });
