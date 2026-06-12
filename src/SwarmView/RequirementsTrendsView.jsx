@@ -98,8 +98,12 @@ const RequirementsTrendsView = () => {
 
     const { data: requirements = [], isLoading: reqLoading } =
         useAllRequirements(creatorFk, { fields: FIELDS });
+    // Fetch ALL categories (open + closed): requirements are fetched unfiltered,
+    // so met requirements in a closed category (e.g. 968 Solar) need their name to
+    // resolve. The aggregator only renders categories that have requirements, so
+    // including closed ones adds no empty series — it just supplies the label (req #2820).
     const { data: categories = [], isLoading: catLoading } =
-        useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order', closed: 0 });
+        useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order' });
 
     const [timeframe, setTimeframe] = useState('week');
     const [chartType, setChartType] = useState('bar');
