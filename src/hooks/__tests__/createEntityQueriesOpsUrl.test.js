@@ -1,14 +1,18 @@
-// Req #2697 — regression guard for the operational-table URL routing.
+// Req #2697 / #2827 — URL routing guard for the entity-queries factory.
 //
-// Pre-#2697: a dev-mode build pointing AppContext.database at `darwin_dev`
-// caused every operational-table read (`dev_servers`, `swarm_sessions`,
-// `swarm_starts`, `swarm_start_sessions`) to silently return 0 rows because
-// the MCP daemon writes them exclusively to the production `darwin` schema.
-//
-// The fix: `ops: true` in the entity config makes the factory pick
+// Req #2697 introduced an `ops: true` flag: it makes the factory pick
 // `darwinOpsUri` (always `/darwin`) from AppContext instead of `darwinUri`
-// (which honors the dev/prod split). These tests assert the actual REST URL
-// every factory hook builds depending on the `ops` flag.
+// (which honors the dev/prod split). The first describe block below still
+// exercises that flag directly — it remains a generic factory capability.
+//
+// Req #2827 REMOVED `ops: true` from the four original ops tables
+// (`dev_servers`, `swarm_sessions`, `swarm_starts`, `swarm_start_sessions`):
+// pinning their reads to production `darwin` defeated dev/prod separation for
+// TESTING (you could not seed viewable test data without polluting
+// production). They now route through `darwinUri` like every other ops block.
+// The "wired devops blocks" describe at the bottom locks in that new behavior:
+// in a dev-mode build (darwinUri ends in `/darwin_dev`) those reads hit
+// `darwin_dev`, not production.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -102,37 +106,35 @@ describe('createEntityQueries — default (ops:false) still uses darwinUri', () 
     });
 });
 
-describe('createEntityQueries — wired devops blocks route correctly', () => {
+describe('createEntityQueries — wired devops blocks follow dev/prod split (req #2827)', () => {
     // Imported here so vi.mock declarations above are in effect.
-    it('devServers.useAll hits the production darwin schema', async () => {
+    // Req #2827 removed ops:true from these four blocks — a dev-mode build
+    // (darwinUri == /darwin_dev) now reads them from darwin_dev, never prod.
+    it('devServers.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
         const { devServers } = await import('../factory/devopsQueries');
         devServers.useAll('alice');
         const url = callRestApiMock.mock.calls[0][0];
-        expect(url).toContain(`${TEST_DARWIN_OPS_URI}/dev_servers`);
-        expect(url).not.toContain('darwin_dev');
+        expect(url).toContain(`${TEST_DARWIN_URI}/dev_servers`);
     });
 
-    it('sessions.useAll hits the production darwin schema', async () => {
+    it('sessions.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
         const { sessions } = await import('../factory/devopsQueries');
         sessions.useAll('alice');
         const url = callRestApiMock.mock.calls[0][0];
-        expect(url).toContain(`${TEST_DARWIN_OPS_URI}/swarm_sessions`);
-        expect(url).not.toContain('darwin_dev');
+        expect(url).toContain(`${TEST_DARWIN_URI}/swarm_sessions`);
     });
 
-    it('swarmStarts.useAll hits the production darwin schema', async () => {
+    it('swarmStarts.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
         const { swarmStarts } = await import('../factory/devopsQueries');
         swarmStarts.useAll('alice');
         const url = callRestApiMock.mock.calls[0][0];
-        expect(url).toContain(`${TEST_DARWIN_OPS_URI}/swarm_starts`);
-        expect(url).not.toContain('darwin_dev');
+        expect(url).toContain(`${TEST_DARWIN_URI}/swarm_starts`);
     });
 
-    it('swarmStartSessions.useAll hits the production darwin schema', async () => {
+    it('swarmStartSessions.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
         const { swarmStartSessions } = await import('../factory/devopsQueries');
         swarmStartSessions.useAll('alice');
         const url = callRestApiMock.mock.calls[0][0];
-        expect(url).toContain(`${TEST_DARWIN_OPS_URI}/swarm_start_sessions`);
-        expect(url).not.toContain('darwin_dev');
+        expect(url).toContain(`${TEST_DARWIN_URI}/swarm_start_sessions`);
     });
 });

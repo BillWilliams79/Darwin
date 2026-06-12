@@ -64,9 +64,9 @@ describe('swarmStartSessionKeys parity', () => {
 
 // Req #2719 — swarm_undos key + hook shape matches the existing devops factory
 // outputs (swarmStarts pattern, fields-in-key, defaultSort:undone_at).
-// Intentionally NOT ops:true (departure from req #2697 — see devopsQueries.js
-// comment): swarm_undos is a new feature whose data lives in darwin_dev during
-// development and only graduates to production on /swarm-complete merge.
+// Routes through darwinUri (dev/prod split) — as do all ops blocks since
+// req #2827 dropped the req #2697 `ops: true` pin from the four original
+// ops tables. See devopsQueries.js comment.
 describe('swarmUndoKeys parity', () => {
     it('all(creator) → ["swarm_undos", creator]', () => {
         expect(swarmUndoKeys.all('alice')).toEqual(['swarm_undos', 'alice']);

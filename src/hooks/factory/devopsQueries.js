@@ -6,13 +6,22 @@
 // preserved byte-for-byte by the factory output; parity is locked down by
 // __tests__/devopsQueriesParity.test.js.
 //
-// Req #2697 — `ops: true` on every block here. These four tables live
-// exclusively in the production `darwin` schema (the MCP daemon's
-// `DB_NAME=darwin` is hard-wired). The factory routes their reads through
-// `darwinOpsUri` instead of `darwinUri` so dev-mode builds (where
-// `darwinUri` ends in `/darwin_dev` per req #2683) still see real rows.
-// A future devops table that genuinely IS per-database (e.g. recurring_tasks)
-// would omit `ops` and inherit the default `darwinUri` routing.
+// Req #2827 — every block here routes through the default `darwinUri`
+// (dev/prod split per req #2683). The four original ops tables (`dev_servers`,
+// `swarm_sessions`, `swarm_starts`, `swarm_start_sessions`) previously carried
+// `ops: true` (req #2697) to pin their reads to production `darwin` so a
+// dev-mode build still saw the daemon's live rows. That pin defeated dev/prod
+// separation for TESTING — you could not seed viewable test data without
+// polluting production. Removing it lets all six ops tables follow the same
+// rule the newer two (swarm_undos, swarm_completes) already did: dev reads
+// seeded fixtures from `darwin_dev`, production reads `darwin` unchanged
+// (in prod `darwinUri === /darwin`, so production behavior is identical).
+//
+// ACCEPTED CONSEQUENCE: the dev server no longer shows live production ops —
+// the daemon still writes real ops to production for the production app; dev
+// shows seeded test data. The `ops` flag remains a generic capability of
+// createEntityQueries (and `darwinOpsUri` stays defined in AppContext for the
+// JWT call) — it is simply no longer used by any block here.
 
 import { createEntityQueries } from './createEntityQueries';
 
@@ -23,7 +32,6 @@ import { createEntityQueries } from './createEntityQueries';
 // ---------------------------------------------------------------------------
 export const devServers = createEntityQueries({
     entity: 'dev_servers',
-    ops: true,
     foreignKeys: [
         // `keyParam: 'sessionId'` preserves the legacy `devServerKeys.bySession(id)`
         // cache-key shape `['dev_servers', { sessionId }]`. New devops entities
@@ -39,7 +47,6 @@ export const devServers = createEntityQueries({
 // ---------------------------------------------------------------------------
 export const sessions = createEntityQueries({
     entity: 'swarm_sessions',
-    ops: true,
     byIdCreatorScoped: false,
 });
 
@@ -55,7 +62,6 @@ const SWARM_START_DEFAULT_FIELDS =
 
 export const swarmStarts = createEntityQueries({
     entity: 'swarm_starts',
-    ops: true,
     defaultFields: SWARM_START_DEFAULT_FIELDS,
     fieldsInKey: true,
     defaultSort: 'started_at:desc',
@@ -67,7 +73,6 @@ export const swarmStarts = createEntityQueries({
 // ---------------------------------------------------------------------------
 export const swarmStartSessions = createEntityQueries({
     entity: 'swarm_start_sessions',
-    ops: true,
     defaultFields: 'swarm_start_fk,session_fk',
 });
 
@@ -76,14 +81,10 @@ export const swarmStartSessions = createEntityQueries({
 // Hooks: useAllSwarmUndos (fields-in-key, sort undone_at:desc) +
 // useSwarmUndoById (creator-scoped key).
 //
-// Intentionally NOT ops:true (departure from req #2697's pattern for the four
-// pre-existing swarm tables). swarm_undos is a brand-new data type whose data
-// has no reason to live exclusively in the production `darwin` schema during
-// development — routing through the default `darwinUri` lets dev-mode builds
-// read seeded fixtures from `darwin_dev`. The broader question of whether
-// req #2697's ops-routing rule should apply to every operational table by
-// default is a separate design conversation the data-architect should groom
-// (filed for follow-up per user direction 2026-05-28).
+// Routes through the default `darwinUri` (dev/prod split) so dev-mode builds
+// read seeded fixtures from `darwin_dev`. This was the first ops table to drop
+// the req #2697 `ops: true` pin; req #2827 brought the four original ops tables
+// into line, so every ops block now follows this same dev/prod-split rule.
 // ---------------------------------------------------------------------------
 const SWARM_UNDO_DEFAULT_FIELDS =
     'id,session_fk,swarm_start_fk_at_undo,req_id_at_undo,' +
@@ -101,10 +102,9 @@ export const swarmUndos = createEntityQueries({
 // Hooks: useAllSwarmCompletes (fields-in-key, sort completed_at:desc) +
 // useSwarmCompleteById (creator-scoped key).
 //
-// Intentionally NOT ops:true — same rationale as swarm_undos above: a brand-new
-// data type whose rows should be readable from `darwin_dev` in dev-mode builds
-// (the prod `darwin` table lands at /swarm-complete time). Routing through the
-// default `darwinUri` lets dev-mode read seeded fixtures from `darwin_dev`.
+// Routes through the default `darwinUri` (dev/prod split) — same rule as every
+// ops block here after req #2827. Dev-mode reads seeded fixtures from
+// `darwin_dev`; the prod `darwin` rows land at /swarm-complete time.
 // ---------------------------------------------------------------------------
 const SWARM_COMPLETE_DEFAULT_FIELDS =
     'id,skill_name,coordination_type,status,session_count,' +
