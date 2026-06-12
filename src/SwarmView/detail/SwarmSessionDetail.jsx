@@ -11,14 +11,18 @@ import call_rest_api from '../../RestApi/RestApi';
 import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
 import { formatDuration } from '../../utils/formatDuration';
+import { trimMicroseconds } from '../../utils/dateFormat';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Tooltip from '@mui/material/Tooltip';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { CircularProgress, Typography } from '@mui/material';
 
 const labelSx = { fontWeight: 'bold', fontSize: '1.25rem' };
@@ -136,9 +140,11 @@ const SwarmSessionDetail = () => {
                 </Tooltip>
             </Box>
 
-            {/* --- Two-column layout for metadata --- */}
+            {/* --- Two-column layout: the four aligned metadata rows (req #2832).
+                 Left and right columns are kept row-for-row aligned: Requirement↔Started,
+                 Swarm-Start↔Completed, Swarm-Complete↔Created, Pull Request↔Updated. --- */}
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: { xs: 0, md: 4 }, mb: 3 }}>
-                {/* Left column */}
+                {/* Left column — the four aligned rows */}
                 <Box sx={{ flex: 1 }}>
                     {requirementId ? (
                         <Box sx={{ mb: 1 }} data-testid="session-requirement">
@@ -176,35 +182,12 @@ const SwarmSessionDetail = () => {
 
                     {swarmComplete &&
                         <Box sx={{ mb: 1 }} data-testid="session-closed-by">
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Swarm-complete</Typography>
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Swarm-Complete</Typography>
                             <Typography variant="body2" component="div">
                                 <Chip label={`#${swarmComplete.id}`} size="small" variant="outlined"
                                       onClick={() => navigate(`/swarm/swarm-completes/${swarmComplete.id}`)}
                                       sx={{ cursor: 'pointer' }}
                                       data-testid="session-closed-by-chip" />
-                            </Typography>
-                        </Box>
-                    }
-
-                    {session.task_name &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Task Name</Typography>
-                            <Typography variant="body2" data-testid="session-task-name">{session.task_name}</Typography>
-                        </Box>
-                    }
-
-                    {session.branch &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Branch</Typography>
-                            <Typography variant="body2" data-testid="session-branch">{session.branch}</Typography>
-                        </Box>
-                    }
-
-                    {session.worktree_path &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Worktree Path</Typography>
-                            <Typography variant="body2" data-testid="session-worktree-path">
-                                {session.worktree_path}
                             </Typography>
                         </Box>
                     }
@@ -222,94 +205,116 @@ const SwarmSessionDetail = () => {
                     }
                 </Box>
 
-                {/* Right column */}
+                {/* Right column — timestamps, microseconds trimmed (req #2832) */}
                 <Box sx={{ flex: 1 }}>
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Started</Typography>
                         <Typography variant="body2" data-testid="session-started-at">
-                            {session.started_at || '—'}
+                            {trimMicroseconds(session.started_at)}
                         </Typography>
                     </Box>
 
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Completed</Typography>
                         <Typography variant="body2" data-testid="session-completed-at">
-                            {session.completed_at || '—'}
+                            {trimMicroseconds(session.completed_at)}
                         </Typography>
                     </Box>
 
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Created</Typography>
                         <Typography variant="body2" data-testid="session-create-ts">
-                            {session.create_ts || '—'}
+                            {trimMicroseconds(session.create_ts)}
                         </Typography>
                     </Box>
 
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Updated</Typography>
                         <Typography variant="body2" data-testid="session-update-ts">
-                            {session.update_ts || '—'}
+                            {trimMicroseconds(session.update_ts)}
                         </Typography>
                     </Box>
-
-                    {devServers.length > 0 &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Dev Servers</Typography>
-                            <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }} data-testid="session-dev-servers">
-                                {devServers.map(ds => (
-                                    <Chip
-                                        key={ds.id}
-                                        label={`Port ${ds.port}`}
-                                        size="small"
-                                        color="primary"
-                                        component="a"
-                                        href={`https://localhost:${ds.port}`}
-                                        target="_blank"
-                                        rel="noopener"
-                                        clickable
-                                        data-testid="chip-dev-server-port"
-                                    />
-                                ))}
-                            </Box>
-                        </Box>
-                    }
                 </Box>
             </Box>
 
-            {/* --- Phase breakdown (req #2332) --- */}
+            {/* --- Phase breakdown (req #2332) — moved up directly under the aligned rows (req #2832) --- */}
             <SessionPhaseBreakdown session={session} />
 
-            {/* --- Swarm-Start Summary (bordered section) --- */}
+            {/* --- Full-width detail rows (req #2832): task / branch / worktree have no
+                 right-column companion, so they span the full width and don't wrap in a
+                 narrow column. Dev Servers rides along as another full-width detail. --- */}
+            <Box sx={{ mb: 3 }}>
+                {session.task_name &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Task Name</Typography>
+                        <Typography variant="body2" data-testid="session-task-name">{session.task_name}</Typography>
+                    </Box>
+                }
+
+                {session.branch &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Branch</Typography>
+                        <Typography variant="body2" data-testid="session-branch">{session.branch}</Typography>
+                    </Box>
+                }
+
+                {session.worktree_path &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Worktree Path</Typography>
+                        <Typography variant="body2" data-testid="session-worktree-path">
+                            {session.worktree_path}
+                        </Typography>
+                    </Box>
+                }
+
+                {devServers.length > 0 &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Dev Servers</Typography>
+                        <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }} data-testid="session-dev-servers">
+                            {devServers.map(ds => (
+                                <Chip
+                                    key={ds.id}
+                                    label={`Port ${ds.port}`}
+                                    size="small"
+                                    color="primary"
+                                    component="a"
+                                    href={`https://localhost:${ds.port}`}
+                                    target="_blank"
+                                    rel="noopener"
+                                    clickable
+                                    data-testid="chip-dev-server-port"
+                                />
+                            ))}
+                        </Box>
+                    </Box>
+                }
+            </Box>
+
+            {/* --- Swarm-Start Summary (collapsible, default collapsed — req #2832) --- */}
             {session.start_summary &&
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
-                        Swarm-Start Summary
-                    </Typography>
+                <CollapsibleSection title="Swarm-Start Summary" testId="session-start-summary">
                     <Paper variant="outlined" sx={{ p: 2, mt: 0.5 }} data-testid="session-start-summary-panel">
                         <Typography variant="body2" data-testid="session-start-summary"
                                     sx={{ whiteSpace: 'pre-wrap' }}>
                             {session.start_summary}
                         </Typography>
                     </Paper>
-                </Box>
+                </CollapsibleSection>
             }
 
-            {/* --- Swarm-Complete Summary (bordered section) --- */}
+            {/* --- Swarm-Complete Summary (collapsible, default collapsed — req #2832) --- */}
             {session.complete_summary &&
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
-                        Swarm-Complete Summary
-                    </Typography>
+                <CollapsibleSection title="Swarm-Complete Summary" testId="session-complete-summary">
                     <Paper variant="outlined" sx={{ p: 2, mt: 0.5 }} data-testid="session-complete-summary-panel">
                         <Typography variant="body2" data-testid="session-complete-summary"
                                     sx={{ whiteSpace: 'pre-wrap' }}>
                             {session.complete_summary}
                         </Typography>
                     </Paper>
-                </Box>
+                </CollapsibleSection>
             }
 
-            {/* --- Plan (bordered section) --- */}
+            {/* --- Plan (bordered section, not collapsible) --- */}
             {session.plan &&
                 <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
@@ -324,19 +329,16 @@ const SwarmSessionDetail = () => {
                 </Box>
             }
 
-            {/* --- Telemetry (bordered section) --- */}
+            {/* --- Telemetry (collapsible, default collapsed — req #2832) --- */}
             {session.telemetry &&
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
-                        Telemetry
-                    </Typography>
+                <CollapsibleSection title="Telemetry" testId="session-telemetry">
                     <Paper variant="outlined" sx={{ p: 2, mt: 0.5 }} data-testid="session-telemetry-panel">
                         <Typography variant="body2" data-testid="session-telemetry"
                                     sx={{ whiteSpace: 'pre-wrap' }}>
                             {session.telemetry}
                         </Typography>
                     </Paper>
-                </Box>
+                </CollapsibleSection>
             }
 
             <SwarmSessionDeleteDialog
@@ -349,6 +351,34 @@ const SwarmSessionDetail = () => {
         </Box>
     );
 };
+
+// Collapsible bordered section (req #2832). The title row is the toggle —
+// clicking it expands/collapses the body. Default collapsed; used for the large
+// Swarm-Start / Swarm-Complete summaries and the Telemetry blob.
+function CollapsibleSection({ title, testId, defaultExpanded = false, children }) {
+    const [expanded, setExpanded] = React.useState(defaultExpanded);
+    return (
+        <Box sx={{ mb: 2 }} data-testid={testId ? `${testId}-section` : undefined}>
+            <Box
+                onClick={() => setExpanded(e => !e)}
+                role="button"
+                aria-expanded={expanded}
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', userSelect: 'none' }}
+                data-testid={testId ? `${testId}-toggle` : undefined}
+            >
+                {expanded
+                    ? <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                    : <ChevronRightIcon fontSize="small" sx={{ color: 'text.secondary' }} />}
+                <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
+                    {title}
+                </Typography>
+            </Box>
+            <Collapse in={expanded} unmountOnExit>
+                {children}
+            </Collapse>
+        </Box>
+    );
+}
 
 // Phase breakdown for session detail (req #2332). The data comes from the 8
 // INT *_secs columns on swarm_sessions, not from parsed telemetry. For legacy
