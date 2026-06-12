@@ -18,6 +18,8 @@ import EditNoteIcon from '@mui/icons-material/EditNote';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import RateReviewIcon from '@mui/icons-material/RateReview';
 import DoNotDisturbOnIcon from '@mui/icons-material/DoNotDisturbOn';
 import BlockIcon from '@mui/icons-material/Block';
@@ -26,6 +28,9 @@ import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
+import PendingIcon from '@mui/icons-material/Pending';
+import SyncIcon from '@mui/icons-material/Sync';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -170,9 +175,17 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         if (status === 'met')          return <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />;
         if (status === 'deferred')     return <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />;
         if (status === 'wontfix')      return <BlockIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />;
-        if (sessionStatus === 'review') return <RateReviewIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
-        if (sessionStatus === 'paused') return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
-        if (sessionStatus)             return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+        // Session-status icons (req #2332). Rocket = active/implementing; each other
+        // status gets its own glyph, colored to match its chip.
+        if (sessionStatus === 'starting')   return <PendingIcon sx={{ fontSize: 18, color: 'info.main' }} />;
+        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ffb74d' }} />;
+        if (sessionStatus === 'planning')   return <AutoFixHighIcon sx={{ fontSize: 18, color: '#4fc3f7' }} />;
+        if (sessionStatus === 'active')     return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // implementing
+        if (sessionStatus === 'review')     return <RateReviewIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
+        if (sessionStatus === 'paused')     return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
+        if (sessionStatus === 'completing') return <SyncIcon sx={{ fontSize: 18, color: 'info.main' }} />;
+        if (sessionStatus === 'completed')  return <DoneAllIcon sx={{ fontSize: 18, color: 'success.main' }} />;
+        if (sessionStatus)               return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // unknown → in-flight
         if (status === 'development')  return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
         if (status === 'swarm_ready')  return <PlayCircleIcon sx={{ fontSize: 18, color: 'primary.main' }} />; // Swarm-Start
         if (status === 'approved')     return <TaskAltIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue

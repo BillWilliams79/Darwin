@@ -282,7 +282,7 @@ describe('fetchExportData', () => {
         it('exports swarm sessions with summary, telemetry, and plan fields', async () => {
             mockApi({
                 '/requirements': [],
-                '/swarm_sessions': [{ id: 1, branch: 'feature/x', task_name: 'x', source_type: 'roadmap', source_ref: 'p:1', title: 'X', pr_url: 'https://github.com/x', swarm_status: 'completed', worktree_path: '/tmp/x', started_at: 't', completed_at: 't2', start_summary: 'Started work', complete_summary: 'Done', telemetry: 'data', plan: '## Plan', create_ts: 't', update_ts: null }],
+                '/swarm_sessions': [{ id: 1, branch: 'feature/x', task_name: 'x', source_type: 'roadmap', source_ref: 'p:1', title: 'X', pr_url: 'https://github.com/x', swarm_status: 'completed', worktree_path: '/tmp/x', started_at: 't', completed_at: 't2', start_summary: 'Started work', complete_summary: 'Done', telemetry: 'data', plan: '## Plan', instrumented: 1, starting_secs: 10, waiting_secs: 5, planning_secs: 20, implementing_secs: 300, review_secs: 60, completion_secs: 15, paused_secs: 0, legacy_secs: 0, last_transition_at: 't3', pre_pause_status: null, create_ts: 't', update_ts: null }],
                 '/projects': [],
                 '/categories': [],
             });
@@ -294,6 +294,18 @@ describe('fetchExportData', () => {
             expect(s.complete_summary).toBe('Done');
             expect(s.telemetry).toBe('data');
             expect(s.plan).toBe('## Plan');
+            // Phase-duration columns (req #2332)
+            expect(s.instrumented).toBe(1);
+            expect(s.starting_secs).toBe(10);
+            expect(s.waiting_secs).toBe(5);
+            expect(s.planning_secs).toBe(20);
+            expect(s.implementing_secs).toBe(300);
+            expect(s.review_secs).toBe(60);
+            expect(s.completion_secs).toBe(15);
+            expect(s.paused_secs).toBe(0);
+            expect(s.legacy_secs).toBe(0);
+            expect(s.last_transition_at).toBe('t3');
+            expect(s.pre_pause_status).toBeNull();
         });
 
         it('exports projects and categories with correct field names', async () => {

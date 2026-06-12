@@ -12,6 +12,8 @@ import {
     useAllSwarmCompleteSessions,
 } from '../hooks/useDataQueries';
 import { formatDateTime } from '../utils/dateFormat';
+import { formatDuration } from '../utils/formatDuration';
+import { swarmStatusChipProps, swarmStatusLabel } from '../SwarmView/swarmStatusChipProps';
 import { parseSummary } from '../SwarmStarts/SwarmStartsPage';
 import { selectSessionsForSwarmComplete } from './sessionFilter';
 // Per-phase telemetry parser — shared with the stats views (req #2811). Re-exported
@@ -39,6 +41,7 @@ import { DataGrid } from '@mui/x-data-grid';
 const coordinationChipProps = (filter) => {
     if (!filter) return null;
     switch (filter) {
+        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
         case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
         case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
         case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
@@ -63,18 +66,6 @@ const skillChipProps = (name) => {
     }
 };
 
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
-
 const getLinkedSessionColumns = (timezone) => [
     { field: 'id', headerName: 'ID', width: 70, type: 'number' },
     {
@@ -82,12 +73,27 @@ const getLinkedSessionColumns = (timezone) => [
         headerName: 'Status',
         width: 110,
         renderCell: (params) => (
-            <Chip label={params.value} size="small"
+            <Chip label={swarmStatusLabel(params.value)} size="small"
                   {...swarmStatusChipProps(params.value)} />
         ),
     },
     { field: 'title',    headerName: 'Title',  flex: 1, minWidth: 220 },
     { field: 'branch',   headerName: 'Branch', width: 360 },
+    {
+        field: 'duration',
+        headerName: 'Duration',
+        width: 110,
+        valueGetter: (value, row) => {
+            if (row.instrumented) {
+                return (Number(row.starting_secs) || 0) + (Number(row.waiting_secs) || 0)
+                    + (Number(row.planning_secs) || 0) + (Number(row.implementing_secs) || 0)
+                    + (Number(row.review_secs) || 0) + (Number(row.completion_secs) || 0)
+                    + (Number(row.paused_secs) || 0) + (Number(row.legacy_secs) || 0);
+            }
+            return row.legacy_secs != null ? Number(row.legacy_secs) : null;
+        },
+        valueFormatter: (value) => formatDuration(value),
+    },
     {
         field: 'started_at',
         headerName: 'Started',
@@ -101,15 +107,6 @@ const getLinkedSessionColumns = (timezone) => [
         valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
     },
 ];
-
-const formatWallSeconds = (v) => {
-    if (v == null) return '—';
-    const s = Number(v);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}m ${r}s`;
-};
 
 // Re-exported from the shared util (req #2811) so existing importers of
 // `parsePhaseBreakdown` from this module continue to resolve unchanged.
@@ -275,7 +272,7 @@ export default function SwarmCompleteDetail() {
                     <TokenStat label="Cache read" value={row.tokens_cache_read} />
                     <TokenStat label="Output" value={row.tokens_output} />
                     <TokenStat label="Wall"
-                               value={row.wall_seconds == null ? null : formatWallSeconds(row.wall_seconds)}
+                               value={row.wall_seconds == null ? null : formatDuration(row.wall_seconds)}
                                raw />
                     <TokenStat label="Turns" value={row.turn_count} />
                 </Box>
@@ -452,7 +449,7 @@ function PhaseBreakdown({ breakdown }) {
                                 <TableRow key={p.phase}>
                                     <TableCell sx={{ fontFamily: 'monospace' }}>{p.phase}</TableCell>
                                     <TableCell align="right" sx={{ fontFamily: 'monospace' }}>
-                                        {formatWallSeconds(p.wall)}
+                                        {formatDuration(p.wall)}
                                     </TableCell>
                                     <TableCell>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

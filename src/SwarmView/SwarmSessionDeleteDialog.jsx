@@ -1,3 +1,5 @@
+import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
+
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -7,19 +9,6 @@ import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
-
-
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
 
 
 const SwarmSessionDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed, session }) => {
@@ -51,7 +40,7 @@ const SwarmSessionDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDe
                 </DialogContentText>
                 {session && (
                     <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, mx: 2, gap: 1 }}>
-                        <Chip label={status}
+                        <Chip label={swarmStatusLabel(status)}
                               size="small"
                               {...swarmStatusChipProps(status)} />
                         <Box sx={{

@@ -19,6 +19,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 
+import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
+import { formatDuration } from '../../utils/formatDuration';
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -38,23 +40,11 @@ import SouthIcon from '@mui/icons-material/South';
 // all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
 const TITLE_SOFT_LIMIT = 35;
 
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
-
 const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
     { field: 'swarm_status', headerName: 'Status',    width: 110,
       renderCell: (params) => (
-          <Chip label={params.value} size="small"
+          <Chip label={swarmStatusLabel(params.value)} size="small"
                 {...swarmStatusChipProps(params.value)} />
       )
     },
@@ -65,6 +55,21 @@ const getSessionColumns = (navigate, timezone) => [
         renderCell: (params) => renderSourceRef(params.value, navigate),
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
+    {
+        field: 'duration',
+        headerName: 'Duration',
+        width: 110,
+        valueGetter: (value, row) => {
+            if (row.instrumented) {
+                return (Number(row.starting_secs) || 0) + (Number(row.waiting_secs) || 0)
+                    + (Number(row.planning_secs) || 0) + (Number(row.implementing_secs) || 0)
+                    + (Number(row.review_secs) || 0) + (Number(row.completion_secs) || 0)
+                    + (Number(row.paused_secs) || 0) + (Number(row.legacy_secs) || 0);
+            }
+            return row.legacy_secs != null ? Number(row.legacy_secs) : null;
+        },
+        valueFormatter: (value) => formatDuration(value),
+    },
     { field: 'started_at',   headerName: 'Started',   width: 170,
       valueFormatter: (value) => value ? formatDate(value, timezone) : '—' },
     { field: 'completed_at', headerName: 'Completed', width: 120,

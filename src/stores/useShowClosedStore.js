@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 // req #2810: 'paused' moved to the end of the selector order (was after 'review').
-export const ALL_SESSION_STATUSES = ['starting', 'active', 'review', 'completing', 'completed', 'paused'];
-export const DEFAULT_SESSION_STATUSES = ['starting', 'active', 'review', 'completing'];
+// req #2332: 'waiting' and 'planning' added as first-class statuses.
+export const ALL_SESSION_STATUSES = ['starting', 'waiting', 'planning', 'active', 'review', 'completing', 'completed', 'paused'];
+export const DEFAULT_SESSION_STATUSES = ['starting', 'waiting', 'planning', 'active', 'review', 'completing'];
 
 // req #2784 reordered filter chips to met-before-deferred; req #2783 appends wontfix last.
 export const ALL_REQUIREMENT_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met', 'deferred', 'wontfix'];
@@ -35,8 +36,19 @@ export const useShowClosedStore = create(
         }),
         {
             name: 'darwin_show_closed',
-            version: 6,
+            version: 7,
             migrate: (persisted, version) => {
+                // req #2332: ensure 'waiting' and 'planning' exist in the persisted
+                // sessionStatusFilter for EVERY incoming version. v0/v1 below replace the
+                // filter wholesale (DEFAULT/ALL already include them); this top-level pass
+                // covers v2–v6, whose version blocks otherwise carry the filter through
+                // unchanged. Their returns spread `persisted`/`rest`, so this rides along.
+                {
+                    const sf = [...(persisted.sessionStatusFilter || DEFAULT_SESSION_STATUSES)];
+                    if (!sf.includes('waiting')) sf.push('waiting');
+                    if (!sf.includes('planning')) sf.push('planning');
+                    persisted = { ...persisted, sessionStatusFilter: sf };
+                }
                 if (version === 0) {
                     const { showClosedSessions, showClosedPriorities, ...rest } = persisted;
                     return {
@@ -96,6 +108,8 @@ export const useShowClosedStore = create(
                         requirementStatusFilter: newFilter.length > 0 ? newFilter : DEFAULT_REQUIREMENT_STATUSES,
                     };
                 }
+                // v6→v7 and any unmatched version: the top-level pass above already
+                // injected 'waiting'/'planning', so return the (possibly mutated) state.
                 return persisted;
             },
         }

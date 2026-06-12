@@ -9,6 +9,8 @@ import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import call_rest_api from '../../RestApi/RestApi';
 import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
+import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
+import { formatDuration } from '../../utils/formatDuration';
 
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -21,18 +23,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { CircularProgress, Typography } from '@mui/material';
 
 const labelSx = { fontWeight: 'bold', fontSize: '1.25rem' };
-
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
 
 const SwarmSessionDetail = () => {
 
@@ -117,7 +107,7 @@ const SwarmSessionDetail = () => {
             </Typography>
 
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Chip label={session.swarm_status}
+                <Chip label={swarmStatusLabel(session.swarm_status)}
                       {...swarmStatusChipProps(session.swarm_status)}
                       data-testid="chip-swarm-status" />
                 <Tooltip title="Delete session" enterDelay={400} enterNextDelay={200}>
@@ -161,11 +151,10 @@ const SwarmSessionDetail = () => {
                     {swarmComplete && (() => {
                         const toks = ['tokens_input', 'tokens_cache_write', 'tokens_cache_read', 'tokens_output']
                             .reduce((sum, k) => sum + (Number(swarmComplete[k]) || 0), 0);
-                        const w = swarmComplete.wall_seconds;
-                        const wall = w == null ? null : (w < 60 ? `${w}s` : `${Math.floor(w / 60)}m ${w % 60}s`);
+                        const wall = formatDuration(swarmComplete.wall_seconds);
                         const facts = [
                             `status ${swarmComplete.status}`,
-                            wall ? `took ${wall}` : null,
+                            wall !== '—' ? `took ${wall}` : null,
                             toks > 0 ? `cost ${toks.toLocaleString()} tok` : null,
                         ].filter(Boolean).join(' · ');
                         return (
@@ -285,6 +274,9 @@ const SwarmSessionDetail = () => {
                 </Box>
             </Box>
 
+            {/* --- Phase breakdown (req #2332) --- */}
+            <SessionPhaseBreakdown session={session} />
+
             {/* --- Swarm-Start Summary (bordered section) --- */}
             {session.start_summary &&
                 <Box sx={{ mb: 2 }}>
@@ -355,5 +347,119 @@ const SwarmSessionDetail = () => {
         </Box>
     );
 };
+
+// Phase breakdown for session detail (req #2332). The data comes from the 8
+// INT *_secs columns on swarm_sessions, not from parsed telemetry. For legacy
+// sessions (instrumented===0), only legacy_secs is shown.
+// Each phase has its own color (matched to its status chip) for the bar + dots;
+// the agentic/human/machine subtotal chips below use GROUP_COLORS.
+const PHASE_BUCKETS = [
+    { key: 'starting_secs',      label: 'Starting',      group: 'machine', color: '#5c6bc0' },
+    { key: 'waiting_secs',       label: 'Waiting',       group: 'human',   color: '#ffb74d' },
+    { key: 'planning_secs',      label: 'Planning',      group: 'agentic', color: '#4fc3f7' },
+    { key: 'implementing_secs',  label: 'Implementing',  group: 'agentic', color: '#4caf50' },
+    { key: 'review_secs',        label: 'Review',        group: 'human',   color: '#ce93d8' },
+    { key: 'completion_secs',    label: 'Completion',    group: 'agentic', color: '#8d6e63' },
+    { key: 'paused_secs',        label: 'Paused',        group: 'human',   color: '#f0d000' },
+    { key: 'legacy_secs',        label: 'Legacy',        group: 'legacy',  color: '#bdbdbd' },
+];
+
+const GROUP_COLORS = {
+    agentic: '#4fc3f7',
+    human:   '#ffb74d',
+    machine: '#90caf9',
+    legacy:  '#bdbdbd',
+};
+
+function SessionPhaseBreakdown({ session }) {
+    if (!session) return null;
+
+    const isLegacy = !session.instrumented;
+
+    // For legacy sessions, show only the legacy total
+    if (isLegacy) {
+        if (session.legacy_secs == null) return null;
+        return (
+            <Box sx={{ mb: 2 }} data-testid="session-phase-breakdown">
+                <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
+                    Phase Breakdown
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                    <Chip label="Legacy" size="small" variant="outlined" />
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {formatDuration(session.legacy_secs)}
+                    </Typography>
+                </Box>
+            </Box>
+        );
+    }
+
+    // Instrumented session — collect nonzero phases
+    const phases = PHASE_BUCKETS
+        .map(b => ({ ...b, seconds: Number(session[b.key]) || 0 }))
+        .filter(b => b.seconds > 0);
+
+    if (phases.length === 0) return null;
+
+    const total = phases.reduce((sum, p) => sum + p.seconds, 0);
+
+    // Subtotals
+    const agenticSecs = phases.filter(p => p.group === 'agentic').reduce((s, p) => s + p.seconds, 0);
+    const humanSecs = phases.filter(p => p.group === 'human').reduce((s, p) => s + p.seconds, 0);
+    const machineSecs = phases.filter(p => p.group === 'machine').reduce((s, p) => s + p.seconds, 0);
+
+    return (
+        <Box sx={{ mb: 2 }} data-testid="session-phase-breakdown">
+            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>
+                Phase Breakdown
+            </Typography>
+
+            {/* Proportional stacked mini-bar */}
+            <Box sx={{ display: 'flex', height: 10, borderRadius: 1, overflow: 'hidden', mt: 0.5, mb: 1 }}>
+                {phases.map(p => (
+                    <Tooltip key={p.key} title={`${p.label}: ${formatDuration(p.seconds)}`} enterDelay={200}>
+                        <Box sx={{
+                            width: `${(p.seconds / total) * 100}%`,
+                            bgcolor: p.color,
+                            minWidth: 2,
+                        }} />
+                    </Tooltip>
+                ))}
+            </Box>
+
+            {/* Per-phase list */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 0.5, alignItems: 'center' }}>
+                {phases.map(p => (
+                    <React.Fragment key={p.key}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: p.color }} />
+                        <Typography variant="body2">{p.label}</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', textAlign: 'right' }}>
+                            {formatDuration(p.seconds)}
+                        </Typography>
+                    </React.Fragment>
+                ))}
+            </Box>
+
+            {/* Subtotals */}
+            <Box sx={{ display: 'flex', gap: 2, mt: 1, flexWrap: 'wrap' }}>
+                {agenticSecs > 0 && (
+                    <Chip label={`Agentic: ${formatDuration(agenticSecs)}`} size="small"
+                          sx={{ bgcolor: GROUP_COLORS.agentic, color: '#000' }} />
+                )}
+                {humanSecs > 0 && (
+                    <Chip label={`Human: ${formatDuration(humanSecs)}`} size="small"
+                          sx={{ bgcolor: GROUP_COLORS.human, color: '#000' }} />
+                )}
+                {machineSecs > 0 && (
+                    <Chip label={`Machine: ${formatDuration(machineSecs)}`} size="small"
+                          sx={{ bgcolor: GROUP_COLORS.machine, color: '#000' }} />
+                )}
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', alignSelf: 'center' }}>
+                    Total: {formatDuration(total)}
+                </Typography>
+            </Box>
+        </Box>
+    );
+}
 
 export default SwarmSessionDetail;

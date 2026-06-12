@@ -5,6 +5,8 @@ import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClose
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
+import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
+import { formatDuration } from '../utils/formatDuration';
 import { renderSourceRef } from './repoGitHubMap.jsx';
 import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -17,18 +19,6 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography } from '@mui/material';
-
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
 
 // Render a chip for source_ref values matching `requirement:N` (clickable,
 // primary-color, navigates to the requirement detail). For other shapes
@@ -58,7 +48,7 @@ const getSessionColumns = (navigate, timezone) => [
         headerName: 'Status',
         width: 120,
         renderCell: (params) => (
-            <Chip label={params.value} size="small"
+            <Chip label={swarmStatusLabel(params.value)} size="small"
                   {...swarmStatusChipProps(params.value)}
                   data-testid="chip-swarm-status" />
         ),
@@ -100,6 +90,37 @@ const getSessionColumns = (navigate, timezone) => [
             : '—',
     },
     {
+        field: 'duration',
+        headerName: 'Duration',
+        width: 120,
+        valueGetter: (value, row) => {
+            if (row.instrumented) {
+                return (Number(row.starting_secs) || 0)
+                    + (Number(row.waiting_secs) || 0)
+                    + (Number(row.planning_secs) || 0)
+                    + (Number(row.implementing_secs) || 0)
+                    + (Number(row.review_secs) || 0)
+                    + (Number(row.completion_secs) || 0)
+                    + (Number(row.paused_secs) || 0)
+                    + (Number(row.legacy_secs) || 0);
+            }
+            return row.legacy_secs != null ? Number(row.legacy_secs) : null;
+        },
+        renderCell: (params) => {
+            const row = params.row;
+            const isLegacy = !row.instrumented;
+            return (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{formatDuration(params.value)}</span>
+                    {isLegacy && params.value != null && (
+                        <Chip label="Legacy" size="small" variant="outlined"
+                              sx={{ height: 18, fontSize: '0.65rem' }} />
+                    )}
+                </Box>
+            );
+        },
+    },
+    {
         field: 'started_at',
         headerName: 'Started',
         width: 170,
@@ -118,7 +139,7 @@ const SessionCard = ({ session, navigate, timezone }) => (
         <CardActionArea onClick={() => navigate(`/swarm/session/${session.id}`)}>
             <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Chip label={session.swarm_status} size="small"
+                    <Chip label={swarmStatusLabel(session.swarm_status)} size="small"
                           {...swarmStatusChipProps(session.swarm_status)}
                           data-testid="chip-swarm-status" />
                     <Typography variant="caption" color="text.secondary">
@@ -220,7 +241,7 @@ const SessionsView = () => {
                         return (
                             <Chip
                                 key={status}
-                                label={status}
+                                label={swarmStatusLabel(status)}
                                 size="small"
                                 onClick={() => toggleSessionStatus(status)}
                                 {...(selected ? chipProps : { variant: 'outlined' })}
