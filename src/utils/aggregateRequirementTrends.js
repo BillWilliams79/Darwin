@@ -50,18 +50,36 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 const DAY_MS = 86400000;
 
 /**
- * Parse the YYYY-MM-DD portion of a timestamp into a UTC Date. Requirement
- * timestamps are stored without a trailing 'Z'; we only ever need calendar-day
- * resolution, so we read the date components directly and avoid local-timezone
- * drift (a "2026-06-11T23:15" close should land on Jun 11 regardless of the
- * viewer's offset).
+ * Resolve a stored timestamp (or a YYYY-MM-DD bucket key) to the Date whose
+ * UTC fields equal the VIEWER'S LOCAL calendar day (req #2822).
+ *
+ * Requirement timestamps are stored in UTC — RDS runs with
+ * `@@global.time_zone = @@session.time_zone = UTC` and `completed_at` is stamped
+ * via `NOW()` — but serialized without a trailing 'Z'. Bucketing on the raw UTC
+ * calendar date drifts a late-evening-local close onto the next, future day for
+ * any viewer behind UTC: a "2026-06-12T01:00" UTC close is really Jun 11 evening
+ * in US-Pacific, but the UTC date reads Jun 12 ("closed tomorrow"). So we parse
+ * the UTC instant and read the LOCAL Y/M/D, then re-encode them as a UTC midnight
+ * so the downstream getUTC* / Date.UTC bucket math stays simple and unchanged.
+ *
+ * A bare date-only string (length <= 10) carries no time-of-day, so it is taken
+ * as that calendar day verbatim with no timezone shift — this path also serves
+ * the YYYY-MM-DD bucket keys fed back in by fillGaps() / bucketEndMs().
  */
-function toUTCDate(ts) {
+function toBucketDate(ts) {
     if (!ts) return null;
-    const datePart = String(ts).slice(0, 10); // "YYYY-MM-DD"
-    const [y, m, d] = datePart.split('-').map(Number);
-    if (!y || !m || !d) return null;
-    return new Date(Date.UTC(y, m - 1, d));
+    const s = String(ts);
+    if (s.length <= 10) {
+        const [y, m, d] = s.slice(0, 10).split('-').map(Number);
+        if (!y || !m || !d) return null;
+        return new Date(Date.UTC(y, m - 1, d));
+    }
+    // Full timestamp: ensure it's read as a UTC instant (append 'Z' when the
+    // stored value carries no timezone designator), then bucket by the local day.
+    const hasTz = /[zZ]$|[+-]\d\d:?\d\d$/.test(s);
+    const instant = new Date(hasTz ? s : s + 'Z');
+    if (Number.isNaN(instant.getTime())) return null;
+    return new Date(Date.UTC(instant.getFullYear(), instant.getMonth(), instant.getDate()));
 }
 
 /** ISO 8601 week number; Monday is day 1, week 1 contains the first Thursday. */
@@ -102,8 +120,11 @@ function keyToLabel(key, timeframe) {
             return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
         }
         case 'week': {
-            const [y, w] = key.split('-W');
-            return `W${w} ${y}`;
+            // Show the week by its start date (the Monday) rather than the ISO
+            // week number — "W17 2026" tells a user nothing about which calendar
+            // week it is, whereas the start date is immediately legible (req #2826).
+            const monday = isoWeekToDate(key);
+            return `${MONTH_NAMES[monday.getUTCMonth()]} ${monday.getUTCDate()} ${monday.getUTCFullYear()}`;
         }
         default:
             return key;
@@ -134,8 +155,8 @@ function fillGaps(keys, timeframe) {
 
     switch (timeframe) {
         case 'day': {
-            const start = toUTCDate(first);
-            const end = toUTCDate(last);
+            const start = toBucketDate(first);
+            const end = toBucketDate(last);
             for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
                 all.push(bucketKey(d, 'day'));
             }
@@ -175,7 +196,7 @@ function fillGaps(keys, timeframe) {
 function bucketEndMs(key, timeframe) {
     switch (timeframe) {
         case 'day': {
-            const d = toUTCDate(key);
+            const d = toBucketDate(key);
             return d.getTime() + DAY_MS;
         }
         case 'month': {
@@ -224,7 +245,7 @@ export function aggregateRequirementTrends(rows, categoryMetas, options = {}) {
     const catTotals = new Map();
 
     for (const r of closed) {
-        const d = toUTCDate(r.completed_at);
+        const d = toBucketDate(r.completed_at);
         if (!d) continue;
         const key = bucketKey(d, timeframe);
         let b = buckets.get(key);
