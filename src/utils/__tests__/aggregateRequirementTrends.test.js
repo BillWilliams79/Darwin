@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { aggregateRequirementTrends, getISOWeek } from '../aggregateRequirementTrends';
 
 const cats = [
@@ -7,6 +7,14 @@ const cats = [
 ];
 
 const req = (completed_at, category_fk = 1) => ({ completed_at, category_fk });
+
+// Pin the timezone so local-day bucketing (req #2822) is deterministic across
+// machines/CI. America/Los_Angeles is behind UTC — exactly the case that exposed
+// the bug, where an evening-local close reads as the next day in UTC. Node honors
+// a runtime TZ change for subsequent Date operations.
+const ORIGINAL_TZ = process.env.TZ;
+beforeAll(() => { process.env.TZ = 'America/Los_Angeles'; });
+afterAll(() => { process.env.TZ = ORIGINAL_TZ; });
 
 describe('aggregateRequirementTrends', () => {
     it('returns empty data for no rows', () => {
@@ -29,16 +37,46 @@ describe('aggregateRequirementTrends', () => {
     });
 
     it('buckets by day with gap-fill between first and last', () => {
+        // All times are UTC; under the pinned LA zone they stay on the same
+        // calendar day (morning/afternoon local), so the day buckets are stable.
         const rows = [
-            req('2026-06-10T10:00:00', 1),
-            req('2026-06-10T23:00:00', 1),
-            req('2026-06-12T01:00:00', 1),
+            req('2026-06-10T18:00:00', 1), // Jun 10 11:00 PDT
+            req('2026-06-11T06:00:00', 1), // Jun 10 23:00 PDT -> still Jun 10
+            req('2026-06-12T15:00:00', 1), // Jun 12 08:00 PDT
         ];
         const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
         // Jun 10, 11 (gap), 12
         expect(out.data.map(d => d.key)).toEqual(['2026-06-10', '2026-06-11', '2026-06-12']);
         expect(out.data.map(d => d.total)).toEqual([2, 0, 1]);
         expect(out.data[0].label).toBe('Jun 10');
+    });
+
+    it('buckets an evening-local close on the local day, not the next UTC day (req #2822)', () => {
+        // Stored UTC. In America/Los_Angeles this is Jun 11 18:00 PDT — still
+        // Jun 11 locally even though the UTC calendar date is already Jun 12.
+        // The pre-fix code sliced the UTC date string and wrongly reported Jun 12
+        // ("closed tomorrow"); local-day bucketing must land it on Jun 11.
+        const rows = [req('2026-06-12T01:00:00', 1)];
+        const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
+        expect(out.data.map(d => d.key)).toEqual(['2026-06-11']);
+        expect(out.data[0].label).toBe('Jun 11');
+        expect(out.data[0].total).toBe(1);
+    });
+
+    it('buckets a late-night close on the local day for a viewer ahead of UTC (req #2822)', () => {
+        // Asia/Karachi is UTC+5. "2026-06-11T22:00:00" UTC is Jun 12 03:00 local,
+        // so it must bucket on Jun 12 — the symmetric case to a behind-UTC viewer.
+        const saved = process.env.TZ;
+        process.env.TZ = 'Asia/Karachi';
+        try {
+            const rows = [req('2026-06-11T22:00:00', 1)];
+            const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
+            expect(out.data.map(d => d.key)).toEqual(['2026-06-12']);
+            expect(out.data[0].label).toBe('Jun 12');
+            expect(out.data[0].total).toBe(1);
+        } finally {
+            process.env.TZ = saved;
+        }
     });
 
     it('buckets by month', () => {
