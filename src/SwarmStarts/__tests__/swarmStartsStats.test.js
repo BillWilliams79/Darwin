@@ -259,20 +259,22 @@ const telemetryWith = (phases) =>
     `--- TELEMETRY START ---\nstatus=ok\n--- TELEMETRY END ---\n` +
     `TOKEN_TELEMETRY:\n${JSON.stringify({ schema_version: 2, phases }, null, 2)}\n`;
 
-describe('computeSwarmStartStats — phase cost leaderboard (req #2811)', () => {
-    it('empty input exposes phaseAggregate/[] and phaseTokenTotal 0', () => {
+// Req #2819 — leaderboard is now average-based: per-phase avgTokens + avgWall,
+// and % of Total is the avgTokens share (denominator = Σ avgTokens over ALL phases).
+describe('computeSwarmStartStats — phase cost leaderboard (req #2811, avg-based req #2819)', () => {
+    it('empty input exposes phaseAggregate/[] and phaseAvgTokenTotal 0', () => {
         const s = computeSwarmStartStats([]);
         expect(s.phaseAggregate).toEqual([]);
-        expect(s.phaseTokenTotal).toBe(0);
+        expect(s.phaseAvgTokenTotal).toBe(0);
     });
 
     it('rows without telemetry produce an empty leaderboard', () => {
         const s = computeSwarmStartStats([mkRow({}), mkRow({ telemetry: 'no json here' })]);
         expect(s.phaseAggregate).toEqual([]);
-        expect(s.phaseTokenTotal).toBe(0);
+        expect(s.phaseAvgTokenTotal).toBe(0);
     });
 
-    it('aggregates per-phase tokens + wall across rows, sorted by tokens desc', () => {
+    it('aggregates per-phase avg tokens + avg wall across rows, sorted by avgTokens desc', () => {
         const rows = [
             mkRow({ telemetry: telemetryWith({
                 swarm_start: { input: 10, output: 5, cache_write: 0, cache_read: 5, wall_seconds: 3 },
@@ -283,31 +285,35 @@ describe('computeSwarmStartStats — phase cost leaderboard (req #2811)', () => 
             }) }),
         ];
         const s = computeSwarmStartStats(rows);
-        // swarm_start: row1 total 20 + row2 total 20 = 40 over 2 invocations; wall 3+2=5.
-        // phase_A0: 100 over 1 invocation; wall 1.
+        // swarm_start: row1 total 20 + row2 total 20 = 40 over 2 invocations → avg 20; wall 3+2=5 → avg 2.5.
+        // phase_A0: 100 over 1 invocation → avg 100; wall 1 → avg 1.
         const ss = s.phaseAggregate.find(p => p.phase === 'swarm_start');
         const a0 = s.phaseAggregate.find(p => p.phase === 'phase_A0');
-        expect(ss).toMatchObject({ invocations: 2, tokens: 40, wall: 5 });
-        expect(ss.avgTokens).toBe(20);
-        expect(a0).toMatchObject({ invocations: 1, tokens: 100, wall: 1 });
-        // Sorted by tokens desc → phase_A0 (100) before swarm_start (40).
+        expect(ss).toMatchObject({ invocations: 2, avgTokens: 20 });
+        expect(ss.avgWall).toBeCloseTo(2.5, 5);
+        expect(a0).toMatchObject({ invocations: 1, avgTokens: 100, avgWall: 1 });
+        // No raw totals exposed on the leaderboard rows any more.
+        expect(ss.tokens).toBeUndefined();
+        expect(ss.wall).toBeUndefined();
+        // Sorted by avgTokens desc → phase_A0 (100) before swarm_start (20).
         expect(s.phaseAggregate[0].phase).toBe('phase_A0');
-        // phaseTokenTotal = 40 + 100 = 140; pctOfTotal reflects the share.
-        expect(s.phaseTokenTotal).toBe(140);
-        expect(a0.pctOfTotal).toBeCloseTo((100 / 140) * 100, 5);
+        // phaseAvgTokenTotal = 100 + 20 = 120; pctOfTotal reflects the avg share.
+        expect(s.phaseAvgTokenTotal).toBe(120);
+        expect(a0.pctOfTotal).toBeCloseTo((100 / 120) * 100, 5);
     });
 
-    it('limits the leaderboard to the top 12 phases by tokens', () => {
+    it('limits the leaderboard to the top 12 phases by avgTokens', () => {
         const phases = {};
         for (let i = 0; i < 20; i++) {
             phases[`phase_${i}`] = { input: i + 1, output: 0, cache_write: 0, cache_read: 0, wall_seconds: 0 };
         }
         const s = computeSwarmStartStats([mkRow({ telemetry: telemetryWith(phases) })]);
         expect(s.phaseAggregate).toHaveLength(12);
-        // Highest-token phase first (phase_19 → 20 tokens).
+        // Highest-avg phase first (phase_19 → 20 tokens over 1 invocation = avg 20).
         expect(s.phaseAggregate[0].phase).toBe('phase_19');
-        // phaseTokenTotal counts ALL 20 phases, not just the top 12.
+        // phaseAvgTokenTotal counts ALL 20 phases, not just the top 12. One invocation
+        // each → avgTokens == tokens, so the denominator is Σ(1..20).
         const allSum = Array.from({ length: 20 }, (_, i) => i + 1).reduce((a, b) => a + b, 0);
-        expect(s.phaseTokenTotal).toBe(allSum);
+        expect(s.phaseAvgTokenTotal).toBe(allSum);
     });
 });

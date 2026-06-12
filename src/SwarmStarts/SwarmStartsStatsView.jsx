@@ -104,7 +104,7 @@ export function computeSwarmStartStats(rows) {
             throughput: [],
             topPatterns: [],
             phaseAggregate: [],
-            phaseTokenTotal: 0,
+            phaseAvgTokenTotal: 0,
         };
     }
 
@@ -228,21 +228,27 @@ export function computeSwarmStartStats(rows) {
     const throughput = Array.from(dayMap.values())
         .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-    // Grand total of phase tokens across ALL phases (not just top N) — denominator
-    // for the "% of Total" column.
-    const phaseTokenTotal = Array.from(phaseMap.values())
-        .reduce((s, p) => s + p.tokens, 0);
+    // Req #2819 — the leaderboard is now average-based: per-phase average token
+    // cost per invocation (and average wall per invocation) surface the
+    // over-time offenders better than raw totals do. Compute each phase's
+    // avgTokens/avgWall first, then use the SUM of avgTokens across ALL phases
+    // (not just top N) as the "% of Total" denominator so the share reflects the
+    // average rather than the total.
+    const phaseRows = Array.from(phaseMap.values()).map(p => ({
+        phase: p.phase,
+        invocations: p.invocations,
+        avgTokens: p.invocations > 0 ? p.tokens / p.invocations : 0,
+        avgWall: p.invocations > 0 ? p.wall / p.invocations : 0,
+    }));
 
-    const phaseAggregate = Array.from(phaseMap.values())
+    const phaseAvgTokenTotal = phaseRows.reduce((s, p) => s + p.avgTokens, 0);
+
+    const phaseAggregate = phaseRows
         .map(p => ({
-            phase: p.phase,
-            invocations: p.invocations,
-            tokens: p.tokens,
-            avgTokens: p.invocations > 0 ? p.tokens / p.invocations : 0,
-            wall: p.wall,
-            pctOfTotal: phaseTokenTotal > 0 ? (p.tokens / phaseTokenTotal) * 100 : 0,
+            ...p,
+            pctOfTotal: phaseAvgTokenTotal > 0 ? (p.avgTokens / phaseAvgTokenTotal) * 100 : 0,
         }))
-        .sort((a, b) => b.tokens - a.tokens)
+        .sort((a, b) => b.avgTokens - a.avgTokens)
         .slice(0, TOP_PHASES_LIMIT);
 
     return {
@@ -267,7 +273,7 @@ export function computeSwarmStartStats(rows) {
         throughput,
         topPatterns,
         phaseAggregate,
-        phaseTokenTotal,
+        phaseAvgTokenTotal,
     };
 }
 
@@ -589,7 +595,7 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                     Phase Cost Leaderboard
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                    Aggregate per-phase token cost across all invocations (top {TOP_PHASES_LIMIT})
+                    Average per-phase token cost per invocation (top {TOP_PHASES_LIMIT})
                 </Typography>
                 {stats.phaseAggregate.length === 0 ? (
                     <Typography color="text.secondary" variant="body2">
@@ -603,9 +609,8 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                                     <TableCell>Phase</TableCell>
                                     <TableCell align="right">Invocations</TableCell>
                                     <TableCell align="right">% of Total</TableCell>
-                                    <TableCell align="right">Total Tokens</TableCell>
                                     <TableCell align="right">Avg / Invocation</TableCell>
-                                    <TableCell align="right">Total Wall</TableCell>
+                                    <TableCell align="right">Avg Wall</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -619,9 +624,8 @@ export default function SwarmStartsStatsView({ rows = [] }) {
                                         </TableCell>
                                         <TableCell align="right">{p.invocations}</TableCell>
                                         <TableCell align="right">{p.pctOfTotal.toFixed(1)}%</TableCell>
-                                        <TableCell align="right">{p.tokens.toLocaleString()}</TableCell>
                                         <TableCell align="right">{formatTokens(p.avgTokens)}</TableCell>
-                                        <TableCell align="right">{formatSeconds(p.wall)}</TableCell>
+                                        <TableCell align="right">{formatSeconds(p.avgWall)}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
