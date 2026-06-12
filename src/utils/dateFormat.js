@@ -11,6 +11,17 @@ function toDate(dateStr) {
     return new Date(dateStr);
 }
 
+// Strip the fractional-seconds (microseconds) tail from a MySQL DATETIME(6)
+// string for display: "2026-06-12 17:14:08.000000" → "2026-06-12 17:14:08".
+// Already-trimmed values and ISO 'T' strings pass through unchanged; null/empty
+// yields the em-dash placeholder. No timezone conversion — the raw stored
+// wall-clock string is preserved, only its sig-fig noise removed (req #2832).
+export function trimMicroseconds(dateStr) {
+    if (!dateStr) return '—';
+    if (typeof dateStr !== 'string') return dateStr;
+    return dateStr.replace(/\.\d+$/, '');
+}
+
 export function formatDateTime(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '—';

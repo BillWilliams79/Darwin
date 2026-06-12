@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { formatCardDateTime, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue } from '../dateFormat';
+import { formatCardDateTime, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue, trimMicroseconds } from '../dateFormat';
+
+describe('trimMicroseconds', () => {
+    it('strips the microsecond tail from a MySQL DATETIME(6) string', () => {
+        expect(trimMicroseconds('2026-06-12 17:14:08.000000')).toBe('2026-06-12 17:14:08');
+    });
+
+    it('strips a nonzero fractional tail', () => {
+        expect(trimMicroseconds('2026-06-12 17:14:08.123456')).toBe('2026-06-12 17:14:08');
+    });
+
+    it('leaves an already-trimmed value untouched', () => {
+        expect(trimMicroseconds('2026-06-12 17:14:08')).toBe('2026-06-12 17:14:08');
+    });
+
+    it('passes an ISO T-string through unchanged', () => {
+        expect(trimMicroseconds('2026-06-12T17:14:08')).toBe('2026-06-12T17:14:08');
+    });
+
+    it('returns the em-dash placeholder for null/empty', () => {
+        expect(trimMicroseconds(null)).toBe('—');
+        expect(trimMicroseconds('')).toBe('—');
+    });
+});
 
 describe('formatCardDateTime', () => {
     // Use a fixed timezone to avoid test-environment dependence
