@@ -226,12 +226,6 @@ export default function SwarmStartsPage() {
             <Box className="app-content-view-toggle"
                  sx={{ display: 'flex', alignItems: 'center', gap: 2,
                         mt: 3, mb: 1, px: 3, maxWidth: TABLE_WIDTH, flexWrap: 'wrap' }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    {view === 'table'
-                        ? `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
-                        : `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
-                </Typography>
-                <Box sx={{ flexGrow: 1 }} />
                 <ToggleButtonGroup
                     value={view}
                     exclusive
@@ -251,6 +245,12 @@ export default function SwarmStartsPage() {
                         </ToggleButton>
                     </Tooltip>
                 </ToggleButtonGroup>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                    {view === 'table'
+                        ? `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
+                        : `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
+                </Typography>
+                <Box sx={{ flexGrow: 1 }} />
             </Box>
             {view === 'table' && (
                 <Box className="app-content-tabpanel"

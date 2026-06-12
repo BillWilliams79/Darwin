@@ -17,6 +17,7 @@ import CategoryTabPanel from './CategoryTabPanel';
 import RequirementDragLayer from './RequirementDragLayer';
 import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableView';
 import SwarmVisualizerView from './SwarmVisualizerView';
+import RequirementsTrendsView from './RequirementsTrendsView';
 import VisualizerToolbar from './VisualizerToolbar';
 
 import React, { useState, useEffect, useContext } from 'react';
@@ -38,6 +39,7 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import BubbleChartIcon from '@mui/icons-material/BubbleChart';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import RequirementJumpInput from '../NavBar/RequirementJumpInput';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -250,6 +252,11 @@ const SwarmView = () => {
                                     <BubbleChartIcon fontSize="small" />
                                 </ToggleButton>
                             </Tooltip>
+                            <Tooltip title="Trends View">
+                                <ToggleButton value="trends" data-testid="view-toggle-trends" sx={{ px: 2 }}>
+                                    <TimelineIcon fontSize="small" />
+                                </ToggleButton>
+                            </Tooltip>
                         </ToggleButtonGroup>
                         <RequirementJumpInput />
                         {view === 'cards' && (
@@ -274,7 +281,7 @@ const SwarmView = () => {
                         )}
                         {view === 'visualizer' && <VisualizerToolbar />}
                         <Box sx={{ flexGrow: 1 }} />
-                        {view !== 'visualizer' && (
+                        {view !== 'visualizer' && view !== 'trends' && (
                             <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
                                 {ALL_REQUIREMENT_STATUSES.map(status => {
                                     const selected = requirementStatusFilter.includes(status);
@@ -342,6 +349,15 @@ const SwarmView = () => {
                     {view === 'visualizer' && (
                         <Box className="app-content-tabpanel">
                             <SwarmVisualizerView />
+                        </Box>
+                    )}
+
+                    {/* Content — trends view (req #2812). Charts requirements
+                        closed over time; wrapped in `.app-content-tabpanel` so it
+                        claims the full tab-panels grid area like table/visualizer. */}
+                    {view === 'trends' && (
+                        <Box className="app-content-tabpanel">
+                            <RequirementsTrendsView />
                         </Box>
                     )}
             </Box>
