@@ -105,6 +105,18 @@ describe('aggregateRequirementTrends', () => {
         expect(out.data.length).toBe(2);
         expect(out.data[0].total).toBe(2);
         expect(out.data[1].total).toBe(1);
+        // Week labels show the Monday start date, not the ISO week number (req #2826).
+        expect(out.data[0].label).toBe('Jun 8 2026');
+        expect(out.data[1].label).toBe('Jun 15 2026');
+    });
+
+    it('labels year-boundary weeks with the start date in the prior year (req #2826)', () => {
+        // ISO week 1 of 2026 starts Monday 2026-W01 = Dec 29 2025 (Jan 1 2026 is a
+        // Thursday, so its week reaches back into December). A row closing Jan 1
+        // 2026 must label as the Monday "Dec 29 2025", not "W01 2026".
+        const out = aggregateRequirementTrends(
+            [req('2026-01-01T10:00:00', 1)], cats, { timeframe: 'week' });
+        expect(out.data[0].label).toBe('Dec 29 2025');
     });
 
     it('splits counts per category', () => {

@@ -120,8 +120,11 @@ function keyToLabel(key, timeframe) {
             return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
         }
         case 'week': {
-            const [y, w] = key.split('-W');
-            return `W${w} ${y}`;
+            // Show the week by its start date (the Monday) rather than the ISO
+            // week number — "W17 2026" tells a user nothing about which calendar
+            // week it is, whereas the start date is immediately legible (req #2826).
+            const monday = isoWeekToDate(key);
+            return `${MONTH_NAMES[monday.getUTCMonth()]} ${monday.getUTCDate()} ${monday.getUTCFullYear()}`;
         }
         default:
             return key;
