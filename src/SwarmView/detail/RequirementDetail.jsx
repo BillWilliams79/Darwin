@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -104,6 +104,14 @@ const RequirementDetail = () => {
     const [siblings, setSiblings] = useState([]);
     const [sibSortMode, setSibSortMode] = useState('hand');
     const [loading, setLoading] = useState(!isNew);
+
+    // Req #2818: in the aggregator-template / category-unset flow the Category select is
+    // autofocused (req #2815). Once the user picks a category the description field can no
+    // longer rely on its mount-time `autoFocus` (the component stays mounted), so we move
+    // focus imperatively. `descriptionInputRef` points at the description <textarea>;
+    // `focusDescriptionPending` is set ONLY when the category was previously unset.
+    const descriptionInputRef = useRef(null);
+    const [focusDescriptionPending, setFocusDescriptionPending] = useState(false);
 
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
@@ -308,6 +316,10 @@ const RequirementDetail = () => {
     const handleCategoryChange = async (event) => {
         const newCategoryFk = parseInt(event.target.value, 10);
         if (!Number.isFinite(newCategoryFk)) return;  // ignore the placeholder value
+        // Req #2818: only the forced-pick (category-was-unset) case jumps focus to
+        // description afterward. Changing the category on an already-categorized
+        // requirement leaves focus where it is.
+        const wasCategoryUnset = !requirement?.category_fk;
         setRequirement(prev => ({ ...prev, category_fk: newCategoryFk }));
 
         // New-mode (req #2414): picking a category is the first save. POST creates
@@ -332,6 +344,7 @@ const RequirementDetail = () => {
                 return;
             }
             queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+            if (wasCategoryUnset) setFocusDescriptionPending(true);  // req #2818
             navigate(`/swarm/requirement/${postResult.data[0].id}`, { replace: true });
             return;
         }
@@ -344,6 +357,7 @@ const RequirementDetail = () => {
             return;
         }
         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+        if (wasCategoryUnset) setFocusDescriptionPending(true);  // req #2818
 
         // Refresh siblings and sort mode for the new category so prev/next navigation stays accurate
         const siblingFilter = siblingStatuses.length === ALL_REQUIREMENT_STATUSES.length
@@ -360,6 +374,16 @@ const RequirementDetail = () => {
             // siblings refresh is best-effort
         }
     };
+
+    // Req #2818: when a category was just picked from the forced-pick state, move focus to
+    // the description field. Runs once the flag is set and the input is mounted; in new-mode
+    // the same effect re-fires after the post-navigate refetch replaces `requirement`.
+    useEffect(() => {
+        if (focusDescriptionPending && descriptionInputRef.current) {
+            descriptionInputRef.current.focus();
+            setFocusDescriptionPending(false);
+        }
+    }, [focusDescriptionPending, requirement]);
 
     const sortedSiblings = useMemo(() => {
         if (!siblings.length) return [];
@@ -606,6 +630,7 @@ const RequirementDetail = () => {
                     minRows={3}
                     autoComplete="off"
                     autoFocus={!categoryUnset}
+                    inputRef={descriptionInputRef}
                     size="small"
                     data-testid="requirement-description"
                     sx={categoryUnset ? { '& .MuiInputBase-input': { color: 'error.main' } } : undefined}
