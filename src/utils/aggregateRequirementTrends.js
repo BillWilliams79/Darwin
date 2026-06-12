@@ -23,6 +23,9 @@
  * @typedef {Object} TrendOptions
  * @property {'day'|'week'|'month'} timeframe
  * @property {number[]} [selectedCategoryIds] - empty/undefined = all categories
+ * @property {number[]} [excludeCategoryIds] - category ids whose requirements are
+ *                                       dropped entirely (e.g. closed categories);
+ *                                       empty/undefined = exclude nothing
  * @property {number|null} [rangeDays] - null = all time; else only buckets whose
  *                                       END is within `rangeDays` of `nowMs`
  * @property {boolean} [cumulative] - running total instead of per-bucket counts
@@ -192,6 +195,7 @@ export function aggregateRequirementTrends(rows, categoryMetas, options = {}) {
     const {
         timeframe = 'week',
         selectedCategoryIds = [],
+        excludeCategoryIds = [],
         rangeDays = null,
         cumulative = false,
         nowMs = Date.now(),
@@ -201,10 +205,13 @@ export function aggregateRequirementTrends(rows, categoryMetas, options = {}) {
     for (const c of (categoryMetas || [])) catById.set(c.id, c);
 
     const selectedSet = selectedCategoryIds.length > 0 ? new Set(selectedCategoryIds) : null;
+    const excludeSet = excludeCategoryIds.length > 0 ? new Set(excludeCategoryIds) : null;
 
-    // Filter to closed requirements (have completed_at) in the selected categories.
+    // Filter to closed requirements (have completed_at) in the selected categories,
+    // dropping any whose category is excluded (e.g. closed categories — req #2821).
     const closed = (rows || []).filter(r => {
         if (!r || !r.completed_at) return false;
+        if (excludeSet && excludeSet.has(r.category_fk)) return false;
         if (selectedSet && !selectedSet.has(r.category_fk)) return false;
         return true;
     });

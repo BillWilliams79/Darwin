@@ -153,8 +153,15 @@ export function useAllCategories(creatorFk, { fields = 'id,project_fk', closed, 
     const closedParam = closed !== undefined ? `&closed=${closed}` : '';
     const uri = `${darwinUri}/categories?fields=${fields}${closedParam}`;
 
+    // Key on `fields` too: different callers request different column sets (e.g.
+    // RequirementsTrendsView needs `closed`, CalendarFC does not). Without this,
+    // a shorter-field response could be served from cache and silently drop a
+    // column the consumer relies on (req #2821). Invalidations target the
+    // `categoryKeys.all` prefix, so they still match these field-scoped keys.
     return useQuery({
-        queryKey: closed !== undefined ? [...categoryKeys.all(creatorFk), { closed }] : categoryKeys.all(creatorFk),
+        queryKey: closed !== undefined
+            ? [...categoryKeys.all(creatorFk), { closed }]
+            : [...categoryKeys.all(creatorFk), { fields }],
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
     });

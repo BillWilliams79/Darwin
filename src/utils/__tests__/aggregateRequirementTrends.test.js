@@ -98,6 +98,51 @@ describe('aggregateRequirementTrends', () => {
         expect(out.data[0].total).toBe(1);
     });
 
+    it('excludes requirements in excludeCategoryIds (closed categories — req #2821)', () => {
+        const rows = [
+            req('2026-06-10T10:00:00', 1),
+            req('2026-06-10T11:00:00', 2),
+            req('2026-06-10T12:00:00', 2),
+        ];
+        const out = aggregateRequirementTrends(rows, cats, {
+            timeframe: 'day',
+            excludeCategoryIds: [2],
+        });
+        // Category 2 dropped entirely: from data, categories and KPIs.
+        expect(out.kpis.totalClosed).toBe(1);
+        expect(out.categories.map(c => c.id)).toEqual([1]);
+        expect(out.data[0].total).toBe(1);
+        expect(out.data[0].cat_2).toBeUndefined();
+    });
+
+    it('excludeCategoryIds=[] excludes nothing (toggle on)', () => {
+        const rows = [
+            req('2026-06-10T10:00:00', 1),
+            req('2026-06-10T11:00:00', 2),
+        ];
+        const out = aggregateRequirementTrends(rows, cats, {
+            timeframe: 'day',
+            excludeCategoryIds: [],
+        });
+        expect(out.kpis.totalClosed).toBe(2);
+        expect(out.categories.map(c => c.id)).toEqual([1, 2]);
+    });
+
+    it('excludeCategoryIds composes with selectedCategoryIds', () => {
+        const rows = [
+            req('2026-06-10T10:00:00', 1),
+            req('2026-06-10T11:00:00', 2),
+        ];
+        // Selecting both but excluding 2 leaves only category 1.
+        const out = aggregateRequirementTrends(rows, cats, {
+            timeframe: 'day',
+            selectedCategoryIds: [1, 2],
+            excludeCategoryIds: [2],
+        });
+        expect(out.kpis.totalClosed).toBe(1);
+        expect(out.categories.map(c => c.id)).toEqual([1]);
+    });
+
     it('produces a cumulative running total', () => {
         const rows = [
             req('2026-06-10T10:00:00', 1),

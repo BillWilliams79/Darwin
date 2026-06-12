@@ -55,6 +55,10 @@ const FALLBACK_PALETTE = [
 ];
 const TOTAL_COLOR = '#E91E63';
 
+// Stable empty-array sentinel so the "show closed categories" path passes a
+// reference-stable value to the aggregator memos (req #2821).
+const NO_EXCLUDE = [];
+
 // The chart sits on a warm parchment panel (not the app's dark background) so
 // saturated category colours — especially the blues/teals (Mapping, Topology)
 // — read clearly. The tooltip uses the same light family so the colour swatches
@@ -103,33 +107,56 @@ const RequirementsTrendsView = () => {
     // resolve. The aggregator only renders categories that have requirements, so
     // including closed ones adds no empty series — it just supplies the label (req #2820).
     const { data: categories = [], isLoading: catLoading } =
-        useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order' });
+        useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order,closed' });
 
     const [timeframe, setTimeframe] = useState('week');
     const [chartType, setChartType] = useState('bar');
     const [split, setSplit] = useState(false);
     const [cumulative, setCumulative] = useState(false);
+    // Requirements in closed categories are hidden by default; the rightmost
+    // toggle unhides them (req #2821).
+    const [showClosedCategories, setShowClosedCategories] = useState(false);
     const [rangeLabel, setRangeLabel] = useState(DEFAULT_RANGE);
     // null = no manual category filter (all categories included).
     const [selectedCatIds, setSelectedCatIds] = useState(null);
 
     const rangeDays = RANGES.find(r => r.label === rangeLabel)?.days ?? null;
 
+    // Category ids flagged closed (category.closed = 1). When the toggle is off
+    // (default), their requirements are excluded from the chart, chips and KPIs.
+    const closedCategoryIds = useMemo(
+        () => categories.filter(c => c.closed).map(c => c.id),
+        [categories]
+    );
+    const hasClosedCategories = closedCategoryIds.length > 0;
+    const excludeCategoryIds = showClosedCategories ? NO_EXCLUDE : closedCategoryIds;
+
+    // Toggling closed categories changes the set of available chips, so any manual
+    // category selection is reset to "all" to avoid stale ids leaking into the
+    // chip "collapse back to all" math (req #2821 review fix).
+    const toggleShowClosedCategories = () => {
+        setShowClosedCategories(s => !s);
+        setSelectedCatIds(null);
+    };
+
     const { data, categories: activeCategories, kpis } = useMemo(
         () => aggregateRequirementTrends(requirements, categories, {
             timeframe,
             selectedCategoryIds: selectedCatIds || [],
+            excludeCategoryIds,
             rangeDays,
             cumulative,
         }),
-        [requirements, categories, timeframe, selectedCatIds, rangeDays, cumulative]
+        [requirements, categories, timeframe, selectedCatIds, excludeCategoryIds, rangeDays, cumulative]
     );
 
     // Categories available to filter on = every category that has at least one
     // closed requirement (ignoring the current selection, so chips never vanish).
+    // Closed-category chips disappear in lockstep with the toggle.
     const allClosedCategories = useMemo(
-        () => aggregateRequirementTrends(requirements, categories, { timeframe: 'month' }).categories,
-        [requirements, categories]
+        () => aggregateRequirementTrends(requirements, categories,
+            { timeframe: 'month', excludeCategoryIds }).categories,
+        [requirements, categories, excludeCategoryIds]
     );
 
     // Stable color per category id, derived once from the full category list.
@@ -238,6 +265,18 @@ const RequirementsTrendsView = () => {
                           sx={{ cursor: 'pointer' }}
                           data-testid="trends-cumulative-toggle" />
                 </Tooltip>
+
+                {hasClosedCategories && (
+                    <Tooltip title="Include requirements from closed categories">
+                        <Chip label="Closed categories"
+                              size="small"
+                              color={showClosedCategories ? 'primary' : 'default'}
+                              variant={showClosedCategories ? 'filled' : 'outlined'}
+                              onClick={toggleShowClosedCategories}
+                              sx={{ cursor: 'pointer' }}
+                              data-testid="trends-show-closed-toggle" />
+                    </Tooltip>
+                )}
             </Stack>
 
             {/* Category selector chips */}
