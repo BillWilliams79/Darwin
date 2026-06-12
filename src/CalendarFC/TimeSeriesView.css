@@ -146,6 +146,25 @@
     background: rgba(0, 0, 0, 0.02);
 }
 
+/* ── Alternating day lanes (req #2828) ──
+   The per-day rows were nearly indistinguishable (week rows shared the flat
+   .ts-bead-24h tint; elevator panels were transparent), which made the red
+   "now" marker read as misplaced. Two-class selectors (specificity 0,2,0) beat
+   the single-class .ts-bead-24h AND .ts-bead-sidewalk { background:transparent }
+   fills, so they win regardless of source order. Scoped to the two multi-lane
+   contexts only — the Week stack (.ts-week-scroll rows) and the Week/Elevator
+   (.ts-elevator-panel). Day view + day Sidewalk are single-lane and excluded.
+   Parity is per-date (laneParityFor in TimeSeriesView.jsx) so adjacent days
+   always alternate and a day keeps its shade as the elevator scrolls. */
+.ts-week-scroll .ts-bead-lane-even,
+.ts-elevator-panel .ts-bead-lane-even {
+    background: rgba(0, 0, 0, 0.016);
+}
+.ts-week-scroll .ts-bead-lane-odd,
+.ts-elevator-panel .ts-bead-lane-odd {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 .ts-bead-wire {
     position: absolute;
     left: 16px;
@@ -210,7 +229,12 @@
    just the wire near the row's floor, so bubbles ride lower (JS bubbleOffset 24)
    and the divider layer extends down to the wire so the hour gridlines still run
    through the bubbles. */
-.ts-bead-week.ts-bead-no-timeline .ts-bead-wire          { bottom: 20px; }
+/* req #2828 — cosmetic only: pin the wire just beneath the date header (the
+   bottom of the date lane) so it matches the Elevator exemplar. Aligns with the
+   divider-layer top so the hour gridlines start at the same y. Does NOT touch
+   bubble placement (chromeOffset/bubbleOffset/rowSpacing are unchanged) — the
+   Week stack still bottom-anchors its bubbles. */
+.ts-bead-week.ts-bead-no-timeline .ts-bead-wire          { top: 28px; bottom: auto; }
 .ts-bead-week.ts-bead-no-timeline .ts-bead-divider-layer { top: 28px; bottom: 16px; }
 
 /* Sidewalk panel — chrome at top (date on row 1, x-axis time on row 2),
@@ -354,7 +378,15 @@ body.darwin-dark .ts-bead-day-count-inline {
 
 /* Day view — top-anchored (req #2780): date row pinned near the top, above the
    time axis (top:46) and wire (top:68); bubbles stream down beneath. */
+/* req #2828 — center the count+date block above noon. Base .ts-bead-days insets
+   left:56 (leftover clearance for the old standalone top-left count badge, no
+   longer rendered), which pushed the block right of the noon tick. Re-anchor to
+   the timeline's left:16/right:16 so 50% maps to the noon tick, matching the
+   Sidewalk/Elevator and Week sticky header. */
 .ts-bead-day .ts-bead-days { top: 8px; height: 20px; }
+/* Plain Day view only — :not(.ts-bead-sidewalk) so the Elevator/Sidewalk panels
+   (which also carry .ts-bead-day) keep their own left:8/right:8 untouched. */
+.ts-bead-day:not(.ts-bead-sidewalk) .ts-bead-days { left: 16px; right: 16px; }
 .ts-bead-day .ts-bead-count { top: 24px; }
 /* Day view — count pill inline to the LEFT of the date, centered as a group
    (req #2747; mirrors Sidewalk + the Week sticky header). */
@@ -366,7 +398,10 @@ body.darwin-dark .ts-bead-day-count-inline {
 .ts-bead-day-label {
     position: absolute;
     transform: translateX(-50%);
-    font-size: 0.74rem;
+    /* req #2828 — unified focus-date font across all views (Day / Sidewalk /
+       Elevator share this; the Sidewalk override below is now redundant but
+       kept). Week's sticky date is bumped to match. */
+    font-size: 0.82rem;
     font-weight: 500;
     color: rgba(0, 0, 0, 0.55);
     font-family: 'Roboto', sans-serif;
@@ -410,7 +445,7 @@ body.darwin-dark .ts-bead-day-count-inline {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .ts-bead-week .ts-bead-sticky-date {
-    font-size: 0.74rem;
+    font-size: 0.82rem;   /* req #2828 — match the unified focus-date font */
     font-weight: 700;
     color: rgba(0, 0, 0, 0.85);
     font-family: 'Roboto', sans-serif;
@@ -560,6 +595,13 @@ body.darwin-dark .ts-bead-label {
     pointer-events: none;
     z-index: 2;
 }
+/* req #2828 — Week stack only: the per-day date is an OPAQUE sticky header
+   (z-index 3) that hid the top of the now-marker, so the red line appeared to
+   start below the date instead of at the top of the date lane (the Elevator,
+   whose date is a transparent overlay at z-index 1, already showed it through).
+   Raise the marker above the sticky header so it spans the full lane top-to-
+   bottom — still below the shared time axis bar (z-index 5) at the frame top. */
+.ts-bead-week .ts-now-marker { z-index: 4; }
 
 /* Count bubble — muted green, top-left, same line as the date label.
    Tight padding — the number alone, no extra chrome. */
@@ -665,6 +707,17 @@ body.darwin-dark .ts-bead-36h {
 }
 body.darwin-dark .ts-bead-24h {
     background: rgba(255, 255, 255, 0.03);
+}
+/* req #2828 — alternating day lanes, dark mode. Same scoping/specificity story
+   as the light-mode rules above; body.darwin-dark adds an id-free class so these
+   stay at 0,2,0+element-context and still override the dark .ts-bead-24h tint. */
+body.darwin-dark .ts-week-scroll .ts-bead-lane-even,
+body.darwin-dark .ts-elevator-panel .ts-bead-lane-even {
+    background: rgba(255, 255, 255, 0.022);
+}
+body.darwin-dark .ts-week-scroll .ts-bead-lane-odd,
+body.darwin-dark .ts-elevator-panel .ts-bead-lane-odd {
+    background: rgba(255, 255, 255, 0.075);
 }
 body.darwin-dark .ts-bead-wire      { background: rgba(255, 255, 255, 0.3); }
 body.darwin-dark .ts-bead-divider   { background: rgba(255, 255, 255, 0.3); }

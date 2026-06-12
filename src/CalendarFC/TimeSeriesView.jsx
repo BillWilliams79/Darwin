@@ -793,6 +793,21 @@ const SharedTimeline = ({ ticks, variant }) => (
     </Box>
 );
 
+// req #2828 — per-date lane parity for alternating day-lane backgrounds in the
+// Week stack and Week/Elevator. Keyed off the date (days-since-epoch parity), so
+// adjacent calendar days ALWAYS alternate and a given day keeps its shade as the
+// elevator scrolls — unlike :nth-child, whose parity would flip as windowed
+// panels load/unload. Returns 'even' | 'odd'. Unit-tested in
+// __tests__/laneParity.test.js.
+export const laneParityFor = (s) => {
+    if (!s) return 'even';
+    const ms = Date.parse(`${s}T00:00:00Z`);
+    if (Number.isNaN(ms)) return 'even';
+    const dayNum = Math.floor(ms / 86400000);
+    // dates are post-epoch in practice; the +2 guard keeps it correct anyway.
+    return (((dayNum % 2) + 2) % 2) === 0 ? 'even' : 'odd';
+};
+
 const formatDayLabel = (s, tz) => {
     if (!s) return '';
     const d = new Date(s + 'T12:00:00');
@@ -1238,7 +1253,7 @@ const BeadRow = React.memo(({
         : (row) => `calc(100% - ${row * rowSpacing + bubbleOffset + circleDiameter / 2}px)`;
 
     return (
-        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''} ${hideTimeline ? 'ts-bead-no-timeline' : ''}`}
+        <Box className={`ts-bead ts-bead-${window36h ? '36h' : '24h'} ts-bead-${isWeekView ? 'week' : 'day'} ts-bead-lane-${laneParityFor(selectedDate)} ${sidewalkPanel ? 'ts-bead-sidewalk' : ''} ${hideTimeline ? 'ts-bead-no-timeline' : ''}`}
              data-testid="ts-bead"
              data-date={selectedDate}
              style={{ height: `${height}px` }}>
