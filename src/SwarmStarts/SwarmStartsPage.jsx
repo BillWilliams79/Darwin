@@ -82,7 +82,7 @@ export default function SwarmStartsPage() {
     const columns = useMemo(() => [
         { field: 'id', headerName: 'ID', width: 70, type: 'number' },
         { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
-        { field: 'wall_seconds', headerName: 'Wall', width: 90, type: 'number',
+        { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
             valueFormatter: formatWallSeconds },
         {
             field: 'auto_start',

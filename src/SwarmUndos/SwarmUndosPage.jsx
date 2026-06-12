@@ -15,23 +15,12 @@ import { useAllSwarmUndos } from '../hooks/useDataQueries';
 import { formatDateTime } from '../utils/dateFormat';
 
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 const TABLE_WIDTH = 1500;
-
-const coordinationChipProps = (ct) => {
-    switch (ct) {
-        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return null;
-    }
-};
 
 export default function SwarmUndosPage() {
     const { profile } = useContext(AuthContext);
@@ -72,18 +61,6 @@ export default function SwarmUndosPage() {
                     </Typography>
                 </Tooltip>
             ),
-        },
-        {
-            field: 'coordination_type',
-            headerName: 'Coordination',
-            width: 130,
-            display: 'flex',
-            renderCell: (params) => params.value
-                ? <Chip label={params.value} size="small"
-                        {...(coordinationChipProps(params.value) || {})}
-                        sx={{ textTransform: 'capitalize',
-                              ...((coordinationChipProps(params.value)?.sx) || {}) }} />
-                : <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>,
         },
         {
             field: 'reason',

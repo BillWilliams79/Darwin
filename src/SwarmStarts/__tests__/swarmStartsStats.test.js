@@ -153,3 +153,161 @@ describe('computeSwarmStartStats (req #2686)', () => {
         expect(computeSwarmStartStats(rows).maxRequirements).toEqual({ id: 1, count: 4 });
     });
 });
+
+// Req #2811 — token / turn / throughput analytics brought to parity with completes.
+describe('computeSwarmStartStats — token/turn/throughput (req #2811)', () => {
+    it('zeroed shape exposes the new fields for empty input', () => {
+        const s = computeSwarmStartStats([]);
+        expect(s.inputTotal).toBe(0);
+        expect(s.cacheWriteTotal).toBe(0);
+        expect(s.cacheReadTotal).toBe(0);
+        expect(s.outputTotal).toBe(0);
+        expect(s.totalTokens).toBe(0);
+        expect(s.avgTokensPerInvocation).toBe(0);
+        expect(s.cacheHitRate).toBeNull();
+        expect(s.avgTurns).toBeNull();
+        expect(s.turnsHistogram.map(b => b.label)).toEqual(['<10','10–20','20–30','30–50','50+']);
+        expect(s.turnsHistogram.every(b => b.count === 0)).toBe(true);
+        expect(s.throughput).toEqual([]);
+    });
+
+    it('sums the four token columns and averages per invocation', () => {
+        const rows = [
+            mkRow({ tokens_input: 100, tokens_cache_write: 200, tokens_cache_read: 300, tokens_output: 400 }),
+            mkRow({ tokens_input: 0,   tokens_cache_write: 0,   tokens_cache_read: 700, tokens_output: 300 }),
+        ];
+        const s = computeSwarmStartStats(rows);
+        expect(s.inputTotal).toBe(100);
+        expect(s.cacheWriteTotal).toBe(200);
+        expect(s.cacheReadTotal).toBe(1000);
+        expect(s.outputTotal).toBe(700);
+        expect(s.totalTokens).toBe(2000);
+        expect(s.avgTokensPerInvocation).toBe(1000);
+    });
+
+    it('treats missing token columns as zero', () => {
+        const s = computeSwarmStartStats([mkRow({})]);
+        expect(s.totalTokens).toBe(0);
+        expect(s.avgTokensPerInvocation).toBe(0);
+        expect(s.cacheHitRate).toBeNull();
+    });
+
+    it('computes cache hit rate as cacheRead / (cacheRead + cacheWrite + input)', () => {
+        const rows = [
+            mkRow({ tokens_input: 100, tokens_cache_write: 100, tokens_cache_read: 800, tokens_output: 50 }),
+        ];
+        const s = computeSwarmStartStats(rows);
+        // 800 / (800 + 100 + 100) = 0.8; output is excluded from the denominator.
+        expect(s.cacheHitRate).toBeCloseTo(0.8, 5);
+    });
+
+    it('buckets turn_count and skips null turns; averages over present rows', () => {
+        const rows = [
+            mkRow({ turn_count: 5 }),
+            mkRow({ turn_count: 12 }),
+            mkRow({ turn_count: 25 }),
+            mkRow({ turn_count: 40 }),
+            mkRow({ turn_count: 60 }),
+            mkRow({ turn_count: null }), // skipped
+        ];
+        const s = computeSwarmStartStats(rows);
+        const counts = Object.fromEntries(s.turnsHistogram.map(b => [b.label, b.count]));
+        expect(counts['<10']).toBe(1);
+        expect(counts['10–20']).toBe(1);
+        expect(counts['20–30']).toBe(1);
+        expect(counts['30–50']).toBe(1);
+        expect(counts['50+']).toBe(1);
+        // avg over the 5 non-null rows: (5+12+25+40+60)/5 = 28.4
+        expect(s.avgTurns).toBeCloseTo(28.4, 5);
+    });
+
+    it('returns null avgTurns when every row has null turn_count', () => {
+        const s = computeSwarmStartStats([mkRow({ turn_count: null }), mkRow({ turn_count: null })]);
+        expect(s.avgTurns).toBeNull();
+    });
+
+    it('builds a throughput series by calendar day, sorted ascending, with token totals', () => {
+        const rows = [
+            mkRow({ started_at: '2026-06-10T08:00:00', tokens_output: 100 }),
+            mkRow({ started_at: '2026-06-10T20:00:00', tokens_output: 50  }),
+            mkRow({ started_at: '2026-06-09T12:00:00', tokens_output: 200 }),
+            mkRow({ started_at: null, tokens_output: 999 }), // skipped — no date
+        ];
+        const s = computeSwarmStartStats(rows);
+        expect(s.throughput).toEqual([
+            { date: '2026-06-09', count: 1, tokens: 200 },
+            { date: '2026-06-10', count: 2, tokens: 150 },
+        ]);
+    });
+
+    it('adds per-pattern avgTokens to topPatterns', () => {
+        const rows = [
+            mkRow({ arguments: 'auto', tokens_output: 100 }),
+            mkRow({ arguments: 'auto', tokens_output: 300 }),
+            mkRow({ arguments: 'planned', tokens_output: 50 }),
+        ];
+        const s = computeSwarmStartStats(rows);
+        const auto = s.topPatterns.find(p => p.pattern === 'auto');
+        const planned = s.topPatterns.find(p => p.pattern === 'planned');
+        expect(auto.avgTokens).toBe(200);  // (100 + 300) / 2
+        expect(planned.avgTokens).toBe(50);
+    });
+});
+
+// Req #2811 — Phase Cost Leaderboard parsed from each start's TOKEN_TELEMETRY blob.
+const telemetryWith = (phases) =>
+    `--- TELEMETRY START ---\nstatus=ok\n--- TELEMETRY END ---\n` +
+    `TOKEN_TELEMETRY:\n${JSON.stringify({ schema_version: 2, phases }, null, 2)}\n`;
+
+describe('computeSwarmStartStats — phase cost leaderboard (req #2811)', () => {
+    it('empty input exposes phaseAggregate/[] and phaseTokenTotal 0', () => {
+        const s = computeSwarmStartStats([]);
+        expect(s.phaseAggregate).toEqual([]);
+        expect(s.phaseTokenTotal).toBe(0);
+    });
+
+    it('rows without telemetry produce an empty leaderboard', () => {
+        const s = computeSwarmStartStats([mkRow({}), mkRow({ telemetry: 'no json here' })]);
+        expect(s.phaseAggregate).toEqual([]);
+        expect(s.phaseTokenTotal).toBe(0);
+    });
+
+    it('aggregates per-phase tokens + wall across rows, sorted by tokens desc', () => {
+        const rows = [
+            mkRow({ telemetry: telemetryWith({
+                swarm_start: { input: 10, output: 5, cache_write: 0, cache_read: 5, wall_seconds: 3 },
+                phase_A0:    { input: 0,  output: 0, cache_write: 100, cache_read: 0, wall_seconds: 1 },
+            }) }),
+            mkRow({ telemetry: telemetryWith({
+                swarm_start: { input: 0, output: 0, cache_write: 0, cache_read: 20, wall_seconds: 2 },
+            }) }),
+        ];
+        const s = computeSwarmStartStats(rows);
+        // swarm_start: row1 total 20 + row2 total 20 = 40 over 2 invocations; wall 3+2=5.
+        // phase_A0: 100 over 1 invocation; wall 1.
+        const ss = s.phaseAggregate.find(p => p.phase === 'swarm_start');
+        const a0 = s.phaseAggregate.find(p => p.phase === 'phase_A0');
+        expect(ss).toMatchObject({ invocations: 2, tokens: 40, wall: 5 });
+        expect(ss.avgTokens).toBe(20);
+        expect(a0).toMatchObject({ invocations: 1, tokens: 100, wall: 1 });
+        // Sorted by tokens desc → phase_A0 (100) before swarm_start (40).
+        expect(s.phaseAggregate[0].phase).toBe('phase_A0');
+        // phaseTokenTotal = 40 + 100 = 140; pctOfTotal reflects the share.
+        expect(s.phaseTokenTotal).toBe(140);
+        expect(a0.pctOfTotal).toBeCloseTo((100 / 140) * 100, 5);
+    });
+
+    it('limits the leaderboard to the top 12 phases by tokens', () => {
+        const phases = {};
+        for (let i = 0; i < 20; i++) {
+            phases[`phase_${i}`] = { input: i + 1, output: 0, cache_write: 0, cache_read: 0, wall_seconds: 0 };
+        }
+        const s = computeSwarmStartStats([mkRow({ telemetry: telemetryWith(phases) })]);
+        expect(s.phaseAggregate).toHaveLength(12);
+        // Highest-token phase first (phase_19 → 20 tokens).
+        expect(s.phaseAggregate[0].phase).toBe('phase_19');
+        // phaseTokenTotal counts ALL 20 phases, not just the top 12.
+        const allSum = Array.from({ length: 20 }, (_, i) => i + 1).reduce((a, b) => a + b, 0);
+        expect(s.phaseTokenTotal).toBe(allSum);
+    });
+});
