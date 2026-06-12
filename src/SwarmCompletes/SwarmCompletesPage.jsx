@@ -151,6 +151,25 @@ export default function SwarmCompletesPage() {
             <Box className="app-content-view-toggle"
                  sx={{ display: 'flex', alignItems: 'center', gap: 2,
                         mt: 3, mb: 1, px: 3, flexWrap: 'wrap' }}>
+                <ToggleButtonGroup
+                    value={view}
+                    exclusive
+                    onChange={handleViewChange}
+                    size="small"
+                    sx={{ flexShrink: 0 }}
+                    data-testid="swarm-completes-view-toggle"
+                >
+                    <Tooltip title="Table View">
+                        <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
+                            <TableChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                    <Tooltip title="Stats View">
+                        <ToggleButton value="stats" data-testid="view-toggle-stats" sx={{ px: 2 }}>
+                            <BarChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                </ToggleButtonGroup>
                 {view === 'table' && (
                     <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}
                            data-testid="status-filter">
@@ -183,25 +202,6 @@ export default function SwarmCompletesPage() {
                         : `${swarmCompletes.length} complete${swarmCompletes.length === 1 ? '' : 's'} in stats`}
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
-                <ToggleButtonGroup
-                    value={view}
-                    exclusive
-                    onChange={handleViewChange}
-                    size="small"
-                    sx={{ flexShrink: 0 }}
-                    data-testid="swarm-completes-view-toggle"
-                >
-                    <Tooltip title="Table View">
-                        <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
-                            <TableChartIcon fontSize="small" />
-                        </ToggleButton>
-                    </Tooltip>
-                    <Tooltip title="Stats View">
-                        <ToggleButton value="stats" data-testid="view-toggle-stats" sx={{ px: 2 }}>
-                            <BarChartIcon fontSize="small" />
-                        </ToggleButton>
-                    </Tooltip>
-                </ToggleButtonGroup>
             </Box>
             {view === 'table' && (
                 <Box className="app-content-tabpanel"
