@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -12,7 +12,6 @@ import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
 import { formatDuration } from '../../utils/formatDuration';
 
-import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -66,6 +65,22 @@ const SwarmSessionDetail = () => {
         if (links.length === 0) return null;
         return swarmCompletes.find(s => s.id === links[0].swarm_complete_fk) || null;
     }, [swarmCompleteSessions, swarmCompletes, id]);
+
+    // Req #2831 — the session's originating requirement. The id lives in
+    // `source_ref` as `requirement:NNNN` (legacy `priority:NNNN`); the title is
+    // resolved from the requirements list. Issue-sourced / unparseable refs
+    // yield null and the UI falls back to the plain Title row.
+    const requirementId = React.useMemo(() => {
+        const m = session?.source_ref?.match(/^(?:priority|requirement):(\d+)$/);
+        return m ? m[1] : null;
+    }, [session?.source_ref]);
+
+    const { data: allRequirements } = useAllRequirements(profile?.userName);
+    const requirementTitle = React.useMemo(() => {
+        if (!requirementId || !allRequirements) return null;
+        const r = allRequirements.find(req => String(req.id) === String(requirementId));
+        return r ? r.title : null;
+    }, [requirementId, allRequirements]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -125,7 +140,22 @@ const SwarmSessionDetail = () => {
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: { xs: 0, md: 4 }, mb: 3 }}>
                 {/* Left column */}
                 <Box sx={{ flex: 1 }}>
-                    {session.title &&
+                    {requirementId ? (
+                        <Box sx={{ mb: 1 }} data-testid="session-requirement">
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Requirement</Typography>
+                            <Typography variant="body2" component="div">
+                                <Chip label={`#${requirementId}`} size="small" variant="outlined"
+                                      onClick={() => navigate(`/swarm/requirement/${requirementId}`)}
+                                      sx={{ cursor: 'pointer', mr: 1 }}
+                                      data-testid="session-requirement-chip" />
+                                {(requirementTitle || session.title) &&
+                                    <Typography component="span" variant="body2">
+                                        — {requirementTitle || session.title}
+                                    </Typography>
+                                }
+                            </Typography>
+                        </Box>
+                    ) : session.title &&
                         <Box sx={{ mb: 1 }}>
                             <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Title</Typography>
                             <Typography variant="body2" data-testid="session-title">{session.title}</Typography>
@@ -134,45 +164,27 @@ const SwarmSessionDetail = () => {
 
                     {swarmStart &&
                         <Box sx={{ mb: 1 }} data-testid="session-launched-by">
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Launched by</Typography>
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Swarm-Start</Typography>
                             <Typography variant="body2" component="div">
-                                <Chip label={`Swarm Start #${swarmStart.id}`} size="small" variant="outlined"
+                                <Chip label={`#${swarmStart.id}`} size="small" variant="outlined"
                                       onClick={() => navigate(`/swarm/swarm-starts/${swarmStart.id}`)}
-                                      sx={{ cursor: 'pointer', mr: 1 }}
+                                      sx={{ cursor: 'pointer' }}
                                       data-testid="session-launched-by-chip" />
-                                <Typography component="span" variant="body2"
-                                            sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                                    /swarm-start{swarmStart.arguments ? ` ${swarmStart.arguments}` : ''}
-                                </Typography>
                             </Typography>
                         </Box>
                     }
 
-                    {swarmComplete && (() => {
-                        const toks = ['tokens_input', 'tokens_cache_write', 'tokens_cache_read', 'tokens_output']
-                            .reduce((sum, k) => sum + (Number(swarmComplete[k]) || 0), 0);
-                        const wall = formatDuration(swarmComplete.wall_seconds);
-                        const facts = [
-                            `status ${swarmComplete.status}`,
-                            wall !== '—' ? `took ${wall}` : null,
-                            toks > 0 ? `cost ${toks.toLocaleString()} tok` : null,
-                        ].filter(Boolean).join(' · ');
-                        return (
-                            <Box sx={{ mb: 1 }} data-testid="session-closed-by">
-                                <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Closed by</Typography>
-                                <Typography variant="body2" component="div">
-                                    <Chip label={`Complete #${swarmComplete.id}`} size="small" variant="outlined"
-                                          onClick={() => navigate(`/swarm/swarm-completes/${swarmComplete.id}`)}
-                                          sx={{ cursor: 'pointer', mr: 1 }}
-                                          data-testid="session-closed-by-chip" />
-                                    <Typography component="span" variant="body2"
-                                                sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                                        /{swarmComplete.skill_name} — {facts}
-                                    </Typography>
-                                </Typography>
-                            </Box>
-                        );
-                    })()}
+                    {swarmComplete &&
+                        <Box sx={{ mb: 1 }} data-testid="session-closed-by">
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Swarm-complete</Typography>
+                            <Typography variant="body2" component="div">
+                                <Chip label={`#${swarmComplete.id}`} size="small" variant="outlined"
+                                      onClick={() => navigate(`/swarm/swarm-completes/${swarmComplete.id}`)}
+                                      sx={{ cursor: 'pointer' }}
+                                      data-testid="session-closed-by-chip" />
+                            </Typography>
+                        </Box>
+                    }
 
                     {session.task_name &&
                         <Box sx={{ mb: 1 }}>
@@ -181,20 +193,19 @@ const SwarmSessionDetail = () => {
                         </Box>
                     }
 
-                    {session.source_type &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Source</Typography>
-                            <Typography variant="body2" component="div" data-testid="session-source">
-                                {session.source_type}
-                                {session.source_ref && <> — {renderSourceRef(session.source_ref, navigate)}</>}
-                            </Typography>
-                        </Box>
-                    }
-
                     {session.branch &&
                         <Box sx={{ mb: 1 }}>
                             <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Branch</Typography>
                             <Typography variant="body2" data-testid="session-branch">{session.branch}</Typography>
+                        </Box>
+                    }
+
+                    {session.worktree_path &&
+                        <Box sx={{ mb: 1 }}>
+                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Worktree Path</Typography>
+                            <Typography variant="body2" data-testid="session-worktree-path">
+                                {session.worktree_path}
+                            </Typography>
                         </Box>
                     }
 
@@ -206,15 +217,6 @@ const SwarmSessionDetail = () => {
                                    data-testid="session-pr-url">
                                     {session.pr_url}
                                 </a>
-                            </Typography>
-                        </Box>
-                    }
-
-                    {session.worktree_path &&
-                        <Box sx={{ mb: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Worktree Path</Typography>
-                            <Typography variant="body2" data-testid="session-worktree-path">
-                                {session.worktree_path}
                             </Typography>
                         </Box>
                     }

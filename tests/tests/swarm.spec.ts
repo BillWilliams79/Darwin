@@ -171,18 +171,24 @@ test.describe('Swarm View', () => {
     await expect(chip).toHaveCSS('background-color', 'rgb(76, 175, 80)');
   });
 
-  test('SWM-18: Session detail shows requirement link — click navigates', async ({ page }) => {
+  test('SWM-18: Session detail shows requirement chip — click navigates', async ({ page }) => {
+    // Req #2831 — the Source row was removed; the originating requirement is now
+    // shown as a clickable chip (#<id>) in the "Requirement" row.
     await page.goto(`/swarm/session/${testSessionId}`);
-    await expect(page.getByTestId('source-requirement-link')).toBeVisible({ timeout: 10000 });
-    await page.getByTestId('source-requirement-link').click();
+    const chip = page.getByTestId('session-requirement-chip');
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    await expect(chip).toContainText(`#${testRequirementId}`);
+    await chip.click();
     await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${testRequirementId}`));
   });
 
-  test('SWM-19: Session detail shows GitHub issue link for issue source_ref', async ({ page }) => {
+  test('SWM-19: Issue-sourced session detail falls back to Title row (no requirement chip)', async ({ page }) => {
+    // Req #2831 — issue-sourced sessions have no requirement id, so the detail
+    // page shows the plain Title row instead of a requirement chip.
     await page.goto(`/swarm/session/${testIssueSessionId}`);
-    await expect(page.getByTestId('source-issue-link')).toBeVisible({ timeout: 10000 });
-    const href = await page.getByTestId('source-issue-link').getAttribute('href');
-    expect(href).toContain('github.com/BillWilliams79/Darwin/issues/8');
+    await expect(page.getByTestId('swarm-session-detail')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('session-title')).toContainText('Fix issue 8');
+    await expect(page.getByTestId('session-requirement-chip')).toHaveCount(0);
   });
 
   test('SWM-20: /swarm/sessions DataGrid renders with test session', async ({ page }) => {
