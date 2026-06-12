@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-// Global state for the Swarm-Start Card in the Roadmap view.
+// Global state for the Swarm-Start Card in the requirement view.
 //   • `show`           — visibility toggle (RocketLaunch icon in SwarmView header)
 //   • `selectedStatus` — which requirement_status the card is aggregating (one-at-a-time;
 //                        card shows all requirements with that status across all categories).

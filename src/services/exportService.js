@@ -259,6 +259,18 @@ export async function fetchExportData(darwinUri, darwinOpsUri, userName, idToken
             complete_summary: s.complete_summary,
             telemetry: s.telemetry,
             plan: s.plan,
+            // Phase-duration columns (req #2332)
+            instrumented: s.instrumented,
+            starting_secs: s.starting_secs,
+            waiting_secs: s.waiting_secs,
+            planning_secs: s.planning_secs,
+            implementing_secs: s.implementing_secs,
+            review_secs: s.review_secs,
+            completion_secs: s.completion_secs,
+            paused_secs: s.paused_secs,
+            legacy_secs: s.legacy_secs,
+            last_transition_at: s.last_transition_at,
+            pre_pause_status: s.pre_pause_status,
             create_ts: s.create_ts,
             update_ts: s.update_ts,
         }));

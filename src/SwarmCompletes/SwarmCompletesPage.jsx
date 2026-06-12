@@ -11,6 +11,7 @@ import AuthContext from '../Context/AuthContext';
 import { useAllSwarmCompletes } from '../hooks/useDataQueries';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
+import { formatDuration } from '../utils/formatDuration';
 import SwarmCompletesStatsView from './SwarmCompletesStatsView';
 
 import Box from '@mui/material/Box';
@@ -48,14 +49,6 @@ const skillChipProps = (name) => {
 };
 
 const formatNum = (v) => (v == null ? '—' : Number(v).toLocaleString());
-const formatWallSeconds = (v) => {
-    if (v == null) return '—';
-    const s = Number(v);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}m ${r}s`;
-};
 
 export default function SwarmCompletesPage() {
     const { profile } = useContext(AuthContext);
@@ -100,7 +93,7 @@ export default function SwarmCompletesPage() {
             ),
         },
         { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
-            valueFormatter: formatWallSeconds },
+            valueFormatter: formatDuration },
         // Token columns — hidden by default, revealable via the toolbar.
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
             valueFormatter: formatNum },

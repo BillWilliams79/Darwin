@@ -25,6 +25,7 @@ import { useAllRequirements, useAllCategories, useSessions } from '../hooks/useD
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
+import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 
 // Exact column width sum + DataGrid chrome (borders + column separators + scrollbar gutter
@@ -53,21 +54,6 @@ const STATUS_SORT_ORDER = {
 const AUTONOMY_OPTIONS = ['discuss', 'planned', 'implemented', 'deployed'];
 
 const NO_CHANGE = '__no_change__';
-
-// Local copy — same color map used in SessionsView, RequirementDetail,
-// CategoryCard, SwarmSessionDeleteDialog. Refactor to a shared module is out
-// of scope for req #2240.
-const swarmStatusChipProps = (status) => {
-    switch (status) {
-        case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
-        case 'starting':   return { color: 'info' };
-        case 'completing': return { color: 'info' };
-        case 'completed':  return { color: 'success' };
-        default:           return { color: 'default' };
-    }
-};
 
 // Same matcher used by CategoryCard — handles the legacy `priority:` prefix as
 // well as the current `requirement:` prefix.

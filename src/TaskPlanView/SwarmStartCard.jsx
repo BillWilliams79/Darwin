@@ -1,5 +1,5 @@
-// SwarmStartCard — cross-category requirement aggregator in the Roadmap view.
-//   • Header is a row of status chips (same styling as the Roadmap filter chips).
+// SwarmStartCard — cross-category requirement aggregator in the requirement view.
+//   • Header is a row of status chips (same styling as the requirements page filter chips).
 //   • Single-select: exactly one status is active at a time.
 //   • Card shows all requirements with the selected status across all categories.
 //   • Template row at the bottom (req #2414): typing a title + Enter/blur navigates
@@ -22,7 +22,7 @@ import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 
-// Chip statuses shown on this card. Mirrors the Roadmap filter chips minus 'deferred'
+// Chip statuses shown on this card. Mirrors the requirements page filter chips minus 'deferred'
 // (retired from the aggregator per req #2584). 'met' is special-cased: it shows only
 // the trailing-24h Met list — recent completions, not the full Met history.
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];

@@ -18,6 +18,7 @@ import {
 } from '../hooks/useDataQueries';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
+import { formatDuration } from '../utils/formatDuration';
 import { selectRequirementsForSwarmStart } from './requirementsList';
 import SwarmStartsStatsView from './SwarmStartsStatsView';
 
@@ -42,14 +43,6 @@ const REQ_LINE_HEIGHT = 18;
 const REQ_BASE_HEIGHT = 52;
 
 const formatNum = (v) => (v == null ? '—' : Number(v).toLocaleString());
-const formatWallSeconds = (v) => {
-    if (v == null) return '—';
-    const s = Number(v);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}m ${r}s`;
-};
 
 export default function SwarmStartsPage() {
     const { profile } = useContext(AuthContext);
@@ -83,7 +76,7 @@ export default function SwarmStartsPage() {
         { field: 'id', headerName: 'ID', width: 70, type: 'number' },
         { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
         { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
-            valueFormatter: formatWallSeconds },
+            valueFormatter: formatDuration },
         {
             field: 'auto_start',
             headerName: 'Auto-Start',
