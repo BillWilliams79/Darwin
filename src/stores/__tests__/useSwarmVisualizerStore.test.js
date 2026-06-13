@@ -102,6 +102,13 @@ describe('migrateVisualizerState (req #2799, req #2806)', () => {
         expect(out.dataKey).toBe('category');
         expect(out.titlesOn).toBe(false);
         expect(out.completesOn).toBe(false);
+        // req #2823 — phasesOn (v6 → v7) back-fills to false.
+        expect(out.phasesOn).toBe(false);
+    });
+
+    it('preserves a persisted phasesOn=true (req #2823)', () => {
+        const out = migrateVisualizerState({ phasesOn: true });
+        expect(out.phasesOn).toBe(true);
     });
 
     it('normalizes an unknown dataKey to category', () => {

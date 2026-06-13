@@ -13,6 +13,8 @@ import {
     parseSessionRequirementId,
     clusterSessionsByStartTime,
     clusterSessionsBySwarmStart,
+    computePhaseSegments,
+    PHASE_UNCLASSIFIED_COLOR,
 } from './timeSeriesSizes';
 import './TimeSeriesView.css';
 
@@ -452,6 +454,14 @@ export const indexMaxStackByDate = (requirements, sessions, timezone, extras = {
     return out;
 };
 
+// req #2823 follow-up — Sidewalk sub-day horizontal zoom. Maps the toolbar
+// window value to the per-panel pixel-width multiplier: a day panel always holds
+// a full 24h, so to show only `n` hours in one viewport-width we render the panel
+// 24/n times as wide and let the strip scroll through it. '6h' → 4×, '12h' → 2×,
+// everything else (incl. '24h'/'36h') → 1× (unchanged). Exported for unit tests.
+export const sidewalkPanelScale = (beadWindow) =>
+    beadWindow === '6h' ? 4 : beadWindow === '12h' ? 2 : 1;
+
 // ─────────── Date helpers ─────────────────────────────────────────────────────
 const shiftDateStr = (dateStr, delta) => {
     const d = new Date(dateStr + 'T12:00:00');
@@ -856,6 +866,7 @@ const BeadRow = React.memo(({
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     titlesOn = false,             // req #2556 — render req title to right of bubble
     completesOn = false,          // req #2790 — show completion-terminus badge (off by default)
+    phasesOn = false,             // req #2823 — segment duration line by phase buckets (off by default)
     crossDays = [], onChipClick, onSwarmStartClick, onUndoClick, isWeekView = false,
     sidewalkPanel = false,   // when true → top-down layout + seamless 24h panel
     hideTimeline = false,    // req #2744 — suppress the per-row time axis; a single
@@ -1470,15 +1481,60 @@ const BeadRow = React.memo(({
                         // ring at leftPct (same diameter as a regular bubble),
                         // so the line should stop at the ring's left edge.
                         const x2 = `calc(${chip.leftPct}% - ${circleDiameter / 2 + 2}px)`;
+                        // req #2823 — phase-duration segmentation. Only completed,
+                        // in-window 'normal' chips (full start→complete duration
+                        // visible, real session) are eligible: clamped lines run
+                        // off-window so their proportions would be wrong, and
+                        // in-progress phantoms are still mid-flight. When the
+                        // session is instrumented with phase time, replace the
+                        // single grey line with proportional coloured segments;
+                        // an instrumented==0 / no-data session falls through to a
+                        // single neutral-gray "unclassified" line.
+                        const phase = (phasesOn && chip.markerMode === 'normal' && !isInProgress)
+                            ? computePhaseSegments(chip.session, chip.startPct, chip.leftPct)
+                            : null;
+                        if (phase && phase.classified) {
+                            return (
+                                <g key={`line-${chip.chipKey}`}
+                                   data-testid={`ts-swarm-phases-${chip.chipKey}`}>
+                                    {phase.segments.map((seg, i) => {
+                                        const last = i === phase.segments.length - 1;
+                                        // NB: deliberately NOT `ts-swarm-line` — that
+                                        // class carries a dark-mode `stroke: …
+                                        // !important` override (TimeSeriesView.css)
+                                        // that would force every segment to one grey,
+                                        // beating the inline per-phase colour. The
+                                        // thick colour bar also needs no arrowhead —
+                                        // the bubble is its terminus (an arrow here
+                                        // would just scale up with strokeWidth=3).
+                                        return (
+                                            <line
+                                                key={seg.key}
+                                                data-testid={`ts-swarm-phase-${chip.chipKey}-${seg.key}`}
+                                                className={`ts-swarm-phase ts-swarm-phase-${seg.family}`}
+                                                x1={`${seg.x1Pct}%`}
+                                                y1={yCenter}
+                                                x2={last ? x2 : `${seg.x2Pct}%`}
+                                                y2={yCenter}
+                                                stroke={seg.color}
+                                                strokeWidth={3}
+                                            />
+                                        );
+                                    })}
+                                </g>
+                            );
+                        }
                         const stroke = isInProgress
                             ? '#43A047'
-                            : 'rgba(96,125,139,0.85)';
+                            // Phases on + this normal chip carries no usable phase
+                            // split → flat neutral gray = explicit "unknown split".
+                            : (phase ? PHASE_UNCLASSIFIED_COLOR : 'rgba(96,125,139,0.85)');
                         const strokeWidth = isInProgress ? 2 : 1.5;
                         return (
                             <line
                                 key={`line-${chip.chipKey}`}
                                 data-testid={`ts-swarm-line-${chip.chipKey}`}
-                                className={`ts-swarm-line ${isClamped ? 'ts-swarm-line-clamped' : ''} ${isInProgress ? 'ts-swarm-line-inprogress' : ''}`}
+                                className={`ts-swarm-line ${isClamped ? 'ts-swarm-line-clamped' : ''} ${isInProgress ? 'ts-swarm-line-inprogress' : ''} ${phase ? 'ts-swarm-line-unclassified' : ''}`}
                                 x1={`${chip.startPct}%`}
                                 y1={yCenter}
                                 x2={x2}
@@ -2040,7 +2096,7 @@ const SIDEWALK_EXTEND_BY = 10;
 const SIDEWALK_MAX_PANELS = 60;
 
 const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowProps }) => {
-    const { requirements, sessions, timezone, circleDiameter, spaceKey,
+    const { requirements, sessions, timezone, circleDiameter, spaceKey, beadWindow,
             swarmStarts, swarmStartSessions, swarmUndos, requirementById,
             categoryList, canonicalStartById, swarmStartIdById, swarmStartById } = rowProps;
     // Today (local) — stable per mount; drives in-progress cross-day spans + the
@@ -2062,6 +2118,19 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // every extension (which would trash in-progress drag state).
     const datesRef = React.useRef(dates);
     const [frameWidth, setFrameWidth] = React.useState(0);
+
+    // req #2823 follow-up — sub-day horizontal zoom. A day panel still represents
+    // a full 24h (BeadRow's sidewalkPanel path is unconditionally 24h, and every
+    // chip/tick/line positions in % within the panel), but we render the panel
+    // WIDER than the viewport so the day spreads across multiple screen-widths and
+    // the strip — which already hand-scrolls horizontally — reveals only a slice at
+    // a time. panelScale = 24 / visibleHours:
+    //   '6h'  → 4× (viewport shows ~6h)   '12h' → 2× (~12h)   else → 1× (full 24h,
+    //   byte-identical to the original behaviour). panelWidth is the per-panel
+    //   pixel STRIDE the infinite-scroll / centring math runs on; frameWidth stays
+    //   the measured viewport width.
+    const panelScale = sidewalkPanelScale(beadWindow);
+    const panelWidth = frameWidth * panelScale;
 
     // Req #2798 — cross-day pass-through lines for multi-day sessions, keyed by
     // each day panel in the strip, with the 24h start-bar coordinate.
@@ -2166,32 +2235,33 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     };
 
     const indexForOffset = () => {
-        if (frameWidth === 0) return 0;
+        if (panelWidth === 0) return 0;
         const cur = datesRef.current;
-        const raw = -offsetRef.current / frameWidth;
+        const raw = -offsetRef.current / panelWidth;
         return Math.max(0, Math.min(cur.length - 1, Math.round(raw)));
     };
 
     // Infinite-scroll buffer maintenance. When the visible panel approaches
     // either edge, prepend / append SIDEWALK_EXTEND_BY days. Left extension
-    // shifts translateX by -extend*frameWidth so the visible panel stays put;
+    // shifts translateX by -extend*panelWidth so the visible panel stays put;
     // when the array overflows SIDEWALK_MAX_PANELS, we prune the opposite end
-    // (with a matching +removed*frameWidth shift if pruning the left side).
+    // (with a matching +removed*panelWidth shift if pruning the left side).
+    // panelWidth is the zoom-aware per-panel stride (frameWidth × scale).
     //
     // datesRef is updated synchronously so a follow-up call within the same
     // frame doesn't see the pre-extension array and re-extend.
     const maybeExtend = () => {
-        if (frameWidth === 0) return;
+        if (panelWidth === 0) return;
         const cur = datesRef.current;
         if (!cur || cur.length === 0) return;
-        const raw = -offsetRef.current / frameWidth;
+        const raw = -offsetRef.current / panelWidth;
         const idx = Math.round(raw);
         const distLeft  = idx;
         const distRight = cur.length - 1 - idx;
 
         if (distLeft <= SIDEWALK_BUFFER_THRESHOLD) {
             // Extend left, then shift translateX so the visible panel stays put.
-            applyOffset(offsetRef.current - SIDEWALK_EXTEND_BY * frameWidth);
+            applyOffset(offsetRef.current - SIDEWALK_EXTEND_BY * panelWidth);
             let next = extendDates(cur, 'left', SIDEWALK_EXTEND_BY);
             const pruned = pruneDates(next, SIDEWALK_MAX_PANELS, 'right');
             next = pruned.dates;
@@ -2205,7 +2275,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             // by `removedCount`; compensate translateX so the visible panel
             // stays put.
             if (pruned.removedCount > 0) {
-                applyOffset(offsetRef.current + pruned.removedCount * frameWidth);
+                applyOffset(offsetRef.current + pruned.removedCount * panelWidth);
             }
             datesRef.current = next;
             setDates(next);
@@ -2239,7 +2309,7 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // chevrons), rebuild the strip around the new centerDate so the Sidewalk
     // stays coherent with the rest of the calendar state.
     React.useEffect(() => {
-        if (frameWidth === 0) return;
+        if (panelWidth === 0) return;
         if (centerDate === lastReported.current) return;
         // Parent drove the change (e.g. a chevron click). Cancel any pending
         // debounced scroll report so a stale scroll date doesn't fire after
@@ -2257,23 +2327,30 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
-            requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * frameWidth));
+            requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * panelWidth));
             return;
         }
         lastReported.current = centerDate;
-        animateTo(-idx * frameWidth);
+        animateTo(-idx * panelWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [centerDate, frameWidth]);
+    }, [centerDate, panelWidth]);
 
-    // Initial placement on mount — put centerDate at index-of.
+    // Initial placement on mount AND re-snap on zoom change — put the focused
+    // panel's left edge at the viewport left. Depending on panelWidth means a
+    // zoom toggle (which changes the per-panel stride) re-centres the same day
+    // instead of leaving the strip parked at a stale pixel offset.
     React.useEffect(() => {
-        if (frameWidth === 0) return;
-        const idx = datesRef.current.indexOf(centerDate);
-        if (idx >= 0) applyOffset(-idx * frameWidth);
+        if (panelWidth === 0) return;
+        const cur = datesRef.current;
+        const idx = cur.indexOf(lastReported.current) >= 0
+            ? cur.indexOf(lastReported.current)
+            : cur.indexOf(centerDate);
+        if (idx >= 0) applyOffset(-idx * panelWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameWidth]);
+    }, [panelWidth]);
 
-    // Drag + momentum. Bind once per frameWidth — `dates.length` is read via
+    // Drag + momentum. Bind once per panelWidth (the zoom-aware stride) —
+    // `dates.length` is read via
     // `datesRef` inside maybeExtend so we can extend the strip without
     // re-binding (which would lose in-progress drag state). onMove uses
     // delta-from-last instead of cumulative-from-startOffset because
@@ -2372,15 +2449,17 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             frame.removeEventListener('wheel', onWheel);
             stopAnim();
         };
+    // Re-bind on panelWidth (not just frameWidth) so the drag/wheel handlers
+    // capture a maybeExtend closure that uses the current zoom's stride.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameWidth]);
+    }, [panelWidth]);
 
     return (
         <Box className="ts-sidewalk" data-testid="ts-sidewalk" ref={frameRef}>
             <Box className="ts-sidewalk-inner" ref={innerRef}>
                 {dates.map(d => (
                     <Box key={d} className="ts-sidewalk-panel" data-date={d}
-                         style={{ width: frameWidth || '100%', flex: `0 0 ${frameWidth || 1}px` }}>
+                         style={{ width: panelWidth || '100%', flex: `0 0 ${panelWidth || 1}px` }}>
                         {/* Per-day slice (req #2800) — overrides the full
                             `requirements` carried in rowProps so unchanged/empty
                             panels keep a stable prop reference and BeadRow's memo
@@ -2985,6 +3064,7 @@ const TimeSeriesView = ({
     dataKey = DEFAULT_DATA_KEY,      // 'category' | 'coordination' — req #2382
     titlesOn = false,                // req #2556 — render req title to right of bubble
     completesOn = false,             // req #2790 — show completion-terminus badge (off by default)
+    phasesOn = false,                // req #2823 — segment duration line by phase buckets (off by default)
     isWeekView = false,
     categoryList = [],
     onChipClick,
@@ -3201,6 +3281,7 @@ const TimeSeriesView = ({
             titlesOn={titlesOn}
 
             completesOn={completesOn}
+            phasesOn={phasesOn}
             tooltipFontSize={tooltipFontSize}
             circleDiameter={circleDiameter}
             spaceKey={spaceKey}
@@ -3244,6 +3325,7 @@ const TimeSeriesView = ({
                     titlesOn={titlesOn}
 
                     completesOn={completesOn}
+                    phasesOn={phasesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}
@@ -3277,6 +3359,7 @@ const TimeSeriesView = ({
                     titlesOn={titlesOn}
 
                     completesOn={completesOn}
+                    phasesOn={phasesOn}
                     tooltipFontSize={tooltipFontSize}
                     circleDiameter={circleDiameter}
                     spaceKey={spaceKey}

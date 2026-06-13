@@ -113,6 +113,79 @@ export function getCoordinationColor(coordinationType) {
     return COORDINATION_COLORS[coordinationType] || COORDINATION_FALLBACK_COLOR;
 }
 
+// ── Session phase-duration segmentation (req #2823) ─────────────────────────────
+// req #2332 records per-phase second-buckets on every instrumented swarm_session.
+// The broad visualizer's "Phases" overlay segments each completed session's
+// start→complete duration line proportionally so you can see at a glance where
+// time went and which side of the agentic/human divide it fell on.
+//
+//   agentic = Claude working autonomously — starting (machine setup), planning,
+//             implementing, completion. Cool hues (blue-grey → indigo → blue → teal).
+//   human   = waiting on the user — waiting (discuss idle), review, paused.
+//             Warm hues (amber → orange → brown).
+//
+// Order: the agentic block first, then the human block, so the two families read
+// as two contiguous colour runs and the divide is a single boundary. These are
+// AGGREGATE buckets, not a literal timeline, so family-grouping (clearest "where
+// did time go" read) is preferred over reconstructing lifecycle order.
+export const PHASE_SEGMENTS = [
+    { key: 'starting_secs',     label: 'Starting',     family: 'agentic', color: '#90A4AE' }, // blue-grey
+    { key: 'planning_secs',     label: 'Planning',     family: 'agentic', color: '#5C6BC0' }, // indigo
+    { key: 'implementing_secs', label: 'Implementing', family: 'agentic', color: '#1E88E5' }, // blue
+    { key: 'completion_secs',   label: 'Completion',   family: 'agentic', color: '#26A69A' }, // teal
+    { key: 'waiting_secs',      label: 'Waiting',      family: 'human',   color: '#FFB300' }, // amber
+    { key: 'review_secs',       label: 'Review',       family: 'human',   color: '#FB8C00' }, // orange
+    { key: 'paused_secs',       label: 'Paused',       family: 'human',   color: '#8D6E63' }, // brown
+];
+
+// Pre-instrumentation (instrumented=0) and no-phase-data sessions render a single
+// neutral-gray segment — an explicit "unknown split", never mistaken for a phase.
+export const PHASE_UNCLASSIFIED_COLOR = '#9E9E9E';
+
+// `instrumented` arrives from the JSON API as 1/0, true/false, or "1"/"0".
+const isInstrumented = (v) => v === 1 || v === true || v === '1';
+
+// Split the [startPct, endPct] duration span into proportional phase segments.
+// Returns:
+//   { classified: false, segments: [] }  — session missing, not instrumented, or
+//                                           zero total phase time → caller draws a
+//                                           single neutral-gray unclassified line.
+//   { classified: true, segments: [...] } — one entry per NON-ZERO bucket, in
+//                                           PHASE_SEGMENTS order, each
+//                                           { key, label, family, color, secs,
+//                                             x1Pct, x2Pct } spanning its slice.
+// The final segment's x2Pct is pinned exactly to endPct to absorb float drift.
+// Pure + exported for unit-test coverage.
+export function computePhaseSegments(session, startPct, endPct) {
+    if (session == null || startPct == null || endPct == null) {
+        return { classified: false, segments: [] };
+    }
+    if (!isInstrumented(session.instrumented)) {
+        return { classified: false, segments: [] };
+    }
+    const buckets = PHASE_SEGMENTS.map((p) => {
+        const v = Number(session[p.key]);
+        return { ...p, secs: Number.isFinite(v) && v > 0 ? v : 0 };
+    });
+    const total = buckets.reduce((sum, b) => sum + b.secs, 0);
+    if (total <= 0) return { classified: false, segments: [] };
+
+    const span = endPct - startPct;
+    const segments = [];
+    let cursor = startPct;
+    for (const b of buckets) {
+        if (b.secs <= 0) continue;
+        const x1Pct = cursor;
+        cursor += span * (b.secs / total);
+        segments.push({
+            key: b.key, label: b.label, family: b.family, color: b.color,
+            secs: b.secs, x1Pct, x2Pct: cursor,
+        });
+    }
+    if (segments.length) segments[segments.length - 1].x2Pct = endPct;
+    return { classified: true, segments };
+}
+
 // ── Swarm start-time clustering (req #2341) ─────────────────────────────────────
 // Sessions whose started_at fall within this window are treated as a single swarm
 // and share one canonical start X so their vertical start-bars line up.

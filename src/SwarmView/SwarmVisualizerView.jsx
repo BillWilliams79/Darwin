@@ -10,7 +10,42 @@ import {
     useAllSwarmCompletes, useAllSwarmCompleteSessions,
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
+import { PHASE_SEGMENTS, PHASE_UNCLASSIFIED_COLOR } from '../CalendarFC/timeSeriesSizes';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
+import Box from '@mui/material/Box';
+
+// req #2823 — compact legend for the "Phases" overlay. Maps PHASE_SEGMENTS to
+// swatches grouped by agentic / human family, plus the neutral-gray
+// "Unclassified" swatch for legacy (instrumented=0) sessions. Rendered only when
+// the Phases toggle is on, so the default view stays uncluttered.
+const PhaseSwatch = ({ color, label }) => (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+        <Box component="span" sx={{
+            width: 14, height: 6, borderRadius: '3px',
+            backgroundColor: color, flexShrink: 0,
+        }} />
+        <span>{label}</span>
+    </Box>
+);
+
+const PhaseLegend = () => {
+    const agentic = PHASE_SEGMENTS.filter(p => p.family === 'agentic');
+    const human   = PHASE_SEGMENTS.filter(p => p.family === 'human');
+    return (
+        <Box data-testid="ts-phase-legend"
+             sx={{
+                 display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+                 gap: 1.5, rowGap: 0.5, px: 1, py: 0.5, mb: 0.5,
+                 fontSize: '0.75rem', color: 'text.secondary',
+             }}>
+            <Box component="span" sx={{ fontWeight: 600 }}>Agentic:</Box>
+            {agentic.map(p => <PhaseSwatch key={p.key} color={p.color} label={p.label} />)}
+            <Box component="span" sx={{ fontWeight: 600, ml: 1 }}>Human:</Box>
+            {human.map(p => <PhaseSwatch key={p.key} color={p.color} label={p.label} />)}
+            <PhaseSwatch color={PHASE_UNCLASSIFIED_COLOR} label="Unclassified" />
+        </Box>
+    );
+};
 
 // Shift a YYYY-MM-DD string by N days using local calendar parts, so east-of-UTC
 // timezones don't roll the result backward.
@@ -43,6 +78,7 @@ const SwarmVisualizerView = () => {
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
+    const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
 
     const isWeekView = viewType === 'week';
@@ -186,6 +222,7 @@ const SwarmVisualizerView = () => {
     // component now renders only the time-series content.
     return (
         <div>
+            {phasesOn && <PhaseLegend />}
             <TimeSeriesView
                 requirements={requirements}
                 allRequirements={allRequirements}
@@ -203,6 +240,7 @@ const SwarmVisualizerView = () => {
                 dataKey={dataKey}
                 titlesOn={titlesOn}
                 completesOn={completesOn}
+                phasesOn={phasesOn}
                 isWeekView={isWeekView}
                 categoryList={categoryList}
                 onChipClick={onChipClick}
