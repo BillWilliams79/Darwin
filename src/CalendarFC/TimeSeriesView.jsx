@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import Tooltip from '@mui/material/Tooltip';
 import { toLocaleDateString, getTimeOfDayFraction, formatCardDateTime, formatHM12, localDateStr } from '../utils/dateFormat';
 import {
     DEFAULT_FONT_SIZE,
@@ -84,6 +84,192 @@ const TITLE_LABEL_HEIGHT = 18;
 // a day with no cross-day entries passes the SAME reference every parent render
 // instead of a fresh `[]` literal, which would defeat BeadRow's React.memo.
 const EMPTY_CROSS_DAYS = [];
+
+// ─────────── Single shared hover tooltip (req #2840) ─────────────────────────
+// Replaces the per-chip / per-anchor / per-cross-day-start-bar MUI <Tooltip>
+// instances (600+ Popper portals + listeners across a busy strip — the single
+// heaviest cost on the visualizer). One context-provided box, rendered ONCE via
+// a portal to document.body (so the strips' overflow:hidden never clips it — the
+// same reason MUI used a portal), repositioned on each hover. BeadRow's chips
+// call show(content, anchorEl) on mouseenter and hide() on mouseleave; the
+// datacard JSX is built lazily (only on hover) so the necklace render no longer
+// constructs 3×N React element trees per panel up front.
+const TooltipContext = React.createContext(null);
+// No-op fallback so a BeadRow rendered outside the provider (e.g. an isolated
+// unit test) never throws on hover.
+const NOOP_TOOLTIP = { show() {}, hide() {} };
+
+const SHARED_TT_GAP = 8;   // px gap between the anchor and the tooltip box
+
+// Positioned tooltip box. Measures itself in a layout effect, then places itself
+// above the anchor (or below when there isn't room), horizontally centered and
+// clamped to the viewport. Starts hidden to avoid a one-frame flash at (0,0).
+const SharedTooltipBox = ({ content, rect, fontSize }) => {
+    const ref = React.useRef(null);
+    const [pos, setPos] = React.useState({ left: 0, top: 0, visible: false });
+    React.useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const tw = el.offsetWidth;
+        const th = el.offsetHeight;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cx = rect.left + rect.width / 2;
+        let left = cx - tw / 2;
+        left = Math.max(4, Math.min(left, vw - tw - 4));
+        let top;
+        if (rect.top - th - SHARED_TT_GAP >= 4) {
+            top = rect.top - th - SHARED_TT_GAP;          // above
+        } else {
+            top = rect.bottom + SHARED_TT_GAP;            // below
+            if (top + th > vh - 4) top = Math.max(4, vh - th - 4);
+        }
+        setPos({ left, top, visible: true });
+    }, [rect, content]);
+    return (
+        <div
+            ref={ref}
+            className="ts-shared-tooltip"
+            role="tooltip"
+            style={{
+                position: 'fixed',
+                left: pos.left,
+                top: pos.top,
+                fontSize,
+                maxWidth: 360,
+                zIndex: 1600,
+                pointerEvents: 'none',
+                visibility: pos.visible ? 'visible' : 'hidden',
+            }}
+        >
+            {content}
+        </div>
+    );
+};
+
+// Provider — owns the single tooltip's open state and the show/hide API. The API
+// object is referentially stable (memo, empty deps) so consuming BeadRows are NOT
+// re-rendered when the tooltip opens/closes — only this layer + the portal box re-render.
+const SharedTooltipLayer = ({ fontSize, children }) => {
+    const [tip, setTip] = useState(null);   // { content, rect } | null
+    const showTimer = React.useRef(null);
+    const hideTimer = React.useRef(null);
+    const api = useMemo(() => ({
+        show(content, anchorEl) {
+            if (!anchorEl || typeof anchorEl.getBoundingClientRect !== 'function') return;
+            const rect = anchorEl.getBoundingClientRect();
+            if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+            if (showTimer.current) clearTimeout(showTimer.current);
+            // Small enter delay so dragging the pointer across many chips doesn't
+            // flash a tooltip on each one (mirrors MUI's enterDelay feel).
+            showTimer.current = setTimeout(() => { setTip({ content, rect }); }, 60);
+        },
+        hide() {
+            if (showTimer.current) { clearTimeout(showTimer.current); showTimer.current = null; }
+            if (hideTimer.current) clearTimeout(hideTimer.current);
+            hideTimer.current = setTimeout(() => { setTip(null); }, 50);
+        },
+    }), []);
+    useEffect(() => () => {
+        if (showTimer.current) clearTimeout(showTimer.current);
+        if (hideTimer.current) clearTimeout(hideTimer.current);
+    }, []);
+    return (
+        <TooltipContext.Provider value={api}>
+            {children}
+            {tip && typeof document !== 'undefined' && createPortal(
+                <SharedTooltipBox content={tip.content} rect={tip.rect} fontSize={fontSize} />,
+                document.body,
+            )}
+        </TooltipContext.Provider>
+    );
+};
+
+// ─────────── Strip virtualization (req #2840) ────────────────────────────────
+// The Sidewalk/Elevator keep up to SIDEWALK_MAX_PANELS/ELEVATOR_MAX_PANELS day
+// panels in their `dates` array, but only a handful are ever on screen. Mounting
+// all of them produced 1400–6000 DOM nodes and busted scroll. These pure helpers
+// return the [start, end] index window that intersects the viewport (plus a
+// buffer); panels outside it render as zero-content placeholders of identical
+// size, so every offset/cumulative scroll calculation is unchanged. Exported for
+// unit-test coverage.
+
+// Uniform-width strip (Sidewalk). `offset` is the inner strip's translateX
+// (negative = scrolled right/forward). A panel occupies [i*panelWidth,
+// (i+1)*panelWidth); the viewport spans [-offset, -offset+frameWidth).
+export const sidewalkVisibleRange = (offset, panelWidth, frameWidth, count, buffer = 4) => {
+    if (count <= 0) return { start: 0, end: 0 };
+    if (!(panelWidth > 0) || !(frameWidth > 0)) return { start: 0, end: count - 1 };
+    const first = Math.floor(-offset / panelWidth);
+    const last  = Math.floor((-offset + frameWidth - 1) / panelWidth);
+    const start = Math.max(0, Math.min(count - 1, first - buffer));
+    const end   = Math.max(0, Math.min(count - 1, last + buffer));
+    return { start, end };
+};
+
+// Variable-height strip (Elevator). `cumulative[i]` is the top of panel i within
+// the strip and `heights[i]` its height; `offset` is the translateY (negative =
+// scrolled down). The viewport spans [-offset, -offset+viewportH).
+export const elevatorVisibleRange = (offset, cumulative, heights, viewportH, count, buffer = 4) => {
+    if (count <= 0) return { start: 0, end: 0 };
+    if (!cumulative || cumulative.length !== count || !(viewportH > 0)) {
+        return { start: 0, end: count - 1 };
+    }
+    const top = -offset;
+    const bottom = -offset + viewportH;
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < count; i++) {
+        const a = cumulative[i];
+        const b = a + heights[i];
+        if (b > top && a < bottom) {
+            if (first === -1) first = i;
+            last = i;
+        }
+    }
+    if (first === -1) {            // nothing intersects (degenerate) — keep the first panel
+        return { start: 0, end: 0 };
+    }
+    const start = Math.max(0, first - buffer);
+    const end   = Math.min(count - 1, last + buffer);
+    return { start, end };
+};
+
+// ─────────── Stable per-day bucket reconciliation (req #2840) ────────────────
+// req #2800 sliced the broad `requirements` array into one per-day bucket so each
+// 24h panel got only its own day's chips, letting BeadRow's React.memo skip
+// unchanged panels. But `bucketByDate` allocates a FRESH array for every non-empty
+// day on every call, so a single window refetch handed all ≤60 panels new array
+// references and busted the memo for all of them at once. reconcileBuckets keeps a
+// per-date signature and reuses the prior array reference when a day's requirement
+// content is unchanged, so a refetch only re-renders the panels whose day actually
+// changed. Pure (cache passed in, new cache returned) → exported for unit tests.
+export const bucketSignature = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return '';
+    // Every field BeadRow reads off a requirement, so a change to any of them
+    // produces a new signature and a genuine re-render.
+    return arr
+        .map(r => `${r.id}${r.completed_at}${r.requirement_status}${r.coordination_type}${r.category_fk}${r.title}`)
+        .join('');
+};
+
+export const reconcileBuckets = (prevCache, freshMap) => {
+    const cache = new Map();
+    const map = new Map();
+    for (const [date, arr] of freshMap) {
+        const sig = bucketSignature(arr);
+        const prev = prevCache && prevCache.get(date);
+        if (prev && prev.sig === sig) {
+            cache.set(date, prev);
+            map.set(date, prev.arr);
+        } else {
+            const entry = { sig, arr };
+            cache.set(date, entry);
+            map.set(date, arr);
+        }
+    }
+    return { map, cache };
+};
 
 // ─────────── Vertical start-bar x-position (Swarm mode) ─────────────────────
 // Returns the SVG x-coordinate string for the vertical start tick, or null
@@ -861,7 +1047,10 @@ const DayLabels = ({ labels, timezone, inlineCount = null }) => (
 // data per req #2777), only the 1–2 panels whose props actually change re-render.
 const BeadRow = React.memo(({
     requirements, sessions, categoryList, selectedDate, timezone,
-    beadWindow, tooltipFontSize, circleDiameter, spaceKey = 1,
+    // tooltipFontSize is no longer consumed here (req #2840 — the single shared
+    // tooltip at the TimeSeriesView root owns the font size); call sites may still
+    // pass it harmlessly.
+    beadWindow, circleDiameter, spaceKey = 1,
     zoomKey = DEFAULT_ZOOM,
     dataKey = DEFAULT_DATA_KEY,   // 'category' | 'coordination' — req #2382
     titlesOn = false,             // req #2556 — render req title to right of bubble
@@ -884,6 +1073,9 @@ const BeadRow = React.memo(({
     onCompleteClick,         // req #2497 — open the swarm-complete detail
     requirementById,         // req #2504 — Map<string reqId, requirement> for phantom tooltips
 }) => {
+    // Single shared hover tooltip (req #2840) — replaces the per-chip / per-anchor
+    // / per-cross-day MUI <Tooltip> Poppers. Chips below call tt.show/tt.hide.
+    const tt = React.useContext(TooltipContext) || NOOP_TOOLTIP;
     const window36h = beadWindow === '36h';
     // Week stack (req #2747) — the only mode with a single shared sticky time
     // axis at top:0 AND stacked day panels in page flow. Its per-panel date/count
@@ -1362,62 +1554,61 @@ const BeadRow = React.memo(({
                                 ? `${chromeOffset + laneCenter + barHalf}px`
                                 : `calc(100% - ${cd.lane * rowSpacing + bubbleOffset + circleDiameter / 2 - barHalf}px)`;
                             const card = cd.card;
+                            // Datacard built lazily — only constructed when the bar
+                            // is actually hovered (req #2840), not for every panel up
+                            // front. Fed to the single shared tooltip.
+                            const renderXdCard = () => (
+                                <Box className="ts-datacard" data-testid={`ts-datacard-xd-${card.id}-${cd.sessionId}`}>
+                                    <div className="ts-datacard-title">#{card.id} {card.title}</div>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Category</span>
+                                        <span>{card.categoryName || '—'}</span>
+                                    </div>
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">Autonomy</span>
+                                        <span>{formatCoordination(card.coordination_type)}</span>
+                                    </div>
+                                    {card.session && (
+                                        <div className="ts-datacard-row">
+                                            <span className="ts-datacard-key">Started</span>
+                                            <span>{formatCardDateTime(card.session.started_at, card.timezone)}</span>
+                                        </div>
+                                    )}
+                                    <div className="ts-datacard-row">
+                                        <span className="ts-datacard-key">{card.inProgress ? 'Status' : 'Closed'}</span>
+                                        <span>{card.inProgress ? 'in progress' : formatCardDateTime(card.completed_at, card.timezone)}</span>
+                                    </div>
+                                    {card.swarmStart && (
+                                        <div className="ts-datacard-row">
+                                            <span className="ts-datacard-key">Swarm-Start</span>
+                                            <span>
+                                                #{card.swarmStart.id}
+                                                {card.swarmStart.session_count != null
+                                                    ? ` · ${card.swarmStart.session_count} session${card.swarmStart.session_count === 1 ? '' : 's'}`
+                                                    : ''}
+                                                {card.swarmStart.wall_seconds != null
+                                                    ? ` · ${card.swarmStart.wall_seconds < 60
+                                                        ? `${card.swarmStart.wall_seconds}s`
+                                                        : `${Math.floor(card.swarmStart.wall_seconds / 60)}m ${card.swarmStart.wall_seconds % 60}s`}`
+                                                    : ''}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {card.session && (
+                                        <div className="ts-datacard-row">
+                                            <span className="ts-datacard-key">Session</span>
+                                            <span>#{card.session.id} · {card.session.swarm_status || '—'}</span>
+                                        </div>
+                                    )}
+                                </Box>
+                            );
                             return (
-                                <Tooltip
-                                    key={key}
-                                    arrow
-                                    slotProps={{
-                                        tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } },
-                                    }}
-                                    title={card ? (
-                                        <Box className="ts-datacard" data-testid={`ts-datacard-xd-${card.id}-${cd.sessionId}`}>
-                                            <div className="ts-datacard-title">#{card.id} {card.title}</div>
-                                            <div className="ts-datacard-row">
-                                                <span className="ts-datacard-key">Category</span>
-                                                <span>{card.categoryName || '—'}</span>
-                                            </div>
-                                            <div className="ts-datacard-row">
-                                                <span className="ts-datacard-key">Autonomy</span>
-                                                <span>{formatCoordination(card.coordination_type)}</span>
-                                            </div>
-                                            {card.session && (
-                                                <div className="ts-datacard-row">
-                                                    <span className="ts-datacard-key">Started</span>
-                                                    <span>{formatCardDateTime(card.session.started_at, card.timezone)}</span>
-                                                </div>
-                                            )}
-                                            <div className="ts-datacard-row">
-                                                <span className="ts-datacard-key">{card.inProgress ? 'Status' : 'Closed'}</span>
-                                                <span>{card.inProgress ? 'in progress' : formatCardDateTime(card.completed_at, card.timezone)}</span>
-                                            </div>
-                                            {card.swarmStart && (
-                                                <div className="ts-datacard-row">
-                                                    <span className="ts-datacard-key">Swarm-Start</span>
-                                                    <span>
-                                                        #{card.swarmStart.id}
-                                                        {card.swarmStart.session_count != null
-                                                            ? ` · ${card.swarmStart.session_count} session${card.swarmStart.session_count === 1 ? '' : 's'}`
-                                                            : ''}
-                                                        {card.swarmStart.wall_seconds != null
-                                                            ? ` · ${card.swarmStart.wall_seconds < 60
-                                                                ? `${card.swarmStart.wall_seconds}s`
-                                                                : `${Math.floor(card.swarmStart.wall_seconds / 60)}m ${card.swarmStart.wall_seconds % 60}s`}`
-                                                            : ''}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {card.session && (
-                                                <div className="ts-datacard-row">
-                                                    <span className="ts-datacard-key">Session</span>
-                                                    <span>#{card.session.id} · {card.session.swarm_status || '—'}</span>
-                                                </div>
-                                            )}
-                                        </Box>
-                                    ) : ''}
-                                >
-                                    <g data-testid={`ts-swarm-start-xd-${cd.sessionId}`}
+                                    <g key={key}
+                                       data-testid={`ts-swarm-start-xd-${cd.sessionId}`}
                                        data-real={card?.swarmStartId ? '1' : '0'}
                                        style={{ cursor: card?.swarmStartId ? 'pointer' : 'default' }}
+                                       onMouseEnter={card ? (e) => tt.show(renderXdCard(), e.currentTarget) : undefined}
+                                       onMouseLeave={card ? tt.hide : undefined}
                                        onClick={card?.swarmStartId != null
                                            ? () => onSwarmStartClick && onSwarmStartClick(card.swarmStartId)
                                            : undefined}>
@@ -1446,7 +1637,6 @@ const BeadRow = React.memo(({
                                             fill="transparent" pointerEvents="all"
                                         />
                                     </g>
-                                </Tooltip>
                             );
                         }
                         return null;
@@ -1649,7 +1839,9 @@ const BeadRow = React.memo(({
                         ? `${ss.wall_seconds}s`
                         : `${Math.floor(ss.wall_seconds / 60)}m ${ss.wall_seconds % 60}s`)
                     : null;
-                const title = isReal && ss ? (
+                // Built lazily — only on hover (req #2840), consistent with the
+                // chip and cross-day datacards.
+                const renderAnchorCard = () => (isReal && ss ? (
                     <Box className="ts-datacard" data-testid={`ts-datacard-swarm-start-hit-${chip.chipKey}`}>
                         <div className="ts-datacard-title">Swarm-Start #{ss.id}</div>
                         <div className="ts-datacard-row">
@@ -1695,17 +1887,14 @@ const BeadRow = React.memo(({
                             <span>{formatCardDateTime(chip.groupKey || chip.session?.started_at, timezone)}</span>
                         </div>
                     </Box>
-                );
+                ));
                 return (
-                    <Tooltip
-                        key={`anchor-hit-${chip.chipKey}`}
-                        arrow
-                        slotProps={{ tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } } }}
-                        title={title}
-                    >
                         <Box
+                            key={`anchor-hit-${chip.chipKey}`}
                             data-testid={`ts-swarm-start-hit-${chip.chipKey}`}
                             data-real={isReal ? '1' : '0'}
+                            onMouseEnter={(e) => tt.show(renderAnchorCard(), e.currentTarget)}
+                            onMouseLeave={tt.hide}
                             // Real anchors open the single swarm-start detail
                             // (req #2747); estimated anchors have no row to open.
                             onClick={isReal && chip.swarmStartId != null
@@ -1721,7 +1910,6 @@ const BeadRow = React.memo(({
                                 ...yStyle,
                             }}
                         />
-                    </Tooltip>
                 );
             })}
 
@@ -1732,14 +1920,10 @@ const BeadRow = React.memo(({
                 pays the same lane/cluster math, and inherits hover/datacard
                 identically. */}
 
-            {placed.map(chip => (
-                <Tooltip
-                    key={chip.chipKey || chip.id}
-                    arrow
-                    slotProps={{
-                        tooltip: { sx: { fontSize: tooltipFontSize, maxWidth: 360, p: 1.25 } },
-                    }}
-                    title={
+            {placed.map(chip => {
+                // Datacard built lazily — constructed only when this chip is
+                // hovered (req #2840), then handed to the single shared tooltip.
+                const renderChipCard = () => (
                         <Box className="ts-datacard" data-testid={`ts-datacard-${chip.chipKey || chip.id}`}>
                             <div className="ts-datacard-title">
                                 {chip.id != null ? `#${chip.id} ` : ''}{chip.title}
@@ -1848,13 +2032,16 @@ const BeadRow = React.memo(({
                                 </div>
                             )}
                         </Box>
-                    }
-                >
+                );
+                return (
                     <Box
+                        key={chip.chipKey || chip.id}
                         className={`ts-bead-group${chip.isPhantom ? ' ts-bead-group-phantom' : ''}`}
                         data-testid={`ts-chip-${chip.chipKey || chip.id}`}
                         data-reqid={chip.id ?? undefined}
                         data-phantom={chip.isPhantom ? '1' : undefined}
+                        onMouseEnter={(e) => tt.show(renderChipCard(), e.currentTarget)}
+                        onMouseLeave={tt.hide}
                         style={{
                             // Clamp the X position so chips at panel edges (00:00 /
                             // 23:59 day boundaries) never half-clip into the chrome
@@ -2068,8 +2255,8 @@ const BeadRow = React.memo(({
                             </span>
                         )}
                     </Box>
-                </Tooltip>
-            ))}
+                );
+            })}
 
             {/* Count pill is carried by the sticky header (Week stack) or inline to
                 the left of the date in DayLabels (Day / Sidewalk / Elevator) — the
@@ -2094,6 +2281,10 @@ BeadRow.displayName = 'BeadRow';
 const SIDEWALK_BUFFER_THRESHOLD = 5;
 const SIDEWALK_EXTEND_BY = 10;
 const SIDEWALK_MAX_PANELS = 60;
+// req #2840 — virtualization buffer: how many off-screen panels to keep mounted
+// on each side of the visible window so a fast fling never reveals a blank panel
+// before the range update lands.
+const SIDEWALK_VIS_BUFFER = 4;
 
 const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowProps }) => {
     const { requirements, sessions, timezone, circleDiameter, spaceKey, beadWindow,
@@ -2118,6 +2309,15 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // every extension (which would trash in-progress drag state).
     const datesRef = React.useRef(dates);
     const [frameWidth, setFrameWidth] = React.useState(0);
+    // req #2840 — virtualization window: indices into `dates` that are mounted as
+    // real BeadRows; everything else renders a same-width empty placeholder. The
+    // initial strip is centeredDateRange(centerDate, 10) → 21 panels with the
+    // focus day at index 10, so seed a window around it; the scroll handlers and
+    // the geometry effect keep it current from there.
+    const [visRange, setVisRange] = React.useState(() => ({
+        start: Math.max(0, 10 - SIDEWALK_VIS_BUFFER),
+        end: 10 + SIDEWALK_VIS_BUFFER,
+    }));
 
     // req #2823 follow-up — sub-day horizontal zoom. A day panel still represents
     // a full 24h (BeadRow's sidewalkPanel path is unconditionally 24h, and every
@@ -2205,12 +2405,34 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     // anything else that calls setDates (e.g., the centerDate rebuild path).
     React.useLayoutEffect(() => { datesRef.current = dates; }, [dates]);
 
+    // req #2840 — recompute the mounted-panel window from the live offset and
+    // only re-render when it actually shifts (functional update returns the prior
+    // object reference to bail out). Called from applyOffset (once per scroll
+    // frame, O(1)) and from the geometry effect below. Reads refs/state so the
+    // captured copy inside the drag effect always sees current values.
+    const updateVisibleRange = () => {
+        const cur = datesRef.current;
+        const r = sidewalkVisibleRange(
+            offsetRef.current, panelWidth, frameWidth, cur.length, SIDEWALK_VIS_BUFFER,
+        );
+        setVisRange(prev => (prev.start === r.start && prev.end === r.end) ? prev : r);
+    };
+
     // Apply a translateX to the inner strip without triggering React re-renders
     // — keeps drag at native-refresh smoothness.
     const applyOffset = (x) => {
         offsetRef.current = x;
         if (innerRef.current) innerRef.current.style.transform = `translate3d(${x}px,0,0)`;
+        updateVisibleRange();
     };
+
+    // req #2840 — recompute the window after a non-scroll geometry change
+    // (extend/prune changes `dates`; a measure/zoom changes panelWidth/frameWidth).
+    // Scroll itself is handled by applyOffset.
+    React.useEffect(() => {
+        updateVisibleRange();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dates, panelWidth, frameWidth]);
 
     const stopAnim = () => {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -2327,7 +2549,12 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
             datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
-            requestAnimationFrame(() => applyOffset(-rebuilt.indexOf(centerDate) * panelWidth));
+            // req #2840 — seed the virtualization window on the new center index
+            // synchronously so the focus panel mounts in the same commit as the
+            // rebuilt dates (the rAF below then corrects the offset + range).
+            const newIdx = rebuilt.indexOf(centerDate);
+            setVisRange({ start: Math.max(0, newIdx - SIDEWALK_VIS_BUFFER), end: newIdx + SIDEWALK_VIS_BUFFER });
+            requestAnimationFrame(() => applyOffset(-newIdx * panelWidth));
             return;
         }
         lastReported.current = centerDate;
@@ -2457,21 +2684,31 @@ const Sidewalk = ({ centerDate, onCenterDateChange, requirementsByDate, ...rowPr
     return (
         <Box className="ts-sidewalk" data-testid="ts-sidewalk" ref={frameRef}>
             <Box className="ts-sidewalk-inner" ref={innerRef}>
-                {dates.map(d => (
-                    <Box key={d} className="ts-sidewalk-panel" data-date={d}
-                         style={{ width: panelWidth || '100%', flex: `0 0 ${panelWidth || 1}px` }}>
-                        {/* Per-day slice (req #2800) — overrides the full
-                            `requirements` carried in rowProps so unchanged/empty
-                            panels keep a stable prop reference and BeadRow's memo
-                            engages across a window refetch. */}
-                        <BeadRow selectedDate={d}
-                                 sidewalkPanel={true}
-                                 sidewalkHeight={sidewalkHeight}
-                                 {...rowProps}
-                                 crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
-                                 requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
-                    </Box>
-                ))}
+                {dates.map((d, i) => {
+                    const panelStyle = { width: panelWidth || '100%', flex: `0 0 ${panelWidth || 1}px` };
+                    // req #2840 — virtualization: only mount a real BeadRow for
+                    // panels inside the visible window; the rest are same-width
+                    // empty placeholders so the offset/stride scroll math is
+                    // byte-for-byte unchanged but the off-screen SVG trees (and
+                    // their 1400–6000 DOM nodes) never mount.
+                    if (i < visRange.start || i > visRange.end) {
+                        return <Box key={d} className="ts-sidewalk-panel" data-date={d} style={panelStyle} />;
+                    }
+                    return (
+                        <Box key={d} className="ts-sidewalk-panel" data-date={d} style={panelStyle}>
+                            {/* Per-day slice (req #2800) — overrides the full
+                                `requirements` carried in rowProps so unchanged/empty
+                                panels keep a stable prop reference and BeadRow's memo
+                                engages across a window refetch. */}
+                            <BeadRow selectedDate={d}
+                                     sidewalkPanel={true}
+                                     sidewalkHeight={sidewalkHeight}
+                                     {...rowProps}
+                                     crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
+                                     requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
+                        </Box>
+                    );
+                })}
             </Box>
         </Box>
     );
@@ -2532,6 +2769,8 @@ export const anchorDelta = (prev, next, currentOffset, topEps = ELEVATOR_TOP_EPS
 const ELEVATOR_BUFFER_THRESHOLD = 5;
 const ELEVATOR_EXTEND_BY = 10;
 const ELEVATOR_MAX_PANELS = 60;
+// req #2840 — virtualization buffer (vertical analog of SIDEWALK_VIS_BUFFER).
+const ELEVATOR_VIS_BUFFER = 4;
 
 // Base floor height for an Elevator day panel (px). Intentionally low — comfortably
 // clears the compact top chrome (req #2744: date row + wire ≈ 46px) plus breathing room.
@@ -2591,6 +2830,16 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
     // drag effect on every extension (req #2779, mirrors Sidewalk's datesRef).
     const datesRef = React.useRef(dates);
     const [frameHeight, setFrameHeight] = React.useState(0);
+    // req #2840 — virtualization window (mirrors the Sidewalk). cappedCenteredRange
+    // keeps the 10 days BEFORE centerDate (the past is never capped), so the focus
+    // day always lands at index 10; future-capping only trims the tail. Seed a
+    // window covering the focus panel and several below it (the focus sits at the
+    // top of the frame, so the visible panels run downward from it); the placement
+    // + geometry effects correct it once frameHeight is measured.
+    const [visRange, setVisRange] = React.useState(() => ({
+        start: Math.max(0, 10 - ELEVATOR_VIS_BUFFER),
+        end: 10 + ELEVATOR_VIS_BUFFER + 6,
+    }));
 
     // Per-date max stack row — reproduces BeadRow's placement: one-lane-per-chip
     // (maxRow = chips − 1). The chip count must include the in-progress phantom
@@ -2705,10 +2954,35 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
         }
     }, []);
 
+    // req #2840 — recompute the mounted-panel window from the live offset +
+    // current panel geometry; only re-render when it shifts. Reads panelGeomRef
+    // (always latest) so the copy captured by the drag effect stays correct after
+    // an extend/prune/refetch resizes panels.
+    const updateVisibleRange = () => {
+        if (frameHeight === 0) return;                 // keep the seed until measured
+        const g = panelGeomRef.current;
+        const cur = datesRef.current;
+        if (!g || g.heights.length !== cur.length) return;   // geometry not yet synced
+        const viewportH = Math.max(0, frameHeight - ELEVATOR_TOP_AXIS_PX);
+        const r = elevatorVisibleRange(
+            offsetRef.current, g.cumulative, g.heights, viewportH, cur.length, ELEVATOR_VIS_BUFFER,
+        );
+        setVisRange(prev => (prev.start === r.start && prev.end === r.end) ? prev : r);
+    };
+
     const applyOffset = (y) => {
         offsetRef.current = y;
         if (innerRef.current) innerRef.current.style.transform = `translate3d(0,${y}px,0)`;
+        updateVisibleRange();
     };
+
+    // req #2840 — recompute after a non-scroll geometry change: extend/prune
+    // changes `dates`→`panelGeom`; a data refetch resizes panels (panelGeom);
+    // the first measure sets frameHeight. Scroll itself is handled by applyOffset.
+    React.useEffect(() => {
+        updateVisibleRange();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [panelGeom, frameHeight]);
 
     const stopAnim = () => {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -2888,6 +3162,13 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
             datesRef.current = rebuilt;
             setDates(rebuilt);
             lastReported.current = centerDate;
+            // req #2840 — seed the virtualization window on the new focus index so
+            // the focus panel mounts in the same commit as the rebuilt dates (the
+            // focus sits at the top, so mount it and several below); the rAF below
+            // then corrects the offset and the geometry effect refines the range.
+            const seedIdx = rebuilt.indexOf(effCenter);
+            const seed = seedIdx >= 0 ? seedIdx : rebuilt.length - 1;
+            setVisRange({ start: Math.max(0, seed - ELEVATOR_VIS_BUFFER), end: seed + ELEVATOR_VIS_BUFFER + 6 });
             requestAnimationFrame(() => {
                 const dr = datesRef.current;
                 const newIdx = dr.indexOf(effCenter);
@@ -3028,19 +3309,28 @@ const Elevator = ({ centerDate, onCenterDateChange, sharedTicks, requirementsByD
                 so dates/bubbles never slide under the bar). */}
             <SharedTimeline variant="elevator" ticks={sharedTicks} />
             <Box className="ts-elevator-inner" ref={innerRef}>
-                {dates.map((d, i) => (
-                    <Box key={d} className="ts-elevator-panel" data-date={d}
-                         style={{ height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` }}>
-                        {/* Per-day slice (req #2800) — see Sidewalk note above. */}
-                        <BeadRow selectedDate={d}
-                                 sidewalkPanel={true}
-                                 hideTimeline={true}
-                                 sidewalkHeight={panelHeights[i]}
-                                 {...rowProps}
-                                 crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
-                                 requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
-                    </Box>
-                ))}
+                {dates.map((d, i) => {
+                    const panelStyle = { height: panelHeights[i], flex: `0 0 ${panelHeights[i]}px` };
+                    // req #2840 — virtualization: off-window panels render as
+                    // same-height empty placeholders so every cumulative-offset /
+                    // anchorDelta / maybeExtend calculation is unchanged, but the
+                    // off-screen SVG trees never mount.
+                    if (i < visRange.start || i > visRange.end) {
+                        return <Box key={d} className="ts-elevator-panel" data-date={d} style={panelStyle} />;
+                    }
+                    return (
+                        <Box key={d} className="ts-elevator-panel" data-date={d} style={panelStyle}>
+                            {/* Per-day slice (req #2800) — see Sidewalk note above. */}
+                            <BeadRow selectedDate={d}
+                                     sidewalkPanel={true}
+                                     hideTimeline={true}
+                                     sidewalkHeight={panelHeights[i]}
+                                     {...rowProps}
+                                     crossDays={crossDayMap.get(d) || EMPTY_CROSS_DAYS}
+                                     requirements={requirementsByDate?.get(d) || EMPTY_REQS} />
+                        </Box>
+                    );
+                })}
             </Box>
         </Box>
     );
@@ -3129,10 +3419,21 @@ const TimeSeriesView = ({
     // React.memo (req #2796) and re-rendering every panel's SVG in a single
     // synchronous task — the 'message'/'setTimeout' long-task violations in
     // req #2800.
-    const requirementsByDate = useMemo(
-        () => bucketByDate(requirements, timezone),
-        [requirements, timezone],
-    );
+    // req #2840 — stabilize the per-day array references across a refetch. The
+    // raw bucketByDate allocates a fresh array for EVERY non-empty day on every
+    // call, so a single window refetch handed all ≤60 panels new `requirements`
+    // refs and busted BeadRow's React.memo for every one of them at once. The
+    // ref-cached reconcileBuckets reuses the prior array for any day whose
+    // requirement content (signature) is unchanged, so a refetch now only
+    // re-renders the panels whose day actually changed. Empty days still fall to
+    // the shared stable EMPTY_REQS in the strips.
+    const bucketCacheRef = React.useRef(new Map());
+    const requirementsByDate = useMemo(() => {
+        const fresh = bucketByDate(requirements, timezone);
+        const { map, cache } = reconcileBuckets(bucketCacheRef.current, fresh);
+        bucketCacheRef.current = cache;
+        return map;
+    }, [requirements, timezone]);
 
     // Swarm start-time clustering (req #2341 + req #2504). Real swarm_start
     // data wins when present (junction row + swarm_start.started_at); the
@@ -3307,6 +3608,7 @@ const TimeSeriesView = ({
     ));
 
     return (
+        <SharedTooltipLayer fontSize={tooltipFontSize}>
         <Box className="ts-view" data-testid="time-series-view" data-week={isWeekView ? '1' : '0'}>
             {/* Rows — one BeadRow for day/month, seven stacked for week, OR a
                 horizontally-scrolling Sidewalk for Day + sidewalkOn, OR a
@@ -3401,6 +3703,7 @@ const TimeSeriesView = ({
                 </Box>
             )}
         </Box>
+        </SharedTooltipLayer>
     );
 };
 
