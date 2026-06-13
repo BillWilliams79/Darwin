@@ -2,12 +2,14 @@ import '../index.css';
 import AuthContext from '../Context/AuthContext';
 import { useSessions, useDevServers, useAllSwarmStartSessions } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
+import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { formatDuration } from '../utils/formatDuration';
 import { renderSourceRef } from './repoGitHubMap.jsx';
+import SessionsStatsView from './SessionsStatsView';
 import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,8 +19,15 @@ import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography } from '@mui/material';
+
+const SESSIONS_VIEW_STORAGE_KEY = 'darwin-swarm-sessions-view';
 
 // Render a chip for source_ref values matching `requirement:N` (clickable,
 // primary-color, navigates to the requirement detail). For other shapes
@@ -189,6 +198,10 @@ const SessionsView = () => {
     const sessionStatusFilter = useShowClosedStore(s => s.sessionStatusFilter);
     const toggleSessionStatus = useShowClosedStore(s => s.toggleSessionStatus);
 
+    // View toggle (Table | Stats) — req #2825.
+    const [view, setView] = useViewPreference(SESSIONS_VIEW_STORAGE_KEY, 'table');
+    const handleViewChange = (_event, newView) => setView(newView);
+
     const devServerMap = useMemo(() => {
         if (!devServersData) return {};
         const map = {};
@@ -233,33 +246,56 @@ const SessionsView = () => {
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                <ToggleButtonGroup
+                    value={view}
+                    exclusive
+                    onChange={handleViewChange}
+                    size="small"
+                    sx={{ flexShrink: 0 }}
+                    data-testid="sessions-view-toggle"
+                >
+                    <Tooltip title="Table View">
+                        <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
+                            <TableChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                    <Tooltip title="Stats View">
+                        <ToggleButton value="stats" data-testid="view-toggle-stats" sx={{ px: 2 }}>
+                            <BarChartIcon fontSize="small" />
+                        </ToggleButton>
+                    </Tooltip>
+                </ToggleButtonGroup>
                 <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Swarm Sessions</Typography>
-                <Stack direction="row" spacing={0.5} data-testid="session-status-filter">
-                    {ALL_SESSION_STATUSES.map(status => {
-                        const selected = sessionStatusFilter.includes(status);
-                        const chipProps = swarmStatusChipProps(status);
-                        return (
-                            <Chip
-                                key={status}
-                                label={swarmStatusLabel(status)}
-                                size="small"
-                                onClick={() => toggleSessionStatus(status)}
-                                {...(selected ? chipProps : { variant: 'outlined' })}
-                                sx={{
-                                    ...(selected ? chipProps.sx : {}),
-                                    ...(!selected && { opacity: 0.5 }),
-                                    cursor: 'pointer',
-                                    textTransform: 'capitalize',
-                                }}
-                                data-testid={`filter-chip-${status}`}
-                            />
-                        );
-                    })}
-                </Stack>
+                {view === 'table' && (
+                    <Stack direction="row" spacing={0.5} data-testid="session-status-filter">
+                        {ALL_SESSION_STATUSES.map(status => {
+                            const selected = sessionStatusFilter.includes(status);
+                            const chipProps = swarmStatusChipProps(status);
+                            return (
+                                <Chip
+                                    key={status}
+                                    label={swarmStatusLabel(status)}
+                                    size="small"
+                                    onClick={() => toggleSessionStatus(status)}
+                                    {...(selected ? chipProps : { variant: 'outlined' })}
+                                    sx={{
+                                        ...(selected ? chipProps.sx : {}),
+                                        ...(!selected && { opacity: 0.5 }),
+                                        cursor: 'pointer',
+                                        textTransform: 'capitalize',
+                                    }}
+                                    data-testid={`filter-chip-${status}`}
+                                />
+                            );
+                        })}
+                    </Stack>
+                )}
             </Box>
 
             {!sessionsArray ? (
                 <CircularProgress />
+            ) : view === 'stats' ? (
+                <SessionsStatsView rows={enrichedSessions || []} />
             ) : isMobile ? (
                 <Box data-testid="sessions-datagrid">
                     {sortedSessions.length === 0 ? (
