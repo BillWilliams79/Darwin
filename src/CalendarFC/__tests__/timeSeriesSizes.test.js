@@ -10,6 +10,7 @@ import {
     SWARM_CLUSTER_WINDOW_MS, clusterSessionsByStartTime, clusterSessionsBySwarmStart,
     DATA_KEYS, DEFAULT_DATA_KEY, COORDINATION_COLORS,
     COORDINATION_FALLBACK_COLOR, getCoordinationColor,
+    PHASE_SEGMENTS, PHASE_UNCLASSIFIED_COLOR, computePhaseSegments,
 } from '../timeSeriesSizes';
 
 describe('Font size option A/B/C/D', () => {
@@ -1160,5 +1161,96 @@ describe('isHiddenSwarmStatus (phantom-chip skip filter, req #2650)', () => {
         // act when a real "do not phantom this" case appears.
         expect(isHiddenSwarmStatus('queued')).toBe(false);
         expect(isHiddenSwarmStatus('blocked')).toBe(false);
+    });
+});
+
+// req #2823 — phase-duration segmentation of the swarm duration line.
+describe('PHASE_SEGMENTS config', () => {
+    it('lists the agentic block before the human block', () => {
+        const families = PHASE_SEGMENTS.map(p => p.family);
+        const firstHuman = families.indexOf('human');
+        const lastAgentic = families.lastIndexOf('agentic');
+        expect(firstHuman).toBeGreaterThan(lastAgentic);
+    });
+
+    it('covers exactly the seven session phase buckets', () => {
+        expect(PHASE_SEGMENTS.map(p => p.key)).toEqual([
+            'starting_secs', 'planning_secs', 'implementing_secs', 'completion_secs',
+            'waiting_secs', 'review_secs', 'paused_secs',
+        ]);
+    });
+
+    it('gives every phase a distinct hex colour, none equal to unclassified gray', () => {
+        const colors = PHASE_SEGMENTS.map(p => p.color);
+        expect(new Set(colors).size).toBe(colors.length);
+        expect(colors).not.toContain(PHASE_UNCLASSIFIED_COLOR);
+        for (const c of colors) expect(c).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    });
+});
+
+describe('computePhaseSegments (req #2823)', () => {
+    const instrumented = {
+        instrumented: 1,
+        starting_secs: 10, planning_secs: 0, implementing_secs: 60,
+        completion_secs: 0, waiting_secs: 0, review_secs: 30, paused_secs: 0,
+    };
+
+    it('returns unclassified when session is null', () => {
+        expect(computePhaseSegments(null, 0, 100)).toEqual({ classified: false, segments: [] });
+    });
+
+    it('returns unclassified when startPct/endPct missing', () => {
+        expect(computePhaseSegments(instrumented, null, 100).classified).toBe(false);
+        expect(computePhaseSegments(instrumented, 0, null).classified).toBe(false);
+    });
+
+    it('returns unclassified for a legacy (instrumented=0) session', () => {
+        const legacy = { instrumented: 0, legacy_secs: 500, implementing_secs: 0 };
+        expect(computePhaseSegments(legacy, 0, 100)).toEqual({ classified: false, segments: [] });
+    });
+
+    it('returns unclassified when every bucket is zero', () => {
+        const empty = { instrumented: 1, starting_secs: 0, implementing_secs: 0, review_secs: 0 };
+        expect(computePhaseSegments(empty, 0, 100).classified).toBe(false);
+    });
+
+    it('accepts instrumented as 1, true, or "1"', () => {
+        for (const v of [1, true, '1']) {
+            expect(computePhaseSegments({ ...instrumented, instrumented: v }, 0, 100).classified).toBe(true);
+        }
+    });
+
+    it('emits one segment per NON-ZERO bucket, in PHASE_SEGMENTS order', () => {
+        const { classified, segments } = computePhaseSegments(instrumented, 0, 100);
+        expect(classified).toBe(true);
+        expect(segments.map(s => s.key)).toEqual([
+            'starting_secs', 'implementing_secs', 'review_secs',
+        ]);
+    });
+
+    it('splits the span proportionally to each bucket', () => {
+        // 10 / 60 / 30 of 100 total → widths 10 / 60 / 30 across [0,100].
+        const { segments } = computePhaseSegments(instrumented, 0, 100);
+        expect(segments[0].x1Pct).toBeCloseTo(0);
+        expect(segments[0].x2Pct).toBeCloseTo(10);
+        expect(segments[1].x1Pct).toBeCloseTo(10);
+        expect(segments[1].x2Pct).toBeCloseTo(70);
+        expect(segments[2].x1Pct).toBeCloseTo(70);
+        expect(segments[2].x2Pct).toBeCloseTo(100);
+    });
+
+    it('respects a non-zero start offset and pins the last segment to endPct', () => {
+        const { segments } = computePhaseSegments(instrumented, 20, 80);
+        expect(segments[0].x1Pct).toBeCloseTo(20);
+        expect(segments[segments.length - 1].x2Pct).toBe(80);
+    });
+
+    it('carries family + color through onto each segment', () => {
+        const { segments } = computePhaseSegments(instrumented, 0, 100);
+        const impl = segments.find(s => s.key === 'implementing_secs');
+        expect(impl.family).toBe('agentic');
+        expect(impl.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+        const review = segments.find(s => s.key === 'review_secs');
+        expect(review.family).toBe('human');
     });
 });

@@ -31,6 +31,9 @@ export const migrateVisualizerState = (persisted) => {
         titlesOn: rest.titlesOn ?? false,
         // v3 → v4: req #2790 completesOn (off by default).
         completesOn: rest.completesOn ?? false,
+        // v6 → v7: req #2823 phasesOn (off by default) — segment the duration
+        // line by session phase-duration buckets.
+        phasesOn: rest.phasesOn ?? false,
     };
 };
 
@@ -45,6 +48,7 @@ export const useSwarmVisualizerStore = create(
             dataKey: 'category',         // 'category' | 'coordination' — req #2382
             titlesOn: false,             // show requirement title to right of bubble — req #2556
             completesOn: false,          // show completion-terminus badge — req #2790 (off by default)
+            phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
 
             setViewType: (viewType) => set({ viewType }),
             setCurrentDate: (currentDate) => set({ currentDate }),
@@ -55,6 +59,7 @@ export const useSwarmVisualizerStore = create(
                 set({ dataKey: key === 'coordination' ? 'coordination' : 'category' }),
             setTitlesOn: (on) => set({ titlesOn: !!on }),
             setCompletesOn: (on) => set({ completesOn: !!on }),
+            setPhasesOn: (on) => set({ phasesOn: !!on }),
         }),
         {
             name: 'darwin_swarm_visualizer',
@@ -63,7 +68,8 @@ export const useSwarmVisualizerStore = create(
             // version forces migrate to run once for existing users so a stale
             // date OR a persisted vizKey already in localStorage is stripped on
             // first load.
-            version: 6,
+            // v6 → v7 (req #2823): phasesOn added; migrate back-fills it to false.
+            version: 7,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,

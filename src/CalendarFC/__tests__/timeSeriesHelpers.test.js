@@ -15,6 +15,7 @@ import {
     assignSwarmLanes,
     buildCrossDayGhosts,
     buildCrossDayMap,
+    sidewalkPanelScale,
 } from '../TimeSeriesView';
 import { getSpaceMultiplier } from '../timeSeriesSizes';
 
@@ -953,5 +954,28 @@ describe('buildCrossDayGhosts (req #2747)', () => {
         const ghosts = buildCrossDayGhosts(
             [{ sessionId: 9, role: 'middle', groupKey: 'g', completedAt: 't' }]);
         expect(ghosts[0].id).toBeNull();
+    });
+});
+
+// req #2823 follow-up — Sidewalk sub-day horizontal zoom multiplier.
+describe('sidewalkPanelScale', () => {
+    it('maps 6h → 4× and 12h → 2×', () => {
+        expect(sidewalkPanelScale('6h')).toBe(4);
+        expect(sidewalkPanelScale('12h')).toBe(2);
+    });
+
+    it('is 1× (unchanged) for 24h, 36h, and any other value', () => {
+        expect(sidewalkPanelScale('24h')).toBe(1);
+        expect(sidewalkPanelScale('36h')).toBe(1);
+        expect(sidewalkPanelScale(undefined)).toBe(1);
+        expect(sidewalkPanelScale(null)).toBe(1);
+        expect(sidewalkPanelScale('bogus')).toBe(1);
+    });
+
+    it('panelWidth = frameWidth × scale preserves 24h pixel stride', () => {
+        const frameWidth = 900;
+        expect(frameWidth * sidewalkPanelScale('24h')).toBe(900);
+        expect(frameWidth * sidewalkPanelScale('12h')).toBe(1800);
+        expect(frameWidth * sidewalkPanelScale('6h')).toBe(3600);
     });
 });

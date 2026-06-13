@@ -47,6 +47,7 @@ const VisualizerToolbar = () => {
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
+    const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
@@ -55,6 +56,7 @@ const VisualizerToolbar = () => {
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
     const setCompletesOn = useSwarmVisualizerStore(s => s.setCompletesOn);
+    const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
 
     const isWeekView = viewType === 'week';
     const todayStr = useMemo(() => localDateStr(), []);
@@ -106,10 +108,22 @@ const VisualizerToolbar = () => {
         setCompletesOn(!completesOn);
     }, [completesOn, setCompletesOn]);
 
+    const handlePhasesClick = useCallback(() => {
+        setPhasesOn(!phasesOn);
+    }, [phasesOn, setPhasesOn]);
+
     // Auto-off sidewalk/elevator when the active layout stops applying.
     React.useEffect(() => {
         if (isWeekView && sidewalkOn) setSidewalkOn(false);
     }, [isWeekView, sidewalkOn, setSidewalkOn]);
+    // The 6h/12h sub-day zooms only exist in Sidewalk (req #2823 follow-up). If
+    // Sidewalk turns off while one is selected, fall back to 24h so the non-
+    // sidewalk render paths never see a sub-day window.
+    React.useEffect(() => {
+        if (!sidewalkOn && (beadWindow === '6h' || beadWindow === '12h')) {
+            setBeadWindow('24h');
+        }
+    }, [sidewalkOn, beadWindow, setBeadWindow]);
     React.useEffect(() => {
         if (!isWeekView && elevatorOn) setElevatorOn(false);
     }, [isWeekView, elevatorOn, setElevatorOn]);
@@ -129,6 +143,24 @@ const VisualizerToolbar = () => {
             </Button>
             <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
                                data-testid="timeseries-group">
+                {/* 6h / 12h sub-day zooms — Sidewalk-only (req #2823 follow-up).
+                    They widen each day panel so the strip scrolls through a slice
+                    of the day, spreading chips + phase segments out. Disabled
+                    outside Sidewalk, where a sub-day window would clip the day. */}
+                <ToggleButton value="6h" className="cal-toggle-btn"
+                              selected={beadWindow === '6h' && sidewalkOn}
+                              disabled={!sidewalkOn}
+                              onChange={() => setBeadWindow('6h')}
+                              data-testid="timeseries-window-6h">
+                    6h
+                </ToggleButton>
+                <ToggleButton value="12h" className="cal-toggle-btn"
+                              selected={beadWindow === '12h' && sidewalkOn}
+                              disabled={!sidewalkOn}
+                              onChange={() => setBeadWindow('12h')}
+                              data-testid="timeseries-window-12h">
+                    12h
+                </ToggleButton>
                 <ToggleButton value="24h" className="cal-toggle-btn"
                               selected={beadWindow === '24h'}
                               onChange={() => setBeadWindow('24h')}
@@ -173,6 +205,12 @@ const VisualizerToolbar = () => {
                               onChange={handleCompletesClick}
                               data-testid="timeseries-completes">
                     Done
+                </ToggleButton>
+                <ToggleButton value="phases" className="cal-toggle-btn"
+                              selected={phasesOn}
+                              onChange={handlePhasesClick}
+                              data-testid="timeseries-phases">
+                    Phases
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
