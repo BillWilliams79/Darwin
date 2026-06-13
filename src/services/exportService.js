@@ -2,7 +2,9 @@ import call_rest_api from '../RestApi/RestApi';
 
 /**
  * Fetch all user data for selected apps and assemble into nested hierarchy.
- * @param {string} darwinUri - API base URL (dev-mode = darwin_dev; honors the dev/prod split for USER-data AND operational tables per req #2829)
+ * @param {string} darwinUri - API base URL (dev-mode = darwin_dev, prod = darwin).
+ *   Used for every table including the operational ones (req #2837/#2829 — swarm_sessions
+ *   now honors the dev/prod split, completing the req #2827/#2834 sweep).
  * @param {string} userName - Cognito username (creator_fk filter)
  * @param {string} idToken - Auth token
  * @param {object} profile - User profile object
@@ -218,9 +220,8 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
         const [requirements, swarmSessions, projects, categories,
                features, testCases, testPlans] = await Promise.all([
             safeGet(`${darwinUri}/requirements`),
-            // Req #2829 — `swarm_sessions` follows the dev/prod split via `darwinUri`
-            // (completes req #2827): dev exports seeded `darwin_dev` sessions, prod
-            // exports production `darwin` (where `darwinUri === darwinOpsUri`).
+            // Req #2837/#2829 — `swarm_sessions` now follows the dev/prod split like
+            // every other table, so the dev export reads the seeded `darwin_dev` rows.
             safeGet(`${darwinUri}/swarm_sessions`),
             safeGet(`${darwinUri}/projects`),
             safeGet(`${darwinUri}/categories`),

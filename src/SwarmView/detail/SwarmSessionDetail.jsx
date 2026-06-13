@@ -92,11 +92,9 @@ const SwarmSessionDetail = () => {
 
     const sessionDelete = useConfirmDialog({
         onConfirm: ({ sessionId }) => {
-            // Req #2829 — operational reads/writes follow the dev/prod split via
-            // `darwinUri` (completes req #2827). The detail page reads its session
-            // through the factory `useSession` hook (also `darwinUri`), so the
-            // delete must target the same schema: darwin_dev in dev mode, production
-            // `darwin` in prod (where `darwinUri === darwinOpsUri`).
+            // Req #2837/#2829 — read/write swarm_sessions via `darwinUri` so the dev UI
+            // (darwin_dev) deletes the row it actually shows; prod no-op
+            // (darwinUri === darwinOpsUri). Completes the req #2827/#2834 sweep.
             const uri = `${darwinUri}/swarm_sessions`;
             call_rest_api(uri, 'DELETE', { id: sessionId }, idToken)
                 .then(result => {
