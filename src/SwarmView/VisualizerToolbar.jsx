@@ -48,6 +48,8 @@ const VisualizerToolbar = () => {
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
+    const konvaOn     = useSwarmVisualizerStore(s => s.konvaOn);
+    const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
@@ -57,6 +59,9 @@ const VisualizerToolbar = () => {
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
     const setCompletesOn = useSwarmVisualizerStore(s => s.setCompletesOn);
     const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
+    const setKonvaOn     = useSwarmVisualizerStore(s => s.setKonvaOn);
+    const setKonvaWide   = useSwarmVisualizerStore(s => s.setKonvaWide);
+    const resetView      = useSwarmVisualizerStore(s => s.resetView);
 
     const isWeekView = viewType === 'week';
     const todayStr = useMemo(() => localDateStr(), []);
@@ -69,8 +74,12 @@ const VisualizerToolbar = () => {
         setCurrentDate(shiftDay(currentDate, step));
     }, [currentDate, step, setCurrentDate]);
     const handleToday = useCallback(() => {
+        // Canvas mode (req #2841): "Today" is a full view reset — recenter on today
+        // at mid zoom, full window width. Bump resetView so it fires even when the
+        // date is already today.
         setCurrentDate(todayStr);
-    }, [todayStr, setCurrentDate]);
+        resetView();
+    }, [todayStr, setCurrentDate, resetView]);
 
     const handleViewTypeChange = useCallback((_event, next) => {
         if (!next) return;
@@ -112,6 +121,10 @@ const VisualizerToolbar = () => {
         setPhasesOn(!phasesOn);
     }, [phasesOn, setPhasesOn]);
 
+    const handleKonvaClick = useCallback(() => {
+        setKonvaOn(!konvaOn);
+    }, [konvaOn, setKonvaOn]);
+
     // Auto-off sidewalk/elevator when the active layout stops applying.
     React.useEffect(() => {
         if (isWeekView && sidewalkOn) setSidewalkOn(false);
@@ -141,6 +154,17 @@ const VisualizerToolbar = () => {
                     variant="outlined" sx={{ textTransform: 'none', ml: 0.5 }}>
                 Today
             </Button>
+            {/* req #2841 — Canvas (Konva zoomable grid, default) vs Classic
+                (SVG/DOM TimeSeriesView baseline, req #2840). When Canvas is on,
+                the classic-only window/mode buttons below don't apply and are
+                disabled; the data overlays (Autonomy/Title/Done/Phases) still do. */}
+            <ToggleButton value="konva" className="cal-toggle-btn" size="small"
+                          sx={{ ml: 0.5 }}
+                          selected={konvaOn}
+                          onChange={handleKonvaClick}
+                          data-testid="visualizer-canvas-toggle">
+                Canvas
+            </ToggleButton>
             <ToggleButtonGroup size="small" sx={{ ml: 0.5 }}
                                data-testid="timeseries-group">
                 {/* 6h / 12h sub-day zooms — Sidewalk-only (req #2823 follow-up).
@@ -149,41 +173,45 @@ const VisualizerToolbar = () => {
                     outside Sidewalk, where a sub-day window would clip the day. */}
                 <ToggleButton value="6h" className="cal-toggle-btn"
                               selected={beadWindow === '6h' && sidewalkOn}
-                              disabled={!sidewalkOn}
+                              disabled={!sidewalkOn || konvaOn}
                               onChange={() => setBeadWindow('6h')}
                               data-testid="timeseries-window-6h">
                     6h
                 </ToggleButton>
                 <ToggleButton value="12h" className="cal-toggle-btn"
                               selected={beadWindow === '12h' && sidewalkOn}
-                              disabled={!sidewalkOn}
+                              disabled={!sidewalkOn || konvaOn}
                               onChange={() => setBeadWindow('12h')}
                               data-testid="timeseries-window-12h">
                     12h
                 </ToggleButton>
                 <ToggleButton value="24h" className="cal-toggle-btn"
                               selected={beadWindow === '24h'}
+                              disabled={konvaOn}
                               onChange={() => setBeadWindow('24h')}
                               data-testid="timeseries-window-24h">
                     24h
                 </ToggleButton>
+                {/* req #2841 — when the Canvas is on, the 36h button toggles the
+                    canvas's mid-zoom 36h noon-centered window (on by default);
+                    in Classic it selects the 36h bead window as before. */}
                 <ToggleButton value="36h" className="cal-toggle-btn"
-                              selected={beadWindow === '36h' && !sidewalkOn && !elevatorOn}
-                              disabled={sidewalkOn || elevatorOn}
-                              onChange={() => setBeadWindow('36h')}
+                              selected={konvaOn ? konvaWide : (beadWindow === '36h' && !sidewalkOn && !elevatorOn)}
+                              disabled={konvaOn ? false : (sidewalkOn || elevatorOn)}
+                              onChange={konvaOn ? () => setKonvaWide(!konvaWide) : () => setBeadWindow('36h')}
                               data-testid="timeseries-window-36h">
                     36h
                 </ToggleButton>
                 <ToggleButton value="sidewalk" className="cal-toggle-btn"
                               selected={sidewalkOn && !isWeekView}
-                              disabled={isWeekView}
+                              disabled={isWeekView || konvaOn}
                               onChange={handleSidewalkClick}
                               data-testid="timeseries-sidewalk">
                     Sidewalk
                 </ToggleButton>
                 <ToggleButton value="elevator" className="cal-toggle-btn"
                               selected={elevatorOn && isWeekView}
-                              disabled={!isWeekView}
+                              disabled={!isWeekView || konvaOn}
                               onChange={handleElevatorClick}
                               data-testid="timeseries-elevator">
                     Elevator

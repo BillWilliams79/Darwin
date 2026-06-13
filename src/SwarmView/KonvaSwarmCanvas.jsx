@@ -1,0 +1,735 @@
+// KonvaSwarmCanvas.jsx — Konva render layer for the swarm visualizer (req #2841).
+//
+// A 2D zoomable / pannable grid: X = clock-time within a day (0..36h), Y = days
+// stacked as aligned rows (today centered). Continuous wheel/pinch zoom (centered
+// on the cursor) and drag-pan are supplied by the d3-zoom BEHAVIOR — it computes
+// the {x, y, k} transform and draws nothing; we apply that transform to a single
+// Konva <Group>. The zoom scale drives SEMANTIC zoom: the level-of-detail (out →
+// density dots, mid → DURATION TRACKS + beads + cross-day, in → per-phase track
+// segments) changes with depth, not just the pixel scale.
+//
+// The DURATION TRACK (swarm start → completion) is the primary glyph — the swarm
+// visualizer is about how long work takes, where the time went (phases), and how
+// spans flow across days; the bead is just the completion terminus. The world
+// LAYOUT (row tops, lane positions, heights) is k-independent so zoom is a pure
+// transform and rows never reflow; only GLYPH sizes counter-scale by 1/k so beads
+// and labels keep a constant on-screen size at any zoom.
+//
+// Glyph vocabulary carried over from the SVG design: a vertical START TICK +
+// anchor dot (green real / red estimated) that stacks into a grouping bar for a
+// multi-session swarm-start; a rounded-stone TOMBSTONE with an etched cross for
+// undos; a ✓ / ! / ⚑ completion badge. A single shared top axis labels the clock.
+//
+// Konva's hit-graph gives per-glyph hover/click for free — a single HTML datacard
+// overlay follows the pointer instead of 600+ MUI tooltips. All geometry comes
+// from the shared pure helpers via konvaSwarmModel.
+
+import React, {
+    useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback,
+} from 'react';
+import { Stage, Layer, Group, Rect, Circle, Line, Text, Path } from 'react-konva';
+import { useTheme } from '@mui/material/styles';
+import { select } from 'd3-selection';
+import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
+
+import { localDateStr } from '../utils/dateFormat';
+import {
+    formatCoordination, PHASE_UNCLASSIFIED_COLOR,
+} from '../CalendarFC/timeSeriesSizes';
+import { laneParityFor } from '../CalendarFC/TimeSeriesView';
+import {
+    dateRange, semanticLevel,
+    buildModelContext, buildDayModel, phaseBarSegments,
+} from './konvaSwarmModel';
+import '../CalendarFC/TimeSeriesView.css';
+
+// ── World-space layout constants (k-independent; d3-zoom scales these) ─────────
+const LEFTPAD  = 14;
+const RIGHTPAD = 14;
+const AXIS_W   = 1320;
+const WORLD_W  = LEFTPAD + AXIS_W + RIGHTPAD;
+const CHROME_TOP = 26;  // per-row top band (date label + wire) before lane 0
+const LANE_H   = 30;
+const ROW_MIN  = 70;
+const ROW_PAD  = 18;
+
+// Per-row time windows. The plain day is midnight→midnight (24h). The 36h
+// noon-centered window ([-6h, +30h]) shows the prior evening (6pm→midnight) on
+// the left and the next morning (midnight→6am) on the right, like the old
+// day/36h view. The 36h window applies to MID zoom only (toggled by the 36h
+// button); Overview and Detail always use the plain 24h day.
+const WIN24 = { start: 0, end: 24 };
+const WIN36 = { start: -6, end: 30 };
+// 6-hour ticks spanning a window, e.g. WIN24 → [0,6,12,18,24], WIN36 → [-6..30].
+const ticksForWin = (win) => {
+    const out = [];
+    for (let h = win.start; h <= win.end + 0.001; h += 6) out.push(h);
+    return out;
+};
+
+// On-screen target sizes (px) — divided by k at draw time so they stay constant.
+const BEAD_R_S  = 12;   // bead radius (+25% per round-3 feedback)
+const DOT_R_S   = 3.2;
+const TRACK_W_S = 4;
+const FONT_TITLE_S = 13.75;  // +25% per round-3 feedback
+const AXIS_H = 22;      // shared top time-axis bar height
+const HEADER_H = 22;    // sticky per-day date/count header height
+
+const REAL_GREEN = '#43A047';
+const EST_RED    = '#E53935';
+
+const hourLabel = (h) => {
+    const hod = ((h % 24) + 24) % 24;
+    if (hod === 0) return '12a';
+    if (hod === 12) return '12p';
+    return hod < 12 ? `${hod}a` : `${hod - 12}p`;
+};
+
+const xWorld = (pct) => LEFTPAD + (pct / 100) * AXIS_W;
+const beadFill = (chip) => chip.color || '#9E9E9E';
+
+// Which row (date) sits at world-Y `y` — used to re-anchor the view on the day at
+// the viewport center when the time window toggles (so 36h on/off doesn't jump).
+const dateAtWorldY = (rows, y) => {
+    for (const r of rows) if (y >= r.top && y < r.top + r.height) return r.date;
+    return null;
+};
+
+// Popup datetime — "Mon Day @ h:mma" with NO year and NO weekday (req feedback).
+// Parses MySQL UTC ("YYYY-MM-DD HH:MM:SS") and ISO strings the same way as
+// utils/dateFormat's toDate.
+const parseTs = (s) => {
+    if (!s) return null;
+    if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) return new Date(s.replace(' ', 'T') + 'Z');
+    return new Date(s);
+};
+const fmtDT = (s, tz) => {
+    const d = parseTs(s);
+    if (!d || isNaN(d.getTime())) return '—';
+    const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(tz && { timeZone: tz }) });
+    const p = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...(tz && { timeZone: tz }) }).formatToParts(d);
+    const g = (type) => p.find(x => x.type === type)?.value || '';
+    return `${datePart} @ ${g('hour')}:${g('minute')}${g('dayPeriod').toLowerCase()}`;
+};
+
+// Duration span → drawable segments (in world x).
+function durationSegments(chip, usePhases) {
+    const endX = xWorld(chip.leftPct);
+    let startX;
+    if (chip.markerMode === 'left') return [];
+    if (chip.startClamped || chip.startPct == null) startX = xWorld(0);
+    else startX = xWorld(chip.startPct);
+    if (Math.abs(endX - startX) < 0.5) return [];
+    const dashed = chip.startClamped || chip.markerMode === 'inprogress';
+    if (usePhases) {
+        // computePhaseSegments proportionally splits the [startX, endX] range it's
+        // GIVEN, so passing world-X in means x1Pct/x2Pct come back as world-X too
+        // (the "Pct" suffix is a misnomer inherited from the shared helper).
+        const { classified, segments } = phaseBarSegments(chip, startX, endX);
+        if (classified && segments.length) {
+            return segments.map(s => ({ x1: s.x1Pct, x2: s.x2Pct, color: s.color, dashed: false }));
+        }
+        return [{ x1: startX, x2: endX, color: PHASE_UNCLASSIFIED_COLOR, dashed }];
+    }
+    return [{ x1: startX, x2: endX, color: beadFill(chip), dashed }];
+}
+
+const KonvaSwarmCanvas = ({
+    requirements, allRequirements, sessions,
+    swarmStarts, swarmStartSessions, swarmUndos,
+    swarmCompletes, swarmCompleteSessions,
+    selectedDate, timezone, categoryList,
+    rangeStart, rangeEnd, dataKey = 'category',
+    titlesOn = false, completesOn = false, phasesOn = false,
+    wide36 = true, resetTick = 0,
+    onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
+}) => {
+    const theme = useTheme();
+    const dark = theme.palette.mode === 'dark';
+    const C = useMemo(() => ({
+        bg:        theme.palette.background.default,
+        text:      theme.palette.text.primary,
+        textDim:   theme.palette.text.secondary,
+        wire:      theme.palette.divider,
+        gridMajor: dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)',
+        gridMinor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+        // Alternating day shades so each day reads as its own band (req feedback).
+        dayEven:   dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+        dayOdd:    dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+        selected:  dark ? 'rgba(144,202,249,0.12)' : 'rgba(25,118,210,0.08)',
+        beadEdge:  theme.palette.background.paper,
+        now:       theme.palette.error.main,
+        tomb:      dark ? '#9e9e9e' : '#757575',
+        axisBg:    dark ? 'rgba(30,30,30,0.92)' : 'rgba(250,250,250,0.94)',
+    }), [theme, dark]);
+
+    const containerRef = useRef(null);
+    const stageRef = useRef(null);
+    const zoomRef = useRef(null);
+    const downRef = useRef(null);
+    const rowsRef = useRef([]);          // live rows for hit-testing in handlers
+    const centerDateRef = useRef(null);  // date currently at the viewport center
+    const prevWinRef = useRef(null);     // detects a window (36h) toggle
+    const [size, setSize] = useState({ w: 0, h: 0 });
+    const [transform, setTransform] = useState(null);
+    const [tooltip, setTooltip] = useState(null);
+
+    useLayoutEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver((entries) => {
+            const cr = entries[0]?.contentRect;
+            if (cr) setSize({ w: Math.round(cr.width), h: Math.round(cr.height) });
+        });
+        ro.observe(el);
+        setSize({ w: el.clientWidth, h: el.clientHeight });
+        return () => ro.disconnect();
+    }, []);
+
+    // The time window is a single user setting that applies to EVERY zoom level
+    // (req feedback) — so zooming never flips the window or redraws the model. It
+    // changes only when the 36h toggle flips. `win` is a stable module ref, so the
+    // model rebuilds only on that toggle (or a data change), never on a zoom tick.
+    const kBase = size.w > 0 ? size.w / WORLD_W : 0.7;
+    const curK = transform ? transform.k : kBase;
+    const level = semanticLevel(kBase > 0 ? curK / kBase : 1);
+    const win = wide36 ? WIN36 : WIN24;
+    const winSpan = win.end - win.start;
+    const hourToPct = (h) => ((h - win.start) / winSpan) * 100;
+    const noonPct = hourToPct(12);
+    const hourTicks = useMemo(() => ticksForWin(win), [win]);
+
+    const today = useMemo(() => localDateStr(), []);
+    const dates = useMemo(
+        () => (rangeStart && rangeEnd ? dateRange(rangeStart, rangeEnd) : []),
+        [rangeStart, rangeEnd],
+    );
+
+    const ctx = useMemo(() => buildModelContext({
+        requirements, allRequirements, sessions, categoryList,
+        swarmStarts, swarmStartSessions, swarmUndos,
+        swarmCompletes, swarmCompleteSessions,
+        timezone, dates, today, win,
+    }), [requirements, allRequirements, sessions, categoryList,
+        swarmStarts, swarmStartSessions, swarmUndos,
+        swarmCompletes, swarmCompleteSessions, timezone, dates, today, win]);
+
+    const rows = useMemo(() => {
+        const out = [];
+        let top = 0;
+        for (const date of dates) {
+            const model = buildDayModel(date, ctx, { dataKey });
+            const height = Math.max(ROW_MIN, CHROME_TOP + (model.maxRow + 1) * LANE_H + ROW_PAD);
+            out.push({ date, top, height, model, parity: laneParityFor(date) });
+            top += height;
+        }
+        return out;
+    }, [dates, ctx, dataKey]);
+
+    rowsRef.current = rows;
+    const worldH = rows.length ? rows[rows.length - 1].top + rows[rows.length - 1].height : 0;
+
+    const rowTopFor = useCallback((date) => {
+        const r = rows.find(rr => rr.date === date);
+        return r ? r.top + r.height / 2 : worldH / 2;
+    }, [rows, worldH]);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || size.w === 0) return;
+        const sel = select(el);
+        const zb = d3zoom()
+            .scaleExtent([kBase * 0.25, kBase * 6])
+            .filter((ev) => (ev.type === 'wheel' ? true : !ev.button))
+            .clickDistance(5)
+            .on('zoom', (ev) => {
+                const tr = ev.transform;
+                setTransform({ x: tr.x, y: tr.y, k: tr.k });
+                // Track the day at the viewport center so a window (36h) toggle can
+                // re-anchor on it instead of jumping to a different day.
+                const d = dateAtWorldY(rowsRef.current, (size.h / 2 - tr.y) / tr.k);
+                if (d) centerDateRef.current = d;
+            });
+        sel.call(zb);
+        sel.on('dblclick.zoom', null);   // don't zoom on double-click (conflicts with click-to-open)
+        zoomRef.current = zb;
+        return () => { sel.on('.zoom', null); };
+    }, [size.w, size.h, kBase]);
+
+    // Click-to-open (req feedback: navigation regressed). d3-zoom owns the pointer
+    // gesture and can swallow Konva's synthetic click, so we resolve clicks from
+    // the DOM 'click' event ourselves: on a non-drag click, hit-test the stage and
+    // fire the Konva 'activate' event on the topmost shape (react-konva binds the
+    // `onActivate` prop as that event) — beads → requirement, start anchors →
+    // swarm-start, completion badges → swarm-complete.
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const onDown = (e) => { downRef.current = { x: e.clientX, y: e.clientY }; };
+        const onClick = (e) => {
+            const d = downRef.current;
+            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return; // was a drag (d3 clickDistance=5)
+            const stage = stageRef.current;
+            if (!stage) return;
+            const rect = el.getBoundingClientRect();
+            const node = stage.getIntersection({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+            if (node) node.fire('activate', { evt: e }, false);
+        };
+        el.addEventListener('mousedown', onDown);
+        el.addEventListener('click', onClick);
+        return () => { el.removeEventListener('mousedown', onDown); el.removeEventListener('click', onClick); };
+    }, []);
+
+    // Center the viewport on the selected day at the base (mid) zoom — full window
+    // width aligned to the frame, scale = kBase. Also the Today/"view reset" action
+    // (resetTick bump) re-runs this even when the date is unchanged, snapping zoom
+    // back to mid and the window back to full-width-centered-on-today (req feedback).
+    const lastCenterRef = useRef(null);
+    useEffect(() => {
+        const el = containerRef.current;
+        const zb = zoomRef.current;
+        if (!el || !zb || size.w === 0 || !rows.length) return;
+        const key = `${selectedDate}|${rangeStart}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
+        if (lastCenterRef.current === key) return;
+        lastCenterRef.current = key;
+        centerDateRef.current = selectedDate;
+        const cy = rowTopFor(selectedDate);
+        const ty = size.h / 2 - cy * kBase;
+        select(el).call(zb.transform, zoomIdentity.translate(0, ty).scale(kBase));
+    }, [selectedDate, rangeStart, rangeEnd, size.w, size.h, rows, kBase, rowTopFor, resetTick]);
+
+    // Window (36h) toggle — re-anchor on the day at the viewport center, PRESERVING
+    // the current zoom and x-pan, so flipping 36h on/off doesn't jump to a random
+    // day (req feedback). Runs only when `win` actually flips.
+    useEffect(() => {
+        if (prevWinRef.current === null) { prevWinRef.current = win; return; }
+        if (prevWinRef.current === win) return;
+        prevWinRef.current = win;
+        const el = containerRef.current;
+        const zb = zoomRef.current;
+        if (!el || !zb || size.w === 0 || !rows.length) return;
+        const anchor = centerDateRef.current || selectedDate;
+        const r = rows.find(rr => rr.date === anchor);
+        const cy = r ? r.top + r.height / 2 : worldH / 2;
+        const k = transform ? transform.k : kBase;
+        const tx = transform ? transform.x : 0;
+        select(el).call(zb.transform, zoomIdentity.translate(tx, size.h / 2 - cy * k).scale(k));
+    }, [win, rows, size.w, size.h, worldH, kBase, selectedDate, transform]);
+
+    const t = transform || { x: 0, y: size.h / 2 - worldH / 2, k: kBase };
+    const inv = t.k > 0 ? 1 / t.k : 1;
+
+    const visibleRows = useMemo(() => {
+        if (!rows.length || size.h === 0) return [];
+        const yTop = (-t.y) / t.k;
+        const yBot = (size.h - t.y) / t.k;
+        const pad = 240;
+        return rows.filter(r => r.top + r.height >= yTop - pad && r.top <= yBot + pad);
+    }, [rows, t.y, t.k, size.h]);
+
+    // Shared top time-axis ticks in SCREEN space (follows pan/zoom horizontally).
+    const axisTicks = useMemo(() => {
+        const out = [];
+        for (const h of hourTicks) {
+            const sx = xWorld(hourToPct(h)) * t.k + t.x;
+            if (sx >= 0 && sx <= size.w) out.push({ h, sx });
+        }
+        return out;
+    }, [hourTicks, win, t.k, t.x, size.w]);
+
+    // Per-day date/count headers in SCREEN space. Each sits at its row's top, but
+    // the topmost visible day's header STICKS just under the time axis and is
+    // pushed up by the next day's header as it scrolls in (req feedback — matches
+    // the old visualizer's sticky header). Centered on the noon column.
+    const dayHeaders = useMemo(() => {
+        if (!visibleRows.length || size.w === 0) return [];
+        const noonScreenX = xWorld(noonPct) * t.k + t.x;
+        const out = [];
+        let lastBottom = -Infinity;
+        for (let i = 0; i < visibleRows.length; i++) {
+            const r = visibleRows[i];
+            const screenY = r.top * t.k + t.y;
+            const next = visibleRows[i + 1];
+            const nextScreenY = next ? next.top * t.k + t.y : Infinity;
+            let hy = Math.max(AXIS_H, screenY);            // stick under the axis
+            if (hy + HEADER_H > nextScreenY) hy = nextScreenY - HEADER_H;  // pushed up
+            if (hy > size.h || hy + HEADER_H <= AXIS_H) continue;  // <= so a header fully behind the axis yields to the next (no swap flicker)
+            if (hy < lastBottom + 2) continue;             // would overlap previous → skip (declutters Overview)
+            lastBottom = hy + HEADER_H;
+            out.push({ key: r.date, date: r.date, count: r.model.count,
+                       top: hy, left: noonScreenX, isSel: r.date === selectedDate });
+        }
+        return out;
+    }, [visibleRows, t.k, t.x, t.y, size.w, size.h, noonPct, selectedDate]);
+
+    const showTip = useCallback((chip, e) => {
+        const p = e?.target?.getStage?.()?.getPointerPosition?.();
+        if (p) setTooltip({ x: p.x, y: p.y, chip });
+    }, []);
+    const hideTip = useCallback(() => setTooltip(null), []);
+    const cursorPointer = (e, on) => {
+        const stage = e?.target?.getStage?.();
+        if (stage) stage.container().style.cursor = on ? 'pointer' : 'default';
+    };
+    const handleChipClick = useCallback((chip) => {
+        if (chip.isUndone) { onUndoClick?.(chip.undo?.id ?? null); return; }
+        if (chip.isPhantom) {
+            if (chip.id != null) onChipClick?.(chip.id);
+            else onSwarmStartClick?.(chip.swarmStartId ?? null);
+            return;
+        }
+        if (chip.id != null) onChipClick?.(chip.id);
+    }, [onChipClick, onSwarmStartClick, onUndoClick]);
+
+    // ── Glyph builders ───────────────────────────────────────────────────────
+    const tombstone = (key, cx, cy, beadR) => {
+        // Rounded-stone silhouette + etched white Latin cross, scaled to screen
+        // via a wrapping Group (scaleX/Y = inv) so the path math stays in px.
+        const S = 2 * beadR / inv + 6;            // screen size (undo inv on beadR)
+        const half = S / 2, topR = S * 0.45, cxL = S / 2;
+        const crossH = S * 0.66, crossW = crossH / 2;
+        const thick = Math.max(1.6, crossW / 3);
+        const crossTop = S * 0.18;
+        const data = `M 1.5 ${S - 1} L 1.5 ${topR} Q 1.5 1 ${cxL} 1 `
+                   + `Q ${S - 1.5} 1 ${S - 1.5} ${topR} L ${S - 1.5} ${S - 1} Z`;
+        return (
+            // listening=false — the bead hit-target (drawn on top) owns hover/click.
+            <Group key={`${key}-tb`} x={cx} y={cy} scaleX={inv} scaleY={inv}
+                   offsetX={half} offsetY={half} listening={false}>
+                <Path data={data} fill="#424242" stroke="#9E9E9E" strokeWidth={1} />
+                <Rect x={cxL - thick / 2} y={crossTop} width={thick} height={crossH} fill="#fff" cornerRadius={0.5} />
+                <Rect x={cxL - crossW / 2} y={crossTop + crossH / 4} width={crossW} height={thick} fill="#fff" cornerRadius={0.5} />
+            </Group>
+        );
+    };
+
+    const completionBadge = (key, cx, cy, beadR, sc) => {
+        const ok = sc.status === 'ok';
+        const bg = ok ? '#4caf50' : (sc.status === 'error' ? '#ffa726' : '#90a4ae');
+        const isPrimary = sc.skill_name === 'primary-ai-swarm-complete';
+        const glyph = isPrimary ? '⚑' : (ok ? '✓' : '!');
+        const r = 6.5 * inv;
+        const bx = cx + beadR * 0.75, by = cy - beadR * 0.75;
+        return (
+            <Group key={`${key}-cmp`}>
+                <Circle x={bx} y={by} radius={r} fill={bg} stroke={C.beadEdge} strokeWidth={1.4 * inv}
+                        onActivate={() => onCompleteClick?.(sc.id)} />
+                <Text x={bx} y={by} text={glyph} fontSize={9 * inv} fontStyle="bold"
+                      fill={ok ? '#fff' : '#000'} width={2 * r} height={2 * r}
+                      offsetX={r} offsetY={r} align="center" verticalAlign="middle" listening={false} />
+            </Group>
+        );
+    };
+
+    // ── Row renderer ─────────────────────────────────────────────────────────
+    const renderRow = (r) => {
+        const { date, top, height, model, parity } = r;
+        const isSel = date === selectedDate;
+        const laneY = (row) => top + CHROME_TOP + row * LANE_H + LANE_H / 2;
+        const usePhases = phasesOn || level === 'in';
+        const beadR = (level === 'out' ? DOT_R_S : BEAD_R_S) * inv;
+        const trackW = TRACK_W_S * inv;
+        const nodes = [];
+
+        // Alternating day background + selected-day highlight.
+        nodes.push(<Rect key="bg" x={0} y={top} width={WORLD_W} height={height}
+                         fill={parity === 'odd' ? C.dayOdd : C.dayEven} />);
+        if (isSel) nodes.push(<Rect key="sel" x={0} y={top} width={WORLD_W} height={height} fill={C.selected} />);
+
+        // Hour gridlines (full row height). Per-row hour LABELS removed — the
+        // shared top axis carries the clock notation (req feedback: declutter).
+        for (const h of hourTicks) {
+            const x = xWorld(hourToPct(h));
+            const major = (((h % 12) + 12) % 12) === 0;   // midnight / noon / next midnight
+            nodes.push(<Line key={`g${h}`} points={[x, top, x, top + height]}
+                             stroke={major ? C.gridMajor : C.gridMinor} strokeWidth={1 * inv} />);
+        }
+
+        // Wire under the chrome band.
+        const wireY = top + CHROME_TOP - 6;
+        nodes.push(<Line key="wire" points={[LEFTPAD, wireY, WORLD_W - RIGHTPAD, wireY]}
+                         stroke={C.wire} strokeWidth={1 * inv} />);
+
+        // Date + count is drawn as a STICKY HTML header overlay (below), not in
+        // the canvas, so it can pin under the time axis like the old visualizer.
+
+        // Live-time marker — full row height.
+        if (model.nowPct != null) {
+            const nx = xWorld(model.nowPct);
+            nodes.push(<Line key="now" points={[nx, top, nx, top + height]}
+                             stroke={C.now} strokeWidth={1.5 * inv} opacity={0.85} />);
+        }
+
+        // ── OUT level: density dots only (one mark per completion) ───────────
+        if (level === 'out') {
+            model.placed.forEach((chip) => {
+                nodes.push(<Circle key={chip.chipKey || chip.id} x={xWorld(chip.leftPct)} y={laneY(chip.row)}
+                                   radius={DOT_R_S * 2.25 * inv} fill={beadFill(chip)} opacity={0.85} />);
+            });
+            return <Group key={date}>{nodes}</Group>;
+        }
+
+        // ── Cross-day dashed pass-throughs ───────────────────────────────────
+        model.crossDayPlaced.forEach((cd, i) => {
+            const y = laneY(cd.lane);
+            const card = cd.card;
+            let x1 = LEFTPAD;
+            const x2 = WORLD_W - RIGHTPAD;
+            if (cd.role === 'start' && cd.pct != null) x1 = xWorld(cd.pct);
+            nodes.push(<Line key={`xd${i}`} points={[x1, y, x2, y]}
+                             stroke={card?.color || C.tomb} strokeWidth={trackW * 0.7}
+                             dash={[6 * inv, 4 * inv]} opacity={0.55} lineCap="round"
+                             hitStrokeWidth={12 * inv}
+                             onMouseEnter={card ? (e) => { cursorPointer(e, true); showTip({ ...card, isCrossDay: true }, e); } : undefined}
+                             onMouseLeave={card ? (e) => { cursorPointer(e, false); hideTip(); } : undefined} />);
+        });
+
+        // ── Duration tracks + start ticks + terminal glyphs ──────────────────
+        model.placed.forEach((chip) => {
+            const cx = xWorld(chip.leftPct);
+            const cy = laneY(chip.row);
+            const key = chip.chipKey || chip.id;
+
+            // The track (phase-segmented at "in", else a thick line).
+            durationSegments(chip, usePhases).forEach((s, si) => {
+                nodes.push(<Line key={`${key}-tk${si}`} points={[s.x1, cy, s.x2, cy]}
+                                 stroke={s.color} strokeWidth={trackW}
+                                 lineCap={s.dashed ? 'butt' : 'round'}
+                                 dash={s.dashed ? [5 * inv, 3 * inv] : undefined}
+                                 opacity={chip.isPhantom ? 0.8 : 0.95} />);
+            });
+
+            // Swarm-start: vertical tick spanning the lane slot (stacks into a
+            // grouping bar for a multi-session start) + an anchor dot at the top.
+            if (chip.startPct != null && !chip.startClamped && chip.markerMode !== 'left') {
+                const sx = xWorld(chip.startPct);
+                const real = chip.swarmStartId != null;
+                const col = real ? REAL_GREEN : EST_RED;
+                // Span reduced by 1/3 from the full lane, kept centered on the lane.
+                const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
+                nodes.push(<Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
+                                 stroke={col} strokeWidth={2.5 * inv} lineCap="round" />);
+                nodes.push(<Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
+                                   stroke={C.beadEdge} strokeWidth={0.8 * inv}
+                                   hitStrokeWidth={10 * inv}
+                                   onMouseEnter={chip.swarmStart ? (e) => { cursorPointer(e, true); showTip({ ...chip, isSwarmStartCard: true }, e); } : undefined}
+                                   onMouseLeave={chip.swarmStart ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
+                                   onActivate={real ? () => onSwarmStartClick?.(chip.swarmStartId) : undefined} />);
+            }
+
+            // Terminal glyph.
+            if (chip.isUndone) {
+                nodes.push(tombstone(key, cx, cy, beadR));
+            } else if (chip.isPhantom) {
+                // In-flight: text-colored core + colored ring (+40% thicker). The
+                // earlier white core read too bright, so the core matches the text.
+                nodes.push(<Circle key={`${key}-ph`} x={cx} y={cy} radius={beadR}
+                                   fill={C.textDim} stroke={beadFill(chip)} strokeWidth={3.5 * inv} />);
+            } else {
+                // Completed bead: category fill + a thin white highlight ring.
+                nodes.push(<Circle key={`${key}-bd`} x={cx} y={cy} radius={beadR}
+                                   fill={beadFill(chip)} stroke="#ffffff" strokeWidth={1.8 * inv} />);
+            }
+            if (chip.ringColor) {
+                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={beadR + 3 * inv} stroke={chip.ringColor} strokeWidth={2 * inv} />);
+            }
+            // Hit target (hover + click). Pushed BEFORE the completion badge so
+            // the badge (drawn on top) keeps its own onCompleteClick within its
+            // bounds, while the hit target catches the rest of the bead area.
+            nodes.push(<Circle key={`${key}-hit`} x={cx} y={cy} radius={beadR + 5 * inv} fill="transparent"
+                               onMouseEnter={(e) => { cursorPointer(e, true); showTip(chip, e); }}
+                               onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
+                               onActivate={() => handleChipClick(chip)} />);
+            if (completesOn && chip.swarmComplete && !chip.isUndone && !chip.isPhantom) {
+                nodes.push(completionBadge(key, cx, cy, beadR, chip.swarmComplete));
+            }
+            if (titlesOn && chip.title) {
+                nodes.push(<Text key={`${key}-tt`} x={cx + (beadR + 6 * inv)} y={cy - 7 * inv}
+                                 text={chip.title.length > 46 ? chip.title.slice(0, 45) + '…' : chip.title}
+                                 fontSize={FONT_TITLE_S * inv} fill={C.textDim} listening={false} />);
+            }
+        });
+
+        return <Group key={date}>{nodes}</Group>;
+    };
+
+    const hasData = rows.some(r => r.model.placed.length > 0 || r.model.crossDayPlaced.length > 0);
+
+    return (
+        <Box ref={containerRef} data-testid="konva-swarm-canvas"
+             style={{ position: 'relative', height: 'calc(100vh - 150px)', minHeight: 480,
+                      marginLeft: 16, width: 'calc(100% - 16px)',
+                      border: `1px solid ${C.wire}`, borderRadius: 6, overflow: 'hidden',
+                      background: C.bg, touchAction: 'none' }}>
+            {size.w > 0 && (
+                <Stage ref={stageRef} width={size.w} height={size.h}>
+                    <Layer>
+                        <Group x={t.x} y={t.y} scaleX={t.k} scaleY={t.k}>
+                            {visibleRows.map(renderRow)}
+                        </Group>
+                    </Layer>
+                </Stage>
+            )}
+
+            {/* Per-day date + green count badge. The topmost day's header sticks
+                just under the time axis and is pushed up by the next day (req
+                feedback). Centered on the noon column; date first, count to the
+                right as a green circle. */}
+            {dayHeaders.map((h) => (
+                <div key={h.key} style={{
+                    position: 'absolute', left: h.left, top: h.top, height: HEADER_H,
+                    transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 6,
+                    whiteSpace: 'nowrap', pointerEvents: 'none', userSelect: 'none',
+                }}>
+                    <span style={{
+                        fontSize: '0.82rem', fontWeight: 700, fontFamily: "'Roboto', sans-serif",
+                        color: h.isSel ? theme.palette.primary.main : (dark ? '#fff' : 'rgba(0,0,0,0.85)'),
+                    }}>
+                        {new Date(h.date + 'T12:00:00').toLocaleDateString(undefined,
+                            { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </span>
+                    {h.count > 0 && (
+                        // Exact earlier-design "req met" pill (TimeSeriesView.css
+                        // .ts-bead-day-count-inline / .ts-bead-sticky-count).
+                        <span title={`${h.count} requirements met`} style={{
+                            minWidth: 18, padding: '0 6px', textAlign: 'center', borderRadius: 999,
+                            background: dark ? '#2e3b2e' : '#6fa86f',
+                            color: dark ? '#81c784' : '#fff',
+                            border: dark ? '1px solid #4a7a4a' : 'none',
+                            fontWeight: 700, fontSize: '0.74rem', lineHeight: 1.45,
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.12)',
+                        }}>{h.count}</span>
+                    )}
+                </div>
+            ))}
+
+            {/* Shared top time-axis — single clock notation for every row, follows
+                horizontal pan/zoom (req feedback: one notation, not per-day). */}
+            <div style={{
+                position: 'absolute', top: 0, left: 0, right: 0, height: AXIS_H,
+                background: C.axisBg, borderBottom: `1px solid ${C.wire}`,
+                pointerEvents: 'none', userSelect: 'none',
+            }}>
+                {axisTicks.map(({ h, sx }) => (
+                    <div key={h} style={{
+                        position: 'absolute', left: sx, top: 0, transform: 'translateX(-50%)',
+                        fontSize: 10, lineHeight: `${AXIS_H}px`, color: C.textDim, whiteSpace: 'nowrap',
+                    }}>{hourLabel(h)}</div>
+                ))}
+            </div>
+
+            <div style={{
+                position: 'absolute', bottom: 8, right: 10, fontSize: 11, color: C.textDim,
+                background: dark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.82)',
+                padding: '2px 8px', borderRadius: 10, pointerEvents: 'none', userSelect: 'none',
+            }} data-testid="konva-zoom-level">
+                {level === 'out' ? 'Overview' : level === 'in' ? 'Detail · phases' : 'Tracks'} · drag to pan · scroll to zoom
+            </div>
+
+            {!hasData && size.w > 0 && (
+                <div style={{
+                    position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+                    color: C.textDim, fontSize: 14, pointerEvents: 'none',
+                }}>No swarm activity in this window.</div>
+            )}
+
+            {tooltip && (
+                <DataCard chip={tooltip.chip} x={tooltip.x} y={tooltip.y}
+                          containerW={size.w} containerH={size.h} />
+            )}
+        </Box>
+    );
+};
+
+// Lightweight Box shim so we don't pull MUI just for a styled div ref.
+const Box = React.forwardRef(({ children, ...rest }, ref) => (
+    <div ref={ref} {...rest}>{children}</div>
+));
+Box.displayName = 'KonvaCanvasBox';
+
+// HTML datacard — reuses .ts-shared-tooltip / .ts-datacard-* CSS.
+const DataCard = ({ chip, x, y, containerW, containerH }) => {
+    const CARD_W = 260;
+    const left = Math.min(Math.max(8, x + 14), Math.max(8, containerW - CARD_W - 8));
+    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - 40));
+    const tz = chip.timezone;
+
+    // Swarm-start anchor hover — its own datacard (mirrors the earlier design's
+    // renderAnchorCard): Swarm-Start #N with started/sessions/wall/turns/command.
+    if (chip.isSwarmStartCard && chip.swarmStart) {
+        const ss = chip.swarmStart;
+        const wall = ss.wall_seconds != null
+            ? (ss.wall_seconds < 60 ? `${ss.wall_seconds}s`
+                : `${Math.floor(ss.wall_seconds / 60)}m ${ss.wall_seconds % 60}s`)
+            : null;
+        return (
+            <div className="ts-shared-tooltip" style={{
+                position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
+            }}>
+                <div className="ts-datacard">
+                    <div className="ts-datacard-title">Swarm-Start #{ss.id}</div>
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Started</span><span>{fmtDT(ss.started_at, tz)}</span></div>
+                    {ss.session_count != null && (
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Sessions</span><span>{ss.session_count}</span></div>
+                    )}
+                    {wall && (
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Wall</span><span>{wall}</span></div>
+                    )}
+                    {ss.turn_count != null && (
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Turns</span><span>{ss.turn_count}</span></div>
+                    )}
+                    {ss.auto_start ? (
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Auto-Start</span><span>yes</span></div>
+                    ) : null}
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Command</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                            /swarm-start{ss.arguments ? ` ${ss.arguments}` : ''}</span></div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="ts-shared-tooltip" style={{
+            position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
+        }}>
+            <div className="ts-datacard">
+                <div className="ts-datacard-title">{chip.id != null ? `#${chip.id} ` : ''}{chip.title || '(untitled)'}</div>
+                <div className="ts-datacard-row"><span className="ts-datacard-key">Category</span><span>{chip.categoryName || '—'}</span></div>
+                <div className="ts-datacard-row"><span className="ts-datacard-key">Autonomy</span><span>{formatCoordination(chip.coordination_type)}</span></div>
+                {chip.isPhantom && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Status</span>
+                        <span style={{ color: '#43A047', fontWeight: 600 }}>
+                            in progress{chip.requirement_status ? ` · ${chip.requirement_status}` : ''}</span></div>
+                )}
+                {chip.session?.started_at && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Started</span>
+                        <span>{fmtDT(chip.session.started_at, tz)}{chip.startClamped ? ' (before window)' : ''}</span></div>
+                )}
+                {chip.isUndone ? (
+                    <>
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Status</span><span style={{ color: '#616161', fontWeight: 600 }}>undone</span></div>
+                        {chip.completed_at && (<div className="ts-datacard-row"><span className="ts-datacard-key">Undone</span><span>{fmtDT(chip.completed_at, tz)}</span></div>)}
+                        {chip.undo?.reason && (<div className="ts-datacard-row"><span className="ts-datacard-key">Reason</span><span style={{ whiteSpace: 'pre-wrap' }}>{chip.undo.reason}</span></div>)}
+                    </>
+                ) : (!chip.isPhantom && !chip.isCrossDay && chip.completed_at && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Closed</span><span>{fmtDT(chip.completed_at, tz)}</span></div>
+                ))}
+                {chip.swarmStart && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Swarm-Start</span>
+                        <span>#{chip.swarmStart.id}
+                            {chip.swarmStart.session_count != null ? ` · ${chip.swarmStart.session_count} session${chip.swarmStart.session_count === 1 ? '' : 's'}` : ''}</span></div>
+                )}
+                {chip.swarmComplete && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Closed by</span>
+                        <span>#{chip.swarmComplete.id} · {chip.swarmComplete.status}</span></div>
+                )}
+                {chip.session && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Session</span><span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span></div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default KonvaSwarmCanvas;
