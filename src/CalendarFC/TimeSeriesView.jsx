@@ -3543,6 +3543,68 @@ const TimeSeriesView = ({
         return () => frame.removeEventListener('scroll', onScroll);
     }, [showWeekFrame]);
 
+    // req #2842 — hand-scroll (grab-and-drag) the week frame, matching the
+    // Elevator's feel. The week stack is a native overflow scroller (req #2781,
+    // so the sticky shared timeline + per-day sticky headers key off scrollTop),
+    // and its scrollbar is hidden in CSS — without drag-to-pan there was no way to
+    // move it by hand, only the wheel. This translates a mouse/pen drag into
+    // scrollTop deltas (touch keeps native momentum scrolling, so it is left
+    // alone). The scrollTop writes fire the 'scroll' listener above, which
+    // correctly marks userScrolledRef so the focus-anchor effect won't fight the
+    // drag. A click-capture guard swallows the click that ends a real drag so a
+    // pan doesn't accidentally open a chip's detail.
+    React.useEffect(() => {
+        if (!showWeekFrame) return undefined;
+        const frame = weekFrameRef.current;
+        if (!frame) return undefined;
+        let isDown = false;
+        let startY = 0;
+        let startScrollTop = 0;
+        let dragged = false;
+
+        const onDown = (e) => {
+            if (e.button !== 0) return;
+            if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') return; // touch → native scroll
+            isDown = true;
+            dragged = false;
+            startY = e.pageY;
+            startScrollTop = frame.scrollTop;
+            frame.style.cursor = 'grabbing';
+            e.preventDefault();   // suppress text/image drag selection
+        };
+        const onMove = (e) => {
+            if (!isDown) return;
+            const dy = e.pageY - startY;
+            if (Math.abs(dy) > 4) dragged = true;
+            frame.scrollTop = startScrollTop - dy;
+        };
+        const onUp = () => {
+            if (!isDown) return;
+            isDown = false;
+            frame.style.cursor = '';
+        };
+        const onClickCapture = (e) => {
+            if (dragged) {
+                e.stopPropagation();
+                e.preventDefault();
+                dragged = false;
+            }
+        };
+
+        frame.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+        frame.addEventListener('click', onClickCapture, true);
+        return () => {
+            frame.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            frame.removeEventListener('click', onClickCapture, true);
+        };
+    }, [showWeekFrame]);
+
     React.useLayoutEffect(() => {
         if (!showWeekFrame) return;
         if (userScrolledRef.current) return;   // user is scrolling — don't fight them
