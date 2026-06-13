@@ -211,6 +211,46 @@ test.describe('Swarm Visualizer — Sidewalk toolbar on /swarm', () => {
         await expect(page.getByTestId('timeseries-elevator')).toBeDisabled();
     });
 
+    test('TS-13: Week stack hand-scrolls by drag and hides its scrollbar (req #2842)', async ({ page }) => {
+        // Short viewport so the 7 stacked day rows overflow the fixed-height frame
+        // (calc(100vh-220px)) and the frame is genuinely scrollable.
+        await page.setViewportSize({ width: 1100, height: 620 });
+        await page.goto('/swarm');
+        await seedVisualizerState(page, testDate, 'week');
+        await page.reload();
+
+        const frame = page.getByTestId('ts-week-scroll');
+        await expect(frame).toBeVisible({ timeout: 10000 });
+
+        // Regression guard #1 (req #2842): the native scrollbar is hidden — the
+        // frame's scrollbar gutter is 0px wide. (Before the fix it was overflow-y:
+        // auto with a visible scrollbar on the right.)
+        const gutter = await frame.evaluate((el: HTMLElement) => el.offsetWidth - el.clientWidth);
+        expect(gutter).toBe(0);
+        await expect(frame).toHaveCSS('cursor', 'grab');
+
+        // Regression guard #2 (req #2842): the frame hand-scrolls by mouse drag.
+        const box = await frame.boundingBox();
+        if (!box) throw new Error('week frame has no bounding box');
+        const readTop = () => frame.evaluate((el: HTMLElement) => el.scrollTop);
+        const maxTop = await frame.evaluate((el: HTMLElement) => el.scrollHeight - el.clientHeight);
+        expect(maxTop).toBeGreaterThan(0);   // frame must actually overflow to be scrollable
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        // Drag toward whichever edge has room (focus-day pin makes the start
+        // position weekday-dependent): if near the bottom drag DOWN to decrease
+        // scrollTop, otherwise drag UP to increase it.
+        const before = await readTop();
+        const dir = before > maxTop / 2 ? +1 : -1;   // +1 = pointer down (scrollTop↓)
+        await page.mouse.move(cx, cy);
+        await page.mouse.down();
+        for (let i = 1; i <= 12; i++) { await page.mouse.move(cx, cy + dir * i * 18); await page.waitForTimeout(16); }
+        await page.mouse.up();
+        await page.waitForTimeout(200);
+        const after = await readTop();
+        expect(after).not.toBe(before);   // drag moved the frame by hand
+    });
+
     test('TS-10: Autonomy toggle — recolors chips by coordination_type (req #2382)', async ({ page }) => {
         await page.goto('/swarm');
         await seedVisualizerState(page, testDate);
