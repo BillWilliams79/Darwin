@@ -1,4 +1,4 @@
-import React, { useContext, useMemo, useCallback } from 'react';
+import React, { useContext, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
@@ -12,6 +12,10 @@ import {
 import { localDateStr } from '../utils/dateFormat';
 import { PHASE_SEGMENTS, PHASE_UNCLASSIFIED_COLOR } from '../CalendarFC/timeSeriesSizes';
 import TimeSeriesView from '../CalendarFC/TimeSeriesView';
+// Lazy — Konva pulls a large canvas bundle; code-split it so the SVG/DOM
+// "Classic" path (and helper-only imports such as the elevatorFetchWindow test)
+// never evaluate the konva module (req #2841).
+const KonvaSwarmCanvas = lazy(() => import('./KonvaSwarmCanvas'));
 import Box from '@mui/material/Box';
 
 // req #2823 — compact legend for the "Phases" overlay. Maps PHASE_SEGMENTS to
@@ -79,6 +83,9 @@ const SwarmVisualizerView = () => {
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
+    const konvaOn     = useSwarmVisualizerStore(s => s.konvaOn);
+    const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
 
     const isWeekView = viewType === 'week';
@@ -89,6 +96,15 @@ const SwarmVisualizerView = () => {
     //   Week view              → Mon..Sun of currentDate's week, ±1 day edges
     //   Day view               → ±1 day around currentDate (tz spillover safety)
     const fetchRange = useMemo(() => {
+        // Konva canvas (req #2841) — a wide, week-quantized window so the user can
+        // pan freely across ~7 weeks of past + the rest of this week without a
+        // refetch. Quantizing to Monday(currentDate) means the query key only
+        // changes when toolbar Prev/Next/Today crosses a week boundary, which
+        // keepPreviousData masks; free canvas pan never moves the window.
+        if (konvaOn) {
+            const monday = mondayOf(currentDate);
+            return { start: shiftDay(monday, -45), end: shiftDay(monday, 13) };
+        }
         if (sidewalkOn && !isWeekView) {
             return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
         }
@@ -119,7 +135,7 @@ const SwarmVisualizerView = () => {
             return { start: localDateStr(start), end: localDateStr(end) };
         }
         return { start: shiftDay(currentDate, -1), end: shiftDay(currentDate, 1) };
-    }, [sidewalkOn, elevatorOn, isWeekView, currentDate]);
+    }, [konvaOn, sidewalkOn, elevatorOn, isWeekView, currentDate]);
 
     const fetchStart = fetchRange.start + 'T00:00:00';
     const fetchEnd   = fetchRange.end   + 'T23:59:59';
@@ -220,6 +236,41 @@ const SwarmVisualizerView = () => {
 
     // Toolbar moved into the parent SwarmView header row (req #2407); this
     // component now renders only the time-series content.
+    if (konvaOn) {
+        return (
+            <div>
+                {phasesOn && <PhaseLegend />}
+                <Suspense fallback={<Box sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
+                <KonvaSwarmCanvas
+                    requirements={requirements}
+                    allRequirements={allRequirements}
+                    sessions={sessions}
+                    swarmStarts={swarmStarts}
+                    swarmStartSessions={swarmStartSessions}
+                    swarmUndos={swarmUndos}
+                    swarmCompletes={swarmCompletes}
+                    swarmCompleteSessions={swarmCompleteSessions}
+                    selectedDate={currentDate}
+                    timezone={profile?.timezone}
+                    categoryList={categoryList}
+                    rangeStart={fetchRange.start}
+                    rangeEnd={fetchRange.end}
+                    dataKey={dataKey}
+                    titlesOn={titlesOn}
+                    completesOn={completesOn}
+                    phasesOn={phasesOn}
+                    wide36={konvaWide}
+                    resetTick={viewResetTick}
+                    onChipClick={onChipClick}
+                    onSwarmStartClick={onSwarmStartClick}
+                    onUndoClick={onUndoClick}
+                    onCompleteClick={onCompleteClick}
+                />
+                </Suspense>
+            </div>
+        );
+    }
+
     return (
         <div>
             {phasesOn && <PhaseLegend />}

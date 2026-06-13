@@ -11,7 +11,9 @@ import { localDateStr } from '../utils/dateFormat';
 // pre-#2799 build already persisted so existing users also reset to today.
 // Exported for unit-test coverage.
 export const persistPartialize = (state) => {
-    const { currentDate, ...rest } = state;
+    // currentDate is navigation state (req #2799); viewResetTick is a transient
+    // "Today/view-reset" signal — neither is a saved preference.
+    const { currentDate, viewResetTick, ...rest } = state;
     return rest;
 };
 
@@ -34,6 +36,13 @@ export const migrateVisualizerState = (persisted) => {
         // v6 → v7: req #2823 phasesOn (off by default) — segment the duration
         // line by session phase-duration buckets.
         phasesOn: rest.phasesOn ?? false,
+        // v7 → v8: req #2841 konvaOn (ON by default) — the Konva canvas redesign
+        // is the new default visualizer substrate; "Classic" falls back to the
+        // SVG/DOM TimeSeriesView baseline (req #2840) for comparison.
+        konvaOn: rest.konvaOn ?? true,
+        // v8 → v9: req #2841 konvaWide (ON by default) — the 36h noon-centered
+        // window for the Konva canvas's mid zoom (toggled by the 36h button).
+        konvaWide: rest.konvaWide ?? true,
     };
 };
 
@@ -49,6 +58,9 @@ export const useSwarmVisualizerStore = create(
             titlesOn: false,             // show requirement title to right of bubble — req #2556
             completesOn: false,          // show completion-terminus badge — req #2790 (off by default)
             phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
+            konvaOn: true,               // Konva canvas redesign as default substrate — req #2841 (Classic = SVG baseline)
+            konvaWide: true,             // 36h noon-centered window for the Konva canvas mid zoom — req #2841
+            viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
 
             setViewType: (viewType) => set({ viewType }),
             setCurrentDate: (currentDate) => set({ currentDate }),
@@ -60,6 +72,9 @@ export const useSwarmVisualizerStore = create(
             setTitlesOn: (on) => set({ titlesOn: !!on }),
             setCompletesOn: (on) => set({ completesOn: !!on }),
             setPhasesOn: (on) => set({ phasesOn: !!on }),
+            setKonvaOn: (on) => set({ konvaOn: !!on }),
+            setKonvaWide: (on) => set({ konvaWide: !!on }),
+            resetView: () => set((s) => ({ viewResetTick: s.viewResetTick + 1 })),
         }),
         {
             name: 'darwin_swarm_visualizer',
@@ -69,7 +84,10 @@ export const useSwarmVisualizerStore = create(
             // date OR a persisted vizKey already in localStorage is stripped on
             // first load.
             // v6 → v7 (req #2823): phasesOn added; migrate back-fills it to false.
-            version: 7,
+            // v7 → v8 (req #2841): konvaOn added; migrate back-fills it to true
+            // (the Konva canvas is the new default visualizer substrate).
+            // v8 → v9 (req #2841): konvaWide added; back-fills to true (36h mid zoom).
+            version: 9,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,
