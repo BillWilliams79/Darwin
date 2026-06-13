@@ -8,10 +8,10 @@ vi.mock('../../RestApi/RestApi', () => ({
 
 import call_rest_api from '../../RestApi/RestApi';
 
-// Distinct URIs so the test surface catches any regression that reverts an
-// ops-table read to `darwinUri` (req #2697).
-const DARWIN_URI     = 'https://api.example.com/darwin_dev';
-const DARWIN_OPS_URI = 'https://api.example.com/darwin';
+// Dev-mode base URL (darwin_dev). Req #2837 — every table, including the
+// operational `swarm_sessions`, now reads through this single dev/prod-split URI;
+// the export service no longer takes a separate ops URI.
+const DARWIN_URI = 'https://api.example.com/darwin_dev';
 const ID_TOKEN = 'mock-token';
 const PROFILE = {
     name: 'Test User',
@@ -47,7 +47,7 @@ beforeEach(() => {
 describe('fetchExportData', () => {
     it('returns v2.0 with selectedApps metadata', async () => {
         mockApi({});
-        const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, {
+        const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
             tasks: false, maps: false, swarm: false,
         });
         expect(result.exportVersion).toBe('2.0');
@@ -57,7 +57,7 @@ describe('fetchExportData', () => {
 
     it('exports profile with all fields', async () => {
         mockApi({});
-        const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, {
+        const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
             tasks: false, maps: false, swarm: false,
         });
         expect(result.profile).toEqual({
@@ -75,7 +75,7 @@ describe('fetchExportData', () => {
 
     it('omits app keys when not selected', async () => {
         mockApi({});
-        const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, {
+        const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
             tasks: false, maps: false, swarm: false,
         });
         expect(result.domains).toBeUndefined();
@@ -96,7 +96,7 @@ describe('fetchExportData', () => {
                 '/recurring_tasks': [{ id: 200, description: 'RT1', recurrence: 'daily', anchor_date: '2026-01-01', area_fk: 10, priority: 0, accumulate: 0, insert_position: 'bottom', active: 1, last_generated: null, create_ts: 't', update_ts: null }],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
 
             expect(result.domains).toHaveLength(1);
             expect(result.domains[0].areas).toHaveLength(1);
@@ -124,14 +124,14 @@ describe('fetchExportData', () => {
                 '/recurring_tasks': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.domains[0].areas[0].tasks[0].description).toBe('T1');
             expect(result.domains[1].areas[0].tasks[0].description).toBe('T2');
         });
 
         it('handles 404 (empty tables) gracefully', async () => {
             mockApi({}); // All tables return 404
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.domains).toEqual([]);
             expect(result.recurringTasks).toEqual([]);
         });
@@ -152,7 +152,7 @@ describe('fetchExportData', () => {
                 '/map_run_partners': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
 
             expect(result.mapRoutes).toHaveLength(1);
             expect(result.mapRoutes[0].runs).toHaveLength(1);
@@ -170,7 +170,7 @@ describe('fetchExportData', () => {
                 '/map_run_partners': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.unassignedRuns[0].coordinates).toBeUndefined();
             // No coordinate API calls should have been made
             const coordCalls = call_rest_api.mock.calls.filter(c => c[0].includes('map_coordinates'));
@@ -190,7 +190,7 @@ describe('fetchExportData', () => {
                 '/map_run_partners': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, {
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
                 ...SELECTED, mapsGps: true,
             });
 
@@ -209,7 +209,7 @@ describe('fetchExportData', () => {
                 '/map_run_partners': [{ map_run_fk: 10, map_partner_fk: 1, create_ts: 't' }],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.mapViews).toHaveLength(1);
             expect(result.mapPartners).toHaveLength(1);
             expect(result.mapRunPartners).toHaveLength(1);
@@ -228,7 +228,7 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.requirements[0].requirement_status).toBe('authoring');
             expect(result.requirements[0].coordination_type).toBe('implemented');
             expect(result.requirements[0].deferred_at).toBe('2026-03-01');
@@ -236,10 +236,10 @@ describe('fetchExportData', () => {
             expect(result.requirements[0].category_fk).toBe(10);
         });
 
-        // Req #2697 regression guard — swarm_sessions is an operational table,
-        // must be fetched from darwinOpsUri (production `darwin`), never from
-        // darwinUri (which honors the dev/prod USER-data split).
-        it('reads swarm_sessions from darwinOpsUri (production darwin) not darwinUri', async () => {
+        // Req #2837 regression guard — swarm_sessions now follows the dev/prod
+        // split like every other table (completing the req #2827/#2834 sweep), so
+        // the dev export reads it from darwinUri (darwin_dev), NOT a pinned ops URI.
+        it('reads swarm_sessions from darwinUri (dev/prod split) not a pinned ops URI', async () => {
             mockApi({
                 '/requirements': [],
                 '/swarm_sessions': [],
@@ -247,12 +247,12 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
 
             const sessionCall = call_rest_api.mock.calls.find(c => c[0].includes('swarm_sessions'));
             expect(sessionCall).toBeDefined();
-            expect(sessionCall[0]).toContain(DARWIN_OPS_URI);
-            expect(sessionCall[0]).not.toContain('darwin_dev');
+            expect(sessionCall[0]).toContain(DARWIN_URI);
+            expect(sessionCall[0]).toContain('darwin_dev');
         });
 
         it('exports swarm session with review status transparently', async () => {
@@ -263,7 +263,7 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.swarmSessions[0].swarm_status).toBe('review');
         });
 
@@ -275,7 +275,7 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.requirements[0].coordination_type).toBeNull();
         });
 
@@ -287,7 +287,7 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             const s = result.swarmSessions[0];
             expect(s.completed_at).toBe('t2');
             expect(s.start_summary).toBe('Started work');
@@ -316,7 +316,7 @@ describe('fetchExportData', () => {
                 '/categories': [{ id: 1, category_name: 'Cat1', project_fk: 1, sort_order: 1, sort_mode: 'hand', color: '#ff0000', closed: 0, create_ts: 't', update_ts: null }],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.projects[0].project_name).toBe('Proj1');
             expect(result.projects[0].closed).toBe(0);
             expect(result.categories[0].category_name).toBe('Cat1');
@@ -348,7 +348,7 @@ describe('fetchExportData', () => {
                 }],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
             expect(result.features).toHaveLength(1);
             expect(result.features[0].feature_status).toBe('active');
             expect(result.features[0].description).toContain('Given');
@@ -384,7 +384,7 @@ describe('fetchExportData', () => {
                 '/categories': [],
             });
 
-            const result = await fetchExportData(DARWIN_URI, DARWIN_OPS_URI, 'user-123', ID_TOKEN, PROFILE, {
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
                 tasks: true, maps: true, swarm: true,
             });
 
