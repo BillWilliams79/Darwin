@@ -416,9 +416,14 @@ const RequirementDetail = () => {
 
     const categoryUnset = !requirement.category_fk;
 
+    // Req #2836 — page is wider than the prose column so the Linked Sessions
+    // DataGrid (~770px of columns) fits without a horizontal scrollbar. The
+    // editor controls above the table keep their readable width via NARROW.
+    // Mirrors the page-width-vs-prose-width split in SwarmStartDetail.
+    const NARROW = { maxWidth: 800 };
     return (
-        <Box sx={{ p: 3, maxWidth: 800 }} data-testid="requirement-detail">
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+        <Box sx={{ p: 3, maxWidth: 1000 }} data-testid="requirement-detail">
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', ...NARROW }}>
                 <Button variant="outlined"
                         onClick={handleBack}
                         data-testid="btn-back-to-swarm">
@@ -426,7 +431,7 @@ const RequirementDetail = () => {
                 </Button>
             </Box>
 
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, ...NARROW }}>
                 <TextField
                     variant="standard"
                     value={requirement.title || ''}
@@ -458,7 +463,7 @@ const RequirementDetail = () => {
                 Category/Description below don't shift when the requirement is saved
                 and the row becomes visible. */}
             <Box sx={{
-                display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap',
+                display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
                 ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
             }}>
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
@@ -542,7 +547,7 @@ const RequirementDetail = () => {
 
                 return (
                     <Box sx={{
-                        display: 'flex', gap: 1, mb: 2, alignItems: 'center',
+                        display: 'flex', gap: 1, mb: 2, alignItems: 'center', ...NARROW,
                         opacity: isFaded ? 0.4 : 1,
                         ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
                     }}>
@@ -577,7 +582,7 @@ const RequirementDetail = () => {
             })()}
 
             <Box sx={{
-                mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap',
+                mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', ...NARROW,
                 color: categoryUnset ? 'error.main' : 'text.secondary',
                 fontWeight: 'bold', fontSize: '1.25rem',
             }}>
@@ -623,7 +628,7 @@ const RequirementDetail = () => {
                 )}
             </Box>
 
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, ...NARROW }}>
                 <Typography
                     variant="subtitle2"
                     color={categoryUnset ? 'error.main' : 'text.secondary'}
@@ -649,7 +654,7 @@ const RequirementDetail = () => {
             </Box>
 
             {!isNew && (
-            <Box sx={{ display: 'flex', gap: 4, mb: 3 }}>
+            <Box sx={{ display: 'flex', gap: 4, mb: 3, ...NARROW }}>
                 {/* Requirement timings — left column */}
                 <Box sx={{ flex: 1 }}>
                     <Box sx={{ mb: 1 }}>
