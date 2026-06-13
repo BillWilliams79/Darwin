@@ -5,6 +5,19 @@
     gap: 16px;
 }
 
+/* ── Shared hover tooltip (req #2840) ──
+   One portal-rendered box that replaces the per-chip/per-anchor MUI Tooltip
+   Poppers. Styled to match MUI's default dark tooltip so the look is unchanged. */
+.ts-shared-tooltip {
+    background-color: rgba(97, 97, 97, 0.92);
+    color: #fff;
+    border-radius: 6px;
+    padding: 10px;
+    line-height: 1.45;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+    word-break: break-word;
+}
+
 /* ── Datacard (hover tooltip body) ── */
 .ts-datacard {
     display: flex;
