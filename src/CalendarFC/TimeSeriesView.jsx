@@ -1350,14 +1350,13 @@ const BeadRow = React.memo(({
     // driven directly by the undo log + the `swarm_starts` row it snapshots
     // (`swarm_start_fk_at_undo`) rather than the live `swarm_sessions` row.
     //
-    // Why undo-driven, not session-driven: per req #2697 the `swarm_sessions`
-    // hook (`ops: true`) reads from production `darwin`. A new feature like
-    // `swarm_undos` whose data lives in `darwin_dev` cannot rely on a matching
-    // session-status flip in production. The undo row + swarm_start row are
-    // both readable in dev (undos via the default `darwinUri`, swarm_starts
-    // via `darwinOpsUri`) — that pair is enough to render the chip without
-    // touching the live session at all. As a bonus this also works in the
-    // historical `/swarm-undo` model where the session row was deleted.
+    // Why undo-driven, not session-driven: the undo row + swarm_start row are
+    // enough to render the chip without touching the live `swarm_sessions` row
+    // at all. As of req #2827/#2829 all operational reads (swarm_undos,
+    // swarm_starts, swarm_sessions) follow the dev/prod split via `darwinUri`,
+    // so dev-seeded `darwin_dev` data renders in the dev server and production
+    // data in prod. As a bonus this also works in the historical `/swarm-undo`
+    // model where the session row was deleted.
     //
     // Math is identical to a completed chip: startPct comes from the
     // swarm_start.started_at (same source the green anchor uses); leftPct
