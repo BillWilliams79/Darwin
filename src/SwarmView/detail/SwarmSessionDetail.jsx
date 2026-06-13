@@ -10,6 +10,7 @@ import AppContext from '../../Context/AppContext';
 import call_rest_api from '../../RestApi/RestApi';
 import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
+import { PHASE_BUCKETS, GROUP_COLORS } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
 
@@ -384,25 +385,9 @@ function CollapsibleSection({ title, testId, defaultExpanded = false, children }
 // INT *_secs columns on swarm_sessions, not from parsed telemetry. For legacy
 // sessions (instrumented===0), only legacy_secs is shown.
 // Each phase has its own color (matched to its status chip) for the bar + dots;
-// the agentic/human/machine subtotal chips below use GROUP_COLORS.
-const PHASE_BUCKETS = [
-    { key: 'starting_secs',      label: 'Starting',      group: 'machine', color: '#5c6bc0' },
-    { key: 'waiting_secs',       label: 'Waiting',       group: 'human',   color: '#ffb74d' },
-    { key: 'planning_secs',      label: 'Planning',      group: 'agentic', color: '#4fc3f7' },
-    { key: 'implementing_secs',  label: 'Implementing',  group: 'agentic', color: '#4caf50' },
-    { key: 'review_secs',        label: 'Review',        group: 'human',   color: '#ce93d8' },
-    { key: 'completion_secs',    label: 'Completion',    group: 'agentic', color: '#8d6e63' },
-    { key: 'paused_secs',        label: 'Paused',        group: 'human',   color: '#f0d000' },
-    { key: 'legacy_secs',        label: 'Legacy',        group: 'legacy',  color: '#bdbdbd' },
-];
-
-const GROUP_COLORS = {
-    agentic: '#4fc3f7',
-    human:   '#ffb74d',
-    machine: '#90caf9',
-    legacy:  '#bdbdbd',
-};
-
+// the agentic/human/machine subtotal chips below use GROUP_COLORS. The
+// PHASE_BUCKETS / GROUP_COLORS constants live in ../sessionPhases (shared with
+// SessionsStatsView, req #2825).
 function SessionPhaseBreakdown({ session }) {
     if (!session) return null;
 
