@@ -160,7 +160,10 @@ test.describe('Swarm View', () => {
   test('SWM-16: /swarm/session/:id renders SwarmSessionDetail', async ({ page }) => {
     await page.goto(`/swarm/session/${testSessionId}`);
     await expect(page.getByTestId('swarm-session-detail')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId('chip-swarm-status')).toContainText('active');
+    // The chip renders the swarm_status DISPLAY label, not the raw value: per req #2332
+    // the `active` status is shown as "Implementing" (swarmStatusLabel in
+    // src/SwarmView/swarmStatusChipProps.js). The session is seeded with swarm_status:'active'.
+    await expect(page.getByTestId('chip-swarm-status')).toContainText('Implementing');
   });
 
   test('SWM-17: Session detail shows status chip with correct color', async ({ page }) => {

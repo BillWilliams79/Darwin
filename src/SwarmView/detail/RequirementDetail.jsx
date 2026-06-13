@@ -90,7 +90,7 @@ const RequirementDetail = () => {
     const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
-    const { darwinUri, darwinOpsUri } = useContext(AppContext);
+    const { darwinUri } = useContext(AppContext);
 
     const [requirement, setRequirement] = useState(isNew ? {
         id: null,
@@ -199,8 +199,14 @@ const RequirementDetail = () => {
                     ? ''
                     : `&requirement_status=(${siblingStatuses.join(',')})`;
                 const [sessionsResult, siblingsResult, categoryResult] = await Promise.all([
-                    // Req #2697 — `swarm_sessions` is an operational table; always read from `darwin`.
-                    call_rest_api(`${darwinOpsUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
+                    // Req #2834 — read swarm_sessions through `darwinUri` (the dev/prod split),
+                    // matching req #2827's migration of the factory ops hooks. The req #2697
+                    // pin to production `darwin` is gone: in production `darwinUri === darwinOpsUri`
+                    // (= `…/darwin`) so this is a no-op there, while in dev mode the linked-sessions
+                    // read now hits `darwin_dev` — the same schema SessionsView/useSessions reads —
+                    // so a dev-seeded session is visible here too (without this, dev showed the
+                    // list from darwin_dev but linked sessions from production darwin).
+                    call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
@@ -224,7 +230,7 @@ const RequirementDetail = () => {
         };
 
         fetchData();
-    }, [id, idToken, darwinUri, darwinOpsUri, siblingStatuses.join()]);
+    }, [id, idToken, darwinUri, siblingStatuses.join()]);
 
     const saveField = (field, value) => {
         if (isNew) return;  // draft — nothing is saved until category is picked
