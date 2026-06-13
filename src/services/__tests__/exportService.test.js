@@ -8,7 +8,7 @@ vi.mock('../../RestApi/RestApi', () => ({
 
 import call_rest_api from '../../RestApi/RestApi';
 
-// Dev-mode base URL (darwin_dev). Req #2837 — every table, including the
+// Dev-mode base URL (darwin_dev). Req #2837/#2829 — every table, including the
 // operational `swarm_sessions`, now reads through this single dev/prod-split URI;
 // the export service no longer takes a separate ops URI.
 const DARWIN_URI = 'https://api.example.com/darwin_dev';
@@ -236,7 +236,7 @@ describe('fetchExportData', () => {
             expect(result.requirements[0].category_fk).toBe(10);
         });
 
-        // Req #2837 regression guard — swarm_sessions now follows the dev/prod
+        // Req #2837/#2829 regression guard — swarm_sessions now follows the dev/prod
         // split like every other table (completing the req #2827/#2834 sweep), so
         // the dev export reads it from darwinUri (darwin_dev), NOT a pinned ops URI.
         it('reads swarm_sessions from darwinUri (dev/prod split) not a pinned ops URI', async () => {
@@ -251,6 +251,8 @@ describe('fetchExportData', () => {
 
             const sessionCall = call_rest_api.mock.calls.find(c => c[0].includes('swarm_sessions'));
             expect(sessionCall).toBeDefined();
+            // DARWIN_URI = '…/darwin_dev'; asserting it contains both proves the
+            // read follows the dev/prod split rather than a hardcoded prod URI.
             expect(sessionCall[0]).toContain(DARWIN_URI);
             expect(sessionCall[0]).toContain('darwin_dev');
         });

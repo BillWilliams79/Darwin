@@ -92,7 +92,7 @@ const SwarmSessionDetail = () => {
 
     const sessionDelete = useConfirmDialog({
         onConfirm: ({ sessionId }) => {
-            // Req #2837 — read/write swarm_sessions via `darwinUri` so the dev UI
+            // Req #2837/#2829 — read/write swarm_sessions via `darwinUri` so the dev UI
             // (darwin_dev) deletes the row it actually shows; prod no-op
             // (darwinUri === darwinOpsUri). Completes the req #2827/#2834 sweep.
             const uri = `${darwinUri}/swarm_sessions`;
