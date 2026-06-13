@@ -44,9 +44,29 @@ export const devServers = createEntityQueries({
 // swarm_sessions
 // Hooks: useSessions (all) + useSession (legacy: sessionId-only, no creator in
 // cache key — SwarmSessionDetail.jsx invalidates with sessionKeys.byId(id)).
+//
+// Req #2834 — the list query (useSessions) projects every column EXCEPT the four
+// heavy TEXT fields (`telemetry`, `plan`, `start_summary`, `complete_summary`).
+// Those four are only read by the detail view (useSession/byId, which does NOT
+// apply defaultFields — it still fetches the full single row) and by
+// exportService.js (which fetches swarm_sessions directly, not via this hook).
+// Without this projection the unfiltered all-rows fetch grew past AWS Lambda's
+// 6 MB synchronous response limit (~6.06 MB at 668 rows) → the Lambda failed →
+// API Gateway returned 502 Bad Gateway (surfacing as a CORS error) → the
+// sessions page / visualizer hung on an infinite spinner. The projection drops
+// the response to ~0.56 MB. `fieldsInKey` stays false so the cache key
+// (`['swarm_sessions', creator]`) and every existing invalidation are unchanged.
 // ---------------------------------------------------------------------------
+const SWARM_SESSION_DEFAULT_FIELDS =
+    'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,' +
+    'worktree_path,started_at,completed_at,last_transition_at,' +
+    'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
+    'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
+    'creator_fk,create_ts,update_ts';
+
 export const sessions = createEntityQueries({
     entity: 'swarm_sessions',
+    defaultFields: SWARM_SESSION_DEFAULT_FIELDS,
     byIdCreatorScoped: false,
 });
 

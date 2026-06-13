@@ -7,22 +7,20 @@ const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin_dev';
 const API_BASE = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng';
 const DARWIN_API = `${API_BASE}/${TEST_DATABASE}`;
 
-// Req #2697 — operational tables live exclusively in the production `darwin`
-// schema. The app reads/writes them via `darwinOpsUri` (always `…/darwin`),
-// regardless of the active dev database. So E2E seeds/reads of these tables MUST
-// target `darwin` too: when TEST_DATABASE=darwin_dev, content tables (requirements,
-// projects, domains, …) go to darwin_dev but ops tables must still go to darwin, or
-// the UI (which reads ops from darwin) never sees the seeded rows — e.g. a seeded
-// swarm_session shows up as "Session not found." This mirrors the app's
-// darwinUri / darwinOpsUri split. Keep in sync with the `ops: true` entities in
-// src/hooks/factory/devopsQueries.js.
-const OPS_API = `${API_BASE}/darwin`;
-const OPS_TABLES = new Set(['swarm_sessions', 'dev_servers', 'swarm_starts', 'swarm_start_sessions']);
-
-/** Resolve the API base for a table (ops tables → production `darwin`). */
-function apiBaseFor(tableWithQuery: string): string {
-  const table = tableWithQuery.split('?')[0];
-  return OPS_TABLES.has(table) ? OPS_API : DARWIN_API;
+// Req #2827 (2026-06-12) — the operational tables (`swarm_sessions`, `dev_servers`,
+// `swarm_starts`, `swarm_start_sessions`) no longer carry the req #2697 `ops: true`
+// pin in src/hooks/factory/devopsQueries.js. Every ops block now routes through the
+// default `darwinUri` (the dev/prod split): in dev mode the UI reads ops tables from
+// `darwin_dev`, in production from `darwin`. So E2E seeds/reads of ops tables MUST
+// follow the SAME split — i.e. go to `${API_BASE}/${TEST_DATABASE}` like every content
+// table — or the dev-mode UI (reading darwin_dev) never sees a row seeded into
+// production darwin, and the sessions DataGrid renders "No rows" (req #2834).
+//
+// Previously (req #2697) these tables were pinned to production `darwin`; that pin is
+// gone, so there is no longer a per-table override. `apiBaseFor` now resolves every
+// table to the active TEST_DATABASE base.
+function apiBaseFor(_tableWithQuery: string): string {
+  return DARWIN_API;
 }
 
 /** Extract the idToken from the browser context cookies. */

@@ -124,6 +124,30 @@ describe('createEntityQueries — wired devops blocks follow dev/prod split (req
         expect(url).toContain(`${TEST_DARWIN_URI}/swarm_sessions`);
     });
 
+    // Req #2834 — the sessions LIST query must project a `fields=` whitelist that
+    // EXCLUDES the four heavy TEXT columns. Without this, the unfiltered all-rows
+    // response grew past AWS Lambda's 6 MB synchronous response limit (~6.06 MB at
+    // 668 rows) → the Lambda failed → API Gateway 502 → the /swarm/sessions page
+    // hung on an infinite spinner. This guards against silently dropping the
+    // projection and reintroducing the regression.
+    it('sessions.useAll projects fields and EXCLUDES the heavy TEXT columns (req #2834)', async () => {
+        const { sessions } = await import('../factory/devopsQueries');
+        sessions.useAll('alice');
+        const url = callRestApiMock.mock.calls[0][0];
+        const fieldsMatch = /[?&]fields=([^&]+)/.exec(url);
+        expect(fieldsMatch).not.toBeNull();
+        // Match whole CSV tokens, not substrings — 'plan' is a substring of the KEPT
+        // column 'planning_secs', so a naive url.includes('plan') would false-positive.
+        const projected = fieldsMatch[1].split(',');
+        for (const heavy of ['telemetry', 'plan', 'start_summary', 'complete_summary']) {
+            expect(projected).not.toContain(heavy);
+        }
+        // Sanity: the projection still includes the columns the list/cards/visualizer render.
+        for (const kept of ['swarm_status', 'source_ref', 'title', 'implementing_secs']) {
+            expect(projected).toContain(kept);
+        }
+    });
+
     it('swarmStarts.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
         const { swarmStarts } = await import('../factory/devopsQueries');
         swarmStarts.useAll('alice');
