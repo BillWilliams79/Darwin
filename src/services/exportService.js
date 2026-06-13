@@ -2,14 +2,13 @@ import call_rest_api from '../RestApi/RestApi';
 
 /**
  * Fetch all user data for selected apps and assemble into nested hierarchy.
- * @param {string} darwinUri - API base URL (USER-data tables; dev-mode = darwin_dev)
- * @param {string} darwinOpsUri - API base URL for operational tables (always darwin per req #2697)
+ * @param {string} darwinUri - API base URL (dev-mode = darwin_dev; honors the dev/prod split for USER-data AND operational tables per req #2829)
  * @param {string} userName - Cognito username (creator_fk filter)
  * @param {string} idToken - Auth token
  * @param {object} profile - User profile object
  * @param {object} selectedApps - { tasks: boolean, maps: boolean, swarm: boolean }
  */
-export async function fetchExportData(darwinUri, darwinOpsUri, userName, idToken, profile, selectedApps) {
+export async function fetchExportData(darwinUri, userName, idToken, profile, selectedApps) {
     // Lambda-Rest returns 404 when a table has no rows — treat as empty array, not error.
     const safeGet = async (url) => {
         try {
@@ -219,8 +218,10 @@ export async function fetchExportData(darwinUri, darwinOpsUri, userName, idToken
         const [requirements, swarmSessions, projects, categories,
                features, testCases, testPlans] = await Promise.all([
             safeGet(`${darwinUri}/requirements`),
-            // Req #2697 — `swarm_sessions` is an operational table; always read from `darwin`.
-            safeGet(`${darwinOpsUri}/swarm_sessions`),
+            // Req #2829 — `swarm_sessions` follows the dev/prod split via `darwinUri`
+            // (completes req #2827): dev exports seeded `darwin_dev` sessions, prod
+            // exports production `darwin` (where `darwinUri === darwinOpsUri`).
+            safeGet(`${darwinUri}/swarm_sessions`),
             safeGet(`${darwinUri}/projects`),
             safeGet(`${darwinUri}/categories`),
             safeGet(`${darwinUri}/features`),

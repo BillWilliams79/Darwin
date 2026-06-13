@@ -35,7 +35,7 @@ const SwarmSessionDetail = () => {
     const location = useLocation();
 
     const { idToken, profile } = useContext(AuthContext);
-    const { darwinOpsUri } = useContext(AppContext);
+    const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
 
@@ -92,8 +92,12 @@ const SwarmSessionDetail = () => {
 
     const sessionDelete = useConfirmDialog({
         onConfirm: ({ sessionId }) => {
-            // Req #2697 — operational tables live exclusively in `darwin`.
-            const uri = `${darwinOpsUri}/swarm_sessions`;
+            // Req #2829 — operational reads/writes follow the dev/prod split via
+            // `darwinUri` (completes req #2827). The detail page reads its session
+            // through the factory `useSession` hook (also `darwinUri`), so the
+            // delete must target the same schema: darwin_dev in dev mode, production
+            // `darwin` in prod (where `darwinUri === darwinOpsUri`).
+            const uri = `${darwinUri}/swarm_sessions`;
             call_rest_api(uri, 'DELETE', { id: sessionId }, idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
