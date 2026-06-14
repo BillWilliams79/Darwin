@@ -564,6 +564,32 @@ const KonvaSwarmCanvas = ({
         );
     };
 
+    // Swarm-start glyph (req #2504 same-day; req #2862 cross-day start day) —
+    // a vertical tick spanning the lane slot + an anchor dot at the top.
+    // Green = a real swarm_start row, red = an estimated (cluster-inferred) one.
+    // `tipChip` drives the hover datacard (Swarm-Start #N) — pass the completed
+    // chip OR the cross-day card, whichever owns the glyph. Returns the tick +
+    // dot nodes. Shared by the same-day `model.placed` loop and the cross-day
+    // `role:'start'` loop so the start day of a multi-day span shows the SAME
+    // anchor glyph as a single-day bead (previously the cross-day start day drew
+    // only the dashed tail, so multi-day requirements had no start glyph at all).
+    const swarmStartGlyph = (key, sx, cy, swarmStartId, swarmStartRow, tipChip) => {
+        const real = swarmStartId != null;
+        const col = real ? REAL_GREEN : EST_RED;
+        // Span reduced by 1/3 from the full lane, kept centered on the lane.
+        const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
+        return [
+            <Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
+                  stroke={col} strokeWidth={2.5 * inv} lineCap="round" />,
+            <Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
+                    stroke={C.beadEdge} strokeWidth={0.8 * inv}
+                    hitStrokeWidth={10 * inv}
+                    onMouseEnter={swarmStartRow ? (e) => { cursorPointer(e, true); showTip({ ...tipChip, isSwarmStartCard: true }, e); } : undefined}
+                    onMouseLeave={swarmStartRow ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
+                    onActivate={real ? () => onSwarmStartClick?.(swarmStartId) : undefined} />,
+        ];
+    };
+
     // ── Row renderer ─────────────────────────────────────────────────────────
     const renderRow = (r) => {
         const { date, top, height, model, parity } = r;
@@ -619,13 +645,24 @@ const KonvaSwarmCanvas = ({
             const card = cd.card;
             let x1 = LEFTPAD;
             const x2 = WORLD_W - RIGHTPAD;
-            if (cd.role === 'start' && cd.pct != null) x1 = xWorld(cd.pct);
+            const isStart = cd.role === 'start' && cd.pct != null;
+            if (isStart) x1 = xWorld(cd.pct);
             nodes.push(<Line key={`xd${i}`} points={[x1, y, x2, y]}
                              stroke={card?.color || C.tomb} strokeWidth={trackW * 0.7}
                              dash={[6 * inv, 4 * inv]} opacity={0.55} lineCap="round"
                              hitStrokeWidth={12 * inv}
                              onMouseEnter={card ? (e) => { cursorPointer(e, true); showTip({ ...card, isCrossDay: true }, e); } : undefined}
                              onMouseLeave={card ? (e) => { cursorPointer(e, false); hideTip(); } : undefined} />);
+            // Anchor the swarm-start glyph at the start-day's dashed tail (req
+            // #2862). For a requirement started one day and completed another the
+            // completion bead's start is clamped off-window (no glyph drawn
+            // there), so this cross-day start entry is the only place the
+            // swarm-start anchor can appear.
+            if (isStart) {
+                nodes.push(...swarmStartGlyph(`xd${i}`, x1, y,
+                                              card?.swarmStartId ?? null,
+                                              card?.swarmStart ?? null, card));
+            }
         });
 
         // ── Duration tracks + start ticks + terminal glyphs ──────────────────
@@ -657,19 +694,8 @@ const KonvaSwarmCanvas = ({
             // Swarm-start: vertical tick spanning the lane slot (stacks into a
             // grouping bar for a multi-session start) + an anchor dot at the top.
             if (chip.startPct != null && !chip.startClamped && chip.markerMode !== 'left') {
-                const sx = xWorld(chip.startPct);
-                const real = chip.swarmStartId != null;
-                const col = real ? REAL_GREEN : EST_RED;
-                // Span reduced by 1/3 from the full lane, kept centered on the lane.
-                const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
-                nodes.push(<Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
-                                 stroke={col} strokeWidth={2.5 * inv} lineCap="round" />);
-                nodes.push(<Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
-                                   stroke={C.beadEdge} strokeWidth={0.8 * inv}
-                                   hitStrokeWidth={10 * inv}
-                                   onMouseEnter={chip.swarmStart ? (e) => { cursorPointer(e, true); showTip({ ...chip, isSwarmStartCard: true }, e); } : undefined}
-                                   onMouseLeave={chip.swarmStart ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
-                                   onActivate={real ? () => onSwarmStartClick?.(chip.swarmStartId) : undefined} />);
+                nodes.push(...swarmStartGlyph(key, xWorld(chip.startPct), cy,
+                                              chip.swarmStartId, chip.swarmStart, chip));
             }
 
             // Terminal glyph.
