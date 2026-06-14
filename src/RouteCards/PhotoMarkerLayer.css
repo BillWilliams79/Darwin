@@ -163,7 +163,7 @@
     top: 0; left: 0;
     cursor: nwse-resize;
 }
-/* Visible thumb on bottom-right only — bright white, hidden until hover */
+/* Visible thumb on bottom-right only — Darwin red (bike accent), hidden until hover */
 .photo-grid-resize-br::after {
     content: '';
     position: absolute;
@@ -171,8 +171,8 @@
     right: 3px;
     width: 8px;
     height: 8px;
-    border-right: 2px solid #fff;
-    border-bottom: 2px solid #fff;
+    border-right: 2px solid #E91E63;
+    border-bottom: 2px solid #E91E63;
     opacity: 0;
     transition: opacity 0.2s;
 }
