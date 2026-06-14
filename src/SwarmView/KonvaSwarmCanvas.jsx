@@ -176,6 +176,7 @@ const KonvaSwarmCanvas = ({
     const stageRef = useRef(null);
     const zoomRef = useRef(null);
     const downRef = useRef(null);
+    const draggingRef = useRef(false);   // true while a drag-pan gesture is active (cursor → grabbing)
     const rowsRef = useRef([]);          // live rows for hit-testing in handlers
     const centerDateRef = useRef(null);  // date currently at the viewport center
     const prevWinRef = useRef(null);     // detects a window (36h) toggle
@@ -287,9 +288,29 @@ const KonvaSwarmCanvas = ({
                 // re-anchor on it instead of jumping to a different day.
                 const d = dateAtWorldY(rowsRef.current, (size.h / 2 - tr.y) / tr.k);
                 if (d) centerDateRef.current = d;
+            })
+            // Drag-pan cursor: closed-hand 'grabbing' while a pointer drag is in
+            // flight, restored to the open-hand 'grab' on release (req #2853). Wheel
+            // zoom (sourceEvent.type === 'wheel') and programmatic transforms
+            // (no sourceEvent) must NOT touch the cursor — guarded via draggingRef
+            // so they can't clobber a hover 'pointer'.
+            .on('start', (ev) => {
+                if (!ev.sourceEvent || ev.sourceEvent.type === 'wheel') return;
+                draggingRef.current = true;
+                const c = stageRef.current?.container();
+                if (c) c.style.cursor = 'grabbing';
+            })
+            .on('end', () => {
+                if (!draggingRef.current) return;
+                draggingRef.current = false;
+                const c = stageRef.current?.container();
+                if (c) c.style.cursor = 'grab';
             });
         sel.call(zb);
         sel.on('dblclick.zoom', null);   // don't zoom on double-click (conflicts with click-to-open)
+        // Resting cursor over the pannable canvas is the open hand (req #2853).
+        const sc = stageRef.current?.container();
+        if (sc) sc.style.cursor = 'grab';
         zoomRef.current = zb;
         return () => { sel.on('.zoom', null); };
     }, [size.w, size.h, kBase]);
@@ -407,7 +428,12 @@ const KonvaSwarmCanvas = ({
     const hideTip = useCallback(() => setTooltip(null), []);
     const cursorPointer = (e, on) => {
         const stage = e?.target?.getStage?.();
-        if (stage) stage.container().style.cursor = on ? 'pointer' : 'default';
+        if (!stage) return;
+        // Don't touch the cursor mid-drag — a shape sliding under/out from the
+        // pointer during a pan must not flicker 'grabbing' → 'pointer'/'grab'
+        // (req #2853). The drag end handler restores 'grab'.
+        if (draggingRef.current) return;
+        stage.container().style.cursor = on ? 'pointer' : 'grab';
     };
     const handleChipClick = useCallback((chip) => {
         if (chip.isUndone) { onUndoClick?.(chip.undo?.id ?? null); return; }
