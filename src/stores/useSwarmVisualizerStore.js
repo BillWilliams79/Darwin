@@ -43,6 +43,9 @@ export const migrateVisualizerState = (persisted) => {
         // v8 → v9: req #2841 konvaWide (ON by default) — the 36h noon-centered
         // window for the Konva canvas's mid zoom (toggled by the 36h button).
         konvaWide: rest.konvaWide ?? true,
+        // v9 → v10: req #2846 costOn (off by default) — size each bead by its
+        // session's token cost so expensive work stands out at a glance.
+        costOn: rest.costOn ?? false,
     };
 };
 
@@ -60,6 +63,7 @@ export const useSwarmVisualizerStore = create(
             phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
             konvaOn: true,               // Konva canvas redesign as default substrate — req #2841 (Classic = SVG baseline)
             konvaWide: true,             // 36h noon-centered window for the Konva canvas mid zoom — req #2841
+            costOn: false,               // size each bead by its session token cost — req #2846 (off by default)
             viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
 
             setViewType: (viewType) => set({ viewType }),
@@ -74,6 +78,7 @@ export const useSwarmVisualizerStore = create(
             setPhasesOn: (on) => set({ phasesOn: !!on }),
             setKonvaOn: (on) => set({ konvaOn: !!on }),
             setKonvaWide: (on) => set({ konvaWide: !!on }),
+            setCostOn: (on) => set({ costOn: !!on }),
             resetView: () => set((s) => ({ viewResetTick: s.viewResetTick + 1 })),
         }),
         {
@@ -87,7 +92,9 @@ export const useSwarmVisualizerStore = create(
             // v7 → v8 (req #2841): konvaOn added; migrate back-fills it to true
             // (the Konva canvas is the new default visualizer substrate).
             // v8 → v9 (req #2841): konvaWide added; back-fills to true (36h mid zoom).
-            version: 9,
+            // v9 → v10 (req #2846): costOn added; migrate back-fills it to false
+            // (bead sizing by token cost is off by default).
+            version: 10,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,

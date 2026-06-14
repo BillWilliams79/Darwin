@@ -36,6 +36,7 @@ import { localDateStr } from '../utils/dateFormat';
 import {
     formatCoordination, PHASE_UNCLASSIFIED_COLOR,
 } from '../CalendarFC/timeSeriesSizes';
+import { sessionTokenCost, formatTokens } from './sessionPhases';
 import { laneParityFor } from '../CalendarFC/TimeSeriesView';
 import {
     dateRange, semanticLevel,
@@ -77,6 +78,14 @@ const HEADER_H = 22;    // sticky per-day date/count header height
 
 const REAL_GREEN = '#43A047';
 const EST_RED    = '#E53935';
+
+// Cost-sizing (req #2846). When the "Cost" toggle is on, each bead's radius is
+// scaled by its session token cost relative to the most-expensive session in the
+// fetched window: radius ∝ √(cost / maxCost) so VISUAL AREA ≈ cost. The √ is then
+// mapped onto [COST_MIN_MULT, COST_MAX_MULT] so the cheapest work still reads as a
+// small-but-visible bead and the priciest pops without swamping the row.
+const COST_MIN_MULT = 0.55;
+const COST_MAX_MULT = 2.4;
 
 const hourLabel = (h) => {
     const hod = ((h % 24) + 24) % 24;
@@ -141,7 +150,7 @@ const KonvaSwarmCanvas = ({
     selectedDate, timezone, categoryList,
     rangeStart, rangeEnd, dataKey = 'category',
     titlesOn = false, completesOn = false, phasesOn = false,
-    wide36 = true, resetTick = 0,
+    costOn = false, wide36 = true, resetTick = 0,
     onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
 }) => {
     const theme = useTheme();
@@ -228,6 +237,35 @@ const KonvaSwarmCanvas = ({
 
     rowsRef.current = rows;
     const worldH = rows.length ? rows[rows.length - 1].top + rows[rows.length - 1].height : 0;
+
+    // Cost-sizing normalization (req #2846). The most-expensive session in the
+    // FETCHED window (not just the visible rows) is the reference, so a bead's
+    // size is stable while the user pans the canvas — it only re-references when
+    // the data window itself changes (a week-boundary crossing). Computed
+    // unconditionally (cheap, one pass) but only consumed when `costOn`.
+    const maxCost = useMemo(() => {
+        let m = 0;
+        for (const r of rows) {
+            for (const chip of r.model.placed) {
+                if (!chip.session) continue;
+                const c = sessionTokenCost(chip.session);
+                if (c > m) m = c;
+            }
+        }
+        return m;
+    }, [rows]);
+
+    // Per-chip radius multiplier. 1 (no scaling) when cost mode is off, the chip
+    // has no session, or the window carries no token data. Undone tombstones keep
+    // their base size (handled at the call site). cost 0 → COST_MIN_MULT so a
+    // token-less session is small-but-present rather than invisible.
+    const costMult = useCallback((chip) => {
+        if (!costOn || maxCost <= 0 || !chip || !chip.session) return 1;
+        const c = sessionTokenCost(chip.session);
+        if (c <= 0) return COST_MIN_MULT;
+        const norm = Math.sqrt(c / maxCost);   // 0..1, area-proportional
+        return COST_MIN_MULT + norm * (COST_MAX_MULT - COST_MIN_MULT);
+    }, [costOn, maxCost]);
 
     const rowTopFor = useCallback((date) => {
         const r = rows.find(rr => rr.date === date);
@@ -463,8 +501,9 @@ const KonvaSwarmCanvas = ({
         // ── OUT level: density dots only (one mark per completion) ───────────
         if (level === 'out') {
             model.placed.forEach((chip) => {
+                const rad = DOT_R_S * 2.25 * inv * (chip.isUndone ? 1 : costMult(chip));
                 nodes.push(<Circle key={chip.chipKey || chip.id} x={xWorld(chip.leftPct)} y={laneY(chip.row)}
-                                   radius={DOT_R_S * 2.25 * inv} fill={beadFill(chip)} opacity={0.85} />);
+                                   radius={rad} fill={beadFill(chip)} opacity={0.85} />);
             });
             return <Group key={date}>{nodes}</Group>;
         }
@@ -489,6 +528,10 @@ const KonvaSwarmCanvas = ({
             const cx = xWorld(chip.leftPct);
             const cy = laneY(chip.row);
             const key = chip.chipKey || chip.id;
+            // Cost-scaled bead radius (req #2846). Undone tombstones keep base
+            // size; the duration track + start tick are unaffected (cost is a
+            // property of the completion bead, not the span).
+            const cr = beadR * (chip.isUndone ? 1 : costMult(chip));
 
             // The track (phase-segmented at "in", else a thick line).
             durationSegments(chip, usePhases).forEach((s, si) => {
@@ -519,32 +562,32 @@ const KonvaSwarmCanvas = ({
 
             // Terminal glyph.
             if (chip.isUndone) {
-                nodes.push(tombstone(key, cx, cy, beadR));
+                nodes.push(tombstone(key, cx, cy, cr));
             } else if (chip.isPhantom) {
                 // In-flight: text-colored core + colored ring (+40% thicker). The
                 // earlier white core read too bright, so the core matches the text.
-                nodes.push(<Circle key={`${key}-ph`} x={cx} y={cy} radius={beadR}
+                nodes.push(<Circle key={`${key}-ph`} x={cx} y={cy} radius={cr}
                                    fill={C.textDim} stroke={beadFill(chip)} strokeWidth={3.5 * inv} />);
             } else {
                 // Completed bead: category fill + a thin white highlight ring.
-                nodes.push(<Circle key={`${key}-bd`} x={cx} y={cy} radius={beadR}
+                nodes.push(<Circle key={`${key}-bd`} x={cx} y={cy} radius={cr}
                                    fill={beadFill(chip)} stroke="#ffffff" strokeWidth={1.8 * inv} />);
             }
             if (chip.ringColor) {
-                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={beadR + 3 * inv} stroke={chip.ringColor} strokeWidth={2 * inv} />);
+                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={cr + 3 * inv} stroke={chip.ringColor} strokeWidth={2 * inv} />);
             }
             // Hit target (hover + click). Pushed BEFORE the completion badge so
             // the badge (drawn on top) keeps its own onCompleteClick within its
             // bounds, while the hit target catches the rest of the bead area.
-            nodes.push(<Circle key={`${key}-hit`} x={cx} y={cy} radius={beadR + 5 * inv} fill="transparent"
+            nodes.push(<Circle key={`${key}-hit`} x={cx} y={cy} radius={cr + 5 * inv} fill="transparent"
                                onMouseEnter={(e) => { cursorPointer(e, true); showTip(chip, e); }}
                                onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
                                onActivate={() => handleChipClick(chip)} />);
             if (completesOn && chip.swarmComplete && !chip.isUndone && !chip.isPhantom) {
-                nodes.push(completionBadge(key, cx, cy, beadR, chip.swarmComplete));
+                nodes.push(completionBadge(key, cx, cy, cr, chip.swarmComplete));
             }
             if (titlesOn && chip.title) {
-                nodes.push(<Text key={`${key}-tt`} x={cx + (beadR + 6 * inv)} y={cy - 7 * inv}
+                nodes.push(<Text key={`${key}-tt`} x={cx + (cr + 6 * inv)} y={cy - 7 * inv}
                                  text={chip.title.length > 46 ? chip.title.slice(0, 45) + '…' : chip.title}
                                  fontSize={FONT_TITLE_S * inv} fill={C.textDim} listening={false} />);
             }
@@ -623,7 +666,7 @@ const KonvaSwarmCanvas = ({
                 background: dark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.82)',
                 padding: '2px 8px', borderRadius: 10, pointerEvents: 'none', userSelect: 'none',
             }} data-testid="konva-zoom-level">
-                {level === 'out' ? 'Overview' : level === 'in' ? 'Detail · phases' : 'Tracks'} · drag to pan · scroll to zoom
+                {level === 'out' ? 'Overview' : level === 'in' ? 'Detail · phases' : 'Tracks'}{costOn ? ' · sized by cost' : ''} · drag to pan · scroll to zoom
             </div>
 
             {!hasData && size.w > 0 && (
@@ -727,6 +770,17 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                 {chip.session && (
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Session</span><span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span></div>
                 )}
+                {/* req #2846 — surface the session's token cost regardless of the
+                    Cost sizing toggle; the bead area encodes it, this names it.
+                    Shown for every session-bearing bead — "—" when the session has
+                    no token instrumentation, so the line never silently vanishes. */}
+                {chip.session && (() => {
+                    const cost = sessionTokenCost(chip.session);
+                    return (
+                        <div className="ts-datacard-row"><span className="ts-datacard-key">Token Cost</span>
+                            <span>{cost > 0 ? `${formatTokens(cost)} tok` : '—'}</span></div>
+                    );
+                })()}
             </div>
         </div>
     );

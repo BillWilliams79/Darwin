@@ -85,6 +85,7 @@ const SwarmVisualizerView = () => {
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaOn     = useSwarmVisualizerStore(s => s.konvaOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
 
@@ -259,6 +260,7 @@ const SwarmVisualizerView = () => {
                     titlesOn={titlesOn}
                     completesOn={completesOn}
                     phasesOn={phasesOn}
+                    costOn={costOn}
                     wide36={konvaWide}
                     resetTick={viewResetTick}
                     onChipClick={onChipClick}

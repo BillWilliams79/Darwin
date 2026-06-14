@@ -73,6 +73,20 @@ export function sumPhaseTokens(phaseBlob) {
 export const bucketTokens = (parsedTokens, bucketKey) =>
     sumPhaseTokens(parsedTokens && parsedTokens[tokenPhaseKey(bucketKey)]);
 
+// Whole-session token cost (req #2846): the sum of all four token types across
+// EVERY phase in a session's phase_tokens blob. This is the single figure the
+// swarm visualizer scales beads by and the datacard reports. Returns 0 for a
+// session with no/garbage token instrumentation (phase_tokens NULL) — same
+// convention as sumPhaseTokens. Iterates phase_tokens' own keys (not the *_secs
+// bucket list) so any phase the engine emits is counted.
+export function sessionTokenCost(session) {
+    const parsed = parsePhaseTokens(session && session.phase_tokens);
+    if (!parsed) return 0;
+    let total = 0;
+    for (const phase of Object.keys(parsed)) total += sumPhaseTokens(parsed[phase]);
+    return total;
+}
+
 // Compact token formatter shared by the swarm views (12.3M / 45.6k / 789 / —).
 export const formatTokens = (v) => {
     if (v == null) return '—';

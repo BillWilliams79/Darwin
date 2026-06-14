@@ -50,6 +50,7 @@ const VisualizerToolbar = () => {
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaOn     = useSwarmVisualizerStore(s => s.konvaOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const setViewType    = useSwarmVisualizerStore(s => s.setViewType);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setBeadWindow  = useSwarmVisualizerStore(s => s.setBeadWindow);
@@ -61,6 +62,7 @@ const VisualizerToolbar = () => {
     const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
     const setKonvaOn     = useSwarmVisualizerStore(s => s.setKonvaOn);
     const setKonvaWide   = useSwarmVisualizerStore(s => s.setKonvaWide);
+    const setCostOn      = useSwarmVisualizerStore(s => s.setCostOn);
     const resetView      = useSwarmVisualizerStore(s => s.resetView);
 
     const isWeekView = viewType === 'week';
@@ -124,6 +126,10 @@ const VisualizerToolbar = () => {
     const handleKonvaClick = useCallback(() => {
         setKonvaOn(!konvaOn);
     }, [konvaOn, setKonvaOn]);
+
+    const handleCostClick = useCallback(() => {
+        setCostOn(!costOn);
+    }, [costOn, setCostOn]);
 
     // Auto-off sidewalk/elevator when the active layout stops applying.
     React.useEffect(() => {
@@ -239,6 +245,17 @@ const VisualizerToolbar = () => {
                               onChange={handlePhasesClick}
                               data-testid="timeseries-phases">
                     Phases
+                </ToggleButton>
+                {/* req #2846 — size each bead by its session's token cost so
+                    expensive work stands out at a glance. Canvas-only (the bead
+                    sizing lives in KonvaSwarmCanvas); disabled in Classic. */}
+                <ToggleButton value="cost" className="cal-toggle-btn"
+                              selected={costOn && konvaOn}
+                              disabled={!konvaOn}
+                              onChange={handleCostClick}
+                              data-testid="timeseries-cost"
+                              title="Size beads by token cost">
+                    Cost
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>

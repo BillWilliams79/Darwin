@@ -6,6 +6,7 @@ import {
     parsePhaseTokens,
     sumPhaseTokens,
     bucketTokens,
+    sessionTokenCost,
     formatTokens,
 } from '../sessionPhases';
 
@@ -132,6 +133,48 @@ describe('bucketTokens', () => {
         // But if someone explicitly sets a "legacy" key, it works.
         const withLegacy = { ...parsed, legacy: { input: 5, cache_write: 0, cache_read: 0, output: 5 } };
         expect(bucketTokens(withLegacy, 'legacy_secs')).toBe(10);
+    });
+});
+
+// --- sessionTokenCost (req #2846) --------------------------------------------
+describe('sessionTokenCost', () => {
+    it('sums all four token types across every phase', () => {
+        const session = {
+            phase_tokens: {
+                planning:     { input: 1, cache_write: 2, cache_read: 3, output: 4 },   // 10
+                implementing: { input: 10, cache_write: 20, cache_read: 30, output: 40 }, // 100
+                review:       { input: 0, cache_write: 0, cache_read: 5, output: 0 },   // 5
+            },
+        };
+        expect(sessionTokenCost(session)).toBe(115);
+    });
+
+    it('parses a phase_tokens JSON string (MCP default for JSON columns)', () => {
+        const session = {
+            phase_tokens: JSON.stringify({
+                implementing: { input: 5, cache_write: 0, cache_read: 0, output: 5 },
+            }),
+        };
+        expect(sessionTokenCost(session)).toBe(10);
+    });
+
+    it('returns 0 when phase_tokens is null/absent (uninstrumented session)', () => {
+        expect(sessionTokenCost({ phase_tokens: null })).toBe(0);
+        expect(sessionTokenCost({})).toBe(0);
+    });
+
+    it('returns 0 for null/undefined session', () => {
+        expect(sessionTokenCost(null)).toBe(0);
+        expect(sessionTokenCost(undefined)).toBe(0);
+    });
+
+    it('returns 0 for a garbage phase_tokens string', () => {
+        expect(sessionTokenCost({ phase_tokens: 'not-json' })).toBe(0);
+    });
+
+    it('tolerates partial/missing token-type keys (treated as 0)', () => {
+        const session = { phase_tokens: { planning: { input: 50 }, completion: {} } };
+        expect(sessionTokenCost(session)).toBe(50);
     });
 });
 
