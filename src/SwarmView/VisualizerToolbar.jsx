@@ -144,7 +144,7 @@ const VisualizerToolbar = () => {
                               onChange={handleCostClick}
                               data-testid="timeseries-cost"
                               title="Size beads by token cost">
-                    Cost
+                    Tokens
                 </ToggleButton>
                 {/* req #2857 — overlay a clickable port pill on beads whose
                     session has an active, associated dev server (on by default). */}

@@ -38,16 +38,17 @@ export const migrateVisualizerState = (persisted) => {
         ...rest,
         // req #2382 dataKey.
         dataKey: rest.dataKey === 'coordination' ? 'coordination' : 'category',
-        // req #2556 titlesOn.
-        titlesOn: rest.titlesOn ?? false,
+        // req #2556 titlesOn — ON by default since req #2856.
+        titlesOn: rest.titlesOn ?? true,
         // req #2790 completesOn (off by default).
         completesOn: rest.completesOn ?? false,
         // req #2823 phasesOn (off by default) — segment the duration line by
         // session phase-duration buckets.
         phasesOn: rest.phasesOn ?? false,
-        // req #2841 konvaWide (ON by default) — the 36h noon-centered window for
-        // the Konva canvas's mid zoom (toggled by the 36h button).
-        konvaWide: rest.konvaWide ?? true,
+        // req #2841 konvaWide — the 36h noon-centered window for the Konva canvas's
+        // mid zoom (toggled by the 36h button). OFF by default since req #2856 (the
+        // default window is 24h).
+        konvaWide: rest.konvaWide ?? false,
         // v9 → v10: req #2846 costOn (off by default) — size each bead by its
         // session's token cost so expensive work stands out at a glance.
         costOn: rest.costOn ?? false,
@@ -62,10 +63,10 @@ export const useSwarmVisualizerStore = create(
         (set) => ({
             currentDate: localDateStr(), // YYYY-MM-DD — navigation state, NOT persisted (req #2799)
             dataKey: 'category',         // 'category' | 'coordination' — req #2382
-            titlesOn: false,             // show requirement title to right of bubble — req #2556
+            titlesOn: true,              // show requirement title to right of bubble — req #2556 (ON by default since req #2856)
             completesOn: false,          // show completion-terminus badge — req #2790 (off by default)
             phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
-            konvaWide: true,             // 36h noon-centered window for the Konva canvas mid zoom — req #2841
+            konvaWide: false,            // 36h noon-centered window for the Konva canvas mid zoom — req #2841 (OFF by default = 24h since req #2856)
             costOn: false,               // size each bead by its session token cost — req #2846 (off by default)
             devServersOn: true,          // overlay active dev-server port pill on beads — req #2857 (on by default)
             viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
@@ -94,6 +95,11 @@ export const useSwarmVisualizerStore = create(
             //   stale fields (and any persisted currentDate) are stripped on load.
             // v10 → v11 (req #2846): costOn added; migrate back-fills it to false
             //   (bead sizing by token cost is off by default).
+            // req #2856: default UI changed (no version bump — only fresh/reset
+            //   state is affected; explicit persisted prefs still win): titlesOn
+            //   now defaults ON and konvaWide defaults OFF (24h window). The migrate
+            //   back-fills match so a blob missing either field adopts the new
+            //   default.
             // v11 → v12 (req #2857): devServersOn added; migrate back-fills it to
             //   true (active dev-server port pill overlay is on by default).
             version: 12,

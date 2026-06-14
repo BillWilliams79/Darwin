@@ -398,7 +398,14 @@ const KonvaSwarmCanvas = ({
         select(el).call(zb.transform, zoomIdentity.translate(tx, size.h / 2 - cy * k).scale(k));
     }, [win, rows, size.w, size.h, worldH, kBase, selectedDate, transform]);
 
-    const t = transform || { x: 0, y: size.h / 2 - worldH / 2, k: kBase };
+    // Until the centering effect installs the real transform, fall back to a view
+    // centered on the SELECTED day's row (today on a fresh load) — NOT worldH/2.
+    // worldH/2 is the pixel-height midpoint of the fetched world, and because row
+    // height scales with session count that midpoint lands on the densest data
+    // mass (historically the mid/late-May swarm cluster), which is the source of
+    // the "visualizer defaults to May 20/21" affinity (req #2856). rowTopFor falls
+    // back to worldH/2 itself only when the selected row isn't present.
+    const t = transform || { x: 0, y: size.h / 2 - rowTopFor(selectedDate) * kBase, k: kBase };
     const inv = t.k > 0 ? 1 / t.k : 1;
 
     const visibleRows = useMemo(() => {
