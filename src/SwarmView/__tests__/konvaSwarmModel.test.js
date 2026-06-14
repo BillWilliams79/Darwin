@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     DAY_HOURS, hoursFromRowMidnight, xPct36, xPctWin, semanticLevel,
     shiftDayStr, dayDelta, dateRange, isWeekend,
-    buildModelContext, buildDayModel,
+    buildModelContext, buildDayModel, recenterDecision,
 } from '../konvaSwarmModel';
 
 const TZ = 'UTC';
@@ -123,6 +123,55 @@ describe('day-string helpers', () => {
         expect(isWeekend('2026-06-13')).toBe(true);  // Saturday
         expect(isWeekend('2026-06-14')).toBe(true);  // Sunday
         expect(isWeekend('2026-06-12')).toBe(false); // Friday
+    });
+});
+
+describe('recenterDecision — stale-transform / mid-May affinity (req #2860)', () => {
+    const NAV = 'today|s|e|800x600|0';
+
+    it('recenters on the first run (no prior nav key)', () => {
+        // Mount: lastNavKey null → navChanged → recenter, and clearPan latches.
+        expect(recenterDecision({
+            navKey: NAV, lastNavKey: null,
+            centerY: 100, lastCenterY: null, userPanned: false,
+        })).toEqual({ recenter: true, clearPan: true });
+    });
+
+    it('recenters when an async data-load relayout shifts the selected day', () => {
+        // SAME navigation (cold-cache first center already happened at cy=100),
+        // data arrives → dense rows grow → today's row moves to cy=4000. The user
+        // has not panned → follow today instead of staying pinned to the stale Y.
+        // This is the exact bug: without this branch the view kept the cy=100
+        // transform, which post-relayout fell over the mid-May cluster.
+        expect(recenterDecision({
+            navKey: NAV, lastNavKey: NAV,
+            centerY: 4000, lastCenterY: 100, userPanned: false,
+        })).toEqual({ recenter: true, clearPan: false });
+    });
+
+    it('does NOT recenter on a geometry shift after the user has manually panned', () => {
+        // refetchOnWindowFocus brings new data (cy moves) but the user dragged the
+        // canvas — respect their position, do not yank back to today.
+        expect(recenterDecision({
+            navKey: NAV, lastNavKey: NAV,
+            centerY: 4000, lastCenterY: 100, userPanned: true,
+        })).toEqual({ recenter: false, clearPan: false });
+    });
+
+    it('does NOT recenter when neither navigation nor geometry changed', () => {
+        expect(recenterDecision({
+            navKey: NAV, lastNavKey: NAV,
+            centerY: 4000, lastCenterY: 4000, userPanned: false,
+        })).toEqual({ recenter: false, clearPan: false });
+    });
+
+    it('an explicit navigation always recenters and clears the pan lock', () => {
+        // User presses Today/Prev/Next (or resizes) after panning → navChanged
+        // wins regardless of userPanned, and clearPan releases the lock.
+        expect(recenterDecision({
+            navKey: 'today|s|e|800x600|1', lastNavKey: NAV,
+            centerY: 4000, lastCenterY: 4000, userPanned: true,
+        })).toEqual({ recenter: true, clearPan: true });
     });
 });
 

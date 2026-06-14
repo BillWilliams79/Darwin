@@ -42,6 +42,7 @@ import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments,
+    recenterDecision,
 } from './konvaSwarmModel';
 import '../CalendarFC/swarmVisualizer.css';
 
@@ -186,6 +187,7 @@ const KonvaSwarmCanvas = ({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);   // true while a drag-pan gesture is active (cursor → grabbing)
+    const userPannedRef = useRef(false); // true once the user has manually panned/zoomed (req #2860)
     const rowsRef = useRef([]);          // live rows for hit-testing in handlers
     const centerDateRef = useRef(null);  // date currently at the viewport center
     const prevWinRef = useRef(null);     // detects a window (36h) toggle
@@ -307,6 +309,11 @@ const KonvaSwarmCanvas = ({
             .on('zoom', (ev) => {
                 const tr = ev.transform;
                 setTransform({ x: tr.x, y: tr.y, k: tr.k });
+                // A real user gesture (drag/wheel) carries a sourceEvent; a
+                // programmatic zb.transform (our centering) does not. Latch the
+                // manual-pan flag so a later data-load relayout never yanks the
+                // hand-positioned view back to today (req #2860).
+                if (ev.sourceEvent) userPannedRef.current = true;
                 // Track the day at the viewport center so a window (36h) toggle can
                 // re-anchor on it instead of jumping to a different day.
                 const d = dateAtWorldY(rowsRef.current, (size.h / 2 - tr.y) / tr.k);
@@ -366,16 +373,32 @@ const KonvaSwarmCanvas = ({
     // width aligned to the frame, scale = kBase. Also the Today/"view reset" action
     // (resetTick bump) re-runs this even when the date is unchanged, snapping zoom
     // back to mid and the window back to full-width-centered-on-today (req feedback).
-    const lastCenterRef = useRef(null);
+    //
+    // req #2860 — the recenter must also re-fire when an async data-load relayout
+    // shifts the selected day's world-Y (its row top moves once the dense rows grow
+    // from their empty-data ROW_MIN), so the view follows today instead of staying
+    // pinned to the stale pre-data world-Y (which fell over the mid/late-May data
+    // mass). recenterDecision() encodes "recenter on navigation OR on a geometry
+    // shift the user hasn't overridden by manually panning". Refs hold the last
+    // navigation key and the last centered world-Y.
+    const lastNavKeyRef = useRef(null);
+    const lastCenterYRef = useRef(null);
     useEffect(() => {
         const el = containerRef.current;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0 || !rows.length) return;
-        const key = `${selectedDate}|${rangeStart}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
-        if (lastCenterRef.current === key) return;
-        lastCenterRef.current = key;
-        centerDateRef.current = selectedDate;
+        const navKey = `${selectedDate}|${rangeStart}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
         const cy = rowTopFor(selectedDate);
+        const { recenter, clearPan } = recenterDecision({
+            navKey, lastNavKey: lastNavKeyRef.current,
+            centerY: cy, lastCenterY: lastCenterYRef.current,
+            userPanned: userPannedRef.current,
+        });
+        if (!recenter) return;
+        if (clearPan) userPannedRef.current = false;  // explicit navigation releases the manual-pan lock
+        lastNavKeyRef.current = navKey;
+        lastCenterYRef.current = cy;
+        centerDateRef.current = selectedDate;
         const ty = size.h / 2 - cy * kBase;
         select(el).call(zb.transform, zoomIdentity.translate(0, ty).scale(kBase));
     }, [selectedDate, rangeStart, rangeEnd, size.w, size.h, rows, kBase, rowTopFor, resetTick]);
