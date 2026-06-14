@@ -51,6 +51,17 @@ describe('persistPartialize (req #2799)', () => {
         persistPartialize(input);
         expect(input.currentDate).toBe('2026-05-25');
     });
+
+    it('keeps konvaOn/konvaWide but strips the transient viewResetTick (req #2841)', () => {
+        const out = persistPartialize({
+            viewType: 'day', currentDate: '2026-06-13',
+            konvaOn: true, konvaWide: false, viewResetTick: 7,
+        });
+        expect(out.konvaOn).toBe(true);
+        expect(out.konvaWide).toBe(false);
+        expect(out).not.toHaveProperty('viewResetTick');
+        expect(out).not.toHaveProperty('currentDate');
+    });
 });
 
 describe('migrateVisualizerState (req #2799, req #2806)', () => {
@@ -109,6 +120,15 @@ describe('migrateVisualizerState (req #2799, req #2806)', () => {
     it('preserves a persisted phasesOn=true (req #2823)', () => {
         const out = migrateVisualizerState({ phasesOn: true });
         expect(out.phasesOn).toBe(true);
+    });
+
+    it('back-fills konvaOn/konvaWide to true and preserves explicit values (req #2841)', () => {
+        const def = migrateVisualizerState({ viewType: 'day' });
+        expect(def.konvaOn).toBe(true);
+        expect(def.konvaWide).toBe(true);
+        const explicit = migrateVisualizerState({ konvaOn: false, konvaWide: false });
+        expect(explicit.konvaOn).toBe(false);
+        expect(explicit.konvaWide).toBe(false);
     });
 
     it('normalizes an unknown dataKey to category', () => {
