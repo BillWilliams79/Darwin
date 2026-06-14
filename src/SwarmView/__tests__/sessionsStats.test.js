@@ -188,6 +188,24 @@ describe('computeSessionStats token cost (req #2839)', () => {
         expect(s.totalTokens).toBe(109);
     });
 
+    it('computes per-phase avg token cost per session and % of total tokens', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, review_secs: 5,
+                        phase_tokens: { implementing: tok(0, 0, 0, 60), review: tok(0, 0, 0, 40) } }),
+            mkSession({ implementing_secs: 10,
+                        phase_tokens: { implementing: tok(0, 0, 0, 40) } }),
+        ];
+        const s = computeSessionStats(rows);
+        const impl = phaseOf(s, 'implementing_secs');
+        // tokens 100 over 2 token-instrumented sessions → avg 50; share 100/140
+        expect(impl.tokens).toBe(100);
+        expect(impl.avgTokens).toBe(50);
+        expect(impl.pctOfTokens).toBeCloseTo((100 / 140) * 100, 5);
+        const review = phaseOf(s, 'review_secs');
+        expect(review.avgTokens).toBe(20);       // 40 / 2
+        expect(review.pctOfTokens).toBeCloseTo((40 / 140) * 100, 5);
+    });
+
     it('groups token cost agentic/human/machine like the timing split', () => {
         const rows = [
             mkSession({
@@ -230,5 +248,143 @@ describe('computeSessionStats token cost (req #2839)', () => {
         expect(s.totalTokens).toBe(0);
         expect(s.tokenInstrumentedCount).toBe(0);
         expect(phaseOf(s, 'implementing_secs').tokens).toBe(0);
+    });
+});
+
+// --- Token economics: type totals, trend, leaderboard, efficiency (req #2845) -
+describe('computeSessionStats token economics (req #2845)', () => {
+    it('zeroes token economics for empty input', () => {
+        const s = computeSessionStats([]);
+        expect(s.tokenTypeTotals).toEqual({ input: 0, cache_write: 0, cache_read: 0, output: 0 });
+        expect(s.avgTokensPerSession).toBeNull();
+        expect(s.medianTokensPerSession).toBeNull();
+        expect(s.tokensPerSecond).toBeNull();
+        expect(s.cacheReadShare).toBeNull();
+        expect(s.tokenTrend).toEqual([]);
+        expect(s.topCostSessions).toEqual([]);
+        expect(s.tokenTrackedSecs).toBe(0);
+    });
+
+    it('sums the four token types across all instrumented sessions', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, phase_tokens: { implementing: tok(10, 20, 30, 40) } }),
+            mkSession({ review_secs: 5, phase_tokens: { review: tok(1, 2, 3, 4) } }),
+            mkSession({ implementing_secs: 5 }), // no token data — contributes nothing
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.tokenTypeTotals).toEqual({ input: 11, cache_write: 22, cache_read: 33, output: 44 });
+        // type totals sum to totalTokens
+        const typeSum = s.tokenTypeTotals.input + s.tokenTypeTotals.cache_write
+            + s.tokenTypeTotals.cache_read + s.tokenTypeTotals.output;
+        expect(typeSum).toBe(s.totalTokens);
+    });
+
+    it('computes avg/median token cost per session over token-instrumented rows only', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, phase_tokens: { implementing: tok(0, 0, 0, 100) } }),
+            mkSession({ implementing_secs: 10, phase_tokens: { implementing: tok(0, 0, 0, 200) } }),
+            mkSession({ implementing_secs: 10, phase_tokens: { implementing: tok(0, 0, 0, 300) } }),
+            mkSession({ implementing_secs: 10 }), // excluded from token avg/median
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.tokenInstrumentedCount).toBe(3);
+        expect(s.totalTokens).toBe(600);
+        expect(s.avgTokensPerSession).toBe(200);   // 600 / 3
+        expect(s.medianTokensPerSession).toBe(200); // median(100,200,300)
+    });
+
+    it('computes tokens/sec over token-instrumented duration only', () => {
+        const rows = [
+            mkSession({ implementing_secs: 100, phase_tokens: { implementing: tok(0, 0, 0, 1000) } }),
+            mkSession({ implementing_secs: 50 }), // no tokens → not in tokenTrackedSecs
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.tokenTrackedSecs).toBe(100);
+        expect(s.tokensPerSecond).toBe(10); // 1000 / 100
+    });
+
+    it('computes cache read share = cache_read / (cache_read + input)', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, phase_tokens: { implementing: tok(25, 0, 75, 0) } }),
+        ];
+        const s = computeSessionStats(rows);
+        // 75 / (75 + 25) = 75%
+        expect(s.cacheReadShare).toBeCloseTo(75, 5);
+    });
+
+    it('ranks the biggest-cost sessions descending and caps at 10', () => {
+        const rows = Array.from({ length: 12 }, (_, i) =>
+            mkSession({ id: i + 1, implementing_secs: 10,
+                        phase_tokens: { implementing: tok(0, 0, 0, (i + 1) * 100) } }));
+        const s = computeSessionStats(rows);
+        expect(s.topCostSessions).toHaveLength(10);
+        expect(s.topCostSessions[0]).toMatchObject({ id: 12, tokens: 1200 });
+        expect(s.topCostSessions[9]).toMatchObject({ id: 3, tokens: 300 });
+        // ids 1 and 2 (smallest cost) are trimmed
+        expect(s.topCostSessions.some(t => t.id === 1)).toBe(false);
+    });
+
+    it('labels leaderboard rows by title, then task_name, then #id', () => {
+        const rows = [
+            mkSession({ id: 1, implementing_secs: 5, title: 'Nice Title', task_name: 'tn',
+                        phase_tokens: { implementing: tok(0, 0, 0, 30) } }),
+            mkSession({ id: 2, implementing_secs: 5, task_name: 'only-task',
+                        phase_tokens: { implementing: tok(0, 0, 0, 20) } }),
+            mkSession({ id: 3, implementing_secs: 5,
+                        phase_tokens: { implementing: tok(0, 0, 0, 10) } }),
+        ];
+        const s = computeSessionStats(rows);
+        const byId = Object.fromEntries(s.topCostSessions.map(t => [t.id, t.label]));
+        expect(byId[1]).toBe('Nice Title');
+        expect(byId[2]).toBe('only-task');
+        expect(byId[3]).toBe('#3');
+    });
+
+    it('treats an empty {} phase_tokens as no token data', () => {
+        const rows = [
+            mkSession({ implementing_secs: 100, phase_tokens: {} }),
+            mkSession({ implementing_secs: 50, phase_tokens: { implementing: tok(0, 0, 0, 40) } }),
+        ];
+        const s = computeSessionStats(rows);
+        // only the second session counts as token-instrumented
+        expect(s.tokenInstrumentedCount).toBe(1);
+        expect(s.totalTokens).toBe(40);
+        expect(s.avgTokensPerSession).toBe(40);     // not diluted by the {} session
+        expect(s.topCostSessions).toHaveLength(1);
+    });
+
+    it('counts only token sessions toward token cost on a mixed day', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, started_at: '2026-06-05T10:00:00',
+                        phase_tokens: { implementing: tok(0, 0, 0, 300) } }),
+            mkSession({ implementing_secs: 10, started_at: '2026-06-05T11:00:00' }), // no tokens
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.tokenTrend).toEqual([{ date: '2026-06-05', tokens: 300 }]);
+    });
+
+    it('carries per-day token cost on the merged trend (null on token-less days)', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, started_at: '2026-06-01T10:00:00',
+                        phase_tokens: { implementing: tok(0, 0, 0, 120) } }),
+            mkSession({ implementing_secs: 10, started_at: '2026-06-02T09:00:00' }), // no tokens
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.trend).toHaveLength(2);
+        expect(s.trend[0]).toMatchObject({ date: '2026-06-01', tokens: 120 });
+        expect(s.trend[1].tokens).toBeNull();   // token-less day skips the line
+    });
+
+    it('builds a per-day token trend over days that carry token cost', () => {
+        const rows = [
+            mkSession({ implementing_secs: 10, started_at: '2026-06-01T10:00:00',
+                        phase_tokens: { implementing: tok(0, 0, 0, 100) } }),
+            mkSession({ implementing_secs: 10, started_at: '2026-06-01T12:00:00',
+                        phase_tokens: { implementing: tok(0, 0, 0, 50) } }),
+            mkSession({ implementing_secs: 10, started_at: '2026-06-02T09:00:00' }), // no tokens
+        ];
+        const s = computeSessionStats(rows);
+        expect(s.tokenTrend).toHaveLength(1); // only 2026-06-01 carries token cost
+        expect(s.tokenTrend[0]).toMatchObject({ date: '2026-06-01', tokens: 150 });
     });
 });
