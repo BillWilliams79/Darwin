@@ -51,6 +51,9 @@ export const migrateVisualizerState = (persisted) => {
         // v9 → v10: req #2846 costOn (off by default) — size each bead by its
         // session's token cost so expensive work stands out at a glance.
         costOn: rest.costOn ?? false,
+        // v11 → v12: req #2857 devServersOn (ON by default) — overlay a port pill
+        // on beads whose session has an active, associated dev server.
+        devServersOn: rest.devServersOn ?? true,
     };
 };
 
@@ -64,6 +67,7 @@ export const useSwarmVisualizerStore = create(
             phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
             konvaWide: true,             // 36h noon-centered window for the Konva canvas mid zoom — req #2841
             costOn: false,               // size each bead by its session token cost — req #2846 (off by default)
+            devServersOn: true,          // overlay active dev-server port pill on beads — req #2857 (on by default)
             viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
 
             setCurrentDate: (currentDate) => set({ currentDate }),
@@ -74,6 +78,7 @@ export const useSwarmVisualizerStore = create(
             setPhasesOn: (on) => set({ phasesOn: !!on }),
             setKonvaWide: (on) => set({ konvaWide: !!on }),
             setCostOn: (on) => set({ costOn: !!on }),
+            setDevServersOn: (on) => set({ devServersOn: !!on }),
             resetView: () => set((s) => ({ viewResetTick: s.viewResetTick + 1 })),
         }),
         {
@@ -89,7 +94,9 @@ export const useSwarmVisualizerStore = create(
             //   stale fields (and any persisted currentDate) are stripped on load.
             // v10 → v11 (req #2846): costOn added; migrate back-fills it to false
             //   (bead sizing by token cost is off by default).
-            version: 11,
+            // v11 → v12 (req #2857): devServersOn added; migrate back-fills it to
+            //   true (active dev-server port pill overlay is on by default).
+            version: 12,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,
