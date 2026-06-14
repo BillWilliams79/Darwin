@@ -21,6 +21,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { loadIndex, loadMeta } from '../photo-browser/handleDB.js';
+import { countPhotosForRun } from '../photo-browser/filterUtils.js';
 import { checkPhotosProxy, startScan } from '../photo-browser/scanUtils.js';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import RouteMapThumbnail from './RouteMapThumbnail';
@@ -32,7 +33,7 @@ import { ghostBase } from '../utils/ghostFieldStyles';
 const NO_ROUTE = '__no_route__';
 const ACTIVITY_TYPES = ['Ride', 'Hike'];
 
-const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [] }) => {
+const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [], dedupedPhotoIndex = null }) => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
@@ -135,6 +136,13 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
 
     const featureEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
 
+    // Photo count for this activity's exact time window. null until the (shared, parent-loaded)
+    // index is available, so the count only renders once we have real data (req #2855).
+    const photoCount = useMemo(
+        () => (dedupedPhotoIndex ? countPhotosForRun(dedupedPhotoIndex, run) : null),
+        [dedupedPhotoIndex, run.id, run.start_time, run.run_time_sec, run.stopped_time_sec]
+    );
+
     const handlePhotosClick = async (e) => {
         e.stopPropagation();
         const [savedIndex, meta, proxy] = await Promise.all([loadIndex(), loadMeta(), checkPhotosProxy()]);
@@ -224,10 +232,20 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                             />
                         </Box>
                         {featureEnabled && (
-                            <IconButton size="small" onClick={handlePhotosClick} title="Browse photos from this activity"
-                                data-testid="route-card-photos-btn" sx={{ ml: 0.5, p: 0.25 }}>
-                                <CameraAltIcon sx={{ fontSize: 18 }} />
-                            </IconButton>
+                            <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5 }}>
+                                <IconButton size="small" onClick={handlePhotosClick} title="Browse photos from this activity"
+                                    data-testid="route-card-photos-btn" sx={{ p: 0.25 }}>
+                                    <CameraAltIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                                {photoCount != null && (
+                                    <Typography variant="caption" color="text.secondary"
+                                        data-testid="route-card-photos-count"
+                                        title={`${photoCount} photos & videos`}
+                                        sx={{ ml: 0.25 }}>
+                                        {photoCount}
+                                    </Typography>
+                                )}
+                            </Box>
                         )}
                     </Box>
 

@@ -1,5 +1,5 @@
 import '../index.css';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -7,6 +7,13 @@ import TablePagination from '@mui/material/TablePagination';
 
 import RouteCard from './RouteCard';
 import { TABLE_WIDTH } from '../MapRuns/MapRunsView';
+import { loadIndex } from '../photo-browser/handleDB.js';
+import { deduplicateIndex } from '../photo-browser/filterUtils.js';
+import { IS_MACOS } from '../photo-browser/proxyConfig.js';
+
+// Same gate as RouteCard's camera button — only load the photo index when the
+// photo-browser feature is available. Resolved once at module load.
+const PHOTO_FEATURE_ENABLED = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
 
 const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
     const [page, setPage] = useState(0);
@@ -18,6 +25,23 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
         for (const route of routes) m.set(route.id, route.name);
         return m;
     }, [routes]);
+
+    // Load the photo index once (if available in IndexedDB) and dedupe a single time,
+    // then hand the deduped list to every card so each can count its own photos without
+    // re-loading or re-deduping. Null until loaded → cards render no count (req #2855).
+    const [photoIndex, setPhotoIndex] = useState(null);
+    useEffect(() => {
+        if (!PHOTO_FEATURE_ENABLED) return;
+        let cancelled = false;
+        loadIndex().then(idx => {
+            if (!cancelled && idx && idx.length > 0) setPhotoIndex(idx);
+        });
+        return () => { cancelled = true; };
+    }, []);
+    const dedupedPhotoIndex = useMemo(
+        () => (photoIndex ? deduplicateIndex(photoIndex) : null),
+        [photoIndex]
+    );
 
     if (isLoading) {
         return (
@@ -57,6 +81,7 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
                         allRuns={allRuns}
                         partners={partners}
                         runPartners={runPartners}
+                        dedupedPhotoIndex={dedupedPhotoIndex}
                     />
                 ))}
             </Box>
