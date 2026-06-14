@@ -27,34 +27,10 @@ import RouteMapThumbnail from './RouteMapThumbnail';
 import RideDeleteDialog from './RideDeleteDialog';
 import { formatDuration, parseDuration } from '../utils/mapDataUtils';
 import { toDateTimeLocalValue, fromDateTimeLocalValue } from '../utils/dateFormat';
+import { ghostBase } from '../utils/ghostFieldStyles';
 
 const NO_ROUTE = '__no_route__';
 const ACTIVITY_TYPES = ['Ride', 'Hike'];
-
-// InputBase that looks like plain text until hovered (subtle underline) or focused (primary underline).
-// Uses CSS border-bottom on the <input> element itself — no MUI underline animation layer needed.
-const ghostBase = {
-    display: 'inline-flex',
-    verticalAlign: 'baseline',
-    fontSize: 'inherit',
-    fontFamily: 'inherit',
-    lineHeight: 'inherit',
-    color: 'inherit',
-    letterSpacing: 'inherit',
-    '& .MuiInputBase-input': {
-        p: 0,
-        height: 'auto',
-        fontSize: 'inherit',
-        fontFamily: 'inherit',
-        lineHeight: 'inherit',
-        color: 'inherit',
-        letterSpacing: 'inherit',
-        borderBottom: '1px solid transparent',
-        transition: 'border-bottom-color 150ms',
-        '&:hover': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-        '&:focus': { outline: 'none', borderBottomColor: 'primary.main' },
-    },
-};
 
 const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [] }) => {
     const navigate = useNavigate();
