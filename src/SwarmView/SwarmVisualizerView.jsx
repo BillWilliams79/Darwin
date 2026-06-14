@@ -83,16 +83,31 @@ const SwarmVisualizerView = () => {
     const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const devServersOn = useSwarmVisualizerStore(s => s.devServersOn);
     const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
+    // Scroll-up auto-extend (req #2859) — how many extra days of history the
+    // canvas has asked for, plus the action it calls when the user pans near the
+    // oldest loaded day.
+    const pastExtraDays = useSwarmVisualizerStore(s => s.pastExtraDays);
+    const extendPast    = useSwarmVisualizerStore(s => s.extendPast);
 
     // Konva canvas fetch window (req #2841) — a wide, week-quantized range so the
     // user can pan freely across ~7 weeks of past + the rest of this week without
     // a refetch. Quantizing to Monday(currentDate) means the query key only
     // changes when toolbar Prev/Next/Today crosses a week boundary, which
     // keepPreviousData masks; free canvas pan never moves the window.
+    //
+    // req #2859 — `pastExtraDays` widens the window's PAST edge further back as the
+    // user pans up near the oldest loaded day, so scrolling up never dead-ends.
+    // The future edge (and Monday quantization) is unchanged, so a backward
+    // extension only prepends older days; keepPreviousData masks the refetch.
     const fetchRange = useMemo(() => {
         const monday = mondayOf(currentDate);
-        return { start: shiftDay(monday, -45), end: shiftDay(monday, 13) };
-    }, [currentDate]);
+        return { start: shiftDay(monday, -45 - pastExtraDays), end: shiftDay(monday, 13) };
+    }, [currentDate, pastExtraDays]);
+
+    // How many days to fetch per scroll-up extension (req #2859). A multiple of 7
+    // keeps the past edge Monday-aligned like the base window, so the per-day
+    // grid stays phase-stable across extensions.
+    const onExtendPast = useCallback(() => extendPast(28), [extendPast]);
 
     const fetchStart = fetchRange.start + 'T00:00:00';
     const fetchEnd   = fetchRange.end   + 'T23:59:59';
@@ -230,6 +245,7 @@ const SwarmVisualizerView = () => {
                 onSwarmStartClick={onSwarmStartClick}
                 onUndoClick={onUndoClick}
                 onCompleteClick={onCompleteClick}
+                onExtendPast={onExtendPast}
             />
             </Suspense>
         </div>

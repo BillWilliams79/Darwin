@@ -161,6 +161,7 @@ const KonvaSwarmCanvas = ({
     titlesOn = false, completesOn = false, phasesOn = false,
     costOn = false, devServersOn = true, wide36 = true, resetTick = 0,
     onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
+    onExtendPast,
 }) => {
     const theme = useTheme();
     const dark = theme.palette.mode === 'dark';
@@ -189,6 +190,16 @@ const KonvaSwarmCanvas = ({
     const rowsRef = useRef([]);          // live rows for hit-testing in handlers
     const centerDateRef = useRef(null);  // date currently at the viewport center
     const prevWinRef = useRef(null);     // detects a window (36h) toggle
+    // req #2859 — scroll-up auto-extend bookkeeping. onExtendPastRef/rangeStartRef
+    // keep the d3-zoom handler (which closes over a stale render) reading the live
+    // callback + current fetch boundary; extendFiredForRef guards so we fire the
+    // extension at most once per loaded boundary (rangeStart), not on every wheel
+    // tick while the next window is in flight.
+    const onExtendPastRef = useRef(onExtendPast);
+    const rangeStartRef = useRef(rangeStart);
+    const extendFiredForRef = useRef(null);
+    onExtendPastRef.current = onExtendPast;
+    rangeStartRef.current = rangeStart;
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
     const [tooltip, setTooltip] = useState(null);
@@ -242,11 +253,33 @@ const KonvaSwarmCanvas = ({
             out.push({ date, top, height, model, parity: laneParityFor(date) });
             top += height;
         }
+        // req #2859 — re-anchor the world-Y origin on the NEWEST in-window day so a
+        // backward fetch-window extension (scroll-up auto-extend) never shifts the
+        // rows the user is looking at. Prepending older days — or those older days
+        // growing as their async data lands — increases every accumulated `top`,
+        // including the anchor's, by the same amount; subtracting the anchor's top
+        // cancels that out for every existing row (older rows just take more
+        // negative Y), so the viewport stays put and the canvas doesn't jump. The
+        // newest day is always present and is untouched by a past-edge extension,
+        // making it the stable reference (today can leave the window on deep nav).
+        if (out.length) {
+            const anchor = out[out.length - 1].top;
+            if (anchor) for (const r of out) r.top -= anchor;
+        }
         return out;
     }, [dates, ctx, dataKey]);
 
     rowsRef.current = rows;
-    const worldH = rows.length ? rows[rows.length - 1].top + rows[rows.length - 1].height : 0;
+    // World vertical extent. After the newest-day re-anchor (req #2859) the first
+    // row's top is negative and the last row's bottom is its own height, so the
+    // world spans [rows[0].top, rows[last].bottom]; `worldMidY` is its true center.
+    // The "center on worldMidY" branches below are fallbacks for when a target
+    // date isn't found in the window (effectively unreachable, since selectedDate /
+    // centerDateRef are always in-window) — computing the real midpoint keeps them
+    // correct rather than collapsing onto the bottom row.
+    const worldTop = rows.length ? rows[0].top : 0;
+    const worldBot = rows.length ? rows[rows.length - 1].top + rows[rows.length - 1].height : 0;
+    const worldMidY = (worldTop + worldBot) / 2;
 
     // Cost-sizing normalization (req #2846). The most-expensive session in the
     // FETCHED window (not just the visible rows) is the reference, so a bead's
@@ -279,8 +312,8 @@ const KonvaSwarmCanvas = ({
 
     const rowTopFor = useCallback((date) => {
         const r = rows.find(rr => rr.date === date);
-        return r ? r.top + r.height / 2 : worldH / 2;
-    }, [rows, worldH]);
+        return r ? r.top + r.height / 2 : worldMidY;
+    }, [rows, worldMidY]);
 
     // Active dev servers keyed by session id (req #2857). The table holds only
     // currently-claimed servers, so a row's presence == active. If a session
@@ -311,6 +344,29 @@ const KonvaSwarmCanvas = ({
                 // re-anchor on it instead of jumping to a different day.
                 const d = dateAtWorldY(rowsRef.current, (size.h / 2 - tr.y) / tr.k);
                 if (d) centerDateRef.current = d;
+                // req #2859 — scroll-up auto-extend. When a DRAG-PAN brings the
+                // viewport's top edge within one screenful of the oldest loaded
+                // day, ask the view to widen the fetch window backward so panning
+                // up never dead-ends. Gated to drag gestures (sourceEvent present
+                // and not a wheel) so neither wheel zoom-out — which would race the
+                // cap with a burst of refetches — nor the programmatic centering
+                // transforms ever trigger it. Pre-fetching a screen early means the
+                // new (older) rows are usually populated before they scroll into
+                // view. Fire once per loaded boundary: the guard re-arms only when
+                // rangeStart actually changes (new data settled), so an in-flight
+                // refetch isn't spammed.
+                const isDragPan = ev.sourceEvent && ev.sourceEvent.type !== 'wheel';
+                const rws = rowsRef.current;
+                if (isDragPan && rws.length && onExtendPastRef.current && tr.k > 0) {
+                    const yTopWorld = (-tr.y) / tr.k;
+                    const topEdge = rws[0].top;
+                    const screenWorld = size.h / tr.k;
+                    if (yTopWorld <= topEdge + screenWorld &&
+                        extendFiredForRef.current !== rangeStartRef.current) {
+                        extendFiredForRef.current = rangeStartRef.current;
+                        onExtendPastRef.current();
+                    }
+                }
             })
             // Drag-pan cursor: closed-hand 'grabbing' while a pointer drag is in
             // flight, restored to the open-hand 'grab' on release (req #2853). Wheel
@@ -371,7 +427,14 @@ const KonvaSwarmCanvas = ({
         const el = containerRef.current;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0 || !rows.length) return;
-        const key = `${selectedDate}|${rangeStart}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
+        // req #2859 — key on rangeEnd, NOT rangeStart, so a scroll-up auto-extend
+        // (which moves only the PAST edge) does not re-center the view back onto
+        // the selected day. Toolbar Prev/Next/Today shifts Monday → rangeEnd moves
+        // too, so genuine navigation still re-centers; same-week date tweaks leave
+        // both edges unchanged and need no re-center. The newest-day layout anchor
+        // keeps existing rows fixed across an extension, so skipping re-center here
+        // leaves the user exactly where they were panning.
+        const key = `${selectedDate}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
         if (lastCenterRef.current === key) return;
         lastCenterRef.current = key;
         centerDateRef.current = selectedDate;
@@ -392,19 +455,20 @@ const KonvaSwarmCanvas = ({
         if (!el || !zb || size.w === 0 || !rows.length) return;
         const anchor = centerDateRef.current || selectedDate;
         const r = rows.find(rr => rr.date === anchor);
-        const cy = r ? r.top + r.height / 2 : worldH / 2;
+        const cy = r ? r.top + r.height / 2 : worldMidY;
         const k = transform ? transform.k : kBase;
         const tx = transform ? transform.x : 0;
         select(el).call(zb.transform, zoomIdentity.translate(tx, size.h / 2 - cy * k).scale(k));
-    }, [win, rows, size.w, size.h, worldH, kBase, selectedDate, transform]);
+    }, [win, rows, size.w, size.h, worldMidY, kBase, selectedDate, transform]);
 
     // Until the centering effect installs the real transform, fall back to a view
-    // centered on the SELECTED day's row (today on a fresh load) — NOT worldH/2.
-    // worldH/2 is the pixel-height midpoint of the fetched world, and because row
-    // height scales with session count that midpoint lands on the densest data
-    // mass (historically the mid/late-May swarm cluster), which is the source of
-    // the "visualizer defaults to May 20/21" affinity (req #2856). rowTopFor falls
-    // back to worldH/2 itself only when the selected row isn't present.
+    // centered on the SELECTED day's row (today on a fresh load) — NOT the world
+    // midpoint. The world midpoint is the vertical center of the fetched world, and
+    // because row height scales with session count that midpoint lands on the
+    // densest data mass (historically the mid/late-May swarm cluster), which is the
+    // source of the "visualizer defaults to May 20/21" affinity (req #2856).
+    // rowTopFor falls back to worldMidY itself only when the selected row isn't
+    // present.
     const t = transform || { x: 0, y: size.h / 2 - rowTopFor(selectedDate) * kBase, k: kBase };
     const inv = t.k > 0 ? 1 / t.k : 1;
 

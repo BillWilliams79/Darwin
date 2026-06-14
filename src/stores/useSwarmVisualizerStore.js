@@ -2,6 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { localDateStr } from '../utils/dateFormat';
 
+// Cap on how far the scroll-up auto-extend (req #2859) will widen the fetch
+// window backward. ~2 years comfortably predates any Darwin swarm data, so the
+// canvas can scroll up to the project's origin while a hard ceiling prevents a
+// runaway fetch window if a pan gesture somehow keeps triggering.
+export const MAX_PAST_EXTRA_DAYS = 730;
+
+// Pure reducer for the scroll-up extension counter (req #2859): add `days` of
+// history (ignoring non-positive deltas), clamped to [0, MAX_PAST_EXTRA_DAYS].
+// Exported for unit-test coverage.
+export const nextPastExtraDays = (current, days) =>
+    Math.min(MAX_PAST_EXTRA_DAYS, (current || 0) + (days > 0 ? days : 0));
+
 // `currentDate` is NAVIGATION state, not a saved preference (req #2799). It must
 // reset to today on every fresh page load. Persisting it was the source of the
 // "late-May affinity": navigation calls setCurrentDate as the canvas pans, which
@@ -11,8 +23,9 @@ import { localDateStr } from '../utils/dateFormat';
 // users also reset to today. Exported for unit-test coverage.
 export const persistPartialize = (state) => {
     // currentDate is navigation state (req #2799); viewResetTick is a transient
-    // "Today/view-reset" signal — neither is a saved preference.
-    const { currentDate, viewResetTick, ...rest } = state;
+    // "Today/view-reset" signal; pastExtraDays is the transient scroll-up
+    // extension counter (req #2859) — none are saved preferences.
+    const { currentDate, viewResetTick, pastExtraDays, ...rest } = state;
     return rest;
 };
 
@@ -70,8 +83,12 @@ export const useSwarmVisualizerStore = create(
             costOn: false,               // size each bead by its session token cost — req #2846 (off by default)
             devServersOn: true,          // overlay active dev-server port pill on beads — req #2857 (on by default)
             viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
+            pastExtraDays: 0,            // extra days of history fetched by scroll-up auto-extend — req #2859 (transient, NOT persisted)
 
-            setCurrentDate: (currentDate) => set({ currentDate }),
+            // Date navigation (Prev/Next/toolbar) starts a fresh window, so the
+            // scroll-up extension resets to 0 (req #2859) — otherwise an old
+            // extension would keep an over-wide fetch range after jumping weeks.
+            setCurrentDate: (currentDate) => set({ currentDate, pastExtraDays: 0 }),
             setDataKey: (key) =>
                 set({ dataKey: key === 'coordination' ? 'coordination' : 'category' }),
             setTitlesOn: (on) => set({ titlesOn: !!on }),
@@ -80,7 +97,15 @@ export const useSwarmVisualizerStore = create(
             setKonvaWide: (on) => set({ konvaWide: !!on }),
             setCostOn: (on) => set({ costOn: !!on }),
             setDevServersOn: (on) => set({ devServersOn: !!on }),
-            resetView: () => set((s) => ({ viewResetTick: s.viewResetTick + 1 })),
+            // Scroll-up auto-extend (req #2859) — widen the fetch window backward
+            // by `days`, clamped to [0, MAX_PAST_EXTRA_DAYS]. Called by the canvas
+            // when the user pans near the oldest loaded day.
+            extendPast: (days) => set((s) => ({
+                pastExtraDays: nextPastExtraDays(s.pastExtraDays, days),
+            })),
+            // "Today" / view reset also returns to a fresh, un-extended window
+            // (req #2859) so the canvas snaps back to the default ~8-week range.
+            resetView: () => set((s) => ({ viewResetTick: s.viewResetTick + 1, pastExtraDays: 0 })),
         }),
         {
             name: 'darwin_swarm_visualizer',
