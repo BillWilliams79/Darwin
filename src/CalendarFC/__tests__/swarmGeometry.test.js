@@ -371,6 +371,25 @@ describe('buildCrossDayMap (multi-day session pass-through, req #2798)', () => {
         expect(map.size).toBe(0);
     });
 
+    it('start card carries swarmStartId + swarmStart so the start day draws the anchor glyph (req #2862)', () => {
+        // The renderer (KonvaSwarmCanvas) reads cd.card.swarmStartId /
+        // cd.card.swarmStart to draw the swarm-start tick+dot on the start day of
+        // a multi-day span. Lock that contract: when the cluster maps are
+        // supplied, the 'start' entry's card must surface both.
+        const ssRow = { id: 500, started_at: `${D1} 07:00:00`, session_count: 1 };
+        const map = buildCrossDayMap([D1, D2, D3], {
+            requirements: [{ id: 1, completed_at: `${D3} 09:00:00`, title: 'X', category_fk: 1 }],
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D1} 08:00:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 25,
+            swarmStartIdById: new Map([['10', 500]]),
+            swarmStartById: new Map([['10', ssRow]]),
+        });
+        const start = map.get(D1)[0];
+        expect(start.role).toBe('start');
+        expect(start.card.swarmStartId).toBe(500);
+        expect(start.card.swarmStart).toEqual(ssRow);
+    });
+
     it('draws one line for a session linked to multiple swarm-starts', () => {
         const map = buildCrossDayMap([D1, D2, D3], {
             requirements: [],
