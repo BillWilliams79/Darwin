@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { aggregateRequirementTrends, getISOWeek } from '../aggregateRequirementTrends';
+import { aggregateRequirementTrends, getISOWeek, requirementBucketKey } from '../aggregateRequirementTrends';
 
 const cats = [
     { id: 1, category_name: 'Swarm', color: '#26c6da' },
     { id: 2, category_name: 'Maps', color: '#E91E63' },
 ];
 
-const req = (completed_at, category_fk = 1) => ({ completed_at, category_fk });
+const req = (completed_at, category_fk = 1) => ({ completed_at, category_fk, requirement_status: 'met' });
 
 // Pin the timezone so local-day bucketing (req #2822) is deterministic across
 // machines/CI. America/Los_Angeles is behind UTC — exactly the case that exposed
@@ -26,14 +26,25 @@ describe('aggregateRequirementTrends', () => {
         expect(out.kpis.topCategory).toBeNull();
     });
 
-    it('ignores requirements without completed_at (closed-only filter)', () => {
+    it('ignores requirements without completed_at (met-only filter)', () => {
         const rows = [
             req('2026-06-10T10:00:00', 1),
             req(null, 1),
-            { completed_at: '', category_fk: 1 },
+            { completed_at: '', category_fk: 1, requirement_status: 'met' },
         ];
         const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
         expect(out.kpis.totalClosed).toBe(1);
+    });
+
+    it('excludes wontfix even though it stamps completed_at (req #2850)', () => {
+        const rows = [
+            req('2026-06-10T10:00:00', 1),                                            // met → counts
+            { completed_at: '2026-06-10T11:00:00', category_fk: 1, requirement_status: 'wontfix' }, // excluded
+            { completed_at: '2026-06-10T12:00:00', category_fk: 1, requirement_status: 'development' }, // excluded
+        ];
+        const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
+        expect(out.kpis.totalClosed).toBe(1);
+        expect(out.data.find(d => d.key === '2026-06-10').total).toBe(1);
     });
 
     it('buckets by day with gap-fill between first and last', () => {
@@ -262,5 +273,52 @@ describe('aggregateRequirementTrends', () => {
         const rows = [req('2026-06-10T10:00:00', 99)];
         const out = aggregateRequirementTrends(rows, cats, { timeframe: 'day' });
         expect(out.categories[0]).toMatchObject({ id: 99, name: 'Category 99', color: null });
+    });
+});
+
+// req #2850 — the Table view's click-to-zoom drill matches requirements to the
+// clicked bucket via requirementBucketKey, so it MUST key identically to the chart.
+describe('requirementBucketKey (click-to-zoom drill matching)', () => {
+    const ORIGINAL_TZ = process.env.TZ;
+    beforeAll(() => { process.env.TZ = 'America/Los_Angeles'; });
+    afterAll(() => { process.env.TZ = ORIGINAL_TZ; });
+
+    it('returns null for missing/empty/unparseable timestamps', () => {
+        expect(requirementBucketKey(null, 'day')).toBeNull();
+        expect(requirementBucketKey('', 'day')).toBeNull();
+        expect(requirementBucketKey('not-a-date', 'day')).toBeNull();
+    });
+
+    it('keys by day / month', () => {
+        // 10:00 UTC is still the same calendar day in LA (03:00 local).
+        expect(requirementBucketKey('2026-06-10T10:00:00', 'day')).toBe('2026-06-10');
+        expect(requirementBucketKey('2026-06-10T10:00:00', 'month')).toBe('2026-06');
+    });
+
+    it('resolves the local calendar day, not the raw UTC day (req #2822 parity)', () => {
+        // 01:00 UTC Jun 12 is really Jun 11 evening in LA → buckets to Jun 11.
+        expect(requirementBucketKey('2026-06-12T01:00:00', 'day')).toBe('2026-06-11');
+    });
+
+    it('matches the aggregator bucketing exactly across day/week/month', () => {
+        const rows = [
+            req('2026-06-10T10:00:00', 1),
+            req('2026-06-10T20:00:00', 1),
+            req('2026-06-12T01:00:00', 2), // local Jun 11
+            req('2026-05-30T12:00:00', 1),
+        ];
+        for (const timeframe of ['day', 'week', 'month']) {
+            const agg = aggregateRequirementTrends(rows, cats, { timeframe });
+            const counts = {};
+            for (const r of rows) {
+                const k = requirementBucketKey(r.completed_at, timeframe);
+                counts[k] = (counts[k] || 0) + 1;
+            }
+            // Every chart point's total equals the count of rows the drill helper
+            // assigns to that same key (gap-fill buckets land at 0 on both sides).
+            for (const point of agg.data) {
+                expect(point.total).toBe(counts[point.key] || 0);
+            }
+        }
     });
 });

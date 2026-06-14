@@ -37,12 +37,12 @@ import {
     formatCoordination, PHASE_UNCLASSIFIED_COLOR,
 } from '../CalendarFC/timeSeriesSizes';
 import { sessionTokenCost, formatTokens } from './sessionPhases';
-import { laneParityFor } from '../CalendarFC/TimeSeriesView';
+import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments,
 } from './konvaSwarmModel';
-import '../CalendarFC/TimeSeriesView.css';
+import '../CalendarFC/swarmVisualizer.css';
 
 // ── World-space layout constants (k-independent; d3-zoom scales these) ─────────
 const LEFTPAD  = 14;
@@ -69,7 +69,7 @@ const ticksForWin = (win) => {
 };
 
 // On-screen target sizes (px) — divided by k at draw time so they stay constant.
-const BEAD_R_S  = 12;   // bead radius (+25% per round-3 feedback)
+const BEAD_R_S  = 9;    // bead radius (−25% per req #2847; was 12)
 const DOT_R_S   = 3.2;
 const TRACK_W_S = 4;
 const FONT_TITLE_S = 13.75;  // +25% per round-3 feedback
@@ -574,7 +574,7 @@ const KonvaSwarmCanvas = ({
                                    fill={beadFill(chip)} stroke="#ffffff" strokeWidth={1.8 * inv} />);
             }
             if (chip.ringColor) {
-                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={cr + 3 * inv} stroke={chip.ringColor} strokeWidth={2 * inv} />);
+                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={cr + 3 * inv} stroke={chip.ringColor} strokeWidth={2.8 * inv} />);
             }
             // Hit target (hover + click). Pushed BEFORE the completion badge so
             // the badge (drawn on top) keeps its own onCompleteClick within its
@@ -632,7 +632,7 @@ const KonvaSwarmCanvas = ({
                             { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
                     {h.count > 0 && (
-                        // Exact earlier-design "req met" pill (TimeSeriesView.css
+                        // Exact earlier-design "req met" pill (swarmVisualizer.css
                         // .ts-bead-day-count-inline / .ts-bead-sticky-count).
                         <span title={`${h.count} requirements met`} style={{
                             minWidth: 18, padding: '0 6px', textAlign: 'center', borderRadius: 999,

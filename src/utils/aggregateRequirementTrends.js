@@ -2,10 +2,11 @@
  * Aggregates requirement data into chart-ready time-bucketed series for the
  * Requirements Trends view (req #2812).
  *
- * A requirement counts as "closed" when it has a non-null `completed_at` — this
- * captures both `met` (delivered) and `wontfix` (abandoned but completed) since
- * both stamp `completed_at`. The chart plots how many requirements closed in
- * each calendar bucket (day / week / month), optionally split per category.
+ * A requirement counts toward the chart when `requirement_status === 'met'`
+ * (req #2850). `met` always stamps `completed_at`, which is what gets bucketed.
+ * `wontfix` is deliberately excluded — it also stamps `completed_at`, but "Met"
+ * means delivered, not abandoned. The chart plots how many requirements were met
+ * in each calendar bucket (day / week / month), optionally split per category.
  *
  * The core is a pure function: no React, no `Date.now()` reads inside the
  * aggregation. The caller passes `nowMs` so the range window is deterministic
@@ -107,6 +108,19 @@ function bucketKey(date, timeframe) {
         default:
             return `${y}`;
     }
+}
+
+/**
+ * Bucket key for a single requirement's `completed_at`, using the SAME local-day
+ * resolution + keying as the chart (req #2850 click-to-zoom). The Table view calls
+ * this to match rows to the bucket the user clicked, guaranteeing the filtered row
+ * set exactly equals the clicked bar/segment. Returns null for a missing/unparseable
+ * timestamp (an un-Met requirement never matches a bucket).
+ */
+export function requirementBucketKey(completedAt, timeframe) {
+    const d = toBucketDate(completedAt);
+    if (!d) return null;
+    return bucketKey(d, timeframe);
 }
 
 function keyToLabel(key, timeframe) {
@@ -228,10 +242,14 @@ export function aggregateRequirementTrends(rows, categoryMetas, options = {}) {
     const selectedSet = selectedCategoryIds.length > 0 ? new Set(selectedCategoryIds) : null;
     const excludeSet = excludeCategoryIds.length > 0 ? new Set(excludeCategoryIds) : null;
 
-    // Filter to closed requirements (have completed_at) in the selected categories,
-    // dropping any whose category is excluded (e.g. closed categories — req #2821).
+    // Filter to MET requirements in the selected categories, dropping any whose
+    // category is excluded (e.g. closed categories — req #2821).
+    // req #2850: count ONLY requirement_status === 'met'. `wontfix` also stamps
+    // `completed_at`, but "Met" means delivered — abandoned requirements must not
+    // inflate the chart, KPIs, or the drill table. (completed_at is still required
+    // so the row can be bucketed; a met requirement always has one.)
     const closed = (rows || []).filter(r => {
-        if (!r || !r.completed_at) return false;
+        if (!r || r.requirement_status !== 'met' || !r.completed_at) return false;
         if (excludeSet && excludeSet.has(r.category_fk)) return false;
         if (selectedSet && !selectedSet.has(r.category_fk)) return false;
         return true;

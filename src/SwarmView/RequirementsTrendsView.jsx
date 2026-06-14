@@ -3,10 +3,11 @@
 // week / month) as bar or line charts, with an optional per-category split,
 // category selector chips, a cumulative toggle, and a time-range window.
 //
-// "Closed" = a requirement with a non-null completed_at (covers both `met` and
-// `wontfix`). The heavy lifting lives in the pure, unit-tested aggregator
-// `aggregateRequirementTrends`; this component is presentational over it,
-// mirroring the recharts styling of SwarmCompletesStatsView (req #2794).
+// "Met" = a requirement with requirement_status === 'met' (req #2850 — `wontfix`
+// is excluded even though it also stamps completed_at). The heavy lifting lives in
+// the pure, unit-tested aggregator `aggregateRequirementTrends`; this component is
+// presentational over it, mirroring the recharts styling of SwarmCompletesStatsView
+// (req #2794).
 
 import React, { useContext, useMemo, useState } from 'react';
 
@@ -27,6 +28,7 @@ import {
 import AuthContext from '../Context/AuthContext';
 import { useAllRequirements, useAllCategories } from '../hooks/useDataQueries';
 import { aggregateRequirementTrends } from '../utils/aggregateRequirementTrends';
+import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 
 const TRENDS_WIDTH = 1200;
 
@@ -96,9 +98,10 @@ function KpiCard({ label, value, hint }) {
     );
 }
 
-const RequirementsTrendsView = () => {
+const RequirementsTrendsView = ({ onDrillToTable }) => {
     const { profile } = useContext(AuthContext);
     const creatorFk = profile?.userName;
+    const setDrill = useRequirementDrillStore(s => s.setDrill);
 
     const { data: requirements = [], isLoading: reqLoading } =
         useAllRequirements(creatorFk, { fields: FIELDS });
@@ -110,8 +113,8 @@ const RequirementsTrendsView = () => {
         useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order,closed' });
 
     const [timeframe, setTimeframe] = useState('week');
-    const [chartType, setChartType] = useState('bar');
-    const [split, setSplit] = useState(false);
+    const [chartType, setChartType] = useState('line');
+    const [split, setSplit] = useState(true);
     const [cumulative, setCumulative] = useState(false);
     // Requirements in closed categories are hidden by default; the rightmost
     // toggle unhides them (req #2821).
@@ -186,6 +189,60 @@ const RequirementsTrendsView = () => {
     };
 
     const isCatSelected = (id) => selectedCatIds === null || selectedCatIds.includes(id);
+
+    // Click-to-zoom (req #2850): clicking a bar/segment (or a line's active dot)
+    // records the clicked time bucket — plus the category when the chart is split —
+    // and asks the parent to switch to the Table view, which renders a dismissible
+    // pill and filters to exactly those Met requirements. Recharts hands the data
+    // point as `{ payload: <bucket row> }`; `payload.key` is the aggregator bucket
+    // key the Table matches against. No-op without a parent handler or payload.
+    const handleSegmentClick = (data, category = null) => {
+        const payload = data?.payload;
+        if (!onDrillToTable || !payload?.key) return;
+
+        // Which categories the clicked bar/point actually represented — so the Table
+        // reproduces the SAME subset (req #2850). Priority:
+        //  1. A split-segment click pins that single category.
+        //  2. A total-bar click while the chip selector is narrowed to a subset
+        //     (selectedCatIds) carries that subset — the bar's height already
+        //     reflected only those categories, so the table must too. (The bug where
+        //     narrowing to "Swarm" then clicking a bar showed every category.)
+        //  3. Otherwise null = all visible categories (subject to includeClosed).
+        let categoryIds = null;
+        let categoryName = null;
+        if (category) {
+            categoryIds = [category.id];
+            categoryName = category.name;
+        } else if (selectedCatIds && selectedCatIds.length > 0) {
+            categoryIds = [...selectedCatIds];
+            if (selectedCatIds.length === 1) {
+                const only = allClosedCategories.find(c => c.id === selectedCatIds[0]);
+                categoryName = only ? only.name : null;
+            } else {
+                categoryName = `${selectedCatIds.length} categories`;
+            }
+        }
+
+        setDrill({
+            bucketKey: payload.key,
+            timeframe,
+            label: payload.label,
+            categoryIds,
+            categoryName,
+            // Whether closed-category requirements were visible in the clicked
+            // chart, so the Table can reproduce the same row set (req #2850).
+            includeClosed: showClosedCategories,
+        });
+        onDrillToTable();
+    };
+
+    // A <Line>'s activeDot onClick receives its args in a recharts-version-dependent
+    // order — the object carrying the data row on `.payload` is not reliably the
+    // third argument (req #2850 review fix). Find whichever arg carries it.
+    const handleDotClick = (category, ...args) => {
+        const dot = args.find(a => a && a.payload && a.payload.key);
+        if (dot) handleSegmentClick(dot, category);
+    };
 
     if (reqLoading || catLoading) {
         return (
@@ -339,21 +396,29 @@ const RequirementsTrendsView = () => {
                                         return chartType === 'bar' ? (
                                             <Bar key={c.id} dataKey={`cat_${c.id}`} name={c.name}
                                                  stackId="cats" fill={color}
+                                                 cursor="pointer"
+                                                 onClick={(d) => handleSegmentClick(d, c)}
                                                  radius={idx === activeCategories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                                         ) : (
                                             <Line key={c.id} type="monotone" dataKey={`cat_${c.id}`} name={c.name}
                                                   stroke={color} strokeWidth={2}
-                                                  dot={{ fill: color, r: 2 }} activeDot={{ r: 5 }} />
+                                                  dot={{ fill: color, r: 2 }}
+                                                  activeDot={{ r: 5, cursor: 'pointer',
+                                                              onClick: (...args) => handleDotClick(c, ...args) }} />
                                         );
                                     })
                                 ) : (
                                     chartType === 'bar' ? (
                                         <Bar dataKey="total" name={`Met${countSuffix}`}
-                                             fill={TOTAL_COLOR} radius={[4, 4, 0, 0]} />
+                                             fill={TOTAL_COLOR} radius={[4, 4, 0, 0]}
+                                             cursor="pointer"
+                                             onClick={(d) => handleSegmentClick(d)} />
                                     ) : (
                                         <Line type="monotone" dataKey="total" name={`Met${countSuffix}`}
                                               stroke={TOTAL_COLOR} strokeWidth={2}
-                                              dot={{ fill: TOTAL_COLOR, r: 3 }} activeDot={{ r: 5 }} />
+                                              dot={{ fill: TOTAL_COLOR, r: 3 }}
+                                              activeDot={{ r: 5, cursor: 'pointer',
+                                                          onClick: (...args) => handleDotClick(null, ...args) }} />
                                     )
                                 )}
                             </Chart>
