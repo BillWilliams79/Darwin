@@ -36,12 +36,12 @@ import { localDateStr } from '../utils/dateFormat';
 import {
     formatCoordination, PHASE_UNCLASSIFIED_COLOR,
 } from '../CalendarFC/timeSeriesSizes';
-import { laneParityFor } from '../CalendarFC/TimeSeriesView';
+import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments,
 } from './konvaSwarmModel';
-import '../CalendarFC/TimeSeriesView.css';
+import '../CalendarFC/swarmVisualizer.css';
 
 // ── World-space layout constants (k-independent; d3-zoom scales these) ─────────
 const LEFTPAD  = 14;
@@ -589,7 +589,7 @@ const KonvaSwarmCanvas = ({
                             { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
                     {h.count > 0 && (
-                        // Exact earlier-design "req met" pill (TimeSeriesView.css
+                        // Exact earlier-design "req met" pill (swarmVisualizer.css
                         // .ts-bead-day-count-inline / .ts-bead-sticky-count).
                         <span title={`${h.count} requirements met`} style={{
                             minWidth: 18, padding: '0 6px', textAlign: 'center', borderRadius: 999,

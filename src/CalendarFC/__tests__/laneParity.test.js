@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { laneParityFor } from '../TimeSeriesView';
+import { laneParityFor } from '../swarmGeometry';
 
 // req #2828 — alternating day-lane backgrounds. laneParityFor keys the lane tint
 // off the date so adjacent calendar days ALWAYS alternate and a given day keeps
