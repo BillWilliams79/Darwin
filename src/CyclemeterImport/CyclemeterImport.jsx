@@ -15,6 +15,7 @@ import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -55,6 +56,7 @@ const CyclemeterImport = () => {
     const [fileName, setFileName] = useState('');
     const [dragging, setDragging] = useState(false);
     const [formatInfo, setFormatInfo] = useState(null); // { format, label, source } from detectFormat
+    const fileInputRef = useRef(null);
 
     // Config state
     const [minDelta, setMinDelta] = useState(DEFAULT_CONFIG.minDelta);
@@ -94,68 +96,87 @@ const CyclemeterImport = () => {
         setDragging(false);
     }, []);
 
-    const handleDrop = useCallback(async (e) => {
+    // Shared file-handling path — used by both drag-and-drop and the file-picker button.
+    // Detects format and auto-processes single-file formats (GPX, KML).
+    const processSelectedFile = async (file) => {
+        if (!file) return;
+        console.log('[Import] Selected file:', file.name, file.size, 'bytes');
+        setDbFile(file);
+        setFileName(file.name);
+        setStats(null);
+        setError(null);
+        setFormatInfo(null);
+        try {
+            const info = await detectFormat(file);
+            console.log('[Import] Detected format:', info.format, info.label);
+            setFormatInfo(info);
+
+            // Auto-process single-file formats (GPX, KML) — skip the manual Process step
+            if (SINGLE_FILE_FORMATS.has(info.format)) {
+                console.log('[Import] Auto-processing single-file format:', info.format);
+                setProcessing(true);
+                try {
+                    const buffer = await file.arrayBuffer();
+                    const config = buildConfig();
+                    const result = await runPipelineForFormat(buffer, config, info.format);
+                    console.log('[Import] Auto-process complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
+
+                    // Dedup check for single-file formats
+                    let newCount = result.stats.totalRuns;
+                    let skippedCount = 0;
+                    try {
+                        const cutoffResult = await call_rest_api(
+                            `${darwinUri}/map_runs?fields=start_time&source=${info.source}&sort=start_time:desc`,
+                            'GET', null, idToken
+                        );
+                        const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
+                        if (cutoffDate) {
+                            const minimalRuns = result.rawStartTimes.map(st => ({ startTime: st }));
+                            const dedup = filterNewRunsByCutoff(minimalRuns, cutoffDate);
+                            newCount = dedup.newRuns.length;
+                            skippedCount = dedup.skippedCount;
+                        }
+                    } catch (e) {
+                        if (e?.httpStatus?.httpStatus !== 404) {
+                            console.warn('[Import] Dedup check failed, showing total count:', e);
+                        }
+                    }
+
+                    setStats({ ...result.stats, newCount, skippedCount });
+                } catch (pipeErr) {
+                    console.error('[Import] Auto-process error:', pipeErr);
+                    setError(pipeErr.message || 'Pipeline failed');
+                } finally {
+                    setProcessing(false);
+                }
+            }
+        } catch (err) {
+            console.error('[Import] Format detection failed:', err);
+            setError(err.message);
+        }
+    };
+
+    const handleDrop = async (e) => {
         e.preventDefault();
         e.stopPropagation();
         setDragging(false);
-        const file = e.dataTransfer.files[0];
-        if (file) {
-            console.log('[Import] Dropped file:', file.name, file.size, 'bytes');
-            setDbFile(file);
-            setFileName(file.name);
-            setStats(null);
-            setError(null);
-            setFormatInfo(null);
-            try {
-                const info = await detectFormat(file);
-                console.log('[Import] Detected format:', info.format, info.label);
-                setFormatInfo(info);
+        await processSelectedFile(e.dataTransfer.files[0]);
+    };
 
-                // Auto-process single-file formats (GPX, KML) — skip the manual Process step
-                if (SINGLE_FILE_FORMATS.has(info.format)) {
-                    console.log('[Import] Auto-processing single-file format:', info.format);
-                    setProcessing(true);
-                    try {
-                        const buffer = await file.arrayBuffer();
-                        const config = buildConfig();
-                        const result = await runPipelineForFormat(buffer, config, info.format);
-                        console.log('[Import] Auto-process complete. Runs:', result.stats.totalRuns, 'Points:', result.stats.totalExtracted);
+    // File-picker button / tappable drop zone — opens the native file chooser.
+    // On iOS this presents the Files picker (Browse → iCloud Drive → Cyclemeter → Meter.db),
+    // the only browser-available way to reach iCloud files (no File System Access API on Safari).
+    const handleChooseFileClick = () => {
+        if (processing || saving) return; // don't swap files mid-process/save
+        fileInputRef.current?.click();
+    };
 
-                        // Dedup check for single-file formats
-                        let newCount = result.stats.totalRuns;
-                        let skippedCount = 0;
-                        try {
-                            const cutoffResult = await call_rest_api(
-                                `${darwinUri}/map_runs?fields=start_time&source=${info.source}&sort=start_time:desc`,
-                                'GET', null, idToken
-                            );
-                            const cutoffDate = cutoffResult.data?.[0]?.start_time || null;
-                            if (cutoffDate) {
-                                const minimalRuns = result.rawStartTimes.map(st => ({ startTime: st }));
-                                const dedup = filterNewRunsByCutoff(minimalRuns, cutoffDate);
-                                newCount = dedup.newRuns.length;
-                                skippedCount = dedup.skippedCount;
-                            }
-                        } catch (e) {
-                            if (e?.httpStatus?.httpStatus !== 404) {
-                                console.warn('[Import] Dedup check failed, showing total count:', e);
-                            }
-                        }
-
-                        setStats({ ...result.stats, newCount, skippedCount });
-                    } catch (pipeErr) {
-                        console.error('[Import] Auto-process error:', pipeErr);
-                        setError(pipeErr.message || 'Pipeline failed');
-                    } finally {
-                        setProcessing(false);
-                    }
-                }
-            } catch (err) {
-                console.error('[Import] Format detection failed:', err);
-                setError(err.message);
-            }
-        }
-    }, []);
+    const handleFileSelect = async (e) => {
+        const file = e.target.files[0];
+        // Reset the input so selecting the same file again re-fires onChange.
+        e.target.value = '';
+        await processSelectedFile(file);
+    };
 
     const buildConfig = () => {
         const queryFilter = {};
@@ -506,14 +527,27 @@ const CyclemeterImport = () => {
                 </>
             )}
 
-            {/* Drop Zone */}
+            {/* Hidden native file input — driven by the drop zone tap and the Choose File button.
+                No `accept` filter: Meter.db has no registered type and iOS would grey it out;
+                the format is detected from file content instead. */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+                data-testid="file-input"
+            />
+
+            {/* Drop Zone — also tappable to open the file picker (primary path on iPhone/iPad) */}
             <Paper
                 variant="outlined"
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
+                onClick={handleChooseFileClick}
+                data-testid="drop-zone"
                 sx={{
-                    p: 3, mb: 2, textAlign: 'center', cursor: 'pointer',
+                    p: 3, mb: 1, textAlign: 'center', cursor: 'pointer',
                     borderStyle: 'dashed', borderWidth: 2,
                     borderColor: dragging ? 'primary.main' : formatInfo ? 'success.main' : (fileName && !formatInfo) ? 'error.main' : 'divider',
                     backgroundColor: dragging ? 'action.hover' : 'background.default',
@@ -523,7 +557,7 @@ const CyclemeterImport = () => {
                 <Typography variant="body1">
                     {fileName
                         ? `${fileName} (${(dbFile.size / 1024 / 1024).toFixed(1)} MB)`
-                        : 'Drop .fit, Meter.db, .kml, or .gpx file here'
+                        : 'Tap to choose, or drop a .fit, Meter.db, .kml, or .gpx file here'
                     }
                 </Typography>
                 {formatInfo && (
@@ -532,6 +566,21 @@ const CyclemeterImport = () => {
                     </Typography>
                 )}
             </Paper>
+
+            {/* Explicit picker button + iOS guidance */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
+                <Button
+                    variant="outlined"
+                    startIcon={<UploadFileIcon />}
+                    onClick={handleChooseFileClick}
+                    data-testid="choose-file-button"
+                >
+                    Choose File
+                </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                    On iPhone: tap, then <strong>Browse → iCloud Drive → Cyclemeter → Meter.db</strong>
+                </Typography>
+            </Box>
 
             {/* Advanced toggle */}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
