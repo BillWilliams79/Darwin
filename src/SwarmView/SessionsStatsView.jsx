@@ -30,7 +30,7 @@ import {
     XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
 } from 'recharts';
 
-import { PHASE_BUCKETS, GROUP_COLORS } from './sessionPhases';
+import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from './sessionPhases';
 import { swarmStatusLabel } from './swarmStatusChipProps';
 import { formatDuration } from '../utils/formatDuration';
 
@@ -106,6 +106,12 @@ const emptyStats = () => ({
     agenticPct: null,
     humanPct: null,
     machinePct: null,
+    // Per-phase TOKEN cost (req #2839) — parallel to the time aggregates above.
+    totalTokens: 0,
+    tokenInstrumentedCount: 0,
+    agenticTokens: 0,
+    humanTokens: 0,
+    machineTokens: 0,
     groupSplit: GROUP_ORDER.map(g => ({ label: GROUP_LABEL[g], group: g, count: 0 })),
     phaseAggregate: [],
     durationHistogram: DURATION_BUCKETS.map(b => ({ label: b.label, count: 0 })),
@@ -130,6 +136,13 @@ export function computeSessionStats(rows) {
     const phaseSessions = Object.fromEntries(REAL_PHASES.map(p => [p.key, 0])); // nonzero count
     const phaseNonzeroValues = Object.fromEntries(REAL_PHASES.map(p => [p.key, []]));
 
+    // Per-phase TOKEN cost (req #2839). Summed across instrumented rows that
+    // carry a phase_tokens blob; rows without token instrumentation contribute 0
+    // (their phase_tokens is NULL) and are counted separately so the UI can show
+    // how many sessions actually have token data.
+    const phaseTokenSums = Object.fromEntries(REAL_PHASES.map(p => [p.key, 0]));
+    let tokenInstrumentedCount = 0;
+
     const durationHistMap = Object.fromEntries(DURATION_BUCKETS.map(b => [b.label, 0]));
     const durations = [];
     let totalTrackedSecs = 0;
@@ -145,6 +158,8 @@ export function computeSessionStats(rows) {
     }
 
     for (const row of instrumented) {
+        const parsedTokens = parsePhaseTokens(row.phase_tokens);
+        if (parsedTokens) tokenInstrumentedCount += 1;
         for (const p of REAL_PHASES) {
             const v = Number(row[p.key]) || 0;
             phaseSums[p.key] += v;
@@ -152,6 +167,7 @@ export function computeSessionStats(rows) {
                 phaseSessions[p.key] += 1;
                 phaseNonzeroValues[p.key].push(v);
             }
+            if (parsedTokens) phaseTokenSums[p.key] += bucketTokens(parsedTokens, p.key);
         }
 
         const dur = sessionDurationSecs(row);
@@ -179,6 +195,7 @@ export function computeSessionStats(rows) {
         avg: instrumentedCount > 0 ? phaseSums[p.key] / instrumentedCount : 0,
         median: median(phaseNonzeroValues[p.key]),
         pctOfTotal: totalTrackedSecs > 0 ? (phaseSums[p.key] / totalTrackedSecs) * 100 : 0,
+        tokens: phaseTokenSums[p.key],
     }));
 
     const groupSecs = (g) => phaseAggregate
@@ -187,6 +204,15 @@ export function computeSessionStats(rows) {
     const agenticSecs = groupSecs('agentic');
     const humanSecs = groupSecs('human');
     const machineSecs = groupSecs('machine');
+
+    // Token cost grouped the same way the timing is (req #2839 §stats page).
+    const groupTokens = (g) => phaseAggregate
+        .filter(p => p.group === g)
+        .reduce((s, p) => s + p.tokens, 0);
+    const agenticTokens = groupTokens('agentic');
+    const humanTokens = groupTokens('human');
+    const machineTokens = groupTokens('machine');
+    const totalTokens = agenticTokens + humanTokens + machineTokens;
 
     const pct = (v) => (totalTrackedSecs > 0 ? (v / totalTrackedSecs) * 100 : null);
 
@@ -208,6 +234,11 @@ export function computeSessionStats(rows) {
         agenticPct: pct(agenticSecs),
         humanPct: pct(humanSecs),
         machinePct: pct(machineSecs),
+        totalTokens,
+        tokenInstrumentedCount,
+        agenticTokens,
+        humanTokens,
+        machineTokens,
         groupSplit: GROUP_ORDER.map(g => ({
             label: GROUP_LABEL[g],
             group: g,
@@ -391,6 +422,11 @@ export default function SessionsStatsView({ rows = [] }) {
                 <KpiCard label="Total Tracked Time" value={formatDuration(stats.totalTrackedSecs)} />
                 <KpiCard label="Avg Duration" value={formatDuration(Math.round(stats.avgDuration))} />
                 <KpiCard label="Median Duration" value={formatDuration(Math.round(stats.medianDuration))} />
+                <KpiCard label="Total Token Cost"
+                         value={formatTokens(stats.totalTokens)}
+                         hint={stats.tokenInstrumentedCount > 0
+                            ? `${stats.tokenInstrumentedCount} session${stats.tokenInstrumentedCount === 1 ? '' : 's'} with token data`
+                            : 'no token data yet'} />
             </Box>
 
             {/* KPI strip — row 2: agentic / human / machine time split. */}
@@ -400,13 +436,13 @@ export default function SessionsStatsView({ rows = [] }) {
                  data-testid="sessions-stats-kpis-split">
                 <KpiCard label="Agentic"
                          value={formatPct(stats.agenticPct)}
-                         hint={formatDuration(stats.agenticSecs)} />
+                         hint={`${formatDuration(stats.agenticSecs)} · ${formatTokens(stats.agenticTokens)} tok`} />
                 <KpiCard label="Human"
                          value={formatPct(stats.humanPct)}
-                         hint={formatDuration(stats.humanSecs)} />
+                         hint={`${formatDuration(stats.humanSecs)} · ${formatTokens(stats.humanTokens)} tok`} />
                 <KpiCard label="Machine"
                          value={formatPct(stats.machinePct)}
-                         hint={formatDuration(stats.machineSecs)} />
+                         hint={`${formatDuration(stats.machineSecs)} · ${formatTokens(stats.machineTokens)} tok`} />
             </Box>
 
             {/* Major blocks — full-width, stacked. Order (req #2825 follow-up):
@@ -434,6 +470,7 @@ export default function SessionsStatsView({ rows = [] }) {
                                     <TableCell align="right">Total</TableCell>
                                     <TableCell align="right">Avg / Session</TableCell>
                                     <TableCell align="right">Median</TableCell>
+                                    <TableCell align="right">Token Cost</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -450,6 +487,7 @@ export default function SessionsStatsView({ rows = [] }) {
                                         <TableCell align="right">{formatDuration(p.total)}</TableCell>
                                         <TableCell align="right">{formatDuration(Math.round(p.avg))}</TableCell>
                                         <TableCell align="right">{p.median == null ? '—' : formatDuration(Math.round(p.median))}</TableCell>
+                                        <TableCell align="right">{p.tokens > 0 ? formatTokens(p.tokens) : '—'}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>

@@ -10,7 +10,7 @@ import AppContext from '../../Context/AppContext';
 import call_rest_api from '../../RestApi/RestApi';
 import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
-import { PHASE_BUCKETS, GROUP_COLORS } from '../sessionPhases';
+import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
 
@@ -410,14 +410,22 @@ function SessionPhaseBreakdown({ session }) {
         );
     }
 
+    // Per-phase token cost (req #2839). NULL phase_tokens (no token
+    // instrumentation) → hasTokens=false → the token column/total is hidden so
+    // the layout stays identical to a pre-#2839 session.
+    const parsedTokens = parsePhaseTokens(session.phase_tokens);
+
     // Instrumented session — collect nonzero phases
     const phases = PHASE_BUCKETS
-        .map(b => ({ ...b, seconds: Number(session[b.key]) || 0 }))
+        .map(b => ({ ...b, seconds: Number(session[b.key]) || 0,
+                     tokens: bucketTokens(parsedTokens, b.key) }))
         .filter(b => b.seconds > 0);
 
     if (phases.length === 0) return null;
 
     const total = phases.reduce((sum, p) => sum + p.seconds, 0);
+    const totalTokens = phases.reduce((sum, p) => sum + p.tokens, 0);
+    const hasTokens = totalTokens > 0;
 
     // Subtotals
     const agenticSecs = phases.filter(p => p.group === 'agentic').reduce((s, p) => s + p.seconds, 0);
@@ -433,7 +441,9 @@ function SessionPhaseBreakdown({ session }) {
             {/* Proportional stacked mini-bar */}
             <Box sx={{ display: 'flex', height: 10, borderRadius: 1, overflow: 'hidden', mt: 0.5, mb: 1 }}>
                 {phases.map(p => (
-                    <Tooltip key={p.key} title={`${p.label}: ${formatDuration(p.seconds)}`} enterDelay={200}>
+                    <Tooltip key={p.key}
+                             title={`${p.label}: ${formatDuration(p.seconds)}${p.tokens > 0 ? ` · ${formatTokens(p.tokens)} tok` : ''}`}
+                             enterDelay={200}>
                         <Box sx={{
                             width: `${(p.seconds / total) * 100}%`,
                             bgcolor: p.color,
@@ -443,8 +453,11 @@ function SessionPhaseBreakdown({ session }) {
                 ))}
             </Box>
 
-            {/* Per-phase list */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 0.5, alignItems: 'center' }}>
+            {/* Per-phase list — a Token Cost column is appended only when this
+                session carries token instrumentation (req #2839). */}
+            <Box sx={{ display: 'grid',
+                       gridTemplateColumns: hasTokens ? 'auto 1fr auto auto' : 'auto 1fr auto',
+                       columnGap: 1.5, rowGap: 0.5, alignItems: 'center' }}>
                 {phases.map(p => (
                     <React.Fragment key={p.key}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: p.color }} />
@@ -452,6 +465,12 @@ function SessionPhaseBreakdown({ session }) {
                         <Typography variant="body2" sx={{ fontFamily: 'monospace', textAlign: 'right' }}>
                             {formatDuration(p.seconds)}
                         </Typography>
+                        {hasTokens && (
+                            <Typography variant="body2"
+                                        sx={{ fontFamily: 'monospace', textAlign: 'right', color: 'text.secondary' }}>
+                                {p.tokens > 0 ? `${formatTokens(p.tokens)} tok` : '—'}
+                            </Typography>
+                        )}
                     </React.Fragment>
                 ))}
             </Box>
@@ -471,7 +490,7 @@ function SessionPhaseBreakdown({ session }) {
                           sx={{ bgcolor: GROUP_COLORS.machine, color: '#000' }} />
                 )}
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', alignSelf: 'center' }}>
-                    Total: {formatDuration(total)}
+                    Total: {formatDuration(total)}{hasTokens ? ` · ${formatTokens(totalTokens)} tok` : ''}
                 </Typography>
             </Box>
         </Box>
