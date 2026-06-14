@@ -198,6 +198,29 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         authoring: 'Authoring — click to cycle',
     };
 
+    // Session-status tooltip labels (req #2843). One entry per session-status glyph in
+    // getStatusIcon() so the hover text always names the icon actually shown. `active`
+    // reads as "Implementing" to match the rocket glyph's implementing semantics.
+    const sessionStatusTooltip = {
+        starting: 'Starting', waiting: 'Waiting for input', planning: 'Planning',
+        active: 'Implementing', review: 'Review', paused: 'Paused',
+        completing: 'Completing', completed: 'Completed',
+    };
+
+    // Tooltip for the status icon. Mirrors getStatusIcon() precedence EXACTLY so the
+    // popup text can never disagree with the glyph (req #2843 — fixes a planning
+    // session showing the wand glyph but a "Development" tooltip, because the old
+    // tooltip read requirement_status before sessionStatus while the icon does the
+    // reverse): terminal requirement statuses first, then live sessionStatus, then
+    // the requirement's own status.
+    const getStatusTooltip = () => {
+        if (status === 'met')      return statusTooltip.met;
+        if (status === 'deferred') return statusTooltip.deferred;
+        if (status === 'wontfix')  return statusTooltip.wontfix;
+        if (sessionStatus)         return sessionStatusTooltip[sessionStatus] || sessionStatus;
+        return statusTooltip[status] || status;
+    };
+
     const coordType = requirement.coordination_type || null;
     const getCoordinationIcon = () => {
         if (requirement.id === '') return null;
@@ -323,7 +346,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                             </IconButton>
                         </Tooltip>
                     ) : (
-                        <Tooltip title={statusTooltip[status] || sessionStatus || status} enterDelay={400} enterNextDelay={200}>
+                        <Tooltip title={getStatusTooltip()} enterDelay={400} enterNextDelay={200}>
                             {getStatusIcon()}
                         </Tooltip>
                     )
