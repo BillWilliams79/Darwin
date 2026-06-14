@@ -92,7 +92,8 @@ describe('buildDayModel — windowed bleed (36h trial)', () => {
 describe('semanticLevel thresholds', () => {
     it('selects out / mid / in by relative scale', () => {
         expect(semanticLevel(0.3)).toBe('out');
-        expect(semanticLevel(0.67)).toBe('out');
+        expect(semanticLevel(0.49)).toBe('out');
+        expect(semanticLevel(0.5)).toBe('mid');
         expect(semanticLevel(0.68)).toBe('mid');
         expect(semanticLevel(1)).toBe('mid');
         expect(semanticLevel(1.89)).toBe('mid');
