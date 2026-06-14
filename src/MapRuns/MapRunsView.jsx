@@ -434,48 +434,72 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
         try {
             const selectedIds = getSelectedIds();
 
-            // Add partners to selected rides
-            for (const name of bulkAddPartners) {
-                let partner = partners.find(p => p.name === name);
-                if (!partner) {
-                    const pResult = await call_rest_api(
+            // 1. Resolve add-partner names → partner objects, creating any missing
+            //    partners in parallel (was a sequential await per name).
+            const partnerByName = new Map(partners.map(p => [p.name, p]));
+            const namesToCreate = bulkAddPartners.filter(name => !partnerByName.has(name));
+            const created = await Promise.all(
+                namesToCreate.map(name =>
+                    call_rest_api(
                         `${darwinUri}/map_partners`, 'POST',
                         { name, creator_fk: creatorFk }, idToken
-                    );
-                    if (pResult.httpStatus.httpStatus === 200 && pResult.data?.[0]) {
-                        partner = pResult.data[0];
-                    } else {
-                        continue;
-                    }
-                }
-                for (const runId of selectedIds) {
-                    // UNIQUE constraint prevents duplicates
-                    await call_rest_api(
-                        `${darwinUri}/map_run_partners`, 'POST',
-                        { map_run_fk: runId, map_partner_fk: partner.id }, idToken
-                    ).catch(() => {}); // Ignore duplicate errors
+                    ).then(r => ({ name, r })).catch(() => ({ name, r: null }))
+                )
+            );
+            for (const { name, r } of created) {
+                if (r && r.httpStatus.httpStatus === 200 && r.data?.[0]) {
+                    partnerByName.set(name, r.data[0]);
                 }
             }
 
-            // Remove partners from selected rides
-            for (const name of bulkRemovePartners) {
-                const partner = partners.find(p => p.name === name);
+            // 2. Build addPairs — every (run, partner) combo to add, pre-filtered
+            //    against existing links so we never INSERT a duplicate (avoids the
+            //    UNIQUE-constraint error without needing INSERT IGNORE).
+            const linkKeys = new Set(
+                runPartners.map(rp => `${rp.map_run_fk}:${rp.map_partner_fk}`)
+            );
+            const addPairs = [];
+            for (const name of bulkAddPartners) {
+                const partner = partnerByName.get(name);
                 if (!partner) continue;
                 for (const runId of selectedIds) {
-                    const link = runPartners.find(
-                        rp => rp.map_run_fk === runId && rp.map_partner_fk === partner.id
-                    );
-                    if (link) {
-                        await call_rest_api(
-                            `${darwinUri}/map_run_partners`, 'DELETE',
-                            { id: link.id }, idToken
-                        );
-                    }
+                    const key = `${runId}:${partner.id}`;
+                    if (linkKeys.has(key)) continue;
+                    addPairs.push({ map_run_fk: runId, map_partner_fk: partner.id });
+                    linkKeys.add(key); // guard against duplicate names within bulkAddPartners
                 }
             }
 
-            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
-            queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
+            // 3. Build removeIds — all link ids for selected runs × remove-partners.
+            const removePartnerIds = new Set();
+            for (const name of bulkRemovePartners) {
+                const partner = partners.find(p => p.name === name);
+                if (partner) removePartnerIds.add(partner.id);
+            }
+            const selectedSet = new Set(selectedIds);
+            const removeIds = runPartners
+                .filter(rp => selectedSet.has(rp.map_run_fk) && removePartnerIds.has(rp.map_partner_fk))
+                .map(rp => ({ id: rp.id }));
+
+            // 4. One bulk POST (array body) + one bulk DELETE (array body) — worst
+            //    case 2 API calls regardless of run/partner count.
+            if (addPairs.length > 0) {
+                const addResult = await call_rest_api(
+                    `${darwinUri}/map_run_partners`, 'POST', addPairs, idToken
+                );
+                if (addResult.httpStatus.httpStatus > 204) {
+                    showError(addResult, 'Failed to add partners');
+                }
+            }
+            if (removeIds.length > 0) {
+                const removeResult = await call_rest_api(
+                    `${darwinUri}/map_run_partners`, 'DELETE', removeIds, idToken
+                );
+                if (removeResult.httpStatus.httpStatus > 204) {
+                    showError(removeResult, 'Failed to remove partners');
+                }
+            }
+
             const count = selectedCount;
             setSnackbar({ open: true, message: `Updated partners for ${count} ride${count !== 1 ? 's' : ''}`, severity: 'success' });
             setRowSelectionModel({ type: 'include', ids: new Set() });
@@ -483,6 +507,10 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
         } catch (error) {
             showError(error, 'Failed to update partners');
         } finally {
+            // Always refresh — if the bulk POST committed but the DELETE threw (e.g.
+            // stale removeIds → 404), the added links must still surface in the UI.
+            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
             setSavingBulkEdit(false);
         }
     };
