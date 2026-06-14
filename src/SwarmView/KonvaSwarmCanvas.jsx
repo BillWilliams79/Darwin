@@ -68,7 +68,7 @@ const ticksForWin = (win) => {
 };
 
 // On-screen target sizes (px) — divided by k at draw time so they stay constant.
-const BEAD_R_S  = 12;   // bead radius (+25% per round-3 feedback)
+const BEAD_R_S  = 9;    // bead radius (−25% per req #2847; was 12)
 const DOT_R_S   = 3.2;
 const TRACK_W_S = 4;
 const FONT_TITLE_S = 13.75;  // +25% per round-3 feedback
@@ -531,7 +531,7 @@ const KonvaSwarmCanvas = ({
                                    fill={beadFill(chip)} stroke="#ffffff" strokeWidth={1.8 * inv} />);
             }
             if (chip.ringColor) {
-                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={beadR + 3 * inv} stroke={chip.ringColor} strokeWidth={2 * inv} />);
+                nodes.push(<Circle key={`${key}-rg`} x={cx} y={cy} radius={beadR + 3 * inv} stroke={chip.ringColor} strokeWidth={2.8 * inv} />);
             }
             // Hit target (hover + click). Pushed BEFORE the completion badge so
             // the badge (drawn on top) keeps its own onCompleteClick within its
