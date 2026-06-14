@@ -57,12 +57,17 @@ export const devServers = createEntityQueries({
 // the response to ~0.56 MB. `fieldsInKey` stays false so the cache key
 // (`['swarm_sessions', creator]`) and every existing invalidation are unchanged.
 // ---------------------------------------------------------------------------
+// Req #2839 — `phase_tokens` (per-phase token cost JSON, ~200 B/row) is included
+// so the Stats view's token aggregation works on the list fetch. The internal
+// `tokens_at_last_transition` baseline is intentionally OMITTED (engine-only,
+// never read by the UI). The detail view fetches the full single row, so it gets
+// phase_tokens regardless of this projection.
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,' +
     'worktree_path,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
-    'creator_fk,create_ts,update_ts';
+    'phase_tokens,creator_fk,create_ts,update_ts';
 
 export const sessions = createEntityQueries({
     entity: 'swarm_sessions',

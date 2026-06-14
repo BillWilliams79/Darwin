@@ -27,3 +27,58 @@ export const GROUP_COLORS = {
     machine: '#90caf9',
     legacy:  '#bdbdbd',
 };
+
+// --- Per-phase TOKEN consumption (req #2839) ---------------------------------
+// The token engine (db.py / migration 060) stores a `phase_tokens` JSON column on
+// swarm_sessions whose keys mirror the *_secs phase set with the suffix stripped:
+//   { "<phase>": { input, cache_write, cache_read, output }, ... }
+// where <phase> ∈ {starting, waiting, planning, implementing, review,
+// completion, paused}. These helpers map a PHASE_BUCKETS `*_secs` key to its
+// token-phase key and surface a single COST figure (the sum of the four
+// differently-priced token types).
+
+export const TOKEN_TYPES = ['input', 'cache_write', 'cache_read', 'output'];
+
+// PHASE_BUCKETS key (e.g. 'implementing_secs') → phase_tokens key ('implementing').
+export const tokenPhaseKey = (bucketKey) => bucketKey.replace(/_secs$/, '');
+
+// Tolerant parse of the phase_tokens column: the MCP layer may hand it back as a
+// JSON string (default for JSON columns) or an already-decoded object. Returns an
+// object (possibly empty) — never throws. Mirrors how the telemetry column is
+// consumed elsewhere.
+export function parsePhaseTokens(value) {
+    if (value == null) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        try {
+            const parsed = JSON.parse(trimmed);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}
+
+// Sum the four token types in one phase's {input,cache_write,cache_read,output}
+// blob into a single cost figure. Missing/garbage fields count as 0.
+export function sumPhaseTokens(phaseBlob) {
+    if (!phaseBlob || typeof phaseBlob !== 'object') return 0;
+    return TOKEN_TYPES.reduce((s, t) => s + (Number(phaseBlob[t]) || 0), 0);
+}
+
+// Total tokens for a single PHASE_BUCKETS bucket on one parsed phase_tokens object.
+export const bucketTokens = (parsedTokens, bucketKey) =>
+    sumPhaseTokens(parsedTokens && parsedTokens[tokenPhaseKey(bucketKey)]);
+
+// Compact token formatter shared by the swarm views (12.3M / 45.6k / 789 / —).
+export const formatTokens = (v) => {
+    if (v == null) return '—';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '—';
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+    return n.toLocaleString();
+};
