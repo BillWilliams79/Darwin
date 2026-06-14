@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     persistPartialize,
     migrateVisualizerState,
+    nextPastExtraDays,
+    MAX_PAST_EXTRA_DAYS,
 } from '../useSwarmVisualizerStore';
 
 // req #2799 — `currentDate` is navigation state, not a saved preference. It must
@@ -63,6 +65,36 @@ describe('persistPartialize (req #2799)', () => {
     it('persists devServersOn (req #2857)', () => {
         const out = persistPartialize({ currentDate: '2026-06-13', devServersOn: false });
         expect(out.devServersOn).toBe(false);
+    });
+
+    it('drops the transient pastExtraDays scroll-up counter (req #2859)', () => {
+        const out = persistPartialize({
+            currentDate: '2026-06-13', pastExtraDays: 84, dataKey: 'category',
+        });
+        expect(out).not.toHaveProperty('pastExtraDays');
+        expect(out.dataKey).toBe('category');
+    });
+});
+
+describe('nextPastExtraDays — scroll-up auto-extend reducer (req #2859)', () => {
+    it('adds positive deltas', () => {
+        expect(nextPastExtraDays(0, 28)).toBe(28);
+        expect(nextPastExtraDays(28, 28)).toBe(56);
+    });
+
+    it('ignores non-positive deltas', () => {
+        expect(nextPastExtraDays(28, 0)).toBe(28);
+        expect(nextPastExtraDays(28, -10)).toBe(28);
+    });
+
+    it('treats a null/undefined current as 0', () => {
+        expect(nextPastExtraDays(undefined, 28)).toBe(28);
+        expect(nextPastExtraDays(null, 14)).toBe(14);
+    });
+
+    it('clamps at MAX_PAST_EXTRA_DAYS', () => {
+        expect(nextPastExtraDays(MAX_PAST_EXTRA_DAYS, 28)).toBe(MAX_PAST_EXTRA_DAYS);
+        expect(nextPastExtraDays(MAX_PAST_EXTRA_DAYS - 10, 28)).toBe(MAX_PAST_EXTRA_DAYS);
     });
 });
 
