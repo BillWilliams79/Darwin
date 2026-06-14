@@ -11,10 +11,9 @@ import {
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import { PHASE_SEGMENTS, PHASE_UNCLASSIFIED_COLOR } from '../CalendarFC/timeSeriesSizes';
-import TimeSeriesView from '../CalendarFC/TimeSeriesView';
-// Lazy — Konva pulls a large canvas bundle; code-split it so the SVG/DOM
-// "Classic" path (and helper-only imports such as the elevatorFetchWindow test)
-// never evaluate the konva module (req #2841).
+// The Konva canvas (req #2841) is the only visualizer substrate (req #2844 —
+// the SVG/DOM "Classic" TimeSeriesView was retired). Lazy because Konva pulls a
+// large canvas bundle; code-split it so the rest of /swarm doesn't pay for it.
 const KonvaSwarmCanvas = lazy(() => import('./KonvaSwarmCanvas'));
 import Box from '@mui/material/Box';
 
@@ -61,8 +60,8 @@ export const shiftDay = (dateStr, delta) => {
 };
 
 // Monday of the week containing `dateStr` (local calendar). Used to quantize the
-// elevator fetch window to week boundaries so scrolling within a week never
-// slides the window (req #2777).
+// Konva fetch window to week boundaries so panning never slides the window
+// (req #2777).
 export const mondayOf = (dateStr) => {
     if (!dateStr) return dateStr;
     const d = new Date(dateStr + 'T12:00:00');
@@ -74,68 +73,24 @@ const SwarmVisualizerView = () => {
     const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
 
-    const viewType    = useSwarmVisualizerStore(s => s.viewType);
     const currentDate = useSwarmVisualizerStore(s => s.currentDate);
-    const beadWindow  = useSwarmVisualizerStore(s => s.beadWindow);
-    const sidewalkOn  = useSwarmVisualizerStore(s => s.sidewalkOn);
-    const elevatorOn  = useSwarmVisualizerStore(s => s.elevatorOn);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
-    const konvaOn     = useSwarmVisualizerStore(s => s.konvaOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
-    const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
 
-    const isWeekView = viewType === 'week';
-
-    // Query date range — matches the calendar's time-series logic verbatim:
-    //   Sidewalk on (Day)      → ±15 days around currentDate (21-day panel strip)
-    //   Elevator on (Week)     → Monday(currentDate) ±28d (infinite strip; req #2779/#2777)
-    //   Week view              → Mon..Sun of currentDate's week, ±1 day edges
-    //   Day view               → ±1 day around currentDate (tz spillover safety)
+    // Konva canvas fetch window (req #2841) — a wide, week-quantized range so the
+    // user can pan freely across ~7 weeks of past + the rest of this week without
+    // a refetch. Quantizing to Monday(currentDate) means the query key only
+    // changes when toolbar Prev/Next/Today crosses a week boundary, which
+    // keepPreviousData masks; free canvas pan never moves the window.
     const fetchRange = useMemo(() => {
-        // Konva canvas (req #2841) — a wide, week-quantized window so the user can
-        // pan freely across ~7 weeks of past + the rest of this week without a
-        // refetch. Quantizing to Monday(currentDate) means the query key only
-        // changes when toolbar Prev/Next/Today crosses a week boundary, which
-        // keepPreviousData masks; free canvas pan never moves the window.
-        if (konvaOn) {
-            const monday = mondayOf(currentDate);
-            return { start: shiftDay(monday, -45), end: shiftDay(monday, 13) };
-        }
-        if (sidewalkOn && !isWeekView) {
-            return { start: shiftDay(currentDate, -15), end: shiftDay(currentDate, 15) };
-        }
-        if (elevatorOn && isWeekView) {
-            // The elevator is an INFINITE vertical strip (req #2779) — drag/wheel/
-            // momentum extend it indefinitely into past/future. The scroll reports
-            // the TOP day up as `currentDate` (req #2781 — the focus day sits at the
-            // top of the frame), so `currentDate` tracks the day at the viewport top
-            // and the window follows the scroll. Anchoring the fetch window directly
-            // on `currentDate` slid it per-day, generating a new query key on every
-            // scroll tick and reloading the data (req #2777). Quantize the window to
-            // the Monday of currentDate's week and widen it to ±28d: that covers the
-            // handful of panels visible around the top day from any scroll position
-            // within the week, and it only changes when the top day crosses a week
-            // boundary (a handful of times per sweep), which
-            // keepPreviousData on the query masks without a blank flash. (A fast
-            // fling past the window briefly shows un-filled days until momentum
-            // settles and the debounced refetch lands.)
-            const monday = mondayOf(currentDate);
-            return { start: shiftDay(monday, -28), end: shiftDay(monday, 28) };
-        }
-        if (isWeekView) {
-            const d = new Date(currentDate + 'T12:00:00');
-            const mondayOffset = (d.getDay() + 6) % 7;
-            const monday = new Date(d); monday.setDate(d.getDate() - mondayOffset);
-            const start = new Date(monday); start.setDate(monday.getDate() - 1);
-            const end   = new Date(monday); end.setDate(monday.getDate() + 7);
-            return { start: localDateStr(start), end: localDateStr(end) };
-        }
-        return { start: shiftDay(currentDate, -1), end: shiftDay(currentDate, 1) };
-    }, [konvaOn, sidewalkOn, elevatorOn, isWeekView, currentDate]);
+        const monday = mondayOf(currentDate);
+        return { start: shiftDay(monday, -45), end: shiftDay(monday, 13) };
+    }, [currentDate]);
 
     const fetchStart = fetchRange.start + 'T00:00:00';
     const fetchEnd   = fetchRange.end   + 'T23:59:59';
@@ -230,51 +185,13 @@ const SwarmVisualizerView = () => {
         navigate(`/swarm/swarm-completes/${completeId}`, { state: { from: '/swarm' } });
     }, [navigate]);
 
-    const onCenterDateChange = useCallback((d) => {
-        if (d && d !== currentDate) setCurrentDate(d);
-    }, [currentDate, setCurrentDate]);
-
     // Toolbar moved into the parent SwarmView header row (req #2407); this
-    // component now renders only the time-series content.
-    if (konvaOn) {
-        return (
-            <div>
-                {phasesOn && <PhaseLegend />}
-                <Suspense fallback={<Box sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
-                <KonvaSwarmCanvas
-                    requirements={requirements}
-                    allRequirements={allRequirements}
-                    sessions={sessions}
-                    swarmStarts={swarmStarts}
-                    swarmStartSessions={swarmStartSessions}
-                    swarmUndos={swarmUndos}
-                    swarmCompletes={swarmCompletes}
-                    swarmCompleteSessions={swarmCompleteSessions}
-                    selectedDate={currentDate}
-                    timezone={profile?.timezone}
-                    categoryList={categoryList}
-                    rangeStart={fetchRange.start}
-                    rangeEnd={fetchRange.end}
-                    dataKey={dataKey}
-                    titlesOn={titlesOn}
-                    completesOn={completesOn}
-                    phasesOn={phasesOn}
-                    wide36={konvaWide}
-                    resetTick={viewResetTick}
-                    onChipClick={onChipClick}
-                    onSwarmStartClick={onSwarmStartClick}
-                    onUndoClick={onUndoClick}
-                    onCompleteClick={onCompleteClick}
-                />
-                </Suspense>
-            </div>
-        );
-    }
-
+    // component now renders only the Konva canvas content (req #2844).
     return (
         <div>
             {phasesOn && <PhaseLegend />}
-            <TimeSeriesView
+            <Suspense fallback={<Box sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
+            <KonvaSwarmCanvas
                 requirements={requirements}
                 allRequirements={allRequirements}
                 sessions={sessions}
@@ -285,21 +202,22 @@ const SwarmVisualizerView = () => {
                 swarmCompleteSessions={swarmCompleteSessions}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
-                beadWindow={beadWindow}
-                sidewalkOn={sidewalkOn}
-                elevatorOn={elevatorOn}
+                categoryList={categoryList}
+                rangeStart={fetchRange.start}
+                rangeEnd={fetchRange.end}
                 dataKey={dataKey}
                 titlesOn={titlesOn}
                 completesOn={completesOn}
                 phasesOn={phasesOn}
-                isWeekView={isWeekView}
-                categoryList={categoryList}
+                costOn={costOn}
+                wide36={konvaWide}
+                resetTick={viewResetTick}
                 onChipClick={onChipClick}
                 onSwarmStartClick={onSwarmStartClick}
                 onUndoClick={onUndoClick}
                 onCompleteClick={onCompleteClick}
-                onCenterDateChange={onCenterDateChange}
             />
+            </Suspense>
         </div>
     );
 };

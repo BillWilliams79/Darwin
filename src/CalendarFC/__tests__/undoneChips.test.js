@@ -4,7 +4,7 @@
 // so we can pin the math without spinning up the whole TimeSeriesView.
 
 import { describe, it, expect } from 'vitest';
-import { buildUndoneChips } from '../TimeSeriesView';
+import { buildUndoneChips } from '../swarmGeometry';
 
 // Dummy positional helper — for these tests we don't care about real time-of-
 // day math, only that the chip shape comes out correct given a known mapping.
