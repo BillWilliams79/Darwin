@@ -84,3 +84,19 @@ export function filterByTimeRange(items, filterStart, filterEnd) {
         return true;
     });
 }
+
+/**
+ * Count photos/videos whose dateTaken falls within a run's exact activity window.
+ * Mirrors what PhotoBrowser displays at the default (0/0) buffer. Expects an
+ * already-deduplicated index (deduplicateIndex output) so callers can dedupe once
+ * and reuse the result across many runs.
+ * @param {Array} dedupedIndex - deduplicated index entries
+ * @param {object} run - ride object with start_time/run_time_sec/stopped_time_sec
+ * @returns {number} count of items in the run's exact time range (0 on missing inputs)
+ */
+export function countPhotosForRun(dedupedIndex, run) {
+    if (!dedupedIndex || !run) return 0;
+    const range = computeRideTimeRange(run);
+    if (!range) return 0;
+    return filterByTimeRange(dedupedIndex, range.filterStart, range.filterEnd).length;
+}
