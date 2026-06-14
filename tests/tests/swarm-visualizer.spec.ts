@@ -121,7 +121,9 @@ test.describe('Swarm Visualizer — Konva canvas on /swarm', () => {
         await seedVisualizerState(page, testDate);
         await page.reload();
         const wide = page.getByTestId('timeseries-window-36h');
-        // konvaWide defaults true → button selected.
+        // seedVisualizerState seeds konvaWide:true explicitly → button selected.
+        // (The fresh-install default is OFF/24h since req #2856; this test seeds the
+        // ON state on purpose so the toggle has something to flip.)
         await expect(wide).toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
         await wide.click();
         await expect(wide).toHaveAttribute('aria-pressed', 'false');
