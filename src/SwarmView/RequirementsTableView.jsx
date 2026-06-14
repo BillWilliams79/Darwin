@@ -15,6 +15,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import EditIcon from '@mui/icons-material/Edit';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { useQueryClient } from '@tanstack/react-query';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
@@ -27,6 +28,8 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
+import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
+import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
 
 // Exact column width sum + DataGrid chrome (borders + column separators + scrollbar gutter
 // + checkbox column). Exported so SwarmView.jsx can align the header row (toggle + chips +
@@ -74,6 +77,8 @@ const RequirementsTableView = () => {
     const creatorFk = profile?.userName;
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+    const drill = useRequirementDrillStore(s => s.drill);
+    const clearDrill = useRequirementDrillStore(s => s.clearDrill);
     const showError = useSnackBarStore(s => s.showError);
 
     const { data: requirements = [], isLoading: reqLoading } = useAllRequirements(creatorFk, { fields: FIELDS });
@@ -111,13 +116,35 @@ const RequirementsTableView = () => {
     // Filter out:
     //  - Requirements whose status isn't in the chip filter
     //  - Requirements linked to closed categories (categoryMap only has open ones)
-    const filteredRequirements = useMemo(() =>
-        requirements.filter(r =>
+    //
+    // req #2850 — when a Trends drill-down is active, the chips are bypassed entirely:
+    // the table shows exactly the Met requirements in the clicked time bucket (and
+    // category, if a split segment was clicked). Matching reuses the chart's bucket
+    // keying (`requirementBucketKey`) so the row set equals the bar that was clicked.
+    const filteredRequirements = useMemo(() => {
+        if (drill) {
+            // categoryIds: explicit set the chart showed (a split segment → one id, or
+            // a narrowed chip selection → that subset). Honored even for closed
+            // categories (categoryMap only carries open ones) so the table matches the
+            // clicked bar exactly. null → all visible categories, in which case mirror
+            // the chart's closed-category visibility (open-only by default).
+            const catSet = drill.categoryIds ? new Set(drill.categoryIds) : null;
+            return requirements.filter(r => {
+                // Only MET requirements — keep parity with the chart, which counts
+                // requirement_status === 'met' (wontfix is excluded though it too
+                // stamps completed_at — req #2850).
+                if (r.requirement_status !== 'met') return false;
+                if (!r.completed_at) return false;
+                if (requirementBucketKey(r.completed_at, drill.timeframe) !== drill.bucketKey) return false;
+                if (catSet) return catSet.has(r.category_fk);
+                return drill.includeClosed || categoryMap.has(r.category_fk);
+            });
+        }
+        return requirements.filter(r =>
             requirementStatusFilter.includes(r.requirement_status) &&
             categoryMap.has(r.category_fk)
-        ),
-        [requirements, requirementStatusFilter, categoryMap]
-    );
+        );
+    }, [requirements, requirementStatusFilter, categoryMap, drill]);
 
     // Multi-select state (v8 DataGrid shape: include=only these ids, exclude=all except these).
     // Both selectedCount and getSelectedIds are intersected with `filteredRequirements`
@@ -297,8 +324,37 @@ const RequirementsTableView = () => {
         );
     }
 
+    const drillPillLabel = drill
+        ? `Met • ${drill.categoryName ? `${drill.categoryName} • ` : ''}${drill.label}`
+        : '';
+
     return (
         <Box sx={{ px: 3, pt: 0, maxWidth: SWARM_TABLE_WIDTH }}>
+            {/* Trends drill-down pill (req #2850) — describes the clicked time bucket
+                (+ category) and clears the drill on delete, restoring the normal
+                status-chip-filtered table. */}
+            {drill && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Chip
+                        icon={<CalendarTodayIcon />}
+                        label={drillPillLabel}
+                        variant="outlined"
+                        size="small"
+                        onDelete={clearDrill}
+                        sx={{
+                            borderColor: '#E91E63',
+                            color: '#E91E63',
+                            '& .MuiChip-icon': { color: '#E91E63' },
+                            '& .MuiChip-deleteIcon': { color: '#E91E63', '&:hover': { color: '#C2185B' } },
+                        }}
+                        data-testid="requirements-drill-pill"
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                        {filteredRequirements.length} requirement{filteredRequirements.length !== 1 ? 's' : ''} met
+                    </Typography>
+                </Box>
+            )}
+
             {/* Bulk edit action bar — mirrors MapRunsView: outlined button, EditIcon,
                 right-aligned, label "Edit Selected (N)". */}
             {selectedCount > 0 && (
