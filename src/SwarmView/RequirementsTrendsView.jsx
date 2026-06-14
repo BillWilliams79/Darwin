@@ -110,8 +110,8 @@ const RequirementsTrendsView = () => {
         useAllCategories(creatorFk, { fields: 'id,category_name,color,sort_order,closed' });
 
     const [timeframe, setTimeframe] = useState('week');
-    const [chartType, setChartType] = useState('bar');
-    const [split, setSplit] = useState(false);
+    const [chartType, setChartType] = useState('line');
+    const [split, setSplit] = useState(true);
     const [cumulative, setCumulative] = useState(false);
     // Requirements in closed categories are hidden by default; the rightmost
     // toggle unhides them (req #2821).

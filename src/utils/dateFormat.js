@@ -96,7 +96,7 @@ export function localDateStr(d = new Date()) {
 }
 
 // Return the time-of-day as "h:mma" / "h:mmp" (12-hour, lowercase suffix) — e.g. 7:45p, 12:00a.
-// Used by TimeSeriesView chips so every chip carries its own timestamp inline.
+// Used by the swarm-visualizer chips so every chip carries its own timestamp inline.
 export function formatHM12(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '';
@@ -125,7 +125,7 @@ export function formatHHMM(dateStr, timezone) {
 
 // Return a fraction [0, 1) representing the time-of-day of `dateStr` in the
 // given timezone: (hour*3600 + minute*60 + second) / 86400.
-// Used by TimeSeriesView to position chips along the 24-hour axis.
+// Used by the swarm-visualizer geometry to position chips along the 24-hour axis.
 export function getTimeOfDayFraction(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return null;
