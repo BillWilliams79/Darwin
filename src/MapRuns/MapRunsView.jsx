@@ -28,24 +28,22 @@ import call_rest_api from '../RestApi/RestApi';
 import { asyncPool } from '../utils/asyncPool';
 import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import RideEditDialog from '../RouteCards/RideEditDialog';
+import { formatDuration, parseDuration } from '../utils/mapDataUtils';
+import {
+    GhostInputCell,
+    GhostSelectCell,
+    GhostDateTimeCell,
+    GhostNotesCell,
+    GhostPartnersCell,
+} from './GhostCellEditors';
+
+const NO_ROUTE = '__no_route__';
+const ACTIVITY_TYPES = ['Ride', 'Hike'];
 
 // Column widths + DataGrid chrome (borders + column separators + scrollbar gutter + cell padding)
 export const TABLE_WIDTH = 50 + 250 + 180 + 90 + 100 + 110 + 90 + 90 + 110 + 110 + 400 + 200 + 50;
 
-/**
- * Format seconds as "H:MM:SS".
- */
-function formatDuration(totalSeconds) {
-    if (totalSeconds == null) return '';
-    const s = Math.floor(totalSeconds);
-    const hours = Math.floor(s / 3600);
-    const minutes = Math.floor((s % 3600) / 60);
-    const seconds = s % 60;
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
-const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
+const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
@@ -63,10 +61,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
     const getSelectedIds = () => rowSelectionModel.type === 'include'
         ? [...rowSelectionModel.ids]
         : runs.filter(r => !rowSelectionModel.ids.has(r.id)).map(r => r.id);
-
-    // Edit dialog state
-    const [editDialogOpen, setEditDialogOpen] = useState(false);
-    const [editingRun, setEditingRun] = useState(null);
 
     // Bulk delete state
     const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -125,32 +119,80 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             field: 'start_time',
             headerName: 'Date',
             width: 250,
+            // valueFormatter feeds sort / quick-filter; renderCell shows the inline editor.
             valueFormatter: (value) => {
                 if (!value) return '';
                 // start_time is UTC DATETIME from SQL; append Z for UTC parsing
                 const d = new Date(value.endsWith('Z') ? value : value + 'Z');
                 return dateFormatter.format(d);
             },
+            renderCell: (params) => (
+                <GhostDateTimeCell row={params.row} timezone={profile?.timezone} onSave={saveRunFields} />
+            ),
         },
         {
             field: 'route_name',
             headerName: 'Route',
             width: 180,
             valueGetter: (value, row) => routeMap.get(row.map_route_fk) || '',
+            renderCell: (params) => (
+                <GhostSelectCell
+                    row={params.row}
+                    value={params.row.map_route_fk ?? NO_ROUTE}
+                    options={[
+                        { value: NO_ROUTE, label: 'No route' },
+                        ...sortedRoutes.map(r => ({ value: r.id, label: r.name })),
+                    ]}
+                    onSave={handleRouteChange}
+                />
+            ),
         },
-        { field: 'activity_name', headerName: 'Activity', width: 90 },
+        {
+            field: 'activity_name',
+            headerName: 'Activity',
+            width: 90,
+            renderCell: (params) => (
+                <GhostSelectCell
+                    row={params.row}
+                    value={params.row.activity_name || ''}
+                    options={ACTIVITY_TYPES.map(t => ({ value: t, label: t }))}
+                    onSave={(rowId, newValue) => saveRunFields(rowId, { activity_name: newValue })}
+                />
+            ),
+        },
         {
             field: 'distance_mi',
             headerName: 'Distance',
             width: 100,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(1) : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="distance_mi"
+                    format={v => v != null ? Number(v).toFixed(1) : ''}
+                    parse={v => { const n = parseFloat(v); return isNaN(n) ? null : n; }}
+                    onSave={saveRunFields}
+                />
+            ),
         },
         {
             field: 'run_time_sec',
             headerName: 'Duration',
             width: 110,
-            valueFormatter: (value) => formatDuration(value),
+            // null guard: shared formatDuration() does not null-check (would yield "00:00:00").
+            valueFormatter: (value) => value != null ? formatDuration(value) : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="run_time_sec"
+                    format={v => v != null ? formatDuration(v) : ''}
+                    parse={v => { const s = parseDuration(v); return isNaN(s) ? null : s; }}
+                    validate={v => v === '' || !isNaN(parseDuration(v))}
+                    onSave={saveRunFields}
+                    align="left"
+                />
+            ),
         },
         {
             field: 'ascent_ft',
@@ -158,6 +200,15 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             width: 90,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toLocaleString() : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="ascent_ft"
+                    format={v => v != null ? String(Math.round(Number(v))) : ''}
+                    parse={v => v === '' ? 'NULL' : (isNaN(parseInt(v, 10)) ? null : parseInt(v, 10))}
+                    onSave={saveRunFields}
+                />
+            ),
         },
         {
             field: 'descent_ft',
@@ -165,6 +216,15 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             width: 90,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toLocaleString() : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="descent_ft"
+                    format={v => v != null ? String(Math.round(Number(v))) : ''}
+                    parse={v => v === '' ? 'NULL' : (isNaN(parseInt(v, 10)) ? null : parseInt(v, 10))}
+                    onSave={saveRunFields}
+                />
+            ),
         },
         {
             field: 'max_speed_mph',
@@ -172,6 +232,15 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             width: 110,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(1) : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="max_speed_mph"
+                    format={v => v != null ? Number(v).toFixed(1) : ''}
+                    parse={v => v === '' ? 'NULL' : (isNaN(parseFloat(v)) ? null : parseFloat(v))}
+                    onSave={saveRunFields}
+                />
+            ),
         },
         {
             field: 'avg_speed_mph',
@@ -179,6 +248,15 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             width: 110,
             type: 'number',
             valueFormatter: (value) => value != null ? Number(value).toFixed(2) : '',
+            renderCell: (params) => (
+                <GhostInputCell
+                    row={params.row}
+                    field="avg_speed_mph"
+                    format={v => v != null ? Number(v).toFixed(1) : ''}
+                    parse={v => v === '' ? 'NULL' : (isNaN(parseFloat(v)) ? null : parseFloat(v))}
+                    onSave={saveRunFields}
+                />
+            ),
         },
         {
             field: 'notes',
@@ -187,17 +265,7 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             minWidth: 200,
             maxWidth: 400,
             renderCell: (params) => (
-                <Box sx={{
-                    whiteSpace: 'normal',
-                    lineHeight: 1.3,
-                    py: 0.5,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                }}>
-                    {params.value || ''}
-                </Box>
+                <GhostNotesCell row={params.row} onSave={saveRunFields} />
             ),
         },
         {
@@ -207,24 +275,60 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
             sortable: false,
             filterable: false,
             valueGetter: (value, row) => (partnerMap.get(row.id) || []).join(', '),
-            renderCell: (params) => {
-                const names = partnerMap.get(params.row.id) || [];
-                if (names.length === 0) return null;
-                return (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
-                        {names.map(name => (
-                            <Chip key={name} label={name} size="small" variant="outlined" />
-                        ))}
-                    </Box>
-                );
-            },
+            renderCell: (params) => (
+                <GhostPartnersCell
+                    row={params.row}
+                    partners={partners}
+                    runPartners={runPartners}
+                    onSave={handlePartnerChange}
+                />
+            ),
         },
     ];
 
-    const handleCellClick = (params) => {
-        if (params.field === '__check__') return;
-        setEditingRun(params.row);
-        setEditDialogOpen(true);
+    // ── Inline-edit save helpers (mirror RouteCard) ──────────────────────────
+    const saveRunFields = async (rowId, fields) => {
+        try {
+            const result = await call_rest_api(
+                `${darwinUri}/map_runs`, 'PUT', [{ id: rowId, ...fields }], idToken
+            );
+            if (result.httpStatus.httpStatus > 204) showError(result, 'Failed to update activity');
+            else queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
+        } catch (err) {
+            showError(err, 'Failed to update activity');
+        }
+    };
+
+    const handleRouteChange = async (rowId, newValue) => {
+        await saveRunFields(rowId, { map_route_fk: newValue === NO_ROUTE ? 'NULL' : newValue });
+        queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
+    };
+
+    const handlePartnerChange = async (rowId, newNames) => {
+        const existingIds = runPartners.filter(rp => rp.map_run_fk === rowId).map(rp => rp.map_partner_fk);
+        const existingNames = partners.filter(p => existingIds.includes(p.id)).map(p => p.name);
+        const toAdd = newNames.filter(n => !existingNames.includes(n));
+        const toRemove = existingNames.filter(n => !newNames.includes(n));
+        try {
+            for (const name of toAdd) {
+                let partner = partners.find(p => p.name === name);
+                if (!partner) {
+                    const pr = await call_rest_api(`${darwinUri}/map_partners`, 'POST', { name, creator_fk: creatorFk }, idToken);
+                    if (pr.httpStatus.httpStatus === 200 && pr.data?.[0]) partner = pr.data[0]; else continue;
+                }
+                await call_rest_api(`${darwinUri}/map_run_partners`, 'POST', { map_run_fk: rowId, map_partner_fk: partner.id }, idToken);
+            }
+            for (const name of toRemove) {
+                const partner = partners.find(p => p.name === name);
+                if (!partner) continue;
+                const link = runPartners.find(rp => rp.map_run_fk === rowId && rp.map_partner_fk === partner.id);
+                if (link) await call_rest_api(`${darwinUri}/map_run_partners`, 'DELETE', { id: link.id }, idToken);
+            }
+            queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
+        } catch (err) {
+            showError(err, 'Failed to update partners');
+        }
     };
 
     const handleDeleteSelected = async () => {
@@ -429,9 +533,7 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
                     disableRowSelectionOnClick
                     rowSelectionModel={rowSelectionModel}
                     onRowSelectionModelChange={setRowSelectionModel}
-                    onCellClick={handleCellClick}
                     density="compact"
-                    sx={{ cursor: 'pointer' }}
                     data-testid="map-runs-datagrid"
                 />
             </Box>
@@ -600,24 +702,6 @@ const MapRunsView = ({ runs = [], allRuns = [], routes = [], partners = [], runP
                     </Button>
                 </DialogActions>
             </Dialog>
-
-            {/* Edit Dialog */}
-            <RideEditDialog
-                open={editDialogOpen}
-                onClose={() => {
-                    setEditDialogOpen(false);
-                    setEditingRun(null);
-                }}
-                run={editingRun}
-                routes={routes}
-                allRuns={allRuns}
-                partners={partners}
-                runPartners={runPartners}
-                darwinUri={darwinUri}
-                idToken={idToken}
-                creatorFk={creatorFk}
-                timezone={profile?.timezone}
-            />
 
             {/* Snackbar */}
             <Snackbar
