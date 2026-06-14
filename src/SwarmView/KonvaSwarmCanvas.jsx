@@ -42,6 +42,7 @@ import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments,
+    recenterDecision,
 } from './konvaSwarmModel';
 import '../CalendarFC/swarmVisualizer.css';
 
@@ -187,6 +188,7 @@ const KonvaSwarmCanvas = ({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);   // true while a drag-pan gesture is active (cursor → grabbing)
+    const userPannedRef = useRef(false); // true once the user has manually panned/zoomed (req #2860)
     const rowsRef = useRef([]);          // live rows for hit-testing in handlers
     const centerDateRef = useRef(null);  // date currently at the viewport center
     const prevWinRef = useRef(null);     // detects a window (36h) toggle
@@ -340,6 +342,11 @@ const KonvaSwarmCanvas = ({
             .on('zoom', (ev) => {
                 const tr = ev.transform;
                 setTransform({ x: tr.x, y: tr.y, k: tr.k });
+                // A real user gesture (drag/wheel) carries a sourceEvent; a
+                // programmatic zb.transform (our centering) does not. Latch the
+                // manual-pan flag so a later data-load relayout never yanks the
+                // hand-positioned view back to today (req #2860).
+                if (ev.sourceEvent) userPannedRef.current = true;
                 // Track the day at the viewport center so a window (36h) toggle can
                 // re-anchor on it instead of jumping to a different day.
                 const d = dateAtWorldY(rowsRef.current, (size.h / 2 - tr.y) / tr.k);
@@ -422,23 +429,41 @@ const KonvaSwarmCanvas = ({
     // width aligned to the frame, scale = kBase. Also the Today/"view reset" action
     // (resetTick bump) re-runs this even when the date is unchanged, snapping zoom
     // back to mid and the window back to full-width-centered-on-today (req feedback).
-    const lastCenterRef = useRef(null);
+    //
+    // req #2860 — the recenter must also re-fire when an async data-load relayout
+    // shifts the selected day's world-Y (its row top moves once the dense rows grow
+    // from their empty-data ROW_MIN), so the view follows today instead of staying
+    // pinned to the stale pre-data world-Y (which fell over the mid/late-May data
+    // mass). recenterDecision() encodes "recenter on navigation OR on a geometry
+    // shift the user hasn't overridden by manually panning". Refs hold the last
+    // navigation key and the last centered world-Y.
+    const lastNavKeyRef = useRef(null);
+    const lastCenterYRef = useRef(null);
     useEffect(() => {
         const el = containerRef.current;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0 || !rows.length) return;
-        // req #2859 — key on rangeEnd, NOT rangeStart, so a scroll-up auto-extend
-        // (which moves only the PAST edge) does not re-center the view back onto
-        // the selected day. Toolbar Prev/Next/Today shifts Monday → rangeEnd moves
-        // too, so genuine navigation still re-centers; same-week date tweaks leave
-        // both edges unchanged and need no re-center. The newest-day layout anchor
-        // keeps existing rows fixed across an extension, so skipping re-center here
-        // leaves the user exactly where they were panning.
-        const key = `${selectedDate}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
-        if (lastCenterRef.current === key) return;
-        lastCenterRef.current = key;
-        centerDateRef.current = selectedDate;
+        // req #2860 — recenter on navigation OR on an async-relayout geometry
+        // shift the user hasn't overridden by panning. req #2859 — key `navKey` on
+        // rangeEnd, NOT rangeStart: a scroll-up auto-extend moves only the PAST edge
+        // of the fetch window and must not read as navigation (which would yank the
+        // view back to the selected day). Toolbar Prev/Next/Today shifts Monday →
+        // rangeEnd moves too, so genuine week navigation still recenters; intra-week
+        // changes move selectedDate. The newest-day layout anchor (above) also keeps
+        // the selected day's world-Y fixed across an extension, so `geometryShifted`
+        // stays false there too — panning up never recenters.
+        const navKey = `${selectedDate}|${rangeEnd}|${size.w}x${size.h}|${resetTick}`;
         const cy = rowTopFor(selectedDate);
+        const { recenter, clearPan } = recenterDecision({
+            navKey, lastNavKey: lastNavKeyRef.current,
+            centerY: cy, lastCenterY: lastCenterYRef.current,
+            userPanned: userPannedRef.current,
+        });
+        if (!recenter) return;
+        if (clearPan) userPannedRef.current = false;  // explicit navigation releases the manual-pan lock
+        lastNavKeyRef.current = navKey;
+        lastCenterYRef.current = cy;
+        centerDateRef.current = selectedDate;
         const ty = size.h / 2 - cy * kBase;
         select(el).call(zb.transform, zoomIdentity.translate(0, ty).scale(kBase));
     }, [selectedDate, rangeStart, rangeEnd, size.w, size.h, rows, kBase, rowTopFor, resetTick]);
@@ -605,6 +630,32 @@ const KonvaSwarmCanvas = ({
         );
     };
 
+    // Swarm-start glyph (req #2504 same-day; req #2862 cross-day start day) —
+    // a vertical tick spanning the lane slot + an anchor dot at the top.
+    // Green = a real swarm_start row, red = an estimated (cluster-inferred) one.
+    // `tipChip` drives the hover datacard (Swarm-Start #N) — pass the completed
+    // chip OR the cross-day card, whichever owns the glyph. Returns the tick +
+    // dot nodes. Shared by the same-day `model.placed` loop and the cross-day
+    // `role:'start'` loop so the start day of a multi-day span shows the SAME
+    // anchor glyph as a single-day bead (previously the cross-day start day drew
+    // only the dashed tail, so multi-day requirements had no start glyph at all).
+    const swarmStartGlyph = (key, sx, cy, swarmStartId, swarmStartRow, tipChip) => {
+        const real = swarmStartId != null;
+        const col = real ? REAL_GREEN : EST_RED;
+        // Span reduced by 1/3 from the full lane, kept centered on the lane.
+        const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
+        return [
+            <Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
+                  stroke={col} strokeWidth={2.5 * inv} lineCap="round" />,
+            <Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
+                    stroke={C.beadEdge} strokeWidth={0.8 * inv}
+                    hitStrokeWidth={10 * inv}
+                    onMouseEnter={swarmStartRow ? (e) => { cursorPointer(e, true); showTip({ ...tipChip, isSwarmStartCard: true }, e); } : undefined}
+                    onMouseLeave={swarmStartRow ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
+                    onActivate={real ? () => onSwarmStartClick?.(swarmStartId) : undefined} />,
+        ];
+    };
+
     // ── Row renderer ─────────────────────────────────────────────────────────
     const renderRow = (r) => {
         const { date, top, height, model, parity } = r;
@@ -660,13 +711,24 @@ const KonvaSwarmCanvas = ({
             const card = cd.card;
             let x1 = LEFTPAD;
             const x2 = WORLD_W - RIGHTPAD;
-            if (cd.role === 'start' && cd.pct != null) x1 = xWorld(cd.pct);
+            const isStart = cd.role === 'start' && cd.pct != null;
+            if (isStart) x1 = xWorld(cd.pct);
             nodes.push(<Line key={`xd${i}`} points={[x1, y, x2, y]}
                              stroke={card?.color || C.tomb} strokeWidth={trackW * 0.7}
                              dash={[6 * inv, 4 * inv]} opacity={0.55} lineCap="round"
                              hitStrokeWidth={12 * inv}
                              onMouseEnter={card ? (e) => { cursorPointer(e, true); showTip({ ...card, isCrossDay: true }, e); } : undefined}
                              onMouseLeave={card ? (e) => { cursorPointer(e, false); hideTip(); } : undefined} />);
+            // Anchor the swarm-start glyph at the start-day's dashed tail (req
+            // #2862). For a requirement started one day and completed another the
+            // completion bead's start is clamped off-window (no glyph drawn
+            // there), so this cross-day start entry is the only place the
+            // swarm-start anchor can appear.
+            if (isStart) {
+                nodes.push(...swarmStartGlyph(`xd${i}`, x1, y,
+                                              card?.swarmStartId ?? null,
+                                              card?.swarmStart ?? null, card));
+            }
         });
 
         // ── Duration tracks + start ticks + terminal glyphs ──────────────────
@@ -698,19 +760,8 @@ const KonvaSwarmCanvas = ({
             // Swarm-start: vertical tick spanning the lane slot (stacks into a
             // grouping bar for a multi-session start) + an anchor dot at the top.
             if (chip.startPct != null && !chip.startClamped && chip.markerMode !== 'left') {
-                const sx = xWorld(chip.startPct);
-                const real = chip.swarmStartId != null;
-                const col = real ? REAL_GREEN : EST_RED;
-                // Span reduced by 1/3 from the full lane, kept centered on the lane.
-                const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
-                nodes.push(<Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
-                                 stroke={col} strokeWidth={2.5 * inv} lineCap="round" />);
-                nodes.push(<Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
-                                   stroke={C.beadEdge} strokeWidth={0.8 * inv}
-                                   hitStrokeWidth={10 * inv}
-                                   onMouseEnter={chip.swarmStart ? (e) => { cursorPointer(e, true); showTip({ ...chip, isSwarmStartCard: true }, e); } : undefined}
-                                   onMouseLeave={chip.swarmStart ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
-                                   onActivate={real ? () => onSwarmStartClick?.(chip.swarmStartId) : undefined} />);
+                nodes.push(...swarmStartGlyph(key, xWorld(chip.startPct), cy,
+                                              chip.swarmStartId, chip.swarmStart, chip));
             }
 
             // Terminal glyph.

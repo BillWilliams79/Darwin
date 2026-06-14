@@ -127,6 +127,41 @@ export function isWeekend(dateStr) {
     return dow === 0 || dow === 6;
 }
 
+// ── Canvas re-centering decision (req #2860) ────────────────────────────────
+// The Konva canvas centers the viewport vertically on the selected day. That
+// transform is computed in an effect, but it must NOT be computed only once: on
+// a hard reset the effect first fires while the data is still empty (every row a
+// uniform ROW_MIN), centers today against that flat layout, and then the async
+// data arrives — the dense rows grow, every row below shifts down, and today's
+// row lands at a NEW world-Y. The original guard keyed only on
+// navigation (selectedDate|range|size|resetTick), so it never recomputed after
+// that relayout and the view stayed pinned to the stale world-Y, which fell over
+// the densest data mass (historically the mid/late-May swarm cluster) — the
+// "visualizer defaults to May 20/21" affinity.
+//
+// This pure helper decides, on each effect run, whether to re-issue the
+// centering transform:
+//   • `navChanged`     — selectedDate / range / size / resetTick changed: an
+//                        explicit navigation (mount, Prev/Next/Today, resize).
+//                        Always recenter, and clear the manual-pan lock.
+//   • `geometryShifted`— the selected day's world-Y center moved (an async
+//                        data-load relayout). Recenter ONLY if the user has not
+//                        manually panned, so a background refetch
+//                        (refetchOnWindowFocus) can't yank a hand-positioned view
+//                        back to today.
+// `navKey`/`lastNavKey` are the navigation-intent strings; `centerY`/`lastCenterY`
+// are rowTopFor(selectedDate) now vs. at the last centering.
+export function recenterDecision({
+    navKey, lastNavKey, centerY, lastCenterY, userPanned,
+} = {}) {
+    const navChanged = navKey !== lastNavKey;
+    const geometryShifted = centerY !== lastCenterY;
+    return {
+        recenter: navChanged || (geometryShifted && !userPanned),
+        clearPan: navChanged,
+    };
+}
+
 // ── Shared-context precompute ───────────────────────────────────────────────
 // Build the cross-data maps once for the whole visible window so each per-day
 // build is cheap. `dates` is the full visible date list (the cross-day map needs
