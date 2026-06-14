@@ -85,8 +85,9 @@ export function xPctWin(ts, timezone, rowDate, winStartH = 0, winEndH = DAY_HOUR
 //   out — dense overview: one density dot per session, weekend shading.
 //   mid — the current bead look: beads + duration lines + cross-day + titles.
 //   in  — lanes spread; each bead expands into its phase bar.
-export const SEMANTIC_OUT_MAX = 0.68;  // ratio < 0.68 → out (Overview trips a bit sooner
-                                       //   than the original 0.6, tuned via review feedback)
+export const SEMANTIC_OUT_MAX = 0.5;   // ratio < 0.5 → out. Lowered from 0.68 (req #2847)
+                                       //   to shift the overview→tracks crossover in favor
+                                       //   of tracks — tracks now appear at a lower zoom.
 export const SEMANTIC_IN_MIN  = 1.9;   // ratio >= 1.9 → in
 export function semanticLevel(k) {
     if (!Number.isFinite(k) || k < SEMANTIC_OUT_MAX) return 'out';
