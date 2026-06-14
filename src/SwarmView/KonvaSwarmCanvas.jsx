@@ -37,6 +37,7 @@ import {
     formatCoordination, PHASE_UNCLASSIFIED_COLOR,
 } from '../CalendarFC/timeSeriesSizes';
 import { sessionTokenCost, formatTokens } from './sessionPhases';
+import { computeDayHeaders } from './dayHeaderLayout';
 import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
@@ -382,22 +383,7 @@ const KonvaSwarmCanvas = ({
     const dayHeaders = useMemo(() => {
         if (!visibleRows.length || size.w === 0) return [];
         const noonScreenX = xWorld(noonPct) * t.k + t.x;
-        const out = [];
-        let lastBottom = -Infinity;
-        for (let i = 0; i < visibleRows.length; i++) {
-            const r = visibleRows[i];
-            const screenY = r.top * t.k + t.y;
-            const next = visibleRows[i + 1];
-            const nextScreenY = next ? next.top * t.k + t.y : Infinity;
-            let hy = Math.max(AXIS_H, screenY);            // stick under the axis
-            if (hy + HEADER_H > nextScreenY) hy = nextScreenY - HEADER_H;  // pushed up
-            if (hy > size.h || hy + HEADER_H <= AXIS_H) continue;  // <= so a header fully behind the axis yields to the next (no swap flicker)
-            if (hy < lastBottom + 2) continue;             // would overlap previous → skip (declutters Overview)
-            lastBottom = hy + HEADER_H;
-            out.push({ key: r.date, date: r.date, count: r.model.count,
-                       top: hy, left: noonScreenX, isSel: r.date === selectedDate });
-        }
-        return out;
+        return computeDayHeaders(visibleRows, t, size.h, noonScreenX, selectedDate, AXIS_H, HEADER_H);
     }, [visibleRows, t.k, t.x, t.y, size.w, size.h, noonPct, selectedDate]);
 
     const showTip = useCallback((chip, e) => {
