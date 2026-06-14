@@ -80,6 +80,14 @@ const HEADER_H = 22;    // sticky per-day date/count header height
 const REAL_GREEN = '#43A047';
 const EST_RED    = '#E53935';
 
+// Dev-server port pill (req #2857). Colour-matched to the per-day "requirements
+// met" count badge beside each date header so the two green pills read as one
+// family. Dark-mode aware: { fill, edge, fg } mirror that badge's
+// background / border / text exactly (see the day-header span below).
+const DEVSERV_PALETTE = (dark) => (dark
+    ? { fill: '#2e3b2e', edge: '#4a7a4a', fg: '#81c784' }   // dark badge
+    : { fill: '#6fa86f', edge: '#ffffff', fg: '#ffffff' }); // light badge (white text/edge for lift)
+
 // Cost-sizing (req #2846). When the "Cost" toggle is on, each bead's radius is
 // scaled by its session token cost relative to the most-expensive session in the
 // fetched window: radius ∝ √(cost / maxCost) so VISUAL AREA ≈ cost. The √ is then
@@ -147,11 +155,11 @@ function durationSegments(chip, usePhases) {
 const KonvaSwarmCanvas = ({
     requirements, allRequirements, sessions,
     swarmStarts, swarmStartSessions, swarmUndos,
-    swarmCompletes, swarmCompleteSessions,
+    swarmCompletes, swarmCompleteSessions, devServers,
     selectedDate, timezone, categoryList,
     rangeStart, rangeEnd, dataKey = 'category',
     titlesOn = false, completesOn = false, phasesOn = false,
-    costOn = false, wide36 = true, resetTick = 0,
+    costOn = false, devServersOn = true, wide36 = true, resetTick = 0,
     onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
 }) => {
     const theme = useTheme();
@@ -273,6 +281,20 @@ const KonvaSwarmCanvas = ({
         const r = rows.find(rr => rr.date === date);
         return r ? r.top + r.height / 2 : worldH / 2;
     }, [rows, worldH]);
+
+    // Active dev servers keyed by session id (req #2857). The table holds only
+    // currently-claimed servers, so a row's presence == active. If a session
+    // somehow has more than one, the highest id (most-recently claimed) wins.
+    const devServerBySession = useMemo(() => {
+        const m = new Map();
+        for (const ds of (devServers || [])) {
+            if (!ds || ds.session_fk == null || ds.port == null) continue;
+            const k = String(ds.session_fk);
+            const prev = m.get(k);
+            if (!prev || (ds.id ?? 0) > (prev.id ?? 0)) m.set(k, ds);
+        }
+        return m;
+    }, [devServers]);
 
     useEffect(() => {
         const el = containerRef.current;
@@ -478,6 +500,47 @@ const KonvaSwarmCanvas = ({
         );
     };
 
+    // Dev-server port pill (req #2857). Anchored at the bead's lower-right so it
+    // clears the completion badge (top-right) and the title (right). Renders a
+    // small white monitor icon + the port number on a cyan pill; clicking opens
+    // https://localhost:{port}. Everything inside the wrapping Group is in SCREEN
+    // px (scaleX/Y = inv undoes the world→screen zoom), so the pill stays a
+    // constant size at any zoom — like every other glyph. The pill Rect is the
+    // only listening child, so the canvas click hit-test fires its onActivate.
+    const devServerBadge = (key, cx, cy, beadR, ds, chipForTip) => {
+        const bR = beadR / inv;                  // bead radius in screen px
+        const H = 16;
+        const portStr = String(ds.port);
+        const PADL = 4, ICON_W = 9, GAP = 4, PADR = 6;
+        const textW = portStr.length * 6.4;
+        const W = PADL + ICON_W + GAP + textW + PADR;
+        const x0 = bR * 0.5, y0 = bR * 0.35;     // pill top-left, off the bead's lower-right
+        // Monitor icon (screen rect + stand + base), vertically centered in the pill.
+        const scrW = 9, scrH = 6;
+        const icx = x0 + PADL, icy = y0 + (H - scrH) / 2 - 1;
+        const openServer = () => {
+            try { window.open(`https://localhost:${ds.port}`, '_blank', 'noopener,noreferrer'); }
+            catch (e) { /* popup blocked — no-op */ }
+        };
+        const pal = DEVSERV_PALETTE(dark);
+        return (
+            <Group key={`${key}-ds`} x={cx} y={cy} scaleX={inv} scaleY={inv}>
+                <Rect x={x0} y={y0} width={W} height={H} cornerRadius={H / 2}
+                      fill={pal.fill} stroke={pal.edge} strokeWidth={1.4}
+                      shadowColor="#000" shadowBlur={3} shadowOpacity={0.35}
+                      onActivate={openServer}
+                      onMouseEnter={(e) => { cursorPointer(e, true); showTip(chipForTip, e); }}
+                      onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }} />
+                <Rect x={icx} y={icy} width={scrW} height={scrH} cornerRadius={1} fill={pal.fg} listening={false} />
+                <Rect x={icx + scrW / 2 - 0.75} y={icy + scrH} width={1.5} height={2} fill={pal.fg} listening={false} />
+                <Rect x={icx + scrW / 2 - 2.5} y={icy + scrH + 2} width={5} height={1.3} fill={pal.fg} cornerRadius={0.6} listening={false} />
+                <Text x={x0 + PADL + ICON_W + GAP} y={y0} width={textW + 2} height={H}
+                      text={portStr} fontSize={10.5} fontStyle="bold" fill={pal.fg}
+                      align="left" verticalAlign="middle" listening={false} />
+            </Group>
+        );
+    };
+
     // ── Row renderer ─────────────────────────────────────────────────────────
     const renderRow = (r) => {
         const { date, top, height, model, parity } = r;
@@ -552,6 +615,13 @@ const KonvaSwarmCanvas = ({
             // property of the completion bead, not the span).
             const cr = beadR * (chip.isUndone ? 1 : costMult(chip));
 
+            // Active dev server for this bead's session (req #2857). Tombstones
+            // never carry one. `tipChip` enriches the hover datacard with the
+            // dev-server row whether the pointer lands on the bead or the pill.
+            const ds = (devServersOn && !chip.isUndone && chip.session)
+                ? devServerBySession.get(String(chip.session.id)) : null;
+            const tipChip = ds ? { ...chip, devServer: ds } : chip;
+
             // The track (phase-segmented at "in", else a thick line).
             durationSegments(chip, usePhases).forEach((s, si) => {
                 nodes.push(<Line key={`${key}-tk${si}`} points={[s.x1, cy, s.x2, cy]}
@@ -599,11 +669,16 @@ const KonvaSwarmCanvas = ({
             // the badge (drawn on top) keeps its own onCompleteClick within its
             // bounds, while the hit target catches the rest of the bead area.
             nodes.push(<Circle key={`${key}-hit`} x={cx} y={cy} radius={cr + 5 * inv} fill="transparent"
-                               onMouseEnter={(e) => { cursorPointer(e, true); showTip(chip, e); }}
+                               onMouseEnter={(e) => { cursorPointer(e, true); showTip(tipChip, e); }}
                                onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
                                onActivate={() => handleChipClick(chip)} />);
             if (completesOn && chip.swarmComplete && !chip.isUndone && !chip.isPhantom) {
                 nodes.push(completionBadge(key, cx, cy, cr, chip.swarmComplete));
+            }
+            // Dev-server pill drawn last so it sits on top of the bead/hit target
+            // and owns its own click (open) + hover (datacard) (req #2857).
+            if (ds) {
+                nodes.push(devServerBadge(key, cx, cy, cr, ds, tipChip));
             }
             if (titlesOn && chip.title) {
                 nodes.push(<Text key={`${key}-tt`} x={cx + (cr + 6 * inv)} y={cy - 7 * inv}
@@ -788,6 +863,15 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                 )}
                 {chip.session && (
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Session</span><span>#{chip.session.id} · {chip.session.swarm_status || '—'}</span></div>
+                )}
+                {/* req #2857 — name the active dev server when one is attached; the
+                    cyan port pill on the bead is the clickable link, this labels it. */}
+                {chip.devServer && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Dev Server</span>
+                        <span style={{ color: '#4a7a4a', fontWeight: 600 }}>
+                            :{chip.devServer.port}
+                            {chip.devServer.terminal_number != null ? ` · Term ${chip.devServer.terminal_number}` : ''}
+                            {' · click pill to open'}</span></div>
                 )}
                 {/* req #2846 — surface the session's token cost regardless of the
                     Cost sizing toggle; the bead area encodes it, this names it.
