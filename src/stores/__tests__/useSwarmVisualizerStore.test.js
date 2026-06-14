@@ -54,6 +54,11 @@ describe('persistPartialize (req #2799)', () => {
         expect(out).not.toHaveProperty('viewResetTick');
         expect(out).not.toHaveProperty('currentDate');
     });
+
+    it('persists costOn (req #2846)', () => {
+        const out = persistPartialize({ viewType: 'day', currentDate: '2026-06-13', costOn: true });
+        expect(out.costOn).toBe(true);
+    });
 });
 
 describe('migrateVisualizerState (req #2799, req #2806, req #2844)', () => {
@@ -125,6 +130,11 @@ describe('migrateVisualizerState (req #2799, req #2806, req #2844)', () => {
     it('preserves a persisted phasesOn=true (req #2823)', () => {
         const out = migrateVisualizerState({ phasesOn: true });
         expect(out.phasesOn).toBe(true);
+    });
+
+    it('back-fills costOn to false and preserves a persisted costOn=true (req #2846)', () => {
+        expect(migrateVisualizerState({ viewType: 'day' }).costOn).toBe(false);
+        expect(migrateVisualizerState({ costOn: true }).costOn).toBe(true);
     });
 
     it('normalizes an unknown dataKey to category', () => {

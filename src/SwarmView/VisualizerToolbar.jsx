@@ -38,12 +38,14 @@ const VisualizerToolbar = () => {
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
     const setCompletesOn = useSwarmVisualizerStore(s => s.setCompletesOn);
     const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
     const setKonvaWide   = useSwarmVisualizerStore(s => s.setKonvaWide);
+    const setCostOn      = useSwarmVisualizerStore(s => s.setCostOn);
     const resetView      = useSwarmVisualizerStore(s => s.resetView);
 
     const todayStr = useMemo(() => localDateStr(), []);
@@ -81,6 +83,10 @@ const VisualizerToolbar = () => {
     const handlePhasesClick = useCallback(() => {
         setPhasesOn(!phasesOn);
     }, [phasesOn, setPhasesOn]);
+
+    const handleCostClick = useCallback(() => {
+        setCostOn(!costOn);
+    }, [costOn, setCostOn]);
 
     const displayTitle = formatDayTitle(currentDate);
 
@@ -123,6 +129,16 @@ const VisualizerToolbar = () => {
                               onChange={handlePhasesClick}
                               data-testid="timeseries-phases">
                     Phases
+                </ToggleButton>
+                {/* req #2846 — size each bead by its session's token cost so
+                    expensive work stands out at a glance. The Konva canvas is the
+                    only visualizer substrate (req #2844). */}
+                <ToggleButton value="cost" className="cal-toggle-btn"
+                              selected={costOn}
+                              onChange={handleCostClick}
+                              data-testid="timeseries-cost"
+                              title="Size beads by token cost">
+                    Cost
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>

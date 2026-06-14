@@ -79,6 +79,7 @@ const SwarmVisualizerView = () => {
     const completesOn = useSwarmVisualizerStore(s => s.completesOn);
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
+    const costOn      = useSwarmVisualizerStore(s => s.costOn);
     const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
 
     // Konva canvas fetch window (req #2841) — a wide, week-quantized range so the
@@ -208,6 +209,7 @@ const SwarmVisualizerView = () => {
                 titlesOn={titlesOn}
                 completesOn={completesOn}
                 phasesOn={phasesOn}
+                costOn={costOn}
                 wide36={konvaWide}
                 resetTick={viewResetTick}
                 onChipClick={onChipClick}
