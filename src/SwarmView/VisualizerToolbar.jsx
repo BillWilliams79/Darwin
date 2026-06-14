@@ -138,7 +138,7 @@ const VisualizerToolbar = () => {
                               onChange={handleCostClick}
                               data-testid="timeseries-cost"
                               title="Size beads by token cost">
-                    Cost
+                    Tokens
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
