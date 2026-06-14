@@ -39,6 +39,7 @@ const VisualizerToolbar = () => {
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
     const costOn      = useSwarmVisualizerStore(s => s.costOn);
+    const devServersOn = useSwarmVisualizerStore(s => s.devServersOn);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
@@ -46,6 +47,7 @@ const VisualizerToolbar = () => {
     const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
     const setKonvaWide   = useSwarmVisualizerStore(s => s.setKonvaWide);
     const setCostOn      = useSwarmVisualizerStore(s => s.setCostOn);
+    const setDevServersOn = useSwarmVisualizerStore(s => s.setDevServersOn);
     const resetView      = useSwarmVisualizerStore(s => s.resetView);
 
     const todayStr = useMemo(() => localDateStr(), []);
@@ -87,6 +89,10 @@ const VisualizerToolbar = () => {
     const handleCostClick = useCallback(() => {
         setCostOn(!costOn);
     }, [costOn, setCostOn]);
+
+    const handleDevServersClick = useCallback(() => {
+        setDevServersOn(!devServersOn);
+    }, [devServersOn, setDevServersOn]);
 
     const displayTitle = formatDayTitle(currentDate);
 
@@ -138,7 +144,16 @@ const VisualizerToolbar = () => {
                               onChange={handleCostClick}
                               data-testid="timeseries-cost"
                               title="Size beads by token cost">
-                    Cost
+                    Tokens
+                </ToggleButton>
+                {/* req #2857 — overlay a clickable port pill on beads whose
+                    session has an active, associated dev server (on by default). */}
+                <ToggleButton value="devservers" className="cal-toggle-btn"
+                              selected={devServersOn}
+                              onChange={handleDevServersClick}
+                              data-testid="timeseries-devservers"
+                              title="Show active dev-server port pills">
+                    Dev
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
