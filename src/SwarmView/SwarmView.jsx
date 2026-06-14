@@ -7,6 +7,7 @@ import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
+import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 import { useViewPreference } from '../hooks/useViewPreference';
@@ -67,6 +68,9 @@ const SwarmView = () => {
     const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
+    // req #2850 — a Trends drill-down is active; in Table view the status-filter
+    // chips are replaced by the drill pill (the chips don't apply while drilled).
+    const drill = useRequirementDrillStore(s => s.drill);
     const showClosed = false;
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
@@ -281,7 +285,7 @@ const SwarmView = () => {
                         )}
                         {view === 'visualizer' && <VisualizerToolbar />}
                         <Box sx={{ flexGrow: 1 }} />
-                        {view !== 'visualizer' && view !== 'trends' && (
+                        {(view === 'cards' || (view === 'table' && !drill)) && (
                             <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
                                 {ALL_REQUIREMENT_STATUSES.map(status => {
                                     const selected = requirementStatusFilter.includes(status);
@@ -357,7 +361,7 @@ const SwarmView = () => {
                         claims the full tab-panels grid area like table/visualizer. */}
                     {view === 'trends' && (
                         <Box className="app-content-tabpanel">
-                            <RequirementsTrendsView />
+                            <RequirementsTrendsView onDrillToTable={() => setView('table')} />
                         </Box>
                     )}
             </Box>
