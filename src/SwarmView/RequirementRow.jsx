@@ -29,6 +29,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PendingIcon from '@mui/icons-material/Pending';
+import { coordinationIconColor } from './coordinationChipStyles';
 import SyncIcon from '@mui/icons-material/Sync';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 
@@ -224,10 +225,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const coordType = requirement.coordination_type || null;
     const getCoordinationIcon = () => {
         if (requirement.id === '') return null;
-        if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: '#f48fb1' }} />; // pink — discuss (req #2745)
-        if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: '#90caf9' }} />; // lighter blue
-        if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
-        if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: '#b39ddb' }} />; // light purple
+        // Autonomy-progression colors — pink → purple → blue → green (req #2866).
+        if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: coordinationIconColor('discuss') }} />; // pink
+        if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: coordinationIconColor('planned') }} />; // purple
+        if (coordType === 'implemented') return <BuildIcon sx={{ fontSize: 18, color: coordinationIconColor('implemented') }} />; // blue
+        if (coordType === 'deployed')    return <CloudUploadIcon sx={{ fontSize: 18, color: coordinationIconColor('deployed') }} />; // green
         return <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />;
     };
 
