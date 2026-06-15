@@ -57,6 +57,27 @@ import CustomersPage from './Customers/CustomersPage';
 import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
 
 
+// react-dnd TouchBackend options (req #1923).
+// The app's primary touch-drag axis (task reordering) is VERTICAL — the same axis
+// as page scrolling — so scrollAngleRanges cannot be used to free up scrolling
+// without also disabling vertical reordering. Instead we disambiguate scroll-vs-drag
+// the way the backend intends:
+//   - delayTouchStart: a drag only arms after a deliberate press-and-hold. A normal
+//     scroll moves the finger immediately, which clears the arm timer → page scrolls.
+//     Raised 150→200ms so a brief finger-rest before scrolling no longer arms a drag
+//     ("primed to treat any touch as a drag" on mobile).
+//   - touchSlop: after arming, the pointer must travel this many px before a drag
+//     actually begins (was 0 = any sub-pixel move). A small dead-zone absorbs jitter.
+// delayTouchStart is touch-only (mouse uses delayMouseStart=0 → instant desktop drag).
+// touchSlop, however, applies to BOTH touch and mouse, so desktop drags now need 10px
+// of travel to begin — a harmless dead-zone that also suppresses accidental click-drags,
+// and well below the 20px move the mouse-driven E2E drag helper dispatches.
+const touchBackendOptions = {
+  enableMouseEvents: true,
+  delayTouchStart: 200,
+  touchSlop: 10,
+};
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(
@@ -65,7 +86,7 @@ root.render(
       <AuthContextProvider>
         <AppContextProvider>
           <ThemeWrapper>
-          <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true, delayTouchStart: 150 }}>
+          <DndProvider backend={TouchBackend} options={touchBackendOptions}>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <div className="app-layout">
               <Routes>

@@ -58,7 +58,8 @@ const TaskDragLayer = () => {
         const fingerOffsetY = initialClientOffset.y - initialSourceClientOffset.y;
         const x = currentClientOffset.x - fingerOffsetX * scale;
         const y = currentClientOffset.y - fingerOffsetY * scale;
-        return `translate(${x}px, ${y}px) scale(${scale})`;
+        // Slight tilt makes the floating preview feel physically "picked up" (req #1923).
+        return `translate(${x}px, ${y}px) scale(${scale}) rotate(-2deg)`;
     };
 
     if (itemType === 'domainTab') {
@@ -71,9 +72,9 @@ const TaskDragLayer = () => {
                     transformOrigin: 'top left',
                     width: item?.sourceWidth || 100,
                     height: item?.sourceHeight || 48,
-                    opacity: 0.85,
+                    opacity: 0.9,
                     bgcolor: 'background.paper',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    boxShadow: '0 10px 24px rgba(0,0,0,0.3)',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -105,9 +106,9 @@ const TaskDragLayer = () => {
                     WebkitTransform: transform,
                     transformOrigin: 'top left',
                     width: item?.sourceWidth || 300,
-                    opacity: 0.75,
+                    opacity: 0.9,
                     bgcolor: 'background.paper',
-                    boxShadow: 3,
+                    boxShadow: '0 10px 24px rgba(0,0,0,0.3)',
                     borderRadius: 1,
                 }}>
                     <Checkbox
