@@ -35,6 +35,7 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 
 const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate, autoFocusTemplate, clearAutoFocusTemplate }) => {
@@ -193,12 +194,13 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
             item.areaIndex = hoverIndex;
             item.settled = false;
 
-            // 150ms cooldown prevents cascading swaps when the cursor
-            // moves through multiple cards in quick succession.
+            // Short cooldown prevents cascading swaps when the cursor moves through
+            // multiple cards in quick succession. Tightened 150ms→90ms (req #1923) so
+            // the card-switch path feels more responsive while still suppressing thrash.
             item.movePending = true;
             setTimeout(() => {
                 item.movePending = false;
-            }, 150);
+            }, 90);
         },
 
         collect: (monitor) => ({
@@ -541,12 +543,21 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     return (
         <Card key={areaIndex} raised={true} ref={mergedRef}
               data-testid={area.id === '' ? 'area-card-template' : `area-card-${area.id}`}
-              sx={{
+              sx={(theme) => ({
+                  // Animate the drag/drop visual states so the card lifts, dims and
+                  // highlights smoothly instead of snapping (req #1923).
+                  transition: 'opacity 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
                   opacity: isDragging ? 0.3 : area._isAdopted ? 0.5 : 1,
                   cursor: isTemplate ? 'default' : 'grab',
-                  border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
+                  border: '2px solid',
                   borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
-              }}>
+                  // Drop-target affordance: tint + lift so the destination card is
+                  // unmistakable while a card is dragged over it.
+                  ...(isOver && !isDragging && {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+                      boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.35)}`,
+                  }),
+              })}>
             <CardContent>
                 <Box className="card-header" sx={{marginBottom: 2}}>
                     <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
