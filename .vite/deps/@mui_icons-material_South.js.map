@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/@mui/icons-material/esm/South.js"],
+  "sourcesContent": ["\"use client\";\n\nimport createSvgIcon from \"./utils/createSvgIcon.js\";\nimport { jsx as _jsx } from \"react/jsx-runtime\";\nexport default createSvgIcon(/*#__PURE__*/_jsx(\"path\", {\n  d: \"m19 15-1.41-1.41L13 18.17V2h-2v16.17l-4.59-4.59L5 15l7 7z\"\n}), 'South');"],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAGA,yBAA4B;AAC5B,IAAO,gBAAQ,kBAA2B,mBAAAA,KAAK,QAAQ;AAAA,EACrD,GAAG;AACL,CAAC,GAAG,OAAO;",
+  "names": ["_jsx"]
+}

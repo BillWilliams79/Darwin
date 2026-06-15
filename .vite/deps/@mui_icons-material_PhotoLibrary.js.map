@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/@mui/icons-material/esm/PhotoLibrary.js"],
+  "sourcesContent": ["\"use client\";\n\nimport createSvgIcon from \"./utils/createSvgIcon.js\";\nimport { jsx as _jsx } from \"react/jsx-runtime\";\nexport default createSvgIcon(/*#__PURE__*/_jsx(\"path\", {\n  d: \"M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2m-11-4 2.03 2.71L16 11l4 5H8zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6z\"\n}), 'PhotoLibrary');"],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAGA,yBAA4B;AAC5B,IAAO,uBAAQ,kBAA2B,mBAAAA,KAAK,QAAQ;AAAA,EACrD,GAAG;AACL,CAAC,GAAG,cAAc;",
+  "names": ["_jsx"]
+}

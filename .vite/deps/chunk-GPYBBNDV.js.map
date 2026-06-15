@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/@mui/utils/esm/getReactElementRef/getReactElementRef.js"],
+  "sourcesContent": ["import * as React from 'react';\n\n/**\n * Returns the ref of a React element handling differences between React 19 and older versions.\n * It will throw runtime error if the element is not a valid React element.\n *\n * @param element React.ReactElement\n * @returns React.Ref<any> | null\n */\nexport default function getReactElementRef(element) {\n  // 'ref' is passed as prop in React 19, whereas 'ref' is directly attached to children in older versions\n  if (parseInt(React.version, 10) >= 19) {\n    return element?.props?.ref || null;\n  }\n  // @ts-expect-error element.ref is not included in the ReactElement type\n  // https://github.com/DefinitelyTyped/DefinitelyTyped/discussions/70189\n  return element?.ref || null;\n}"],
+  "mappings": ";;;;;;;;AAAA,YAAuB;AASR,SAAR,mBAAoC,SAAS;AATpD;AAWE,MAAI,SAAe,eAAS,EAAE,KAAK,IAAI;AACrC,aAAO,wCAAS,UAAT,mBAAgB,QAAO;AAAA,EAChC;AAGA,UAAO,mCAAS,QAAO;AACzB;",
+  "names": []
+}
