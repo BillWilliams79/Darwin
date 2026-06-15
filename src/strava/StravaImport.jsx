@@ -510,7 +510,7 @@ const StravaImport = () => {
             {/* Date filter + Load button */}
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
                 <TextField
-                    label="After"
+                    label="Start Date"
                     type="date"
                     value={dateAfter}
                     onChange={(e) => setDateAfter(e.target.value)}
@@ -519,7 +519,7 @@ const StravaImport = () => {
                     sx={{ width: 150 }}
                 />
                 <TextField
-                    label="Before"
+                    label="End Date"
                     type="date"
                     value={dateBefore}
                     onChange={(e) => setDateBefore(e.target.value)}
