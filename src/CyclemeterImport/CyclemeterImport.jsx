@@ -13,6 +13,10 @@ import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -20,6 +24,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import TuneIcon from '@mui/icons-material/Tune';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -71,6 +76,9 @@ const CyclemeterImport = () => {
 
     // Advanced config toggle
     const [showAdvanced, setShowAdvanced] = useState(false);
+
+    // Supported-formats popup toggle
+    const [formatsOpen, setFormatsOpen] = useState(false);
 
     // Pipeline state
     const [processing, setProcessing] = useState(false);
@@ -488,44 +496,17 @@ const CyclemeterImport = () => {
             <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/maps')} sx={{ mb: 1 }} size="small">
                 Maps
             </Button>
-            <Typography variant="h5" gutterBottom>Import</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Supported formats:
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Wahoo</Typography>
-                    <Chip label="FIT" size="small" variant="outlined" />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Cyclemeter</Typography>
-                    <Chip label="Database (Meter.db)" size="small" variant="outlined" />
-                    <Chip label="KML" size="small" variant="outlined" />
-                    <Chip label="GPX" size="small" variant="outlined" />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Strava</Typography>
-                    <Chip label="GPX" size="small" variant="outlined" />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>MTB Project</Typography>
-                    <Chip label="GPX" size="small" variant="outlined" />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Darwin</Typography>
-                    <Chip label="KML" size="small" variant="outlined" />
-                </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, gap: 1 }}>
+                <Typography variant="h5">Import</Typography>
+                <Button
+                    size="small"
+                    startIcon={<InfoOutlinedIcon />}
+                    onClick={() => setFormatsOpen(true)}
+                    data-testid="supported-formats-button"
+                >
+                    Supported formats
+                </Button>
             </Box>
-
-            {/* Strava API Import — only shown for the owner account */}
-            {profile?.id === '37df7531-000d-4470-8be4-1792d8261f69' && (
-                <>
-                    <StravaImport />
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', my: 2 }}>
-                        — or import from file —
-                    </Typography>
-                </>
-            )}
 
             {/* Hidden native file input — driven by the drop zone tap and the Choose File button.
                 No `accept` filter: Meter.db has no registered type and iOS would grey it out;
@@ -538,6 +519,18 @@ const CyclemeterImport = () => {
                 data-testid="file-input"
             />
 
+            {/* Choose File button — primary import action, at the top of the import flow */}
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                <Button
+                    variant="contained"
+                    startIcon={<UploadFileIcon />}
+                    onClick={handleChooseFileClick}
+                    data-testid="choose-file-button"
+                >
+                    Import Files
+                </Button>
+            </Box>
+
             {/* Drop Zone — also tappable to open the file picker (primary path on iPhone/iPad) */}
             <Paper
                 variant="outlined"
@@ -547,7 +540,7 @@ const CyclemeterImport = () => {
                 onClick={handleChooseFileClick}
                 data-testid="drop-zone"
                 sx={{
-                    p: 3, mb: 1, textAlign: 'center', cursor: 'pointer',
+                    p: 3, mb: 2, textAlign: 'center', cursor: 'pointer',
                     borderStyle: 'dashed', borderWidth: 2,
                     borderColor: dragging ? 'primary.main' : formatInfo ? 'success.main' : (fileName && !formatInfo) ? 'error.main' : 'divider',
                     backgroundColor: dragging ? 'action.hover' : 'background.default',
@@ -557,7 +550,7 @@ const CyclemeterImport = () => {
                 <Typography variant="body1">
                     {fileName
                         ? `${fileName} (${(dbFile.size / 1024 / 1024).toFixed(1)} MB)`
-                        : 'Tap to choose, or drop a .fit, Meter.db, .kml, or .gpx file here'
+                        : 'Tap to choose, or drop a file here'
                     }
                 </Typography>
                 {formatInfo && (
@@ -567,20 +560,55 @@ const CyclemeterImport = () => {
                 )}
             </Paper>
 
-            {/* Explicit picker button + iOS guidance */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-                <Button
-                    variant="outlined"
-                    startIcon={<UploadFileIcon />}
-                    onClick={handleChooseFileClick}
-                    data-testid="choose-file-button"
-                >
-                    Choose File
-                </Button>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
-                    On iPhone: tap, then <strong>Browse → iCloud Drive → Cyclemeter → Meter.db</strong>
-                </Typography>
-            </Box>
+            {/* Strava API Import — only shown for the owner account */}
+            {profile?.id === '37df7531-000d-4470-8be4-1792d8261f69' && (
+                <>
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', my: 2 }}>
+                        — or import from Strava —
+                    </Typography>
+                    <StravaImport />
+                </>
+            )}
+
+            {/* Supported formats popup — import + export formats */}
+            <Dialog open={formatsOpen} onClose={() => setFormatsOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle>Supported formats</DialogTitle>
+                <DialogContent dividers>
+                    <Typography variant="subtitle2" gutterBottom>Import</Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Wahoo</Typography>
+                            <Chip label="FIT" size="small" variant="outlined" />
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Cyclemeter</Typography>
+                            <Chip label="Database (Meter.db)" size="small" variant="outlined" />
+                            <Chip label="KML" size="small" variant="outlined" />
+                            <Chip label="GPX" size="small" variant="outlined" />
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Strava</Typography>
+                            <Chip label="GPX" size="small" variant="outlined" />
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>MTB Project</Typography>
+                            <Chip label="GPX" size="small" variant="outlined" />
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Darwin</Typography>
+                            <Chip label="KML" size="small" variant="outlined" />
+                        </Box>
+                    </Box>
+                    <Typography variant="subtitle2" gutterBottom>Export</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                        <Chip label="Generic KML" size="small" variant="outlined" />
+                        <Chip label="Darwin KML" size="small" variant="outlined" />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setFormatsOpen(false)}>Close</Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Advanced toggle */}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -628,7 +656,10 @@ const CyclemeterImport = () => {
 
                 {/* Query Filter — only shown for Cyclemeter (filters are DB-specific) */}
                 {(!formatInfo || formatInfo.format === 'cyclemeter') && <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="subtitle2" gutterBottom>Query Filter</Typography>
+                    <Typography variant="subtitle2">Query Filter</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        Applies to the Cyclemeter database (Meter.db) import only.
+                    </Typography>
                     <TextField
                         select
                         label="Filter Type"
