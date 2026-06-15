@@ -1,4 +1,4 @@
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -7,6 +7,9 @@ import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
+import {
+    loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
+} from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
 
@@ -14,6 +17,7 @@ import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
 import BottomNavigationAction from '@mui/material/BottomNavigationAction';
 import Box from '@mui/material/Box';
+import Collapse from '@mui/material/Collapse';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
@@ -29,6 +33,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
@@ -48,6 +54,19 @@ const NavBarSidebar = () => {
 
     const [collapsed, setCollapsed] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+    // Per-group collapsed state (req #2869). Clicking a group header hides/shows
+    // its child links — purely visual, routes are unaffected. Seeded from and
+    // persisted to localStorage so the choice survives reloads.
+    const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
+    // Persist outside the reducer so the localStorage write stays a clean
+    // side effect (and doesn't double-fire under StrictMode's reducer replay).
+    useEffect(() => {
+        persistCollapsedGroups(collapsedGroups);
+    }, [collapsedGroups]);
+    const toggleGroup = (id) => {
+        setCollapsedGroups((prev) => toggleGroupCollapsed(prev, id));
+    };
 
     // Dev-only: surface this dev server's terminal_number in the sidebar InfoBlock.
     // Match by current browser port; works in both worker and primary dev sessions.
@@ -191,23 +210,51 @@ const NavBarSidebar = () => {
                             <List sx={{ pt: 0, pb: 0 }}>
                                 {visibleGroups.map((group) => {
                                     const groupLinks = visibleLinks.filter(l => l.group === group.id);
+                                    // A group is collapsible only when its header is visible
+                                    // (expanded sidebar + non-empty label). The calendar group
+                                    // has no label, so its single link always shows.
+                                    const hasHeader = showText && !!group.label;
+                                    const isCollapsed = hasHeader && !!collapsedGroups[group.id];
                                     return (
                                         <React.Fragment key={group.id}>
-                                            {showText && group.label && (
-                                                <ListSubheader sx={{
-                                                    bgcolor: 'transparent',
-                                                    color: 'rgba(255,255,255,0.5)',
-                                                    fontSize: 12,
-                                                    fontWeight: 700,
-                                                    letterSpacing: 1.5,
-                                                    lineHeight: '28px',
-                                                    pl: 1.5,
-                                                    mt: 0.5,
-                                                }}>
+                                            {hasHeader && (
+                                                <ListSubheader
+                                                    onClick={() => toggleGroup(group.id)}
+                                                    data-testid={`nav-group-header-${group.id}`}
+                                                    role="button"
+                                                    aria-expanded={!isCollapsed}
+                                                    sx={{
+                                                        bgcolor: 'transparent',
+                                                        color: 'rgba(255,255,255,0.5)',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        letterSpacing: 1.5,
+                                                        lineHeight: '28px',
+                                                        pl: 1.5,
+                                                        pr: 1,
+                                                        mt: 0.5,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        cursor: 'pointer',
+                                                        userSelect: 'none',
+                                                        '&:hover': { color: 'rgba(255,255,255,0.85)' },
+                                                    }}
+                                                >
                                                     {group.label}
+                                                    {isCollapsed
+                                                        ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                                                        : <ExpandLessIcon sx={{ fontSize: 16 }} />
+                                                    }
                                                 </ListSubheader>
                                             )}
-                                            {groupLinks.map((link) => renderNavItem(link, showText))}
+                                            {hasHeader ? (
+                                                <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
+                                                    {groupLinks.map((link) => renderNavItem(link, showText))}
+                                                </Collapse>
+                                            ) : (
+                                                groupLinks.map((link) => renderNavItem(link, showText))
+                                            )}
                                         </React.Fragment>
                                     );
                                 })}
