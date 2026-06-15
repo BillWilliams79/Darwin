@@ -114,9 +114,10 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
 
     const changeCategoryColor = (event, categoryIndex, categoryId) => {
         const newColor = event.target.value;
-        let newCategoriesArray = [...categoriesArray];
-        newCategoriesArray[categoryIndex].color = newColor;
-        setCategoriesArray(newCategoriesArray);
+        // Immutable update — a new object at the target index, not an in-place mutation.
+        // Required so React.memo on CategoryTableRow (req #2865) detects the color change,
+        // and avoids poisoning the shared TanStack cache snapshot (mirrors useCrudCallbacks).
+        setCategoriesArray(categoriesArray.map((cat, i) => (i === categoryIndex ? { ...cat, color: newColor } : cat)));
 
         if (categoryId !== '') {
             let uri = `${darwinUri}/categories`;
@@ -164,9 +165,11 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
 
     const clickCategoryClosed = (event, categoryIndex, categoryId) => {
 
-        let newCategoriesArray = [...categoriesArray];
-        let newClosed = newCategoriesArray[categoryIndex].closed ? 0 : 1;
-        newCategoriesArray[categoryIndex].closed = newClosed;
+        const newClosed = categoriesArray[categoryIndex].closed ? 0 : 1;
+        // Immutable update — a fresh object at the toggled index (req #2865, req #2747).
+        // Keeps React.memo on CategoryTableRow correct and avoids poisoning the shared
+        // TanStack cache snapshot. calculateSortOrder below mutates only this fresh object.
+        let newCategoriesArray = categoriesArray.map((cat, i) => (i === categoryIndex ? { ...cat, closed: newClosed } : cat));
 
         if (newCategoriesArray[categoryIndex].id === '') {
             setCategoriesArray(newCategoriesArray);
@@ -236,10 +239,11 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
         const [draggedItem] = newCategoriesArray.splice(result.source.index, 1);
         newCategoriesArray.splice(result.destination.index, 0, draggedItem);
 
+        // Immutable renumber — fresh objects for the open rows whose sort_order changes
+        // (req #2865, req #2747): keeps React.memo correct and the TanStack cache clean.
         newCategoriesArray = newCategoriesArray.map((cat, index) => {
             if ((cat.id !== '') && (cat.closed !== 1)) {
-                cat.sort_order = index;
-                return cat;
+                return { ...cat, sort_order: index };
             } else {
                 return cat;
             }
@@ -271,6 +275,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                 { categoriesArray &&
                     <Box>
                         <Box sx={{ display: 'grid', gridTemplateColumns: CATEGORY_GRID_COLUMNS, alignItems: 'center', borderBottom: 1, borderColor: 'divider', pb: 0.5, mb: 0.5 }}>
+                            <Box />
                             <Box />
                             <Box sx={{ px: 1 }}><Typography variant="subtitle2">Name</Typography></Box>
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Closed</Typography></Box>
