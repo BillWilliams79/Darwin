@@ -675,7 +675,10 @@ export function computeLayout(model, opts = {}) {
     const atBuildLoops = [];
     for (const b of branches) {
         if (isHidden(b.id)) continue;
-        const buildIds = b.buildIds || [];
+        // Real builds only — semantic-zoom collapse (req #2864) inserts
+        // `__gap__` sentinels into buildIds; an AT glyph/loop on a sentinel would
+        // paint on top of the "…" collapse token. Skip them everywhere here.
+        const buildIds = (b.buildIds || []).filter(id => !isGapId(id));
         const r = dotRadiusFor(b.type);
         // Branch-level AT glyph sits MID-SEGMENT on the branch line, between the
         // last build and the penultimate build (req #2633 review round). Names

@@ -718,3 +718,31 @@ describe('collapse tokens — __gap__ sentinels', () => {
         expect(tok.y).toBe(layout.mainY);
     });
 });
+
+// ---------------------------------------------------------------------------
+// 8. AT glyphs/loops never attach to collapse sentinels (req #2864 × #2633).
+//    A semantic-zoom __gap__ id in buildIds must not get a Build AT loop or a
+//    branch glyph anchored to it (it would paint over the "…" token).
+// ---------------------------------------------------------------------------
+describe('acceptance-test glyphs skip __gap__ collapse sentinels', () => {
+    it('emits no Build AT loop for a gap sentinel and anchors the branch glyph to a real build', () => {
+        const model = makeModel({ mainBuilds: 3 });
+        const main = model.branches.find(b => b.type === 'main');
+        // Collapse the middle main build into a sentinel; main runs AT + Build AT.
+        main.buildIds = ['m1', '__gap__:main:m2:m2', 'm3'];
+        main.acceptanceTests = ['Daily AT'];
+        main.acceptanceStatus = 'pass';
+        main.buildAT = true;
+
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: true });
+        // Build AT loops only on the two REAL builds, never the sentinel.
+        const loopIds = layout.atBuildLoops.map(l => l.buildId).sort();
+        expect(loopIds).toEqual(['m1', 'm3']);
+        expect(layout.atBuildLoops.some(l => String(l.buildId).startsWith('__gap__'))).toBe(false);
+        // Branch glyph anchors to the last real build's row, not the sentinel.
+        const glyph = layout.atBranchGlyphs.find(g => g.branchId === 'main');
+        expect(glyph).toBeTruthy();
+        const m3 = layout.builds.find(b => b.id === 'm3');
+        expect(glyph.y).toBe(m3.y);
+    });
+});
