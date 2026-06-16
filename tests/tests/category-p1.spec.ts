@@ -202,8 +202,12 @@ test.describe.serial('Category Management P1', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // DnD: drag second row above first row
-    await pangeaDragAndDrop(page, secondRow, firstRow);
+    // DnD: drag second row above first row, gripping the dedicated drag handle.
+    // The handle is a non-interactive grip (req #2865) — @hello-pangea/dnd refuses to
+    // start a drag from the row body's interactive controls (color input / name field).
+    const secondHandle = panel.getByTestId(`category-drag-handle-${r2[0].id}`);
+    await expect(secondHandle).toBeVisible({ timeout: 5000 });
+    await pangeaDragAndDrop(page, secondHandle, firstRow);
 
     // Verify order changed
     const afterFirstY = (await firstRow.boundingBox())!.y;
@@ -242,8 +246,8 @@ test.describe.serial('Category Management P1', () => {
     const catRow = panel.getByTestId(`category-row-${categoryId}`);
     await expect(catRow).toBeVisible({ timeout: 5000 });
 
-    // Grid columns: color | name | closed | count | delete — count is nth(3)
-    const countCell = catRow.locator('> div').nth(3);
+    // Grid columns: grip | color | name | closed | count | delete — count is nth(4)
+    const countCell = catRow.locator('> div').nth(4);
     await expect(countCell).toHaveText('0');
 
     // Create 3 requirements under this category
@@ -263,7 +267,7 @@ test.describe.serial('Category Management P1', () => {
 
     const reloadPanel = page.locator('[role="tabpanel"]:not([hidden])').first();
     const reloadRow = reloadPanel.getByTestId(`category-row-${categoryId}`);
-    const reloadCountCell = reloadRow.locator('> div').nth(3);
+    const reloadCountCell = reloadRow.locator('> div').nth(4);
     await expect(reloadCountCell).toHaveText('3');
   });
 });

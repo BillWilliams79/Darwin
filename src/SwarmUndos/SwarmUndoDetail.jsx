@@ -33,16 +33,7 @@ import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-
-const coordinationChipProps = (ct) => {
-    switch (ct) {
-        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return null;
-    }
-};
+import { coordinationChipProps } from '../SwarmView/coordinationChipStyles';
 
 const PAGE_WIDTH = 900;
 
