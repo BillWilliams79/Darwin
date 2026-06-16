@@ -18,11 +18,13 @@
 //
 // Interactions are resolved through Konva's hit-graph (getIntersection + a fired
 // 'activate' event, exactly like the swarm canvas, because d3-zoom can swallow
-// Konva's synthetic click): build dots open the page's MUI dot-menu (hover +
-// click, positioned at the pointer's clientX/clientY); branch labels open the
-// branch editor; "…" tokens toggle expansion; release stars and empty-branch
-// anchors hover. The build-dot rich menu stays an MUI Popover in the page — only
-// the release-star tooltip becomes a shared HTML overlay.
+// Konva's synthetic click): every pop-up is CLICK-ONLY (req #2883 — hover-intent
+// removed because the open/close timers were unstable). A click on a build dot
+// opens the page's MUI dot-menu; an empty-branch anchor opens the Execute-Build
+// menu; a release star opens the release datacard; an AT glyph opens the pass/
+// fail menu; branch labels open the branch editor; "…" tokens toggle expansion.
+// The page owns all three pop-up states so only one shows at a time and each
+// dismisses on outside click like any modal pop-up. Hover only sets the cursor.
 
 import {
     memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
@@ -47,7 +49,9 @@ const STAR_OUTER = 7;
 const VERSION_FONT = 9;
 const LABEL_FONT = 14;
 const TOKEN_FONT = 16;
-const HOVER_OPEN_DELAY = 260;   // ms the pointer must rest on a dot before its menu opens
+// req #2876 — branch-level AT name labels render at 80% of the branch-name font
+// (was a flat 9px, which read as too small next to the 14px branch names).
+const AT_NAME_FONT = LABEL_FONT * 0.8;   // 11.2
 
 // Parse "M x1 y1 L x2 y2" (the only shape layout emits for straight lines) into
 // [x1, y1, x2, y2]. Beziers are rendered as Path and never parsed here.
@@ -66,12 +70,6 @@ function dotColors(record, palette) {
     return palette.dotDefault;
 }
 
-function formatReleaseDate(d) {
-    if (!d) return '';
-    const dt = new Date(d);
-    return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString();
-}
-
 const KonvaBuildCanvas = ({
     model,
     projectId,
@@ -87,7 +85,7 @@ const KonvaBuildCanvas = ({
     pinnedLevel = null,            // null = auto-by-zoom; 1|2|3 = pinned
     onEffectiveLevel,              // report the active level back to the toolbar
     onBuildClick,
-    onBuildLeave,
+    onReleaseClick,                // req #2883 — click a release star → release datacard
     onBranchClick,
     onEmptyAnchorClick,
     onAtGlyphClick,                // req #2633 — click a branch AT pass/fail glyph
@@ -103,22 +101,10 @@ const KonvaBuildCanvas = ({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);
-    const hoveredBuildRef = useRef(null);   // last build id whose hover opened the menu
-    const hoverTimerRef = useRef(null);     // hover-intent open timer (req #2864)
-
-    // Hover-intent: the build menu opens only after the pointer RESTS on a dot for
-    // HOVER_OPEN_DELAY, so sweeping the mouse across many builds no longer pops the
-    // first one it crosses. Leaving a dot (or starting a drag) cancels the pending
-    // open. Clicks bypass the delay and open immediately.
-    const cancelHoverOpen = useCallback(() => {
-        if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-    }, []);
-    useEffect(() => cancelHoverOpen, [cancelHoverOpen]);
     const kBaseRef = useRef(0.8);            // fit-to-width scale, set at framing
     const lastFramedProjectRef = useRef(null);
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
-    const [tooltip, setTooltip] = useState(null);
     // Per-token expand set (sticky within a level; cleared on level switch).
     const [expandedTokens, setExpandedTokens] = useState(() => new Set());
 
@@ -170,7 +156,12 @@ const KonvaBuildCanvas = ({
         [model, level, expandedTokens, baseHiddenBranchIds],
     );
     // Acceptance-test visibility (req #2633): master toggle + Build AT sub-toggle.
-    const atShown = showAcceptanceTests !== false;
+    // req #2876 r5 — L1 (Overview) drops ALL AT display (branch glyphs + names AND
+    // Build AT loops). Passing showAcceptanceTests:false into computeLayout at L1
+    // suppresses every AT visual AND collapses their reserved vertical space, so
+    // the overview stays uncluttered (the engine gates both render data and lane
+    // reservations on showAcceptanceTests).
+    const atShown = showAcceptanceTests !== false && level !== 1;
     const buildAtShown = atShown && showBuildAt !== false;
     const layout = useMemo(
         () => computeLayout(
@@ -406,12 +397,6 @@ const KonvaBuildCanvas = ({
         });
     }, []);
 
-    const showReleaseTip = useCallback((build, e) => {
-        const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p) setTooltip({ x: p.x, y: p.y, build });
-    }, []);
-    const hideTip = useCallback(() => setTooltip(null), []);
-
     // ── Render ──────────────────────────────────────────────────────────────
     const nodes = [];
     if (layout.branches.length) {
@@ -519,26 +504,8 @@ const KonvaBuildCanvas = ({
             const r = b.radius * inv;
             const openMenu = () => {
                 if (draggingRef.current) return;
-                cancelHoverOpen();
-                hoveredBuildRef.current = b.id;
                 const a = dotScreenAnchor(b.x, b.y, b.radius);
                 if (onBuildClick && a) onBuildClick(b, a);
-            };
-            // Arm the hover-intent timer; the menu is anchored to the dot (not the
-            // pointer), so its position is computed at fire time and stays correct
-            // even though the pointer may have drifted within the dot during the
-            // delay. Cancel if the pointer leaves first.
-            const scheduleOpen = () => {
-                if (draggingRef.current) return;
-                cancelHoverOpen();
-                hoverTimerRef.current = setTimeout(() => {
-                    hoverTimerRef.current = null;
-                    if (draggingRef.current) return;
-                    const a = dotScreenAnchor(b.x, b.y, b.radius);
-                    if (!a) return;
-                    hoveredBuildRef.current = b.id;
-                    onBuildClick?.(b, a);
-                }, HOVER_OPEN_DELAY);
             };
             // L1 declutter (req #2864): label only release builds + each branch's
             // latest build. L2/L3 label every build (full version detail).
@@ -563,37 +530,24 @@ const KonvaBuildCanvas = ({
                 <Circle key={`hit-${b.id}`} x={b.x} y={b.y} radius={Math.max(r + 4 * inv, 10 * inv)}
                         fill="transparent"
                         onActivate={openMenu}
-                        // Hover ARMS the intent timer (only for a different build, so
-                        // returning from the menu paper to the same dot doesn't churn
-                        // the page's dotMenu state); a click opens immediately.
-                        onMouseEnter={(e) => { cursorPointer(e, true); if (hoveredBuildRef.current !== b.id) scheduleOpen(); }}
-                        onMouseLeave={(e) => { cursorPointer(e, false); cancelHoverOpen(); hoveredBuildRef.current = null; onBuildLeave?.(); }} />,
+                        // Click-only (req #2883): hover merely sets the cursor.
+                        onMouseEnter={(e) => cursorPointer(e, true)}
+                        onMouseLeave={(e) => cursorPointer(e, false)} />,
             );
         }
 
-        // 3b. Empty-branch anchors (hover → Execute-Build-only menu).
+        // 3b. Empty-branch anchors (click → Execute-Build-only menu; req #2883).
         for (const a of layout.emptyAnchors || []) {
             const openAnchor = () => {
                 if (draggingRef.current) return;
-                cancelHoverOpen();
                 const c = dotScreenAnchor(a.x, a.y, a.radius);
                 if (c) onEmptyAnchorClick?.(a.branchId, c);
-            };
-            const scheduleAnchor = () => {
-                if (draggingRef.current) return;
-                cancelHoverOpen();
-                hoverTimerRef.current = setTimeout(() => {
-                    hoverTimerRef.current = null;
-                    if (draggingRef.current) return;
-                    const c = dotScreenAnchor(a.x, a.y, a.radius);
-                    if (c) onEmptyAnchorClick?.(a.branchId, c);
-                }, HOVER_OPEN_DELAY);
             };
             nodes.push(<Circle key={`empty-${a.branchId}`} x={a.x} y={a.y}
                                radius={Math.max(a.radius * inv + 4 * inv, 10 * inv)} fill="transparent"
                                onActivate={openAnchor}
-                               onMouseEnter={(e) => { cursorPointer(e, true); scheduleAnchor(); }}
-                               onMouseLeave={(e) => { cursorPointer(e, false); cancelHoverOpen(); onBuildLeave?.(); }} />);
+                               onMouseEnter={(e) => cursorPointer(e, true)}
+                               onMouseLeave={(e) => cursorPointer(e, false)} />);
         }
 
         // 3c. Collapse "…" tokens (req #2864) — clickable; toggles expansion.
@@ -629,28 +583,64 @@ const KonvaBuildCanvas = ({
         // line plus stacked AT-name labels below the latest build. All sizes/
         // offsets are × inv so the glyphs stay constant on-screen like the dots.
         for (const loop of layout.atBuildLoops || []) {
+            // req #2876 r3 — the Build AT loop STARTS AND TERMINATES on the build
+            // dot and balloons up to ENCAPSULATE the check mark, with the
+            // "Build AT" caption (same size as branch AT names) above it:
+            //   ✓ check wrapped by a loop rooted on the dot  →  gap  →  "Build AT"
+            // Both loop ends meet at the dot's top; the bulge surrounds the check.
+            // All offsets × inv so the column stays screen-constant like the dots.
             const rW = loop.radius * inv;
-            const topY = loop.y - rW - 4 * inv;
-            const cap = topY - 9 * inv;
-            const o7 = 7 * inv;
-            nodes.push(<Path key={`bat-arc-${loop.buildId}`}
-                             data={`M ${loop.x - rW} ${loop.y - rW} `
-                                 + `C ${loop.x - rW - o7} ${topY - o7}, `
-                                 + `${loop.x + rW + o7} ${topY - o7}, ${loop.x + rW} ${loop.y - rW}`}
-                             stroke="#9e9e9e" strokeWidth={1 * inv} listening={false} />);
-            nodes.push(...atGlyphNodes(`bat-${loop.buildId}`, loop.x, topY, 'pass', 9));
-            nodes.push(<Text key={`bat-cap-${loop.buildId}`} x={loop.x - 24 * inv} y={cap - 4 * inv}
-                             width={48 * inv} align="center" text="Build AT" fontSize={7 * inv}
+            const loopR = 8 * inv;            // bulge radius around the check mark
+            const capGap = 3 * inv;           // loop top → caption bottom
+            const cx = loop.x;
+            const dotTopY = loop.y - rW;      // anchor: loop both starts & ends here
+            const cy = dotTopY - loopR;       // check centered inside the bulge
+            const loopTopY = cy - loopR;      // top of the loop
+            // Balloon: from the dot anchor, out + up the left side, across the top,
+            // down the right side, back to the SAME dot anchor (a closed self-loop
+            // wrapping the check). Symmetric cubic beziers; widest near the check.
+            nodes.push(<Path key={`bat-arc-${loop.buildId}`} closed
+                             data={`M ${cx} ${dotTopY} `
+                                 + `C ${cx - loopR * 1.9} ${dotTopY - loopR * 0.2}, ${cx - loopR * 1.1} ${loopTopY}, ${cx} ${loopTopY} `
+                                 + `C ${cx + loopR * 1.1} ${loopTopY}, ${cx + loopR * 1.9} ${dotTopY - loopR * 0.2}, ${cx} ${dotTopY} Z`}
+                             stroke="#9e9e9e" strokeWidth={1.2 * inv} listening={false} />);
+            // Terminate arrowhead on the loop's descending RIGHT side, pointing
+            // DOWN toward the build (the loop travels top→down-the-right→back to
+            // the dot). Placed away from the dot/loop junction so it reads as a
+            // distinct arrowhead, not a few gray pixels merged into the curve
+            // (req #2876 r4). Point + tangent are the 2nd bezier sampled at t≈0.5.
+            const aAx = cx + loopR * 1.13, aAy = cy - loopR * 0.075;   // point on right side
+            const adx = loopR * 0.6, ady = loopR * 2.85;               // tangent (down-right)
+            const amag = Math.hypot(adx, ady) || 1;
+            const ux = adx / amag, uy = ady / amag;                    // unit travel (downward)
+            const apx = -uy, apy = ux;                                 // perpendicular
+            const ah = 6 * inv;
+            nodes.push(<Line key={`bat-arrow-${loop.buildId}`} closed fill="#9e9e9e" listening={false}
+                             points={[aAx + ux * ah * 0.6, aAy + uy * ah * 0.6,                 // tip
+                                      aAx - ux * ah * 0.4 + apx * ah * 0.5, aAy - uy * ah * 0.4 + apy * ah * 0.5,
+                                      aAx - ux * ah * 0.4 - apx * ah * 0.5, aAy - uy * ah * 0.4 - apy * ah * 0.5]} />);
+            // Check-mark glyph centered INSIDE the loop (drawn after → on top).
+            nodes.push(...atGlyphNodes(`bat-${loop.buildId}`, cx, cy, 'pass', 9));
+            // Caption above the loop, same font as branch-level AT names (req #2876).
+            const capY = loopTopY - capGap - AT_NAME_FONT * inv;
+            nodes.push(<Text key={`bat-cap-${loop.buildId}`} x={cx - 32 * inv} y={capY}
+                             width={64 * inv} align="center" text="Build AT" fontSize={AT_NAME_FONT * inv}
                              fill="#777" listening={false} />);
         }
         for (const g of layout.atBranchGlyphs || []) {
-            const lineH = 12 * inv;
-            // Names below the latest build, screen-constant spacing/offset.
-            const firstNameY = g.namesY + (g.radius + 30) * inv;
+            // Drive the name stack from the engine's own reservation constants so
+            // render == reservation (req #2876): namesStartY clears the build-number
+            // far-lane and nameLineH matches the larger AT font's line height. Both
+            // are world offsets relative to namesY, scaled by inv to stay
+            // screen-constant like the dots.
+            const lineH = (g.nameLineH || 14) * inv;
+            const firstNameY = g.namesY + (g.namesStartY - g.namesY) * inv;
             const nameColor = g.status === 'fail' ? '#c62828' : '#2e7d32';
+            // req #2876 r3 — center the AT name stack under the pass/fail check box
+            // (the glyph at g.x, mid-segment), not under the latest build (g.namesX).
             (g.names || []).forEach((nm, i) => {
-                nodes.push(<Text key={`atn-${g.branchId}-${i}`} x={g.namesX - 60 * inv} y={firstNameY + i * lineH}
-                                 width={120 * inv} align="center" text={nm} fontSize={9 * inv}
+                nodes.push(<Text key={`atn-${g.branchId}-${i}`} x={g.x - 60 * inv} y={firstNameY + i * lineH}
+                                 width={120 * inv} align="center" text={nm} fontSize={AT_NAME_FONT * inv}
                                  fill={nameColor} listening={false} />);
             });
             // Clickable pass/fail glyph mid-segment on the branch line.
@@ -658,8 +648,12 @@ const KonvaBuildCanvas = ({
             nodes.push(...atGlyphNodes(`atb-${g.branchId}`, g.x, g.y, g.status, 13, !!onClick, onClick));
         }
 
-        // 4. Release stars (hover → shared HTML datacard). Raised above the
-        // Build AT slot when Build AT is shown (req #2633 — release on top).
+        // 4. Release stars (click → release datacard; req #2883). Raised ABOVE the whole
+        // Build AT column when Build AT is shown so the stars never overlap the
+        // "Build AT" caption (req #2633 — release on top; req #2876 r2 — clear the
+        // taller encircled-loop stack: caption top ≈ 40px above the dot + star
+        // radius + gap ≈ 50). Build AT is universal across branch types, so every
+        // release build also carries a Build AT column beneath the star.
         if (showReleases) {
             for (const b of layout.builds) {
                 if (!b.releaseCustomers?.length) continue;
@@ -667,14 +661,18 @@ const KonvaBuildCanvas = ({
                 const n = b.releaseCustomers.length;
                 const ro = STAR_OUTER * inv;
                 const pitch = (2 * STAR_OUTER + 2) * inv;
-                const cy = b.y - (22 + (buildAtShown ? 16 : 0)) * inv;
+                const cy = b.y - (buildAtShown ? 50 : 22) * inv;
                 const startX = b.x - ((n - 1) * pitch) / 2;
                 b.releaseCustomers.forEach((name, i) => {
                     nodes.push(<Star key={`star-${b.id}-${i}`} x={startX + i * pitch} y={cy}
                                      numPoints={5} innerRadius={ro * 0.45} outerRadius={ro}
                                      fill={col.fill} stroke={col.stroke} strokeWidth={1.1 * inv}
-                                     onMouseEnter={(e) => { cursorPointer(e, true); showReleaseTip(b, e); }}
-                                     onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }} />);
+                                     onActivate={(e) => {
+                                         if (draggingRef.current) return;
+                                         onReleaseClick?.(b, e?.evt || e, branchNameById.get(b.branchId));
+                                     }}
+                                     onMouseEnter={(e) => cursorPointer(e, true)}
+                                     onMouseLeave={(e) => cursorPointer(e, false)} />);
                 });
             }
         }
@@ -705,52 +703,17 @@ const KonvaBuildCanvas = ({
                 {level === 1 ? 'L1 · Overview' : level === 3 ? 'L3 · Full detail' : 'L2 · Detail'}
                 {pinnedLevel != null ? ' · pinned' : ''} · drag to pan · scroll to zoom
             </div>
-
-            {tooltip && (
-                <ReleaseCard build={tooltip.build} branchName={branchNameById.get(tooltip.build.branchId)}
-                             x={tooltip.x} y={tooltip.y} containerW={size.w} containerH={size.h} dark={dark} />
-            )}
         </div>
     );
 };
 
-// Shared HTML datacard for a release-bearing build (replaces the per-glyph MUI
-// Tooltip). Lists the shipped build, its branch, and each customer/date.
-const ReleaseCard = ({ build, branchName, x, y, containerW, containerH, dark }) => {
-    const CARD_W = 240;
-    const left = Math.min(Math.max(8, x + 14), Math.max(8, containerW - CARD_W - 8));
-    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - 40));
-    const details = build.releaseDetails?.length
-        ? build.releaseDetails
-        : (build.releaseCustomers || []).map(name => ({ name, date: null }));
-    const releaseType = details.find(d => d.releaseType)?.releaseType;
-    return (
-        <div style={{
-            position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
-            background: dark ? '#21201d' : '#ffffff', color: dark ? '#e8e1d5' : '#1a1a1a',
-            border: `1px solid ${dark ? '#3a3833' : '#d8d8d8'}`, borderRadius: 6,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.28)', padding: '8px 10px', fontSize: 12,
-        }}>
-            <div style={{ fontWeight: 700 }}>
-                {releaseType ? `${releaseType} release` : 'Released'} — Build {build.version}
-            </div>
-            {branchName ? <div style={{ opacity: 0.8, marginTop: 2 }}>{branchName}</div> : null}
-            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                {details.map((d, i) => (
-                    <li key={`${d.name}-${i}`} style={{ fontSize: 11, lineHeight: 1.5 }}>
-                        {d.name}{d.date ? ` — ${formatReleaseDate(d.date)}` : ''}
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-};
-
-// Memoized so a parent re-render (e.g. the page opening its MUI dot-menu Popover
-// on hover) cannot re-render the canvas and make react-konva recompute the hit
-// graph — that recomputation fired a spurious mouseleave on the hovered dot's
-// hit target, which scheduled the menu's close and made it flicker shut even
-// while the cursor stayed on the bubble. All props from the page are
-// referentially stable (useCallback/useMemo + stable setters), so the canvas
-// only re-renders on real input/zoom/level changes.
+// Memoized so a parent re-render (e.g. the page opening a pop-up Popover) cannot
+// re-render the canvas and make react-konva needlessly recompute the hit graph.
+// All props from the page are referentially stable (useCallback/useMemo + stable
+// setters), so the canvas only re-renders on real input/zoom/level changes.
+//
+// req #2883 — the release datacard (formerly the canvas-local `ReleaseCard`,
+// off-screen-clamped by req #2879) was lifted into a page-owned MUI Popover. The
+// Popover keeps itself on-screen via `marginThreshold`, so #2879's fix is
+// preserved without a hand-rolled clamp here.
 export default memo(KonvaBuildCanvas);
