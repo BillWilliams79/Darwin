@@ -19,9 +19,20 @@
 //
 // ACCEPTED CONSEQUENCE: the dev server no longer shows live production ops —
 // the daemon still writes real ops to production for the production app; dev
-// shows seeded test data. The `ops` flag remains a generic capability of
-// createEntityQueries (and `darwinOpsUri` stays defined in AppContext for the
-// JWT call) — it is simply no longer used by any block here.
+// shows seeded test data.
+//
+// Req #2871 — ONE carve-out: `dev_servers` is restored to `ops: true`. Unlike
+// the visualizer/session ops tables, `dev_servers` is live machine state that
+// is NEVER a seeded fixture: `/devops-devserver-start` claims a row via the MCP
+// `claim_dev_server` tool, and the daemon writes it to production `darwin`. The
+// NavBar dev-server callout (NavBarSidebar.jsx "Terminal - N") matches the live
+// browser's `window.location.port` against those rows, so the READ must hit the
+// same schema the claim WROTE. Routing `dev_servers` reads through `darwinUri`
+// (→ `darwin_dev` in dev) made a dev browser match seeded fixtures instead of
+// real claims — wrong/missing terminal numbers. Always-production is correct for
+// both read and write here. The other three original ops tables keep the
+// dev/prod split so dev review still sees seeded fixtures. `darwinOpsUri` stays
+// defined in AppContext for this block and the JWT call.
 
 import { createEntityQueries } from './createEntityQueries';
 
@@ -32,6 +43,11 @@ import { createEntityQueries } from './createEntityQueries';
 // ---------------------------------------------------------------------------
 export const devServers = createEntityQueries({
     entity: 'dev_servers',
+    // Req #2871 — pin reads to production `darwin` (via darwinOpsUri). dev_servers
+    // is live machine state written by the MCP claim_dev_server tool to production;
+    // a dev browser must read from where the claim wrote, not seeded darwin_dev
+    // fixtures, so the NavBar "Terminal - N" callout matches the real port claim.
+    ops: true,
     foreignKeys: [
         // `keyParam: 'sessionId'` preserves the legacy `devServerKeys.bySession(id)`
         // cache-key shape `['dev_servers', { sessionId }]`. New devops entities
