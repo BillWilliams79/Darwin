@@ -39,6 +39,7 @@
 
 import { hierarchy } from 'd3-hierarchy';
 import { formatVersion, fromModelBuild } from './versionEngine';
+import { isGapId } from './semanticModel';
 
 export const REGISTRY = {
     main:             { label: 'Main',                 dotRadius: 5.5, defaultSide: 'center' },
@@ -231,7 +232,7 @@ export function computeLayout(model, opts = {}) {
         return {
             branches: [], builds: [], connectors: [],
             mainPath: null, mainEndpointLabels: null,
-            strata: [], emptyAnchors: [],
+            strata: [], emptyAnchors: [], collapseTokens: [],
             atBranchGlyphs: [], atBuildLoops: [],
             width: 800, height: 200, mainY: 0,
         };
@@ -584,12 +585,24 @@ export function computeLayout(model, opts = {}) {
     }
 
     // ─── Step 7. Build records ─────────────────────────────────────────
+    // A `__gap__:…` sentinel id in a branch's buildIds is a semantic-zoom
+    // collapse token (req #2864): it consumes one column like a real build (so
+    // remaining builds pack tighter) but renders as a clickable "…" instead of a
+    // dot. It has a position (set in Steps 1/4) but no buildsMap entry, so it is
+    // captured into `collapseTokens` here and skipped for build records. When no
+    // sentinels are present this branch is never taken and the output is
+    // byte-identical to the pre-#2864 engine.
     const buildRecords = [];
+    const collapseTokens = [];
     for (const b of branches) {
         if (isHidden(b.id)) continue;
         const r = dotRadiusFor(b.type);
         (b.buildIds || []).forEach((bid, i) => {
             const pos = positions[bid];
+            if (isGapId(bid)) {
+                if (pos) collapseTokens.push({ id: bid, branchId: b.id, x: pos.x, y: pos.y });
+                return;
+            }
             const data = buildsMap[bid];
             if (!pos || !data) return;
             const laneOffset = (o.versionLanes && i % 2 === 1) ? o.versionLaneGap : 0;
@@ -662,7 +675,10 @@ export function computeLayout(model, opts = {}) {
     const atBuildLoops = [];
     for (const b of branches) {
         if (isHidden(b.id)) continue;
-        const buildIds = b.buildIds || [];
+        // Real builds only — semantic-zoom collapse (req #2864) inserts
+        // `__gap__` sentinels into buildIds; an AT glyph/loop on a sentinel would
+        // paint on top of the "…" collapse token. Skip them everywhere here.
+        const buildIds = (b.buildIds || []).filter(id => !isGapId(id));
         const r = dotRadiusFor(b.type);
         // Branch-level AT glyph sits MID-SEGMENT on the branch line, between the
         // last build and the penultimate build (req #2633 review round). Names
@@ -803,6 +819,7 @@ export function computeLayout(model, opts = {}) {
         mainEndpointLabels,
         strata: strataBands,
         emptyAnchors,
+        collapseTokens,   // req #2864 — semantic-zoom "…" collapse tokens
         atBranchGlyphs,   // req #2633 — branch-level AT glyph + name labels
         atBuildLoops,     // req #2633 — per-build Build AT loops
         width: totalWidth,

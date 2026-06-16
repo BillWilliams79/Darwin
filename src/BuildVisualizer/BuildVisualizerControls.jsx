@@ -43,6 +43,9 @@ const BuildVisualizerControls = ({
     onChangeDarkVariant,
     showReleases,
     onToggleShowReleases,
+    pinnedLevel,
+    effectiveLevel,
+    onChangePinnedLevel,
     showAcceptanceTests,
     onToggleShowAcceptanceTests,
     showBuildAt,
@@ -162,6 +165,56 @@ const BuildVisualizerControls = ({
                             aria-pressed={showReleases ? 'true' : 'false'}
                             data-testid="bv-releases-toggle"
                         />
+                    </>
+                )}
+
+                {onChangePinnedLevel && (
+                    <>
+                        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                        <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+                               data-testid="bv-level-control">
+                            <Box component="span" sx={{ fontSize: '0.75rem', color: 'text.secondary', mr: 0.25 }}>
+                                Detail:
+                            </Box>
+                            <Chip
+                                label="Auto"
+                                size="small"
+                                onClick={() => onChangePinnedLevel(null)}
+                                {...(pinnedLevel == null
+                                    ? { sx: { bgcolor: 'primary.main', color: 'primary.contrastText', cursor: 'pointer' } }
+                                    : { variant: 'outlined', sx: { cursor: 'pointer' } })}
+                                aria-pressed={pinnedLevel == null ? 'true' : 'false'}
+                                data-testid="bv-level-auto"
+                            />
+                            {[1, 2, 3].map(lvl => {
+                                const pinned = pinnedLevel === lvl;
+                                // When on Auto, softly mark the level the zoom is currently at.
+                                const isAutoActive = pinnedLevel == null && effectiveLevel === lvl;
+                                return (
+                                    <Chip
+                                        key={lvl}
+                                        label={`L${lvl}`}
+                                        size="small"
+                                        onClick={() => onChangePinnedLevel(pinned ? null : lvl)}
+                                        {...(pinned
+                                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
+                                            : {
+                                                variant: 'outlined',
+                                                sx: {
+                                                    cursor: 'pointer',
+                                                    ...(isAutoActive && {
+                                                        borderColor: 'primary.main',
+                                                        color: 'primary.main',
+                                                        fontWeight: 600,
+                                                    }),
+                                                },
+                                            })}
+                                        aria-pressed={pinned ? 'true' : 'false'}
+                                        data-testid={`bv-level-${lvl}`}
+                                    />
+                                );
+                            })}
+                        </Stack>
                     </>
                 )}
 

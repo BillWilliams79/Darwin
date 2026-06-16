@@ -188,6 +188,13 @@ const BuildVisualizerPage = () => {
     // (req #2603 follow-up) — see handleResetView below the merge state.
     const [resetViewNonce, setResetViewNonce] = useState(0);
 
+    // Semantic-zoom level (req #2864). `pinnedLevel` null = auto-by-zoom; 1|2|3
+    // pins a level, overriding the zoom-driven selection. `effectiveLevel` is the
+    // level the canvas is currently rendering (reported back), used only to
+    // highlight the matching toolbar chip while on Auto.
+    const [pinnedLevel, setPinnedLevel] = useState(null);
+    const [effectiveLevel, setEffectiveLevel] = useState(2);
+
     // Release overlay — Gold Star only (req #2741; the style picker + Chip Row
     // were removed). Toggle just shows/hides the overlay.
     const [showReleases, setShowReleases] = useState(() => readShowReleases());
@@ -260,9 +267,11 @@ const BuildVisualizerPage = () => {
     // AT glyph. { branchId, status, top, left }.
     const [atMenu, setAtMenu] = useState(null);
 
-    // The anchorEl for the Menu needs to be a real DOM element. Since the click
-    // comes from an SVG element (which MUI Menu can't anchor to reliably), we
-    // use anchorPosition instead, derived from the mouse event coordinates.
+    // The Konva canvas (req #2864) forwards a screen position anchored to the
+    // build DOT (just below it), not the raw pointer — so the paper opens beside
+    // the dot without covering the resting cursor (which previously fired a
+    // spurious canvas mouseleave that shut the menu). We use it verbatim as the
+    // Popover's top-left.
     const dotMenuPosition = dotMenu
         ? { top: dotMenu.mouseY, left: dotMenu.mouseX }
         : undefined;
@@ -281,8 +290,9 @@ const BuildVisualizerPage = () => {
     }, []);
 
     const handleBuildClick = useCallback((buildRecord, e) => {
-        // `e` is the React SyntheticEvent from the SVG hover/click. Use its
-        // clientX/clientY for menu positioning.
+        // `e` is the native DOM MouseEvent the Konva canvas forwards (req #2864 —
+        // either the hit-graph 'activate' event's .evt or the hover event's .evt).
+        // Use its clientX/clientY for menu positioning.
         cancelCloseDotMenu(); // moving onto a dot cancels any pending close
         setDotMenu({
             buildRecord,
@@ -309,10 +319,14 @@ const BuildVisualizerPage = () => {
 
     const scheduleCloseDotMenu = useCallback(() => {
         cancelCloseDotMenu();
+        // 300 ms (was 150) — a more forgiving hover bridge. Crossing from the
+        // Konva dot to the DOM Popover passes briefly over the canvas with no
+        // bridging DOM element; a tight delay closed the menu mid-traverse
+        // (req #2864).
         dotCloseTimerRef.current = setTimeout(() => {
             dotCloseTimerRef.current = null;
             setDotMenu(null);
-        }, 150);
+        }, 300);
     }, [cancelCloseDotMenu]);
 
     // Clear the pending close timer on unmount.
@@ -1079,6 +1093,9 @@ const BuildVisualizerPage = () => {
                 onChangeDarkVariant={changeDarkVariant}
                 showReleases={showReleases}
                 onToggleShowReleases={toggleShowReleases}
+                pinnedLevel={pinnedLevel}
+                effectiveLevel={effectiveLevel}
+                onChangePinnedLevel={setPinnedLevel}
                 showAcceptanceTests={showAcceptanceTests}
                 onToggleShowAcceptanceTests={toggleShowAcceptanceTests}
                 showBuildAt={showBuildAt}
@@ -1098,6 +1115,8 @@ const BuildVisualizerPage = () => {
                 dayZeroBuildIds={dayZeroSet}
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
+                pinnedLevel={pinnedLevel}
+                onEffectiveLevel={setEffectiveLevel}
                 onBuildClick={handleBuildClick}
                 onAtGlyphClick={handleAtGlyphClick}
                 onBuildLeave={scheduleCloseDotMenu}
@@ -1130,6 +1149,13 @@ const BuildVisualizerPage = () => {
                     transition: { timeout: 140 },
                     paper: {
                         onMouseEnter: cancelCloseDotMenu,
+                        // onMouseMove too (req #2864): the menu opens UNDER the
+                        // cursor (MENU_CURSOR_INSET), so the pointer is already
+                        // inside the paper when it appears and onMouseEnter never
+                        // fires. Any movement over the paper must still cancel the
+                        // pending close, or Konva's dot-leave would shut the menu
+                        // the user is hovering.
+                        onMouseMove: cancelCloseDotMenu,
                         onMouseLeave: scheduleCloseDotMenu,
                         sx: { pointerEvents: 'auto' },
                     },

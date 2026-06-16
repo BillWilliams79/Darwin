@@ -110,11 +110,18 @@ describe('createEntityQueries — wired devops blocks follow dev/prod split (req
     // Imported here so vi.mock declarations above are in effect.
     // Req #2827 removed ops:true from these four blocks — a dev-mode build
     // (darwinUri == /darwin_dev) now reads them from darwin_dev, never prod.
-    it('devServers.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
+    // Req #2871 — ONE carve-out: dev_servers was restored to ops:true, so its
+    // reads pin to PRODUCTION `darwin` (via darwinOpsUri) rather than the dev/prod
+    // split. A claim writes the live port to production `darwin`, so the read must
+    // hit the same schema; routing it through darwinUri would read empty
+    // `darwin_dev` in a dev build. The other three blocks below still follow the
+    // split (req #2827).
+    it('devServers.useAll reads from darwinOpsUri (production darwin — req #2871)', async () => {
         const { devServers } = await import('../factory/devopsQueries');
         devServers.useAll('alice');
         const url = callRestApiMock.mock.calls[0][0];
-        expect(url).toContain(`${TEST_DARWIN_URI}/dev_servers`);
+        expect(url).toContain(`${TEST_DARWIN_OPS_URI}/dev_servers`);
+        expect(url).not.toContain('darwin_dev');
     });
 
     it('sessions.useAll reads from darwinUri (darwin_dev in dev mode)', async () => {
