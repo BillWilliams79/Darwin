@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     DAY_HOURS, hoursFromRowMidnight, xPct36, xPctWin, semanticLevel,
     shiftDayStr, dayDelta, dateRange, isWeekend,
-    buildModelContext, buildDayModel, recenterDecision,
+    buildModelContext, buildDayModel, recenterDecision, startGlyphPlacement,
 } from '../konvaSwarmModel';
 
 const TZ = 'UTC';
@@ -291,5 +291,44 @@ describe('buildDayModel — in-progress phantom', () => {
         // start 06:00 → 25%, head at now 14:00 → 58.33%.
         expect(phantom.startPct).toBeCloseTo((6 / 24) * 100, 2);
         expect(phantom.leftPct).toBeCloseTo((14 / 24) * 100, 2);
+    });
+});
+
+describe('startGlyphPlacement — short-session swarm-start hug (req #2874)', () => {
+    const geom = { cx: 100, cr: 9, trueX: 70, hugGap: 12 };
+
+    it('returns null when there is no real start (bare requirement, startPct null)', () => {
+        expect(startGlyphPlacement({ startPct: null, markerMode: 'left' }, geom)).toBeNull();
+    });
+
+    it('returns null when the start is clamped off-window (cross-day layer owns it)', () => {
+        expect(startGlyphPlacement(
+            { startPct: 0, startClamped: true, markerMode: 'clamped' }, geom,
+        )).toBeNull();
+    });
+
+    it('returns null for a missing chip', () => {
+        expect(startGlyphPlacement(null, geom)).toBeNull();
+    });
+
+    it('places the glyph at its true x with no connector for a normal-length session', () => {
+        const p = startGlyphPlacement({ startPct: 33, markerMode: 'normal' }, geom);
+        expect(p).toEqual({ glyphX: 70, connector: null });
+    });
+
+    it('hugs the glyph just left of the bead + draws a short connector for markerMode left', () => {
+        const p = startGlyphPlacement({ startPct: 41, markerMode: 'left' }, geom);
+        // glyph sits cr + hugGap left of the bead center; connector spans hugGap to the bead edge.
+        expect(p.glyphX).toBe(100 - 9 - 12);        // 79
+        expect(p.connector).toEqual({ x1: 79, x2: 91 });
+        // connector length === hugGap (a short, always-visible duration stand-in).
+        expect(p.connector.x2 - p.connector.x1).toBe(12);
+    });
+
+    it('ignores trueX in the left-hug case (start x overlaps the bead, so it is unused)', () => {
+        const p = startGlyphPlacement(
+            { startPct: 50, markerMode: 'left' }, { ...geom, trueX: 99.5 },
+        );
+        expect(p.glyphX).toBe(79);
     });
 });
