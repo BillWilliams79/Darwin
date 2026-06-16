@@ -994,9 +994,16 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                         <span style={{ color: '#43A047', fontWeight: 600 }}>
                             in progress{chip.requirement_status ? ` · ${chip.requirement_status}` : ''}</span></div>
                 )}
-                {chip.session?.started_at && (
+                {(chip.swarmStart?.started_at || chip.session?.started_at) && (
+                    // Prefer the canonical swarm_start anchor over the raw
+                    // session.started_at so the "Started" time agrees with the
+                    // glyph/duration/cluster (all anchored on swarm_start.started_at).
+                    // A primary-fix session is stamped at closeout, so its
+                    // session.started_at can sit ~an hour after the real start and on
+                    // the far side of midnight (req #2878). Estimated/fallback chips
+                    // carry no swarmStart row → keep showing session.started_at.
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Started</span>
-                        <span>{fmtDT(chip.session.started_at, tz)}{chip.startClamped ? ' (before window)' : ''}</span></div>
+                        <span>{fmtDT(chip.swarmStart?.started_at || chip.session.started_at, tz)}{chip.startClamped ? ' (before window)' : ''}</span></div>
                 )}
                 {chip.isUndone ? (
                     <>
