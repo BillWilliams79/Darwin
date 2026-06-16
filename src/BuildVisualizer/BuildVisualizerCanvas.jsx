@@ -5,7 +5,7 @@
 // canvas, mirroring the Swarm Visualizer migration (req #2841). This component
 // keeps the public prop contract the page already depends on (model, projectId,
 // loading/error, filters, the MergeEngine display sets (req #2603), the
-// Acceptance-Test toggles + glyph-click (req #2633), the hover/click callbacks,
+// Acceptance-Test toggles + glyph-click (req #2633), the click callbacks,
 // resetViewNonce) and the loading / error / empty states, then lazy-loads the
 // heavy Konva render layer — Konva pulls a large canvas bundle, so it is
 // code-split exactly like the swarm (KonvaSwarmCanvas via SwarmVisualizerView).
@@ -35,7 +35,7 @@ const BuildVisualizerCanvas = ({
     pinnedLevel,
     onEffectiveLevel,
     onBuildClick,
-    onBuildLeave,
+    onReleaseClick,
     onBranchClick,
     onEmptyAnchorClick,
     onAtGlyphClick,
@@ -85,7 +85,7 @@ const BuildVisualizerCanvas = ({
                     pinnedLevel={pinnedLevel}
                     onEffectiveLevel={onEffectiveLevel}
                     onBuildClick={onBuildClick}
-                    onBuildLeave={onBuildLeave}
+                    onReleaseClick={onReleaseClick}
                     onBranchClick={onBranchClick}
                     onEmptyAnchorClick={onEmptyAnchorClick}
                     onAtGlyphClick={onAtGlyphClick}
