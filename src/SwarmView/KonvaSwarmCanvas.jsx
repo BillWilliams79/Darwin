@@ -167,7 +167,7 @@ const KonvaSwarmCanvas = ({
     titlesOn = false, completesOn = false, phasesOn = false,
     costOn = false, devServersOn = true, wide36 = true, resetTick = 0,
     onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
-    onExtendPast,
+    onExtendPast, onLevelChange,
 }) => {
     const theme = useTheme();
     const dark = theme.palette.mode === 'dark';
@@ -230,6 +230,16 @@ const KonvaSwarmCanvas = ({
     const kBase = size.w > 0 ? size.w / WORLD_W : 0.7;
     const curK = transform ? transform.k : kBase;
     const level = semanticLevel(kBase > 0 ? curK / kBase : 1);
+
+    // Surface the current semantic zoom level to the parent (req #2880) so it can
+    // force the phase key visible at the `in` level — where phase segments draw
+    // regardless of the Phases toggle (see `usePhases` below).
+    const onLevelChangeRef = useRef(onLevelChange);
+    onLevelChangeRef.current = onLevelChange;
+    useEffect(() => {
+        onLevelChangeRef.current?.(level);
+    }, [level]);
+
     const win = wide36 ? WIN36 : WIN24;
     const winSpan = win.end - win.start;
     const hourToPct = (h) => ((h - win.start) / winSpan) * 100;

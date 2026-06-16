@@ -1,4 +1,4 @@
-import React, { useContext, useMemo, useCallback, Suspense, lazy } from 'react';
+import React, { useContext, useMemo, useCallback, useState, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
@@ -22,6 +22,13 @@ import Box from '@mui/material/Box';
 // swatches grouped by agentic / human family, plus the neutral-gray
 // "Unclassified" swatch for legacy (instrumented=0) sessions. Rendered only when
 // the Phases toggle is on, so the default view stays uncluttered.
+// req #2880 — the phase key follows the same rule the canvas uses to draw phase
+// SEGMENTS (`usePhases = phasesOn || level === 'in'`): the Phases toggle controls
+// it at the out/mid levels, but the deepest ('in') zoom always shows phases, so
+// the key is forced visible there regardless of the toggle.
+export const shouldShowPhaseLegend = ({ phasesOn, zoomLevel }) =>
+    !!phasesOn || zoomLevel === 'in';
+
 const PhaseSwatch = ({ color, label }) => (
     <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
         <Box component="span" sx={{
@@ -88,6 +95,11 @@ const SwarmVisualizerView = () => {
     // oldest loaded day.
     const pastExtraDays = useSwarmVisualizerStore(s => s.pastExtraDays);
     const extendPast    = useSwarmVisualizerStore(s => s.extendPast);
+
+    // Current semantic zoom level reported by the canvas (req #2880). At the `in`
+    // level phase segments draw regardless of the Phases toggle, so the phase key
+    // must follow suit — show it whenever phasesOn OR we're zoomed all the way in.
+    const [zoomLevel, setZoomLevel] = useState('mid');
 
     // Konva canvas fetch window (req #2841) — a wide, week-quantized range so the
     // user can pan freely across ~7 weeks of past + the rest of this week without
@@ -218,7 +230,7 @@ const SwarmVisualizerView = () => {
     // component now renders only the Konva canvas content (req #2844).
     return (
         <div>
-            {phasesOn && <PhaseLegend />}
+            {shouldShowPhaseLegend({ phasesOn, zoomLevel }) && <PhaseLegend />}
             <Suspense fallback={<Box sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
             <KonvaSwarmCanvas
                 requirements={requirements}
@@ -248,6 +260,7 @@ const SwarmVisualizerView = () => {
                 onUndoClick={onUndoClick}
                 onCompleteClick={onCompleteClick}
                 onExtendPast={onExtendPast}
+                onLevelChange={setZoomLevel}
             />
             </Suspense>
         </div>
