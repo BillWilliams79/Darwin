@@ -42,7 +42,7 @@ import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments,
-    recenterDecision,
+    recenterDecision, startGlyphPlacement,
 } from './konvaSwarmModel';
 import '../CalendarFC/swarmVisualizer.css';
 
@@ -74,6 +74,11 @@ const ticksForWin = (win) => {
 const BEAD_R_S  = 9;    // bead radius (−25% per req #2847; was 12)
 const DOT_R_S   = 3.2;
 const TRACK_W_S = 4;
+// req #2874 — when a session's start ≈ completion (markerMode 'left'), its true
+// start x overlaps the bead, so the swarm-start glyph + duration line collapse to
+// nothing. Hug the glyph this many on-screen px left of the bead's edge and draw a
+// short connector, so brief swarm sessions still show their swarm-start anchor.
+const HUG_GAP_S = 12;
 const FONT_TITLE_S = 13.75;  // +25% per round-3 feedback
 const AXIS_H = 22;      // shared top time-axis bar height
 const HEADER_H = 22;    // sticky per-day date/count header height
@@ -759,8 +764,20 @@ const KonvaSwarmCanvas = ({
 
             // Swarm-start: vertical tick spanning the lane slot (stacks into a
             // grouping bar for a multi-session start) + an anchor dot at the top.
-            if (chip.startPct != null && !chip.startClamped && chip.markerMode !== 'left') {
-                nodes.push(...swarmStartGlyph(key, xWorld(chip.startPct), cy,
+            // req #2874 — short sessions (start ≈ completion → markerMode 'left')
+            // hug the glyph just left of the bead with a short connector standing in
+            // for the collapsed duration line, so the swarm-start never vanishes.
+            const startPlace = startGlyphPlacement(chip, {
+                cx, cr, trueX: xWorld(chip.startPct), hugGap: HUG_GAP_S * inv,
+            });
+            if (startPlace) {
+                if (startPlace.connector) {
+                    nodes.push(<Line key={`${key}-hug`}
+                                     points={[startPlace.connector.x1, cy, startPlace.connector.x2, cy]}
+                                     stroke={beadFill(chip)} strokeWidth={trackW} lineCap="round"
+                                     opacity={chip.isPhantom ? 0.8 : 0.95} />);
+                }
+                nodes.push(...swarmStartGlyph(key, startPlace.glyphX, cy,
                                               chip.swarmStartId, chip.swarmStart, chip));
             }
 

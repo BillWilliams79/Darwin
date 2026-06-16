@@ -447,6 +447,36 @@ export function buildDayModel(date, ctx, { dataKey = 'category', nowIso = null }
     return { placed, crossDayPlaced, nowPct, count: ownCount, maxRow };
 }
 
+// ── Swarm-start glyph placement (req #2874) ─────────────────────────────────
+// Decide where the canvas draws a completed chip's swarm-start anchor relative to
+// its completion bead. Fixes the "short session shows no swarm-start / no duration
+// line" bug: when a session's start ≈ completion the model collapses it to
+// markerMode 'left' (|leftPct − startPct| < CLOSE_THRESHOLD_PCT), and the canvas
+// previously drew NOTHING for that case — so brief swarm sessions rendered as a
+// lone bead. This restores the documented "hug the bead's left side" behavior.
+//
+// Inputs (all in world units): `cx`/`cr` = the bead's center-x and radius;
+// `trueX` = xWorld(chip.startPct), the start's real x; `hugGap` = the on-screen
+// hug distance already scaled to world units.
+//
+// Returns:
+//   null                              — no anchor (no real start, or start clamped
+//                                       off-window / owned by the cross-day layer).
+//   { glyphX, connector: null }       — draw the glyph at its true x (normal case).
+//   { glyphX, connector: { x1, x2 } } — 'left' collapse: glyph hugged just left of
+//                                       the bead + a short connector standing in for
+//                                       the collapsed duration line.
+// Keys on `startPct != null`, so a bare completed requirement with no session
+// (markerMode 'left' but startPct === null) correctly yields null — no glyph.
+export function startGlyphPlacement(chip, { cx, cr, trueX, hugGap } = {}) {
+    if (!chip || chip.startPct == null || chip.startClamped) return null;
+    if (chip.markerMode === 'left') {
+        const glyphX = cx - cr - hugGap;
+        return { glyphX, connector: { x1: glyphX, x2: cx - cr } };
+    }
+    return { glyphX: trueX, connector: null };
+}
+
 // ── Phase-bar segmentation for "in" zoom ────────────────────────────────────
 // Expand a completed chip's duration span [startX..endX] (pixels) into phase
 // segments, colored by the req #2332 buckets. Returns the computePhaseSegments
