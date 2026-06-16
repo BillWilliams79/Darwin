@@ -96,29 +96,31 @@ describe('L1 — visibility', () => {
     });
 });
 
-describe('L2 — main-trunk collapse around sample windows', () => {
-    it('keeps a ±1 window around the sample branch point and a tip run', () => {
-        // samples at m2 and m6 (latest). Window m1,m2,m3 and m5,m6,m7,(tip→end).
+describe('L2 — main-trunk collapse around sample branch points', () => {
+    it('keeps ONLY the branch-origin build (no ±1 window) plus a tip run (req #2881)', () => {
+        // samples at m2 and m6 (latest). Keep m2 (s1 origin), m6 (s2 origin) and
+        // the tip m6→m7. Everything else collapses — no neighbours of m2 survive.
         const model = makeModel({ mainBuilds: 8, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm2' },
             { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
         ] });
         const r = computeSemanticModel(model, { level: 2 });
         const out = mainOf(r.model);
-        // m0 collapses (before first window); m1,m2,m3 kept; m4 collapses; m5,m6,m7 kept (tip).
-        expect(out).toContain('m1');
-        expect(out).toContain('m2');
-        expect(out).toContain('m3');
-        expect(out).toContain('m5');
-        expect(out).toContain('m6');
-        expect(out).toContain('m7');
-        expect(out).not.toContain('m0');     // collapsed
-        expect(out).not.toContain('m4');     // collapsed (between windows)
+        // Origin builds + tip only.
+        expect(out).toContain('m2');         // s1 origin
+        expect(out).toContain('m6');         // s2 origin
+        expect(out).toContain('m7');         // tip
+        // ±1 neighbours of the (non-tip) branch origin now collapse.
+        expect(out).not.toContain('m0');
+        expect(out).not.toContain('m1');     // was kept by old ±1 window
+        expect(out).not.toContain('m3');     // was kept by old ±1 window
+        expect(out).not.toContain('m4');
+        expect(out).not.toContain('m5');
         const gaps = out.filter(isGapId);
-        expect(gaps.length).toBe(2);         // before-first run + between-windows run
-        // token meta records the hidden builds
-        const between = r.tokenMeta.get(mainGapId('m4', 'm4'));
-        expect(between.hiddenBuildIds).toEqual(['m4']);
+        expect(gaps.length).toBe(2);         // [m0,m1] run + [m3,m4,m5] run
+        // token meta records the hidden builds of the between-origins run.
+        const between = r.tokenMeta.get(mainGapId('m3', 'm5'));
+        expect(between.hiddenBuildIds).toEqual(['m3', 'm4', 'm5']);
     });
 
     it('does not collapse main when there are no sample branches', () => {
@@ -170,14 +172,15 @@ describe('L2 — main-trunk collapse around sample windows', () => {
 });
 
 describe('per-branch build collapse (sample + release, >3 builds)', () => {
-    it('collapses a long sample branch to first + gap + last two', () => {
+    it('collapses a long sample branch to first + gap + last (req #2881)', () => {
         const model = makeModel({ mainBuilds: 4, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm2', buildCount: 6 },
         ] });
         const r = computeSemanticModel(model, { level: 2 });
         const out = branchOf(r.model, 's1');
-        expect(out).toEqual(['s1-b0', branchGapId('s1'), 's1-b4', 's1-b5']);
-        expect(r.tokenMeta.get(branchGapId('s1')).hiddenBuildIds).toEqual(['s1-b1', 's1-b2', 's1-b3']);
+        // Only the first and last build survive — the second-to-last (s1-b4) collapses too.
+        expect(out).toEqual(['s1-b0', branchGapId('s1'), 's1-b5']);
+        expect(r.tokenMeta.get(branchGapId('s1')).hiddenBuildIds).toEqual(['s1-b1', 's1-b2', 's1-b3', 's1-b4']);
     });
 
     it('leaves a branch with <= 3 builds untouched', () => {

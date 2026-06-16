@@ -121,24 +121,18 @@ export function computeSemanticModel(model, {
     const newBuildIdsByBranch = new Map();
 
     // ── Main-trunk collapse (L1 + L2) ───────────────────────────────────────
-    // Keep a [bp−1, bp, bp+1] window around each SHOWN sample branch point; keep
-    // everything from the latest sample point to the end (tip rule); keep the
-    // parent build of every SHOWN non-dev branch (so connector anchors survive).
-    // Everything else collapses into one clickable "…" per consecutive run.
+    // Keep ONLY the single build where each SHOWN branch originates — same as a
+    // release branch (req #2881: no ±1 window, just the branch-origin build). The
+    // parent-build protection loop below keeps `bp` for every SHOWN non-dev branch
+    // (sample-release AND release), so sample branches now show exactly the one
+    // origin build. Also keep everything from the latest sample point to the end
+    // (tip rule). Everything else collapses into one clickable "…" per run.
     //
     // With no sample branches there are no anchors to window around — collapsing
     // the whole trunk to a single "…" would be useless, so main stays expanded.
     const shownSamples = sampleBranches.filter(isShown);
     if (shownSamples.length && mainBuildIds.length) {
         const kept = new Set();
-        const keepIdx = (idx) => {
-            if (idx != null && idx >= 0 && idx < mainBuildIds.length) kept.add(idx);
-        };
-        for (const b of shownSamples) {
-            const bp = branchPointMainIndex(b);
-            if (bp == null) continue;
-            keepIdx(bp - 1); keepIdx(bp); keepIdx(bp + 1);
-        }
         // Tip rule — latest sample point → end of main stays fully expanded.
         if (latestSample && isShown(latestSample)) {
             const lbp = branchPointMainIndex(latestSample);
@@ -190,8 +184,9 @@ export function computeSemanticModel(model, {
 
     // ── Per-branch build collapse — sample-release + release (L1 + L2) ───────
     // A SHOWN sample/release branch with > 3 of its OWN builds collapses to
-    // first → "…" → last two. < 4 builds: nothing to hide. Skip if any hidden
-    // middle build anchors a SHOWN child branch (its connector would dangle).
+    // first → "…" → last (req #2881: only the first and last build survive; the
+    // second-to-last build is no longer kept). < 4 builds: nothing to hide. Skip
+    // if any hidden middle build anchors a SHOWN child branch (connector dangle).
     for (const b of branches) {
         if (b.type !== 'sample-release' && b.type !== 'release') continue;
         if (!isShown(b)) continue;
@@ -199,13 +194,13 @@ export function computeSemanticModel(model, {
         if (ids.length <= 3) continue;
         const tokenId = branchGapId(b.id);
         if (expanded.has(tokenId)) continue;            // expanded → full branch
-        const middle = ids.slice(1, ids.length - 2);
+        const middle = ids.slice(1, ids.length - 1);
         const middleSet = new Set(middle);
         const middleAnchorsShownChild = branches.some(
             c => isShown(c) && c.parentBuildId != null && middleSet.has(c.parentBuildId),
         );
         if (middleAnchorsShownChild) continue;
-        newBuildIdsByBranch.set(b.id, [ids[0], tokenId, ids[ids.length - 2], ids[ids.length - 1]]);
+        newBuildIdsByBranch.set(b.id, [ids[0], tokenId, ids[ids.length - 1]]);
         tokenMeta.set(tokenId, {
             kind: 'branch', branchId: b.id, hiddenBuildIds: middle, revealBranchIds: [],
         });
