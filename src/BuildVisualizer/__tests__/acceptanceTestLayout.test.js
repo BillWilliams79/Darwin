@@ -183,6 +183,6 @@ describe('computeLayout — AT name labels clear build numbers + expand lanes', 
     it('adding N AT names to a lane widens the gap to the lane below by N lineHeights', () => {
         const noNames = gap(twoCsr([]));
         const threeNames = gap(twoCsr(['Sprint AT', 'OEM AT', 'Cert AT']));
-        expect(threeNames - noNames).toBe(3 * 12); // ATNAME_LINE_H = 12
+        expect(threeNames - noNames).toBe(3 * 14); // ATNAME_LINE_H = 14 (req #2876)
     });
 });

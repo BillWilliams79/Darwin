@@ -243,7 +243,9 @@ describe('labelY — top-track raise for release events', () => {
             releaseEvents: { 'rel1-b1': ['Acme Corp'] },
         });
 
-        const layout = computeLayout(model);
+        // showBuildAt:false isolates the release top-track from the Build AT
+        // name lift (req #2876 r2 — covered by its own test below).
+        const layout = computeLayout(model, { showBuildAt: false });
         const rel = layout.branches.find(b => b.id === 'rel1');
         expect(rel.labelY).toBe(rel.y - 34);
     });
@@ -257,7 +259,7 @@ describe('labelY — top-track raise for release events', () => {
             // No releaseEvents at all
         });
 
-        const layout = computeLayout(model);
+        const layout = computeLayout(model, { showBuildAt: false });
         const rel = layout.branches.find(b => b.id === 'rel1');
         expect(rel.labelY).toBe(rel.y - 16);
     });
@@ -278,9 +280,23 @@ describe('labelY — top-track raise for release events', () => {
             releaseEvents: { 'rel1-b2': ['Customer A'] }, // only build 2 has a release
         });
 
-        const layout = computeLayout(model);
+        const layout = computeLayout(model, { showBuildAt: false });
         const rel = layout.branches.find(b => b.id === 'rel1');
         expect(rel.labelY).toBe(rel.y - 34);
+    });
+
+    // req #2876 r2 — when Build AT is shown, the branch name lifts an extra 34px
+    // above its normal track so it clears the tall encircled-loop + "Build AT"
+    // caption column that rides above each build.
+    it('Build AT shown lifts the branch name an extra 34px (no release)', () => {
+        const model = makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'rel1', type: 'release', parentBuildId: 'm1', buildCount: 2 }],
+        });
+        const off = computeLayout(model, { showBuildAt: false }).branches.find(b => b.id === 'rel1');
+        const on = computeLayout(model, { showBuildAt: true }).branches.find(b => b.id === 'rel1');
+        expect(off.labelY).toBe(off.y - 16);
+        expect(on.labelY).toBe(on.y - 16 - 34);
     });
 });
 

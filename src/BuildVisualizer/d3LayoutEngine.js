@@ -94,9 +94,13 @@ export const DEFAULT_OPTS = {
     // ABOVE every build (and ABOVE the release stars when a build also bears a
     // release event). When `showBuildAt` is on, every row reserves this extra
     // room above it so the loops/captions don't collide with the row above or,
-    // on release-bearing builds, with the star row. Sized as loop (~12) + cap
-    // text (~10) + gap.
-    buildAtClearance: 26,
+    // on release-bearing builds, with the star row. req #2876 — the Build AT
+    // visual is a circular-arrow loop ENCIRCLING the check mark, with the
+    // "Build AT" caption (now 11.2px, same as branch AT names) above it. That
+    // taller column plus extra breathing room needs a generous reservation:
+    // dot(r≈6) + gap(4) + loop Ø(16) + gap(3) + caption(11.2) ≈ 40 → 46 with
+    // margin so nothing crowds the row above (req #2876 r2 — "more white space").
+    buildAtClearance: 46,
     showBuildAt: true,
     // Master switch for ALL acceptance-test visuals (branch glyphs + names +
     // Build AT). When false, no AT element renders and no AT clearance is
@@ -133,9 +137,14 @@ export const DEFAULT_OPTS = {
 // req #2633 — branch-level AT name labels stack BELOW a branch's latest build,
 // starting below the version far-lane so they never collide with build numbers.
 // Each name's row is ATNAME_LINE_H tall; the first name sits ATNAME_TOP_OFFSET
-// below the dot center (clears r + the two version lanes ≈ r + 24).
-const ATNAME_TOP_OFFSET = 36;
-const ATNAME_LINE_H = 12;
+// below the dot center. req #2876 — AT name text grew to 80% of the branch-name
+// font (≈11.2px). The build-number far-lane bottoms out at r + close 12 + lane 12
+// + ~9 text ≈ r + 33; req #2876 r4 gives the AT names their OWN lane with a clear
+// gap by starting them at r + 52 (≈19px below the build numbers) so the two bands
+// never touch. The line height grew to match the taller text. These two constants
+// are the single source of truth for the layout reservation here AND the render.
+const ATNAME_TOP_OFFSET = 52;
+const ATNAME_LINE_H = 14;
 
 function cfgFor(type) {
     return REGISTRY[type] || REGISTRY.development;
@@ -652,6 +661,12 @@ export function computeLayout(model, opts = {}) {
         // it clears that glyph row; branches without releases keep the normal
         // -16 track (req #2741 — name = top track, releases = next track down).
         const hasRelease = (b.buildIds || []).some(bid => releaseEvents[bid]?.length > 0);
+        // req #2876 r2 — when Build AT is shown, every build carries a tall
+        // encircled-loop + "Build AT" caption column (~40px above the dot). The
+        // first build sits one column right of this shoulder label, so a longer
+        // name would collide with that caption. Lift the name above the Build AT
+        // band so the two never overlap (the release track already sits higher).
+        const buildAtBump = showBuildAtEff ? 34 : 0;
         return {
             id: b.id,
             type: b.type,
@@ -660,7 +675,7 @@ export function computeLayout(model, opts = {}) {
             y,
             isMain: false,
             labelX: parentPos.x + 10,
-            labelY: y - (hasRelease ? 34 : 16),
+            labelY: y - (hasRelease ? 34 : 16) - buildAtBump,
         };
     });
 
