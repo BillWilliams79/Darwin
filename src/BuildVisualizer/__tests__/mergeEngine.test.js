@@ -4,6 +4,8 @@ import {
     computeMerges,
     mergePath,
     hasMergeRules,
+    hasMergeMenu,
+    mergeRulesGridRows,
     MERGE_RULES,
     MERGE_REQUIRED,
     MERGE_EVALUATE,
@@ -60,6 +62,7 @@ function fixture() {
             { id: 'release-1',  type: 'release',        parentBuildId: 'main-b2',      parentBranchId: 'main',      nBuilds: 2 },
             { id: 'sample-1',   type: 'sample-release', parentBuildId: 'main-b1',      parentBranchId: 'main',      nBuilds: 1 },
             { id: 'dev-1',      type: 'development',     parentBuildId: 'main-b3',      parentBranchId: 'main',      nBuilds: 1 },
+            { id: 'dev-rel',    type: 'development',     parentBuildId: 'release-1-b2', parentBranchId: 'release-1', nBuilds: 1 },
             { id: 'csr-1',      type: 'csr',            parentBuildId: 'release-1-b1', parentBranchId: 'release-1', nBuilds: 1 },
             { id: 'csr-2',      type: 'csr',            parentBuildId: 'release-1-b2', parentBranchId: 'release-1', nBuilds: 1 },
             { id: 'hotfix-1',   type: 'hotfix',         parentBuildId: 'release-1-b2', parentBranchId: 'release-1', nBuilds: 1 },
@@ -92,6 +95,61 @@ describe('mergeEngine — rule table', () => {
         }
         expect(hasMergeRules('nope')).toBe(false);
     });
+
+    // req #2877 — the menu affordance narrows to the dev-branch scheme only.
+    it('hasMergeMenu is true only for dev-scheme branches (development/hotfix/bootleg)', () => {
+        for (const t of ['development', 'hotfix', 'bootleg']) {
+            expect(hasMergeMenu(t)).toBe(true);
+        }
+        for (const t of ['main', 'sample-release', 'release', 'csr', 'nope']) {
+            expect(hasMergeMenu(t)).toBe(false);
+        }
+    });
+
+    it('mergeRulesGridRows covers ALL branch types with merge rules, in display order', () => {
+        const rows = mergeRulesGridRows();
+        // Every branch type that has rules (main excluded), toolbar order.
+        expect(rows.map(r => r.type)).toEqual(
+            ['release', 'sample-release', 'hotfix', 'bootleg', 'csr', 'development']
+        );
+        // Row arity matches the underlying rule count.
+        for (const row of rows) {
+            expect(row.rules.length).toBe(MERGE_RULES[row.type].length);
+        }
+    });
+
+    it('mergeRulesGridRows tags mergesFrom: named-branch for dev-scheme, dev-branch otherwise', () => {
+        const rows = mergeRulesGridRows();
+        const byType = Object.fromEntries(rows.map(r => [r.type, r.mergesFrom]));
+        // Dev branches (development + bootleg/hotfix exceptions) merge from the named branch.
+        for (const t of ['development', 'hotfix', 'bootleg']) {
+            expect(byType[t]).toBe('Via named branch');
+        }
+        // Non-dev types merge via a dev branch taken off them.
+        for (const t of ['release', 'sample-release', 'csr']) {
+            expect(byType[t]).toBe('Via dev branch');
+        }
+    });
+
+    it('mergeRulesGridRows derives readable rules straight from MERGE_RULES', () => {
+        const rows = mergeRulesGridRows();
+        // Development → inherits its origin branch's rules (e.g. → main); the
+        // merge back to its own origin is assumed and not shown.
+        const dev = rows.find(r => r.type === 'development');
+        expect(dev.rules).toEqual([
+            { dest: 'Per origin-branch rules (e.g. → main)', kind: MERGE_REQUIRED, kindLabel: 'Mandatory' },
+        ]);
+        // Hot Fix → Mandatory main + two Evaluate merges (origin release + its CSRs).
+        const hotfix = rows.find(r => r.type === 'hotfix');
+        expect(hotfix.rules[0]).toEqual({ dest: 'main', kind: MERGE_REQUIRED, kindLabel: 'Mandatory' });
+        expect(hotfix.rules.filter(r => r.kind === MERGE_EVALUATE).map(r => r.kindLabel))
+            .toEqual(['Evaluate', 'Evaluate']);
+        // Sprint/Sample → single Mandatory merge to main.
+        const sample = rows.find(r => r.type === 'sample-release');
+        expect(sample.rules).toEqual([
+            { dest: 'main', kind: MERGE_REQUIRED, kindLabel: 'Mandatory' },
+        ]);
+    });
 });
 
 describe('mergeEngine — standard merges', () => {
@@ -108,8 +166,16 @@ describe('mergeEngine — standard merges', () => {
         expect(has(merges, MERGE_REQUIRED, 'release-1', 'main')).toBe(true);
     });
 
-    it('dev merges to its origin (parent) branch (required)', () => {
-        expect(has(merges, MERGE_REQUIRED, 'dev-1', 'main')).toBe(true);
+    // req #2877 — a dev branch inherits its scheme origin's rules; the merge back
+    // to its own origin is assumed and never drawn.
+    it('dev off main shows NO merge (merge to main is the assumed origin merge)', () => {
+        expect(merges.some(m => m.source === 'dev-1')).toBe(false);
+    });
+
+    it('dev off a release follows release rules → main (required), not back to the release', () => {
+        expect(has(merges, MERGE_REQUIRED, 'dev-rel', 'main')).toBe(true);
+        // The implicit merge back to its origin (release-1) is assumed, not drawn.
+        expect(merges.some(m => m.source === 'dev-rel' && m.dest === 'release-1')).toBe(false);
     });
 
     it('csr / hotfix / bootleg merge to main (required) + origin release + its CSRs (evaluate)', () => {
@@ -141,6 +207,45 @@ describe('mergeEngine — standard merges', () => {
     it('emits unique merge ids (deduped)', () => {
         const ids = merges.map(m => m.id);
         expect(new Set(ids).size).toBe(ids.length);
+    });
+});
+
+// req #2877 — a development branch INHERITS its scheme origin's rules (nearest
+// non-development ancestor). These cases lock the deeper inheritance paths.
+describe('mergeEngine — dev-branch scheme inheritance', () => {
+    it('dev off a dev off a release resolves to the release scheme → main', () => {
+        const model = makeModel({
+            mainBuilds: 3,
+            branchSpecs: [
+                { id: 'release-1', type: 'release',     parentBuildId: 'main-b2',      parentBranchId: 'main',      nBuilds: 2 },
+                { id: 'dev-outer', type: 'development', parentBuildId: 'release-1-b1', parentBranchId: 'release-1', nBuilds: 1 },
+                { id: 'dev-inner', type: 'development', parentBuildId: 'dev-outer-b1', parentBranchId: 'dev-outer', nBuilds: 1 },
+            ],
+        });
+        const merges = computeMerges({ model, layout: layoutOf(model) });
+        // Both dev branches follow release rules → main; neither merges to its own origin.
+        expect(has(merges, MERGE_REQUIRED, 'dev-inner', 'main')).toBe(true);
+        expect(merges.some(m => m.source === 'dev-inner' && m.dest === 'dev-outer')).toBe(false);
+        expect(has(merges, MERGE_REQUIRED, 'dev-outer', 'main')).toBe(true);
+        expect(merges.some(m => m.source === 'dev-outer' && m.dest === 'release-1')).toBe(false);
+    });
+
+    it('dev off a hotfix inherits the release scheme (main + origin release + its CSRs)', () => {
+        const model = makeModel({
+            mainBuilds: 3,
+            branchSpecs: [
+                { id: 'release-1', type: 'release',     parentBuildId: 'main-b2',      parentBranchId: 'main',      nBuilds: 2 },
+                { id: 'csr-1',     type: 'csr',         parentBuildId: 'release-1-b1', parentBranchId: 'release-1', nBuilds: 1 },
+                { id: 'hotfix-1',  type: 'hotfix',      parentBuildId: 'release-1-b2', parentBranchId: 'release-1', nBuilds: 1 },
+                { id: 'dev-hf',    type: 'development', parentBuildId: 'hotfix-1-b1',  parentBranchId: 'hotfix-1',  nBuilds: 1 },
+            ],
+        });
+        const merges = computeMerges({ model, layout: layoutOf(model) });
+        expect(has(merges, MERGE_REQUIRED, 'dev-hf', 'main')).toBe(true);          // required → main
+        expect(has(merges, MERGE_EVALUATE, 'dev-hf', 'release-1')).toBe(true);     // evaluate → origin release
+        expect(has(merges, MERGE_EVALUATE, 'dev-hf', 'csr-1')).toBe(true);         // evaluate → CSR on that release
+        // Never an arrow back to its own origin (the hotfix).
+        expect(merges.some(m => m.source === 'dev-hf' && m.dest === 'hotfix-1')).toBe(false);
     });
 });
 

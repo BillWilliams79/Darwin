@@ -3,6 +3,7 @@ import {
     DAY_HOURS, hoursFromRowMidnight, xPct36, xPctWin, semanticLevel,
     shiftDayStr, dayDelta, dateRange, isWeekend,
     buildModelContext, buildDayModel, recenterDecision, startGlyphPlacement,
+    durationDashed,
 } from '../konvaSwarmModel';
 
 const TZ = 'UTC';
@@ -330,5 +331,31 @@ describe('startGlyphPlacement — short-session swarm-start hug (req #2874)', ()
             { startPct: 50, markerMode: 'left' }, { ...geom, trueX: 99.5 },
         );
         expect(p.glyphX).toBe(79);
+    });
+});
+
+describe('durationDashed — dashed === inter-day only (req #2885)', () => {
+    it('same-day in-progress span is SOLID (started but not complete, not inter-day)', () => {
+        // The bug: a late-evening in-progress session rendered dashed and read as
+        // "crossed midnight / day ended". In-progress on its own day must be solid.
+        expect(durationDashed({ markerMode: 'inprogress', startClamped: false })).toBe(false);
+    });
+
+    it('clamped in-progress span is DASHED (started before this row window → inter-day)', () => {
+        expect(durationDashed({ markerMode: 'inprogress', startClamped: true })).toBe(true);
+    });
+
+    it('clamped completed span is DASHED (multi-day, started off-window)', () => {
+        expect(durationDashed({ markerMode: 'clamped', startClamped: true })).toBe(true);
+    });
+
+    it('normal same-day completed span is SOLID', () => {
+        expect(durationDashed({ markerMode: 'normal', startClamped: false })).toBe(false);
+    });
+
+    it('is robust to null/undefined chip', () => {
+        expect(durationDashed(null)).toBe(false);
+        expect(durationDashed(undefined)).toBe(false);
+        expect(durationDashed({})).toBe(false);
     });
 });
