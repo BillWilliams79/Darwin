@@ -166,6 +166,54 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         requirementDrop(node);
     }, [drag, requirementDrop]);
 
+    // req #2884 — dev-only, OPT-IN diagnostic for the intermittent template-title
+    // focus loss (root cause not yet identified; req re-opened when it reproduces).
+    // Silent by default so it never spams dev consoles. Enable in DevTools with:
+    //     window.__req2884Focus = true   (or localStorage.setItem('req2884Focus','1'))
+    // Then reproduce the focus loss and read the last [req2884] line:
+    //   • "UNMOUNTED WHILE FOCUSED" → the field REMOUNTED (reconciliation), not a steal.
+    //   • "BLURRED … activeElementAfter: X" → focus was STOLEN to element X.
+    const titleInputRef = useRef(null);
+    useEffect(() => {
+        if (!import.meta.env.DEV || !isTemplate) return;
+        const enabled = () => {
+            try {
+                return Boolean(window.__req2884Focus) || localStorage.getItem('req2884Focus') === '1';
+            } catch { return false; }
+        };
+        const el = titleInputRef.current;
+        if (!el) return;
+        const describe = (n) => {
+            if (!n) return String(n);
+            if (n === document.body) return 'document.body';
+            const testid = n.closest?.('[data-testid]')?.getAttribute('data-testid');
+            return `${n.tagName.toLowerCase()}${testid ? `[testid=${testid}]` : ''}${n.name ? `[name=${n.name}]` : ''}`;
+        };
+        const onBlur = (e) => {
+            if (!enabled()) return;
+            const related = e.relatedTarget;
+            // Defer one tick so document.activeElement settles after the blur.
+            setTimeout(() => {
+                // eslint-disable-next-line no-console
+                console.warn('[req2884] template title BLURRED', {
+                    stillInDOM: document.contains(el),
+                    relatedTarget: describe(related),
+                    activeElementAfter: describe(document.activeElement),
+                });
+            }, 0);
+        };
+        el.addEventListener('blur', onBlur);
+        return () => {
+            el.removeEventListener('blur', onBlur);
+            // If this fires while the field is focused, the field REMOUNTED (focus loss
+            // by reconciliation), not a steal.
+            if (enabled() && document.activeElement === el) {
+                // eslint-disable-next-line no-console
+                console.warn('[req2884] template title UNMOUNTED WHILE FOCUSED → remount caused the focus loss');
+            }
+        };
+    }, [isTemplate]);
+
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
     const status = requirement.requirement_status;
@@ -396,6 +444,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...((status === 'deferred' || status === 'wontfix') && {opacity: 0.5}),}}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
+                        inputRef={isTemplate ? titleInputRef : undefined}
                         key={`title-${requirement.id}`}
              />
 

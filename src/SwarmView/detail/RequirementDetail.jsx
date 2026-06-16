@@ -119,6 +119,18 @@ const RequirementDetail = () => {
     const descriptionInputRef = useRef(null);
     const [focusDescriptionPending, setFocusDescriptionPending] = useState(false);
 
+    // Req #2884: the Category <Select> is gated behind the categories query
+    // (`allCategories ? <Select autoFocus={categoryUnset}/> : —`). On a cold load
+    // it mounts only once `useAllCategories` resolves, and `autoFocus` fires at
+    // that (late) mount — yanking focus away from the Title/Description field the
+    // user already clicked into. Track whether the user has focused an editable
+    // field first; if so, the late-mounting select must NOT auto-focus. The flag
+    // is a ref because `autoFocus` is consulted only at the select's mount render
+    // (driven by the query resolving), so the ref value at that moment is exactly
+    // the signal we need — and we don't want to trigger an extra re-render.
+    const userInteractedRef = useRef(false);
+    const markUserInteracted = () => { userInteractedRef.current = true; };
+
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
@@ -439,6 +451,7 @@ const RequirementDetail = () => {
                     onChange={(e) => setRequirement(prev => ({ ...prev, title: e.target.value }))}
                     onBlur={handleTitleBlur}
                     onKeyDown={handleTitleKeyDown}
+                    onFocus={markUserInteracted}  // req #2884 — block late select autofocus steal
                     fullWidth
                     autoComplete="off"
                     slotProps={{
@@ -594,7 +607,10 @@ const RequirementDetail = () => {
                         // "new" case) focus the category select, not description. The user
                         // presses ArrowDown to open the list, picks a category, and then
                         // lands in description (which autofocuses once a category is set).
-                        autoFocus={categoryUnset}
+                        // Req #2884: suppress this if the user already focused a field — the
+                        // select mounts late (after the categories query resolves) and would
+                        // otherwise steal focus from the field being typed in.
+                        autoFocus={categoryUnset && !userInteractedRef.current}
                         value={requirement.category_fk || ''}
                         onChange={handleCategoryChange}
                         displayEmpty
@@ -642,11 +658,12 @@ const RequirementDetail = () => {
                     value={requirement.description || ''}
                     onChange={(e) => setRequirement(prev => ({ ...prev, description: e.target.value }))}
                     onBlur={handleDescriptionBlur}
+                    onFocus={markUserInteracted}  // req #2884 — block late select autofocus steal
                     fullWidth
                     multiline
                     minRows={3}
                     autoComplete="off"
-                    autoFocus={!categoryUnset}
+                    autoFocus={!categoryUnset && !userInteractedRef.current}
                     inputRef={descriptionInputRef}
                     size="small"
                     data-testid="requirement-description"
