@@ -711,4 +711,9 @@ const KonvaBuildCanvas = ({
 // re-render the canvas and make react-konva needlessly recompute the hit graph.
 // All props from the page are referentially stable (useCallback/useMemo + stable
 // setters), so the canvas only re-renders on real input/zoom/level changes.
+//
+// req #2883 — the release datacard (formerly the canvas-local `ReleaseCard`,
+// off-screen-clamped by req #2879) was lifted into a page-owned MUI Popover. The
+// Popover keeps itself on-screen via `marginThreshold`, so #2879's fix is
+// preserved without a hand-rolled clamp here.
 export default memo(KonvaBuildCanvas);

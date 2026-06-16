@@ -390,6 +390,31 @@ describe('buildCrossDayMap (multi-day session pass-through, req #2798)', () => {
         expect(start.card.swarmStart).toEqual(ssRow);
     });
 
+    it('keys the cross-day decision on the canonical swarm_start anchor, not session.started_at (req #2878)', () => {
+        // Primary-fix regression: a primary session's row is stamped at closeout,
+        // so session.started_at lands on the COMPLETION day (D2 00:19) while the
+        // swarm_start birth record sits on the PRIOR day (D1 23:11) — they straddle
+        // midnight. Before the fix, startDay was computed from session.started_at
+        // (D2) → startDay === endDay (D2) → the span was dropped and the swarm-start
+        // glyph rendered nowhere. The canonical anchor (D1) must drive the decision.
+        const ssRow = { id: 600, started_at: `${D1} 23:11:00`, session_count: 1 };
+        const map = buildCrossDayMap([D1, D2], {
+            requirements: [{ id: 1, completed_at: `${D2} 00:19:00`, title: 'X', category_fk: 1 }],
+            // session row stamped at closeout — SAME day as completion
+            sessions: [{ id: 10, source_ref: 'requirement:1', started_at: `${D2} 00:19:00` }],
+            categoryList: CATS, timezone: TZ, startXPct: () => 96,
+            canonicalStartById: new Map([['10', `${D1} 23:11:00`]]),
+            swarmStartIdById: new Map([['10', 600]]),
+            swarmStartById: new Map([['10', ssRow]]),
+        });
+        // Glyph emitted on the prior day, terminated by the bead on the completion day.
+        expect(map.get(D1)).toHaveLength(1);
+        expect(map.get(D1)[0].role).toBe('start');
+        expect(map.get(D1)[0].pct).toBe(96);
+        expect(map.get(D1)[0].card.swarmStartId).toBe(600);
+        expect(map.has(D2)).toBe(false);   // completion bubble terminates the line
+    });
+
     it('draws one line for a session linked to multiple swarm-starts', () => {
         const map = buildCrossDayMap([D1, D2, D3], {
             requirements: [],
