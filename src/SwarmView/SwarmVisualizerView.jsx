@@ -160,8 +160,10 @@ const SwarmVisualizerView = () => {
     // whose session has an active, associated dev server. The table holds only
     // currently-claimed servers (released ones are deleted), so a row's mere
     // presence means "active". Small projection: id + port + session link + the
-    // terminal number for the hover card. Reads route through `darwinUri` so a
-    // dev build sees seeded `darwin_dev` rows (req #2827).
+    // terminal number for the hover card. Reads route through `darwinOpsUri`
+    // (always production `darwin`) per the req #2871 dev_servers carve-out — this
+    // table is live machine state written by the MCP claim_dev_server tool, never
+    // a seeded `darwin_dev` fixture, so a dev build reads the real claims.
     const { data: devServers = [] } = useDevServers(
         profile?.userName,
         { fields: 'id,port,session_fk,terminal_number,started_at' },
