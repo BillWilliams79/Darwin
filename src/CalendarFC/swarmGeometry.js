@@ -255,10 +255,21 @@ export const buildCrossDayMap = (dates, {
     // Emit start/middle entries for one multi-day span across the visible dates.
     const emitSpan = (s, r, endDay, inProgress) => {
         if (!s || !s.started_at || !endDay) return;
-        const startDay = toLocaleDateString(s.started_at, timezone);
-        if (!startDay || startDay >= endDay) return;   // single-day / nonsensical
         const sKey = String(s.id);
+        // Decide whether the span crosses days from the CANONICAL start
+        // (swarm_start.started_at) — the same anchor that positions the glyph,
+        // duration line, cluster groupKey, and the completion bead's start-clamp.
+        // A primary-fix session's row is stamped at closeout, so its
+        // session.started_at can land on the completion day while the swarm_start
+        // birth record sits on the prior day (req #2878 — straddling midnight).
+        // Keying startDay off session.started_at made startDay === endDay → the
+        // span was dropped and the swarm-start glyph rendered nowhere (clamped off
+        // the completion-day window AND never emitted on the real start day).
+        // Falls back to s.started_at when no canonical map is supplied, so
+        // legacy/estimated callers keep their prior single-vs-multi-day behavior.
         const canonicalStart = canonicalStartById?.get(sKey) ?? s.started_at;
+        const startDay = toLocaleDateString(canonicalStart, timezone);
+        if (!startDay || startDay >= endDay) return;   // single-day / nonsensical
         const swarmStartId  = swarmStartIdById?.get(sKey) ?? null;
         const swarmStartRow = swarmStartById?.get(sKey) ?? null;
         const cat = r ? catById.get(r.category_fk) : null;
