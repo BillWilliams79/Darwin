@@ -640,3 +640,42 @@ describe('main endpoint labels', () => {
         expect(layout.mainEndpointLabels.rightText).toBeNull();
     });
 });
+
+// ---------------------------------------------------------------------------
+// 7. COLLAPSE TOKENS — semantic-zoom sentinels in buildIds (req #2864).
+//    A `__gap__:…` id consumes one column like a real build but emits a
+//    collapseTokens entry instead of a build record. Absent any sentinel the
+//    output is byte-identical to the pre-#2864 engine.
+// ---------------------------------------------------------------------------
+describe('collapse tokens — __gap__ sentinels', () => {
+    it('emits an empty collapseTokens array and unchanged geometry with no sentinels', () => {
+        const model = makeModel({ mainBuilds: 6 });
+        const layout = computeLayout(model);
+        expect(layout.collapseTokens).toEqual([]);
+        expect(layout.builds.length).toBe(6);
+    });
+
+    it('treats a sentinel as a positioned token, not a build dot, and compacts', () => {
+        // main = m1, __gap__, m4, m5 → 4 columns; the gap sits at column index 1.
+        const model = makeModel({ mainBuilds: 5 });
+        const main = model.branches.find(b => b.type === 'main');
+        const gap = '__gap__:main:m2:m3';
+        main.buildIds = ['m1', gap, 'm4', 'm5'];
+
+        const layout = computeLayout(model);
+        // m2/m3 are no longer in buildIds → not rendered as dots.
+        const ids = layout.builds.map(b => b.id).sort();
+        expect(ids).toEqual(['m1', 'm4', 'm5']);
+        // exactly one collapse token, positioned in the gap column.
+        expect(layout.collapseTokens.length).toBe(1);
+        const tok = layout.collapseTokens[0];
+        expect(tok.id).toBe(gap);
+        expect(tok.branchId).toBe('main');
+        const m1 = layout.builds.find(b => b.id === 'm1');
+        const m4 = layout.builds.find(b => b.id === 'm4');
+        // gap x sits strictly between m1 and m4 (one column each).
+        expect(tok.x).toBeGreaterThan(m1.x);
+        expect(tok.x).toBeLessThan(m4.x);
+        expect(tok.y).toBe(layout.mainY);
+    });
+});

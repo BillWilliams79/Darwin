@@ -39,6 +39,7 @@
 
 import { hierarchy } from 'd3-hierarchy';
 import { formatVersion, fromModelBuild } from './versionEngine';
+import { isGapId } from './semanticModel';
 
 export const REGISTRY = {
     main:             { label: 'Main',                 dotRadius: 5.5, defaultSide: 'center' },
@@ -209,7 +210,7 @@ export function computeLayout(model, opts = {}) {
         return {
             branches: [], builds: [], connectors: [],
             mainPath: null, mainEndpointLabels: null,
-            strata: [], emptyAnchors: [],
+            strata: [], emptyAnchors: [], collapseTokens: [],
             width: 800, height: 200, mainY: 0,
         };
     }
@@ -527,12 +528,24 @@ export function computeLayout(model, opts = {}) {
     }
 
     // ─── Step 7. Build records ─────────────────────────────────────────
+    // A `__gap__:…` sentinel id in a branch's buildIds is a semantic-zoom
+    // collapse token (req #2864): it consumes one column like a real build (so
+    // remaining builds pack tighter) but renders as a clickable "…" instead of a
+    // dot. It has a position (set in Steps 1/4) but no buildsMap entry, so it is
+    // captured into `collapseTokens` here and skipped for build records. When no
+    // sentinels are present this branch is never taken and the output is
+    // byte-identical to the pre-#2864 engine.
     const buildRecords = [];
+    const collapseTokens = [];
     for (const b of branches) {
         if (isHidden(b.id)) continue;
         const r = dotRadiusFor(b.type);
         (b.buildIds || []).forEach((bid, i) => {
             const pos = positions[bid];
+            if (isGapId(bid)) {
+                if (pos) collapseTokens.push({ id: bid, branchId: b.id, x: pos.x, y: pos.y });
+                return;
+            }
             const data = buildsMap[bid];
             if (!pos || !data) return;
             const laneOffset = (o.versionLanes && i % 2 === 1) ? o.versionLaneGap : 0;
@@ -684,6 +697,7 @@ export function computeLayout(model, opts = {}) {
         mainEndpointLabels,
         strata: strataBands,
         emptyAnchors,
+        collapseTokens,
         width: totalWidth,
         height: totalHeight,
         mainY,
