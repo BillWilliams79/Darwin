@@ -32,7 +32,7 @@ import HoldCountButton from './HoldCountButton';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
 import { BRANCH_TYPES, branchTypeLabel } from './branchTypeChipStyles';
-import { hasMergeRules } from './mergeEngine';
+import { hasMergeMenu } from './mergeEngine';
 import { REGISTRY } from './d3LayoutEngine';
 import {
     nextBuildVersion,
@@ -1284,9 +1284,11 @@ const BuildVisualizerPage = () => {
                         {/* Per-branch merge view (req #2603). Toggles this
                             build's branch in the merge-branch set so only the
                             chosen branches' arrows render — merges are reasoned
-                            about one branch at a time, not all at once. Hidden
-                            on main (no merge rules). */}
-                        {dotMenuBranch && hasMergeRules(dotMenuBranch.type) && (
+                            about one branch at a time, not all at once. Under
+                            req #2877 the affordance is offered ONLY for dev-scheme
+                            branches (development + the bootleg/hotfix exceptions);
+                            non-dev branches no longer expose a show/hide option. */}
+                        {dotMenuBranch && hasMergeMenu(dotMenuBranch.type) && (
                             <>
                                 <Divider />
                                 <MenuItem
@@ -1595,9 +1597,10 @@ const BuildVisualizerPage = () => {
                                 )}
                             </Typography>
                             {/* Per-branch merge view (req #2603) — show this
-                                branch's required/evaluate merge arrows. Hidden on
-                                main (no merge rules). */}
-                            {hasMergeRules(branchEditorBranch.type) && (
+                                branch's required/evaluate merge arrows. Under req
+                                #2877 offered ONLY for dev-scheme branches
+                                (development + bootleg/hotfix exceptions). */}
+                            {hasMergeMenu(branchEditorBranch.type) && (
                                 <FormControlLabel
                                     sx={{ mt: 1, ml: 0 }}
                                     control={(
