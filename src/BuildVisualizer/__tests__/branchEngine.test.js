@@ -36,9 +36,9 @@ describe('CREATABLE_TYPES', () => {
 // ALLOWED_CHILDREN matrix — allowedChildTypes (returns ordered array)
 // ---------------------------------------------------------------------------
 describe('allowedChildTypes — section 4.7 matrix', () => {
-    it('main allows all six creatable types', () => {
+    it('main allows all creatable types except csr (csr is release-only, req #2603)', () => {
         expect(allowedChildTypes('main')).toEqual([
-            'sample-release', 'release', 'csr', 'development', 'hotfix', 'bootleg',
+            'sample-release', 'release', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
@@ -118,6 +118,14 @@ describe('canCreate — representative matrix cells', () => {
     // hotfix->hotfix chain IS allowed
     it('hotfix->hotfix chaining is allowed', () => {
         expect(canCreate('hotfix', 'hotfix').allowed).toBe(true);
+    });
+
+    // csr is release-only (req #2603): allowed off a release, blocked off main.
+    it('release can create csr', () => {
+        expect(canCreate('release', 'csr').allowed).toBe(true);
+    });
+    it('main cannot create csr (csr is release-only)', () => {
+        expect(canCreate('main', 'csr').allowed).toBe(false);
     });
 
     // sample-release CANNOT create release or csr

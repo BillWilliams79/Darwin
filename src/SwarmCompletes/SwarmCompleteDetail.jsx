@@ -37,17 +37,7 @@ import TableCell from '@mui/material/TableCell';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { DataGrid } from '@mui/x-data-grid';
-
-const coordinationChipProps = (filter) => {
-    if (!filter) return null;
-    switch (filter) {
-        case 'discuss':     return { sx: { bgcolor: '#f48fb1', color: '#000' } };
-        case 'planned':     return { sx: { bgcolor: '#90caf9', color: '#000' } };
-        case 'implemented': return { sx: { bgcolor: '#a5d6a7', color: '#000' } };
-        case 'deployed':    return { sx: { bgcolor: '#ce93d8', color: '#000' } };
-        default:            return { color: 'default' };
-    }
-};
+import { coordinationChipProps } from '../SwarmView/coordinationChipStyles';
 
 const statusChipProps = (status) => {
     switch (status) {

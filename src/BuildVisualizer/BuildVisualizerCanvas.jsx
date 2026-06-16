@@ -12,6 +12,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { computeLayout } from './d3LayoutEngine';
+import { computeMerges, MERGE_EVALUATE, MERGE_DAYZERO } from './mergeEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 import { computeHiddenBranchIds } from './visibilityRules';
 import paletteFor from './d3ThemePalettes';
@@ -24,6 +25,10 @@ import {
 
 const ARROW_ID = 'bv-d3-arrow';
 const ARROW_WHISPY_ID = 'bv-d3-arrow-whispy';
+// req #2603 — merge-arrow markers. Two colors (standard vs day-zero); the
+// required/evaluate distinction is carried by the path dash, not the marker.
+const MERGE_ARROW_ID = 'bv-d3-merge-arrow';
+const MERGE_DAYZERO_ARROW_ID = 'bv-d3-merge-arrow-dayzero';
 
 // frameView imported from './frameStrategies' — single source of truth (req #2741).
 // See that module for FRAME_STRATEGIES and the centerMain algorithm.
@@ -152,6 +157,8 @@ const BuildVisualizerCanvas = ({
     showReleases,
     showBuildAt,
     showAcceptanceTests,
+    mergeBranchIds,
+    dayZeroBuildIds,
     appMode,
     darkVariant,
     onBuildClick,
@@ -188,6 +195,15 @@ const BuildVisualizerCanvas = ({
             },
         ),
         [model, staggerOn, atShown, showBuildAt, hiddenBranchIds],
+    );
+
+    // req #2603 — derive the merge arrows from the tree + layout. Day-zero
+    // arrows are always present in the set; the toggle only gates the standard
+    // required/evaluate arrows at render time (below). Recompute when the
+    // layout or the day-zero declaration set changes.
+    const merges = useMemo(
+        () => computeMerges({ model, layout, dayZeroBuildIds }),
+        [model, layout, dayZeroBuildIds],
     );
 
     // branch extId → display name, for the release hover tooltip.
@@ -414,6 +430,13 @@ const BuildVisualizerCanvas = ({
                     <marker id={ARROW_WHISPY_ID} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                         <path d="M0,0 L10,5 L0,10 z" fill={palette.lineWhispy} />
                     </marker>
+                    {/* req #2603 — merge arrowheads */}
+                    <marker id={MERGE_ARROW_ID} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                        <path d="M0,0 L10,5 L0,10 z" fill={palette.merge} />
+                    </marker>
+                    <marker id={MERGE_DAYZERO_ARROW_ID} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+                        <path d="M0,0 L10,5 L0,10 z" fill={palette.mergeDayZero} />
+                    </marker>
                 </defs>
 
                 {/* 0. Stratum bands — per-stratum background tint (req #2720) */}
@@ -477,6 +500,34 @@ const BuildVisualizerCanvas = ({
                             />
                         </g>
                     ))}
+                </g>
+
+                {/* 1b. Merge arrows (req #2603). Day-zero arrows (red) ALWAYS
+                   render; standard required (solid) / evaluate (dashed) arrows
+                   render per-branch — only for branches whose merge view is
+                   toggled on (`mergeBranchIds`, keyed by the SOURCE branch).
+                   pointerEvents:none so arrows never steal hover/clicks from
+                   dots underneath. */}
+                <g className="merges" style={{ pointerEvents: 'none' }}>
+                    {merges
+                        .filter(m => m.kind === MERGE_DAYZERO
+                            || (mergeBranchIds instanceof Set && mergeBranchIds.has(m.source)))
+                        .map(m => {
+                            const dayZero = m.kind === MERGE_DAYZERO;
+                            return (
+                                <path
+                                    key={m.id}
+                                    d={m.d}
+                                    fill="none"
+                                    stroke={dayZero ? palette.mergeDayZero : palette.merge}
+                                    strokeWidth={dayZero ? 1.8 : 1.4}
+                                    strokeDasharray={m.kind === MERGE_EVALUATE ? '6 4' : undefined}
+                                    opacity={0.9}
+                                    markerEnd={`url(#${dayZero ? MERGE_DAYZERO_ARROW_ID : MERGE_ARROW_ID})`}
+                                    data-merge-kind={m.kind}
+                                />
+                            );
+                        })}
                 </g>
 
                 {/* 2. Labels */}

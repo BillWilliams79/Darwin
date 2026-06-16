@@ -20,6 +20,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
+import { COORDINATION_COLOR } from '../coordinationChipStyles';
 import { formatDuration } from '../../utils/formatDuration';
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -556,10 +557,10 @@ const RequirementDetail = () => {
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
                             {[
-                                { value: 'discuss',     label: 'Discuss Req', chipSx: { bgcolor: '#f48fb1', color: '#000' } },
-                                { value: 'planned',     label: 'Planned',     chipSx: { bgcolor: '#90caf9', color: '#000' } },
-                                { value: 'implemented', label: 'Implemented', chipSx: { bgcolor: '#4caf50', color: '#fff' } },
-                                { value: 'deployed',    label: 'Deployed',    chipSx: { bgcolor: '#b39ddb', color: '#000' } },
+                                { value: 'discuss',     label: 'Discuss Req', chipSx: { bgcolor: COORDINATION_COLOR.discuss,     color: '#000' } },
+                                { value: 'planned',     label: 'Planned',     chipSx: { bgcolor: COORDINATION_COLOR.planned,     color: '#000' } },
+                                { value: 'implemented', label: 'Implemented', chipSx: { bgcolor: COORDINATION_COLOR.implemented, color: '#000' } },
+                                { value: 'deployed',    label: 'Deployed',    chipSx: { bgcolor: COORDINATION_COLOR.deployed,    color: '#000' } },
                             ].map(({ value, label, color, chipSx }) => {
                                 const selected = requirement.coordination_type === value;
                                 return (

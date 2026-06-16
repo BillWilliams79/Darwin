@@ -1,4 +1,4 @@
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -7,13 +7,18 @@ import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
+import {
+    loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
+} from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
+import { useNavCollapseStore } from '../stores/useNavCollapseStore';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
 import BottomNavigationAction from '@mui/material/BottomNavigationAction';
 import Box from '@mui/material/Box';
+import Collapse from '@mui/material/Collapse';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
@@ -23,12 +28,18 @@ import ListItemText from '@mui/material/ListItemText';
 import ListSubheader from '@mui/material/ListSubheader';
 import Paper from '@mui/material/Paper';
 import Toolbar from '@mui/material/Toolbar';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import VerticalAlignTopIcon from '@mui/icons-material/VerticalAlignTop';
+import VerticalAlignBottomIcon from '@mui/icons-material/VerticalAlignBottom';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
@@ -48,6 +59,23 @@ const NavBarSidebar = () => {
 
     const [collapsed, setCollapsed] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+    // req #2870: which in-navbar representation of the collapse control to show.
+    const placement = useNavCollapseStore(s => s.placement);
+    const setPlacement = useNavCollapseStore(s => s.setPlacement);
+
+    // Per-group collapsed state (req #2869). Clicking a group header hides/shows
+    // its child links — purely visual, routes are unaffected. Seeded from and
+    // persisted to localStorage so the choice survives reloads.
+    const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
+    // Persist outside the reducer so the localStorage write stays a clean
+    // side effect (and doesn't double-fire under StrictMode's reducer replay).
+    useEffect(() => {
+        persistCollapsedGroups(collapsedGroups);
+    }, [collapsedGroups]);
+    const toggleGroup = (id) => {
+        setCollapsedGroups((prev) => toggleGroupCollapsed(prev, id));
+    };
 
     // Dev-only: surface this dev server's terminal_number in the sidebar InfoBlock.
     // Match by current browser port; works in both worker and primary dev sessions.
@@ -142,7 +170,103 @@ const NavBarSidebar = () => {
         );
     };
 
-    // ── Desktop: sidebar with edge collapse arrow ──
+    // req #2870: collapse/expand control, now rendered INSIDE the navbar.
+    const collapseChevron = collapsed
+        ? <ChevronRightIcon sx={{ fontSize: 18 }} />
+        : <ChevronLeftIcon sx={{ fontSize: 18 }} />;
+    const collapseLabel = collapsed ? 'Expand' : 'Collapse';
+
+    // Header representation — a compact chevron IconButton living in the header row.
+    const renderHeaderCollapse = (showText) => (
+        <Tooltip title={collapseLabel} placement="right">
+            <IconButton
+                onClick={() => setCollapsed(c => !c)}
+                size="small"
+                data-testid="navbar-collapse-toggle"
+                aria-label={collapseLabel}
+                sx={{
+                    p: 0.25,
+                    ml: showText ? 'auto' : 0,
+                    color: 'rgba(255,255,255,0.7)',
+                    '&:hover': { color: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+            >
+                {collapseChevron}
+            </IconButton>
+        </Tooltip>
+    );
+
+    // Footer representation — a full-width row pinned at the bottom of the sidebar.
+    const renderFooterCollapse = (showText) => {
+        const button = (
+            <ListItemButton
+                onClick={() => setCollapsed(c => !c)}
+                data-testid="navbar-collapse-toggle"
+                aria-label={collapseLabel}
+                sx={{
+                    py: 0.6,
+                    px: showText ? 1.5 : 1,
+                    minHeight: 36,
+                    justifyContent: showText ? 'initial' : 'center',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+            >
+                <ListItemIcon sx={{
+                    color: 'rgba(255,255,255,0.7)',
+                    minWidth: showText ? 32 : 'auto',
+                    justifyContent: 'center',
+                }}>
+                    {collapseChevron}
+                </ListItemIcon>
+                {showText && (
+                    <ListItemText
+                        primary={collapseLabel}
+                        primaryTypographyProps={{
+                            fontSize: 15,
+                            color: 'rgba(255,255,255,0.7)',
+                        }}
+                    />
+                )}
+            </ListItemButton>
+        );
+        return showText ? button : (
+            <Tooltip title={collapseLabel} placement="right">{button}</Tooltip>
+        );
+    };
+
+    // The UI option: pick where the collapse control lives. Only shown expanded.
+    const renderPlacementToggle = () => (
+        <Box sx={{ px: 1.5, py: 1, display: 'flex', justifyContent: 'center' }}>
+            <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={placement}
+                onChange={(_, value) => value && setPlacement(value)}
+                aria-label="collapse button placement"
+                sx={{
+                    '& .MuiToggleButton-root': {
+                        color: 'rgba(255,255,255,0.6)',
+                        borderColor: 'rgba(255,255,255,0.2)',
+                        px: 1,
+                        py: 0.25,
+                    },
+                    '& .Mui-selected': {
+                        color: `${ACCENT} !important`,
+                        bgcolor: `${BG_ACTIVE} !important`,
+                    },
+                }}
+            >
+                <ToggleButton value="header" data-testid="navbar-placement-header" aria-label="header placement">
+                    <Tooltip title="Collapse button in header"><VerticalAlignTopIcon sx={{ fontSize: 18 }} /></Tooltip>
+                </ToggleButton>
+                <ToggleButton value="footer" data-testid="navbar-placement-footer" aria-label="footer placement">
+                    <Tooltip title="Collapse button in footer"><VerticalAlignBottomIcon sx={{ fontSize: 18 }} /></Tooltip>
+                </ToggleButton>
+            </ToggleButtonGroup>
+        </Box>
+    );
+
+    // ── Desktop: sidebar with in-navbar collapse control ──
     if (isDesktop) {
         const showText = !collapsed;
         const width = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
@@ -164,8 +288,15 @@ const NavBarSidebar = () => {
                         width,
                         transition: 'width 0.2s ease',
                     }}>
-                            {/* Bicycle menu trigger + Darwin title */}
-                            <Box sx={{ px: 1.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            {/* Bicycle menu trigger + Darwin title (+ header collapse chevron) */}
+                            <Box sx={{
+                                px: 1.5,
+                                py: 1.5,
+                                display: 'flex',
+                                flexDirection: showText ? 'row' : 'column',
+                                alignItems: 'center',
+                                gap: 0.75,
+                            }}>
                                 <IconButton
                                     onClick={handleBikeClick}
                                     size="small"
@@ -185,29 +316,58 @@ const NavBarSidebar = () => {
                                         </Typography>
                                     </Link>
                                 )}
+                                {placement === 'header' && renderHeaderCollapse(showText)}
                             </Box>
 
                             {/* Primary nav links */}
                             <List sx={{ pt: 0, pb: 0 }}>
                                 {visibleGroups.map((group) => {
                                     const groupLinks = visibleLinks.filter(l => l.group === group.id);
+                                    // A group is collapsible only when its header is visible
+                                    // (expanded sidebar + non-empty label). The calendar group
+                                    // has no label, so its single link always shows.
+                                    const hasHeader = showText && !!group.label;
+                                    const isCollapsed = hasHeader && !!collapsedGroups[group.id];
                                     return (
                                         <React.Fragment key={group.id}>
-                                            {showText && group.label && (
-                                                <ListSubheader sx={{
-                                                    bgcolor: 'transparent',
-                                                    color: 'rgba(255,255,255,0.5)',
-                                                    fontSize: 12,
-                                                    fontWeight: 700,
-                                                    letterSpacing: 1.5,
-                                                    lineHeight: '28px',
-                                                    pl: 1.5,
-                                                    mt: 0.5,
-                                                }}>
+                                            {hasHeader && (
+                                                <ListSubheader
+                                                    onClick={() => toggleGroup(group.id)}
+                                                    data-testid={`nav-group-header-${group.id}`}
+                                                    role="button"
+                                                    aria-expanded={!isCollapsed}
+                                                    sx={{
+                                                        bgcolor: 'transparent',
+                                                        color: 'rgba(255,255,255,0.5)',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        letterSpacing: 1.5,
+                                                        lineHeight: '28px',
+                                                        pl: 1.5,
+                                                        pr: 1,
+                                                        mt: 0.5,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        cursor: 'pointer',
+                                                        userSelect: 'none',
+                                                        '&:hover': { color: 'rgba(255,255,255,0.85)' },
+                                                    }}
+                                                >
                                                     {group.label}
+                                                    {isCollapsed
+                                                        ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                                                        : <ExpandLessIcon sx={{ fontSize: 16 }} />
+                                                    }
                                                 </ListSubheader>
                                             )}
-                                            {groupLinks.map((link) => renderNavItem(link, showText))}
+                                            {hasHeader ? (
+                                                <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
+                                                    {groupLinks.map((link) => renderNavItem(link, showText))}
+                                                </Collapse>
+                                            ) : (
+                                                groupLinks.map((link) => renderNavItem(link, showText))
+                                            )}
                                         </React.Fragment>
                                     );
                                 })}
@@ -282,34 +442,14 @@ const NavBarSidebar = () => {
                                     </Typography>
                                 </Box>
                             )}
-                    </Box>
 
-                    {/* Google Maps-style edge collapse tab */}
-                    <Box
-                        onClick={() => setCollapsed(c => !c)}
-                        sx={{
-                            position: 'fixed',
-                            left: width,
-                            top: '50vh',
-                            transform: 'translateY(-50%)',
-                            zIndex: 1201,
-                            width: 12,
-                            height: 32,
-                            borderRadius: '0 6px 6px 0',
-                            bgcolor: '#555',
-                            color: 'rgba(255,255,255,0.7)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            '&:hover': { bgcolor: '#777', color: 'white', width: 16 },
-                            transition: 'left 0.2s ease, width 0.15s ease, background-color 0.15s ease',
-                        }}
-                    >
-                        {collapsed
-                            ? <ChevronRightIcon sx={{ fontSize: 14 }} />
-                            : <ChevronLeftIcon sx={{ fontSize: 14 }} />
-                        }
+                            {/* Bottom region — footer collapse control (when chosen)
+                                + the placement option toggle. Pinned to the bottom
+                                of the sidebar via mt:auto (req #2870). */}
+                            <Box sx={{ mt: 'auto', flexShrink: 0 }}>
+                                {placement === 'footer' && renderFooterCollapse(showText)}
+                                {showText && renderPlacementToggle()}
+                            </Box>
                     </Box>
                 </Box>
                 {profileDialog}

@@ -11,6 +11,7 @@ import { useTaskActions } from '../../hooks/useTaskActions';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
+import { alpha } from '@mui/material/styles';
 
 import IconButton from '@mui/material/IconButton';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -126,7 +127,12 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
              key={`box-${task.id}`}
              ref={task.id === '' ? null :
                   supportDrag === false ? null : mergedRef}
-             sx = {{
+             sx = {(theme) => ({
+                 // Smooth every DnD-driven visual change so drops/reorders glide
+                 // instead of snapping. (Layout reflow of siblings is still instant —
+                 // the dominant remaining jank; see req #1923 findings re: dnd-kit.)
+                 transition: 'opacity 160ms ease, height 160ms ease, padding 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
+                 borderRadius: 1,
                  ...(isDragging && sortMode === 'hand' && {
                     height: 0,
                     minHeight: 0,
@@ -136,9 +142,20 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
                     opacity: 0,
                 }),
                  ...(isDragging && sortMode !== 'hand' && { opacity: 0.2 }),
-                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
-                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
-             }}
+                 // Insertion target: tint the whole row so the drop location reads
+                 // clearly ("color of the inserted card should be different" — req #1923),
+                 // and draw the position bar with an inset box-shadow so it does NOT
+                 // shift layout the way a 4px border did.
+                 ...(insertIndicator && {
+                    backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                }),
+                 ...(insertIndicator === 'above' && {
+                    boxShadow: `inset 0 3px 0 0 ${theme.palette.primary.main}`,
+                }),
+                 ...(insertIndicator === 'below' && {
+                    boxShadow: `inset 0 -3px 0 0 ${theme.palette.primary.main}`,
+                }),
+             })}
         >
             <Checkbox
                 checked = {task.priority ? true : false}

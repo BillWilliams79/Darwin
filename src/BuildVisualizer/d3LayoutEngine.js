@@ -115,11 +115,12 @@ export const DEFAULT_OPTS = {
     // treated as overlapping when within this many px of each other so an
     // arrow tip doesn't touch the next branch's curve landing.
     collisionGutter: 4,
-    // Length of the tail line past the last build dot, in colW units.
-    // Halved from the prior 0.7 (req #2694 follow-up) so dev branches
-    // with many builds don't bleed visual weight into the column to their
-    // right. Tighter tail = more breathing room without losing the arrow.
-    arrowExtColumns: 0.35,
+    // Length of the tail line + arrow past the last build dot, in colW units.
+    // UNIFORM across every branch — main, sub-branches, and empty branches all
+    // use this one value so the follow-on piece is identical everywhere (req
+    // #2603 follow-up). Matches main's historical 0.9 (main is the reference the
+    // user calibrates against); the main trunk path reads the same constant.
+    arrowExtColumns: 0.9,
     versionCloseOffset: 12,
     versionLaneGap: 12,
     versionLanes: true,
@@ -149,8 +150,9 @@ function horizontalExtentFor(branch, parentX, opts) {
     // Empty branches extend to the first-build slot (parentX + colW) so the
     // arrow sits where the first build would land — matching the exemplar.
     const lastBuildX = nBuilds > 0 ? parentX + nBuilds * colW : parentX + colW;
-    const hasArrow = !branch._hasChildAtLastBuild;
-    const arrowExt = hasArrow ? colW * opts.arrowExtColumns : 0;
+    // Every branch always reserves room for its follow-on tail arrow (req #2603
+    // follow-up) — see the connector step for why the arrow is unconditional.
+    const arrowExt = colW * opts.arrowExtColumns;
     return { xMin: parentX, xMax: Math.max(parentX, lastBuildX) + arrowExt };
 }
 
@@ -239,14 +241,6 @@ export function computeLayout(model, opts = {}) {
     const main = branches.find(b => b.type === 'main') || branches[0];
     const hidden = o.hiddenBranchIds instanceof Set ? o.hiddenBranchIds : new Set();
     const isHidden = (id) => hidden.has(id);
-
-    // Pre-compute "has a child branch off my last build?".
-    for (const b of branches) {
-        const buildIds = b.buildIds || [];
-        if (!buildIds.length) { b._hasChildAtLastBuild = false; continue; }
-        const lastId = buildIds[buildIds.length - 1];
-        b._hasChildAtLastBuild = branches.some(other => other.parentBuildId === lastId);
-    }
 
     // ─── Step 1. X for every build via topological walk ────────────────
     // Main builds drive the timeline. Non-main builds inherit X from their
@@ -536,10 +530,16 @@ export function computeLayout(model, opts = {}) {
         const { p1, p2 } = connectorControlPoints(p0, p3, bow);
 
         const buildIds = branch.buildIds || [];
-        const hasArrow = !branch._hasChildAtLastBuild;
+        // The follow-on tail arrow is UNCONDITIONAL (req #2603 follow-up): a
+        // branch keeps its arrow even when a child branch (release/sample/any)
+        // sprouts from its last build, because more builds can always be added to
+        // it — the arrow is the "more builds possible here" affordance. The child
+        // curve leaves the build dot up/down/left while this arrow extends right,
+        // so the two never collide.
+        const hasArrow = true;
         const lastId = buildIds.length ? buildIds[buildIds.length - 1] : null;
         const lastPos = lastId != null ? positions[lastId] : null;
-        const arrowExt = hasArrow ? o.colW * o.arrowExtColumns : 0;
+        const arrowExt = o.colW * o.arrowExtColumns;
         // Empty branches extend to the first-build slot (p3.x + colW) so the
         // arrow sits where the first build would land.
         const emptySlotX = !buildIds.length ? p3.x + o.colW : null;
@@ -576,7 +576,7 @@ export function computeLayout(model, opts = {}) {
         const first = positions[mainBuildIds[0]];
         const last = positions[mainBuildIds[mainBuildIds.length - 1]];
         mainPath = {
-            d: `M ${first.x - 30} ${first.y} L ${last.x + o.colW * 0.9} ${first.y}`,
+            d: `M ${first.x - 30} ${first.y} L ${last.x + o.colW * o.arrowExtColumns} ${first.y}`,
             firstBuildX: first.x,
             firstBuildY: first.y,
             hasArrow: true,
@@ -793,7 +793,7 @@ export function computeLayout(model, opts = {}) {
     const totalHeight = Math.ceil(lowestY + o.canvasPadBottom + lastNamesExtent);
 
     // Cleanup transient markers.
-    for (const b of branches) { delete b._hasChildAtLastBuild; delete b._modelOrder; }
+    for (const b of branches) { delete b._modelOrder; }
 
     return {
         branches: branchRecords,

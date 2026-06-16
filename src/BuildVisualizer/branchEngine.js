@@ -35,8 +35,11 @@ export const CREATABLE_TYPES = [
 //   • bootleg is maintenance → allowed from anywhere (incl. bootleg-off-bootleg)
 //   • development is always available ("engineering is king") → allowed everywhere
 //   • hotfix may chain off a hotfix
+//   • csr is a Customer-Specific Release off a RELEASE only — never off main
+//     (req #2603 follow-up): a CSR specializes an existing release, so main is
+//     not a legal parent.
 const ALLOWED_CHILDREN = {
-    main:             new Set(['sample-release', 'release', 'csr', 'hotfix', 'bootleg', 'development']),
+    main:             new Set(['sample-release', 'release', 'hotfix', 'bootleg', 'development']),
     release:          new Set(['sample-release', 'release', 'csr', 'hotfix', 'bootleg', 'development']),
     'sample-release': new Set(['hotfix', 'bootleg', 'development']),
     csr:              new Set(['hotfix', 'bootleg', 'development']),
