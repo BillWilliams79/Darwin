@@ -294,6 +294,34 @@ const KonvaBuildCanvas = ({
         frameRef.current();
     }, [resetViewNonce]);
 
+    // Reflow compensation (port of the SVG canvas's reflowPanDeltaY, req #2741).
+    // A layout change that ISN'T a project switch — toggling Build AT / Acceptance
+    // Tests / Releases / Stagger, hiding a branch type, adding a build — changes
+    // every row's height, so `mainY` (and every branch Y) shifts. With a fixed
+    // d3-zoom transform the whole graph would visibly jump. Keep "what the user
+    // was looking at" stable by nudging the transform's Y by the change in mainY:
+    // a build at worldY draws at screenY = t.y + worldY·k, so when mainY grows by
+    // Δ we subtract Δ·k from t.y and the trunk (and everything anchored to it)
+    // holds its on-screen position. Skipped on the project switch (the framing
+    // effect reframes) and on the first measured layout.
+    const prevMainYRef = useRef(null);
+    const prevReflowProjectRef = useRef(null);
+    useEffect(() => {
+        const el = containerRef.current;
+        const zb = zoomRef.current;
+        const mainY = layout?.branches?.length ? (layout.mainY ?? null) : null;
+        const prevMainY = prevMainYRef.current;
+        const sameProject = prevReflowProjectRef.current === projectId;
+        prevMainYRef.current = mainY;
+        prevReflowProjectRef.current = projectId;
+        // Only compensate within the same project, once framed, when mainY moved.
+        if (!sameProject || lastFramedProjectRef.current !== projectId) return;
+        if (!el || !zb || mainY == null || prevMainY == null || mainY === prevMainY) return;
+        if (!transform || size.w === 0) return;
+        const ty = transform.y - (mainY - prevMainY) * transform.k;
+        select(el).call(zb.transform, zoomIdentity.translate(transform.x, ty).scale(transform.k));
+    }, [layout, projectId, size.w]);
+
     // Click resolution (d3-zoom can swallow Konva's synthetic click): on a
     // non-drag click, hit-test the topmost shape and fire 'activate'.
     useEffect(() => {
