@@ -922,8 +922,18 @@ Box.displayName = 'KonvaCanvasBox';
 // HTML datacard — reuses .ts-shared-tooltip / .ts-datacard-* CSS.
 const DataCard = ({ chip, x, y, containerW, containerH }) => {
     const CARD_W = 260;
+    // Measure the rendered card so we can clamp the FULL card on-screen. A real
+    // card is far taller than the old hardcoded 40px estimate, so near the bottom
+    // edge the clamp left most of the card overflowing off-screen (req #2879).
+    // useLayoutEffect runs before paint, so the re-position is flicker-free.
+    const cardRef = useRef(null);
+    const [cardH, setCardH] = useState(0);
+    useLayoutEffect(() => {
+        if (cardRef.current) setCardH(cardRef.current.offsetHeight);
+    }, [chip]);
+    const estH = cardH || 40; // pre-measure fallback = old single-line estimate
     const left = Math.min(Math.max(8, x + 14), Math.max(8, containerW - CARD_W - 8));
-    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - 40));
+    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - estH - 8));
     const tz = chip.timezone;
 
     // Swarm-start anchor hover — its own datacard (mirrors the earlier design's
@@ -935,7 +945,7 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                 : `${Math.floor(ss.wall_seconds / 60)}m ${ss.wall_seconds % 60}s`)
             : null;
         return (
-            <div className="ts-shared-tooltip" style={{
+            <div ref={cardRef} className="ts-shared-tooltip" style={{
                 position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
             }}>
                 <div className="ts-datacard">
@@ -962,7 +972,7 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
     }
 
     return (
-        <div className="ts-shared-tooltip" style={{
+        <div ref={cardRef} className="ts-shared-tooltip" style={{
             position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
         }}>
             <div className="ts-datacard">
