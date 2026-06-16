@@ -294,6 +294,9 @@ describe('release clearance — extra room above a release-bearing row', () => {
     // Two CSR branches off the SAME parent build overlap horizontally, so they
     // land on different lanes of the CSR stratum (lane 0 = inner/lower, lane 1
     // = outer/upper). cs1 is first in model order → lane 0 (nearest main).
+    // showBuildAt:false isolates the release-clearance geometry from the
+    // additive Build AT overlay (req #2633), which otherwise adds a fixed
+    // buildAtClearance to every row.
     const twoCsr = (releaseEvents = {}) => computeLayout(makeModel({
         mainBuilds: 4,
         subBranches: [
@@ -301,7 +304,7 @@ describe('release clearance — extra room above a release-bearing row', () => {
             { id: 'cs2', type: 'csr', parentBuildId: 'm1', buildCount: 3 },
         ],
         releaseEvents,
-    }));
+    }), { showBuildAt: false });
     const gapBetween = (layout) => {
         const cs1 = layout.branches.find(b => b.id === 'cs1');
         const cs2 = layout.branches.find(b => b.id === 'cs2');
@@ -334,7 +337,7 @@ describe('release clearance — extra room above a release-bearing row', () => {
         const layout = computeLayout(makeModel({
             mainBuilds: 3,
             subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1 }],
-        }));
+        }), { showBuildAt: false }); // isolate base geometry from the Build AT overlay
         const bootleg = layout.branches.find(b => b.id === 'bl1');
         expect(bootleg.y).toBe(canvasPadTop + laneGap);          // 40 + 70 = 110
         expect(layout.mainY).toBe(canvasPadTop + laneGap + sideGap); // 110 + 70 = 180

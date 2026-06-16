@@ -51,15 +51,17 @@ function starPoints(cx, cy, ro, ri, tips) {
 
 // starColorFor imported from './starColors' — single source of truth (req #2741).
 
-function StarRow({ pos, customers, color }) {
+function StarRow({ pos, customers, color, raised = 0 }) {
     // One star PER release event (req #2741) — 6 releases ⇒ 6 stars — in a row
     // centered on the build, ABOVE the bubble. `color` is chosen from the build's
-    // branch type by the caller (gold / silver / red).
+    // branch type by the caller (gold / silver / red). `raised` lifts the row an
+    // extra N px so the Build AT loop can sit BETWEEN the star and the bubble
+    // (req #2633 review round — release on top, Build AT in the middle).
     const n = customers.length;
     const ro = 7;
     const ri = ro * 0.45;
     const pitch = 2 * ro + 2;            // star width + gap
-    const cy = pos.y - 22;
+    const cy = pos.y - 22 - raised;
     const startX = pos.x - ((n - 1) * pitch) / 2;
     return (
         <g>
@@ -73,6 +75,32 @@ function StarRow({ pos, customers, color }) {
                     strokeLinejoin="round"
                 />
             ))}
+        </g>
+    );
+}
+
+// req #2633 — Acceptance Test status glyph. A small rounded box centered at
+// (x, y): green box with a white ✓ for pass, red box with a white ✗ for fail.
+function AtStatusGlyph({ x, y, status, size = 11 }) {
+    const pass = status !== 'fail';
+    const h = size / 2;
+    const fill = pass ? '#43a047' : '#e53935';
+    const stroke = pass ? '#2e7d32' : '#c62828';
+    return (
+        <g pointerEvents="none">
+            <rect x={x - h} y={y - h} width={size} height={size} rx={2}
+                fill={fill} stroke={stroke} strokeWidth={1} />
+            {pass ? (
+                <polyline
+                    points={`${x - h * 0.5},${y} ${x - h * 0.1},${y + h * 0.45} ${x + h * 0.6},${y - h * 0.5}`}
+                    fill="none" stroke="#fff" strokeWidth={1.4}
+                    strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+                <g stroke="#fff" strokeWidth={1.4} strokeLinecap="round">
+                    <line x1={x - h * 0.5} y1={y - h * 0.5} x2={x + h * 0.5} y2={y + h * 0.5} />
+                    <line x1={x + h * 0.5} y1={y - h * 0.5} x2={x - h * 0.5} y2={y + h * 0.5} />
+                </g>
+            )}
         </g>
     );
 }
@@ -122,12 +150,15 @@ const BuildVisualizerCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
+    showBuildAt,
+    showAcceptanceTests,
     appMode,
     darkVariant,
     onBuildClick,
     onBuildLeave,
     onBranchClick,
     onEmptyAnchorClick,
+    onAtGlyphClick,
     resetViewNonce,
 }) => {
     const themeKey = appMode === 'dark'
@@ -144,12 +175,19 @@ const BuildVisualizerCanvas = ({
         });
     }, [model, selectedTypes]);
 
+    const atShown = showAcceptanceTests !== false;
+    const buildAtShown = atShown && showBuildAt !== false;
     const layout = useMemo(
         () => computeLayout(
             model || { branches: [], builds: {}, releaseEvents: {} },
-            { versionLanes: !!staggerOn, hiddenBranchIds },
+            {
+                versionLanes: !!staggerOn,
+                showAcceptanceTests: atShown,
+                showBuildAt: showBuildAt !== false,
+                hiddenBranchIds,
+            },
         ),
-        [model, staggerOn, hiddenBranchIds],
+        [model, staggerOn, atShown, showBuildAt, hiddenBranchIds],
     );
 
     // branch extId → display name, for the release hover tooltip.
@@ -563,6 +601,73 @@ const BuildVisualizerCanvas = ({
                     </g>
                 )}
 
+                {/* 3c. Acceptance Tests (req #2633).
+                    Build AT loops sit just ABOVE each build bubble (automatic,
+                    always pass). On a build that ALSO bears a release event, the
+                    release star is RAISED above the Build AT (req #2633 review:
+                    release on top, Build AT between the release and the bubble).
+                    Branch-level ATs render stacked name labels BELOW the latest
+                    build + a single pass/fail glyph. Build dot color + the
+                    release-approval flag are untouched. */}
+                {((layout.atBuildLoops || []).length > 0 || (layout.atBranchGlyphs || []).length > 0) && (
+                    <g className="acceptance-tests">
+                        {(layout.atBuildLoops || []).map(loop => {
+                            const r = loop.radius;
+                            const topY = loop.y - r - 4;       // arc apex, just above the bubble
+                            const cap = topY - 9;              // "Build AT" caption above the loop
+                            return (
+                                <g key={`bat-${loop.buildId}`} pointerEvents="none">
+                                    {/* small self-loop arc above the dot */}
+                                    <path
+                                        d={`M ${loop.x - r} ${loop.y - r}
+                                            C ${loop.x - r - 7} ${topY - 7},
+                                              ${loop.x + r + 7} ${topY - 7},
+                                              ${loop.x + r} ${loop.y - r}`}
+                                        fill="none" stroke="#9e9e9e" strokeWidth={1}
+                                    />
+                                    <AtStatusGlyph x={loop.x} y={topY} status="pass" size={9} />
+                                    <text x={loop.x} y={cap} textAnchor="middle" fontSize={7}
+                                        fontFamily="sans-serif" fill="#555">Build AT</text>
+                                </g>
+                            );
+                        })}
+                        {(layout.atBranchGlyphs || []).map(g => {
+                            // Names stacked below the LATEST build, starting below the
+                            // version far-lane (no build-number conflict); the lane
+                            // spacing reserves room for the full stack.
+                            const firstNameY = g.namesStartY;
+                            const lineH = g.nameLineH || 11;
+                            const openAtMenu = (e) => {
+                                if (dragRef.current.active || dragRef.current.moved) return;
+                                e.stopPropagation();
+                                if (onAtGlyphClick) onAtGlyphClick(g, e);
+                            };
+                            return (
+                                <g key={`atb-${g.branchId}`}>
+                                    {/* pass/fail glyph mid-segment on the branch line — clickable */}
+                                    <g style={{ cursor: 'pointer' }} onClick={openAtMenu}>
+                                        <AtStatusGlyph x={g.x} y={g.y} status={g.status} size={13} />
+                                        {/* transparent hit-area for easier clicking */}
+                                        <circle cx={g.x} cy={g.y} r={11} fill="transparent" pointerEvents="all" />
+                                    </g>
+                                    {g.names.map((nm, i) => (
+                                        <text
+                                            key={nm}
+                                            x={g.namesX}
+                                            y={firstNameY + i * lineH}
+                                            textAnchor="middle"
+                                            fontSize={9}
+                                            fontFamily="sans-serif"
+                                            fill={g.status === 'fail' ? '#c62828' : '#2e7d32'}
+                                            pointerEvents="none"
+                                        >{nm}</text>
+                                    ))}
+                                </g>
+                            );
+                        })}
+                    </g>
+                )}
+
                 {/* 4. Release overlays — each carries a hover tooltip with the
                     release event details (req #2741). The tooltip triggers on
                     the glyph's own painted shapes; we intentionally do NOT lay a
@@ -586,6 +691,10 @@ const BuildVisualizerCanvas = ({
                                             pos={{ x: b.x, y: b.y }}
                                             customers={b.releaseCustomers}
                                             color={starColorFor(b.branchType)}
+                                            // Build AT is universal; when it's shown it
+                                            // occupies the slot just above the bubble, so
+                                            // lift the star to sit ABOVE it (req #2633).
+                                            raised={buildAtShown ? 16 : 0}
                                         />
                                     </g>
                                 </Tooltip>

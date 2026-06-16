@@ -17,6 +17,8 @@ import Divider from '@mui/material/Divider';
 import Fade from '@mui/material/Fade';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ListSubheader from '@mui/material/ListSubheader';
+import Chip from '@mui/material/Chip';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Popover from '@mui/material/Popover';
 import Switch from '@mui/material/Switch';
@@ -58,6 +60,7 @@ import {
 import { canDeleteBuild, canDeleteBranch } from './deleteRules';
 import { readinessLabelFor } from './readinessRules';
 import { formatBranchLocation } from './buildLocation';
+import { branchLevelAtsFor } from './acceptanceTestConfig';
 import ThemeContext from '../Theme/ThemeContext';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -82,6 +85,8 @@ const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
 const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
 const SHOW_RELEASES_STORAGE_KEY = 'darwin.bv.showReleases';
+const SHOW_BUILD_AT_STORAGE_KEY = 'darwin.bv.buildAt'; // req #2633
+const SHOW_ATS_STORAGE_KEY = 'darwin.bv.showATs';     // req #2633 master toggle
 
 const readShowReleases = () => {
     try {
@@ -90,6 +95,18 @@ const readShowReleases = () => {
 };
 const writeShowReleases = (value) => {
     try { window.localStorage.setItem(SHOW_RELEASES_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
+};
+const readShowBuildAt = () => {
+    try { return window.localStorage.getItem(SHOW_BUILD_AT_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
+};
+const writeShowBuildAt = (value) => {
+    try { window.localStorage.setItem(SHOW_BUILD_AT_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
+};
+const readShowATs = () => {
+    try { return window.localStorage.getItem(SHOW_ATS_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
+};
+const writeShowATs = (value) => {
+    try { window.localStorage.setItem(SHOW_ATS_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
 };
 const readVersionLanes = () => {
     try { return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
@@ -173,6 +190,19 @@ const BuildVisualizerPage = () => {
     const toggleShowReleases = useCallback(() => setShowReleases(prev => !prev), []);
     useEffect(() => { writeShowReleases(showReleases); }, [showReleases]);
 
+    // Build AT overlay toggle (req #2633) — show/hide the per-build Build AT
+    // loops + result. Default on. Persisted; flows into computeLayout (so the
+    // vertical clearance is reclaimed when off) and the canvas.
+    const [showBuildAt, setShowBuildAt] = useState(() => readShowBuildAt());
+    const toggleShowBuildAt = useCallback(() => setShowBuildAt(prev => !prev), []);
+    useEffect(() => { writeShowBuildAt(showBuildAt); }, [showBuildAt]);
+
+    // Master Acceptance Tests toggle (req #2633 review round) — show/hide ALL AT
+    // visuals. When off, the Build AT sub-toggle is grayed out / inert.
+    const [showAcceptanceTests, setShowAcceptanceTests] = useState(() => readShowATs());
+    const toggleShowAcceptanceTests = useCallback(() => setShowAcceptanceTests(prev => !prev), []);
+    useEffect(() => { writeShowATs(showAcceptanceTests); }, [showAcceptanceTests]);
+
     // Theme — dark-variant handling.
     const { effectiveMode } = useContext(ThemeContext);
     const [darkVariant, setDarkVariant] = useState(
@@ -189,6 +219,9 @@ const BuildVisualizerPage = () => {
     // Production Ready two-state toggle + (if approved) release event + a flat
     // list of every legal child branch (BranchEngine §4.7) as one-click buttons.
     const [dotMenu, setDotMenu] = useState(null); // { buildRecord, mouseX, mouseY }
+    // req #2633 — Acceptance Test pass/fail menu, opened by clicking a branch's
+    // AT glyph. { branchId, status, top, left }.
+    const [atMenu, setAtMenu] = useState(null);
 
     // The anchorEl for the Menu needs to be a real DOM element. Since the click
     // comes from an SVG element (which MUI Menu can't anchor to reliably), we
@@ -371,6 +404,7 @@ const BuildVisualizerPage = () => {
     // persists the rename through the same path as other branch mutations.
     const [branchEditor, setBranchEditor] = useState(null); // { branchId }
     const [beName, setBeName] = useState('');
+    const [beAtStatus, setBeAtStatus] = useState('pass'); // req #2633 — per-branch AT pass|fail
     const branchEditorBranch = useMemo(
         () => (branchEditor && model?.branches)
             ? model.branches.find(b => b.id === branchEditor.branchId) || null
@@ -381,6 +415,7 @@ const BuildVisualizerPage = () => {
         const br = model?.branches?.find(b => b.id === branchId);
         if (!br) return;
         setBeName(br.name || '');
+        setBeAtStatus(br.acceptanceStatus === 'fail' ? 'fail' : 'pass');
         setBranchEditor({ branchId });
     }, [model]);
     const closeBranchEditor = useCallback(() => setBranchEditor(null), []);
@@ -392,7 +427,8 @@ const BuildVisualizerPage = () => {
         try {
             await call_rest_api(
                 `${darwinUri}/branches`, 'PUT',
-                [{ id: sqlId, name: beName.trim() }],
+                [{ id: sqlId, name: beName.trim(),
+                   acceptance_test_status: beAtStatus }], // req #2633
                 idToken,
             );
             invalidateBuildData();
@@ -400,7 +436,36 @@ const BuildVisualizerPage = () => {
             console.error('[BuildVisualizer] Rename branch failed:', err);
         }
         setBranchEditor(null);
-    }, [branchEditor, beName, darwinUri, idToken, invalidateBuildData]);
+    }, [branchEditor, beName, beAtStatus, darwinUri, idToken, invalidateBuildData]);
+
+    // req #2633 — AT glyph click → pass/fail menu.
+    const handleAtGlyphClick = useCallback((glyph, e) => {
+        setAtMenu({
+            branchId: glyph.branchId,
+            status: glyph.status,
+            top: e.clientY,
+            left: e.clientX,
+        });
+    }, []);
+    const closeAtMenu = useCallback(() => setAtMenu(null), []);
+    const setAtStatus = useCallback(async (status) => {
+        if (!atMenu) return;
+        // No-op when the status didn't change — skip the redundant PUT.
+        if (status === atMenu.status) { setAtMenu(null); return; }
+        const sqlId = branchSqlIdRef.current.get(atMenu.branchId);
+        setAtMenu(null);
+        if (!sqlId) return;
+        try {
+            await call_rest_api(
+                `${darwinUri}/branches`, 'PUT',
+                [{ id: sqlId, acceptance_test_status: status }],
+                idToken,
+            );
+            invalidateBuildData();
+        } catch (err) {
+            console.error('[BuildVisualizer] Set AT status failed:', err);
+        }
+    }, [atMenu, darwinUri, idToken, invalidateBuildData]);
 
     // Execute `count` builds in a row on the clicked build's branch (req #2737 —
     // press-and-hold "Execute Build" ramps count up to MAX_BUILDS_PER_HOLD). A
@@ -613,6 +678,32 @@ const BuildVisualizerPage = () => {
                     },
                     idToken,
                 );
+                // req #2633 — auto-assign this branch type's required ATs into the
+                // branch_acceptance_tests junction. Best-effort + non-blocking: the
+                // visualizer derives AT labels from the config map regardless, so a
+                // failure here never breaks branch creation. Build AT is per-build
+                // (render-only) and intentionally not persisted.
+                const atNames = branchLevelAtsFor(type);
+                if (atNames.length) {
+                    try {
+                        const catRes = await call_rest_api(
+                            `${darwinUri}/acceptance_tests`, 'GET', null, idToken);
+                        const catalog = Array.isArray(catRes?.data) ? catRes.data : [];
+                        const idByTitle = new Map(catalog.map(a => [a.title, a.id]));
+                        for (let j = 0; j < atNames.length; j++) {
+                            const atId = idByTitle.get(atNames[j]);
+                            if (atId) {
+                                await call_rest_api(
+                                    `${darwinUri}/branch_acceptance_tests`, 'POST',
+                                    { branch_fk: newBranchId, acceptance_test_fk: atId, sort_order: j },
+                                    idToken,
+                                );
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('[BuildVisualizer] AT auto-assign failed (non-blocking):', err);
+                    }
+                }
             }
         })());
 
@@ -934,6 +1025,10 @@ const BuildVisualizerPage = () => {
                 onChangeDarkVariant={changeDarkVariant}
                 showReleases={showReleases}
                 onToggleShowReleases={toggleShowReleases}
+                showAcceptanceTests={showAcceptanceTests}
+                onToggleShowAcceptanceTests={toggleShowAcceptanceTests}
+                showBuildAt={showBuildAt}
+                onToggleShowBuildAt={toggleShowBuildAt}
             />
             <BuildVisualizerCanvas
                 model={model}
@@ -943,9 +1038,12 @@ const BuildVisualizerPage = () => {
                 selectedTypes={selectedTypes}
                 staggerOn={staggerOn}
                 showReleases={showReleases}
+                showAcceptanceTests={showAcceptanceTests}
+                showBuildAt={showBuildAt}
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 onBuildClick={handleBuildClick}
+                onAtGlyphClick={handleAtGlyphClick}
                 onBuildLeave={scheduleCloseDotMenu}
                 onBranchClick={handleBranchClick}
                 onEmptyAnchorClick={handleEmptyAnchorClick}
@@ -1135,6 +1233,33 @@ const BuildVisualizerPage = () => {
                 )}
             </Popover>
 
+            {/* ─── Acceptance Test pass/fail menu (req #2633) ─── */}
+            <Menu
+                open={!!atMenu}
+                onClose={closeAtMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={atMenu ? { top: atMenu.top, left: atMenu.left } : undefined}
+                data-testid="bv-at-menu"
+            >
+                <Box sx={{ px: 2, py: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Acceptance Test</Typography>
+                </Box>
+                <MenuItem
+                    selected={atMenu?.status === 'pass'}
+                    onClick={() => setAtStatus('pass')}
+                    data-testid="bv-at-menu-pass"
+                >
+                    <Typography color="success.main">Pass ✓</Typography>
+                </MenuItem>
+                <MenuItem
+                    selected={atMenu?.status === 'fail'}
+                    onClick={() => setAtStatus('fail')}
+                    data-testid="bv-at-menu-fail"
+                >
+                    <Typography color="error.main">Fail ✗</Typography>
+                </MenuItem>
+            </Menu>
+
             <Dialog
                 open={!!releaseDialog}
                 onClose={cancelReleaseDialog}
@@ -1267,6 +1392,43 @@ const BuildVisualizerPage = () => {
                             <Typography variant="caption" color="text.secondary" display="block">
                                 Builds: {branchEditorBranch.buildIds?.length || 0}
                             </Typography>
+                            {/* req #2633 — Acceptance Tests. Branch-level ATs (from
+                                the matrix) shown as chips; one pass/fail toggle covers
+                                the whole branch (drives the green ✓ / red ✗ glyph).
+                                Build AT is automatic per-build and not editable here. */}
+                            {(branchEditorBranch.acceptanceTests?.length > 0 || branchEditorBranch.buildAT) && (
+                                <Box sx={{ mt: 1 }} data-testid="bv-branch-acceptance-tests">
+                                    <Typography variant="caption" color="text.secondary" display="block">
+                                        Acceptance Tests:
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                                        {branchEditorBranch.buildAT && (
+                                            <Chip size="small" label="Build AT (per build)" variant="outlined" color="success" />
+                                        )}
+                                        {(branchEditorBranch.acceptanceTests || []).map(nm => (
+                                            <Chip key={nm} size="small" label={nm} variant="outlined" />
+                                        ))}
+                                    </Box>
+                                    {branchEditorBranch.acceptanceTests?.length > 0 && (
+                                        <FormControlLabel
+                                            sx={{ mt: 0.5 }}
+                                            control={(
+                                                <Switch
+                                                    checked={beAtStatus === 'pass'}
+                                                    onChange={(e) => setBeAtStatus(e.target.checked ? 'pass' : 'fail')}
+                                                    color="success"
+                                                    data-testid="bv-branch-at-status-switch"
+                                                />
+                                            )}
+                                            label={(
+                                                <Typography variant="caption" color={beAtStatus === 'pass' ? 'success.main' : 'error.main'}>
+                                                    {beAtStatus === 'pass' ? 'Pass ✓' : 'Fail ✗'}
+                                                </Typography>
+                                            )}
+                                        />
+                                    )}
+                                </Box>
+                            )}
                             {/* Branch location (req #2753) — informational, not a link.
                                 Same shape as the build menu: project / branch name /
                                 version of the branch's first build (omitted when the

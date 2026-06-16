@@ -43,6 +43,10 @@ const BuildVisualizerControls = ({
     onChangeDarkVariant,
     showReleases,
     onToggleShowReleases,
+    showAcceptanceTests,
+    onToggleShowAcceptanceTests,
+    showBuildAt,
+    onToggleShowBuildAt,
 }) => {
     const [snack, setSnack] = useState(null);
     const [themeAnchor, setThemeAnchor] = useState(null);
@@ -55,6 +59,18 @@ const BuildVisualizerControls = ({
 
     const releasesChipProps = showReleases
         ? { sx: { bgcolor: 'warning.main', color: 'background.paper' } }
+        : { variant: 'outlined' };
+
+    const atsChipProps = showAcceptanceTests
+        ? { sx: { bgcolor: 'success.main', color: 'background.paper' } }
+        : { variant: 'outlined' };
+
+    // Build AT is a SUB-toggle of the master Acceptance Tests switch — only
+    // meaningful when ATs are shown (req #2633 review round). Grayed/inert
+    // otherwise.
+    const buildAtDisabled = showAcceptanceTests === false;
+    const buildAtChipProps = (showBuildAt && !buildAtDisabled)
+        ? { sx: { bgcolor: 'success.main', color: 'background.paper' } }
         : { variant: 'outlined' };
 
     const showThemePicker = appMode === 'dark' && Boolean(onChangeDarkVariant);
@@ -145,6 +161,44 @@ const BuildVisualizerControls = ({
                             }}
                             aria-pressed={showReleases ? 'true' : 'false'}
                             data-testid="bv-releases-toggle"
+                        />
+                    </>
+                )}
+
+                {onToggleShowAcceptanceTests && (
+                    <>
+                        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                        <Chip
+                            label="Acceptance Tests"
+                            size="small"
+                            onClick={onToggleShowAcceptanceTests}
+                            {...atsChipProps}
+                            sx={{
+                                ...(showAcceptanceTests ? atsChipProps.sx : {}),
+                                cursor: 'pointer',
+                            }}
+                            aria-pressed={showAcceptanceTests ? 'true' : 'false'}
+                            data-testid="bv-ats-toggle"
+                        />
+                    </>
+                )}
+
+                {onToggleShowBuildAt && (
+                    <>
+                        <Chip
+                            label="Build AT"
+                            size="small"
+                            onClick={buildAtDisabled ? undefined : onToggleShowBuildAt}
+                            disabled={buildAtDisabled}
+                            {...buildAtChipProps}
+                            sx={{
+                                ...((showBuildAt && !buildAtDisabled) ? buildAtChipProps.sx : {}),
+                                cursor: buildAtDisabled ? 'not-allowed' : 'pointer',
+                                ...(buildAtDisabled && { opacity: 0.4 }),
+                            }}
+                            aria-pressed={showBuildAt ? 'true' : 'false'}
+                            aria-disabled={buildAtDisabled ? 'true' : 'false'}
+                            data-testid="bv-build-at-toggle"
                         />
                     </>
                 )}
