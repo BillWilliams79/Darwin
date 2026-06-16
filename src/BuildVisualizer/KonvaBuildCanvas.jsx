@@ -766,14 +766,25 @@ const KonvaBuildCanvas = ({
 // Tooltip). Lists the shipped build, its branch, and each customer/date.
 const ReleaseCard = ({ build, branchName, x, y, containerW, containerH, dark }) => {
     const CARD_W = 240;
+    // Measure the rendered card so we can clamp the FULL card on-screen. A real
+    // card (header + branch + a customer list) is far taller than the old
+    // hardcoded 40px estimate, so near the bottom edge the clamp left most of the
+    // card overflowing off-screen (req #2879). useLayoutEffect runs before paint,
+    // so the re-position is flicker-free.
+    const cardRef = useRef(null);
+    const [cardH, setCardH] = useState(0);
+    useLayoutEffect(() => {
+        if (cardRef.current) setCardH(cardRef.current.offsetHeight);
+    }, [build]);
+    const estH = cardH || 40; // pre-measure fallback = old single-line estimate
     const left = Math.min(Math.max(8, x + 14), Math.max(8, containerW - CARD_W - 8));
-    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - 40));
+    const top = Math.min(Math.max(8, y + 14), Math.max(8, containerH - estH - 8));
     const details = build.releaseDetails?.length
         ? build.releaseDetails
         : (build.releaseCustomers || []).map(name => ({ name, date: null }));
     const releaseType = details.find(d => d.releaseType)?.releaseType;
     return (
-        <div style={{
+        <div ref={cardRef} style={{
             position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20, pointerEvents: 'none',
             background: dark ? '#21201d' : '#ffffff', color: dark ? '#e8e1d5' : '#1a1a1a',
             border: `1px solid ${dark ? '#3a3833' : '#d8d8d8'}`, borderRadius: 6,
