@@ -41,7 +41,7 @@ import { computeDayHeaders } from './dayHeaderLayout';
 import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
-    buildModelContext, buildDayModel, phaseBarSegments,
+    buildModelContext, buildDayModel, phaseBarSegments, durationDashed,
     recenterDecision, startGlyphPlacement,
 } from './konvaSwarmModel';
 import '../CalendarFC/swarmVisualizer.css';
@@ -144,7 +144,7 @@ function durationSegments(chip, usePhases) {
     if (chip.startClamped || chip.startPct == null) startX = xWorld(0);
     else startX = xWorld(chip.startPct);
     if (Math.abs(endX - startX) < 0.5) return [];
-    const dashed = chip.startClamped || chip.markerMode === 'inprogress';
+    const dashed = durationDashed(chip);
     if (usePhases) {
         // computePhaseSegments proportionally splits the [startX, endX] range it's
         // GIVEN, so passing world-X in means x1Pct/x2Pct come back as world-X too

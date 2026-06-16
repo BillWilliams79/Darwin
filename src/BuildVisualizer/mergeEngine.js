@@ -15,7 +15,11 @@
 //        • release        → main                              (required, solid)
 //                         → hotfix/CSR children of a RELEASED build that has a
 //                           later build beyond it on the branch (evaluate, dashed)
-//        • development    → its origin (parent) branch        (required, solid)
+//        • development    → INHERITS its scheme origin's rules (req #2877):
+//                           a dev off a release follows release rules (→ main),
+//                           a dev off a sprint follows sprint rules, etc. The
+//                           merge back to its own origin is ASSUMED, never drawn;
+//                           a dev off main therefore shows nothing.
 //        • csr / hotfix / bootleg (the "release scheme"):
 //                         → main                              (required, solid)
 //                         → its origin release branch         (evaluate, dashed)
@@ -76,17 +80,83 @@ export const MERGE_RULES = {
         { target: 'main',              kind: MERGE_REQUIRED },
         { target: 'respin-hotfix-csr', kind: MERGE_EVALUATE },
     ],
-    development:      [{ target: 'origin', kind: MERGE_REQUIRED }],
+    // req #2877 follow-up — a DEV branch no longer merges to its origin (that
+    // merge is ASSUMED and never drawn). Instead it INHERITS the rules of its
+    // scheme origin (nearest non-development ancestor): a dev off a release
+    // follows release rules (→ main), a dev off a sprint follows sprint rules,
+    // and so forth. The engine expands `origin-scheme` per-branch in
+    // `effectiveRules`; this marker entry keeps `hasMergeRules`/`hasMergeMenu`
+    // true and gives the reference grid a row.
+    development:      [{ target: 'origin-scheme', kind: MERGE_REQUIRED }],
     csr:              RELEASE_SCHEME,
     hotfix:           RELEASE_SCHEME,
     bootleg:          RELEASE_SCHEME,
 };
 
-// Whether a branch type has any standard merge rules — i.e. whether a
-// per-branch "show merges" affordance is meaningful for it. `main` (no rules)
-// returns false so the toggle is hidden on the trunk.
+// Whether a branch type has any standard merge rules — i.e. whether the engine
+// derives merge arrows for it. `main` (no rules) returns false. NOTE: this is
+// the ENGINE predicate (does it produce arrows?), distinct from `hasMergeMenu`
+// below (does the UI offer the show/hide affordance?).
 export function hasMergeRules(type) {
     return (MERGE_RULES[type] || []).length > 0;
+}
+
+// req #2877 — branch types that retain the per-branch "show merges" UI
+// affordance. Under the new merge scheme, merge requirements originate ONLY
+// from DEV branches, reasoned against their origin branch. `bootleg` and
+// `hotfix` are special kinds of dev branch, so they keep the affordance; every
+// non-dev type (sample-release, release, csr) loses the menu option. This gates
+// only the UI — MERGE_RULES is unchanged, so the engine still derives the same
+// arrows for whatever branches the user has toggled on.
+export const MERGE_MENU_TYPES = new Set(['development', 'hotfix', 'bootleg']);
+export function hasMergeMenu(type) {
+    return MERGE_MENU_TYPES.has(type);
+}
+
+// req #2877 — merge-rules REFERENCE GRID (the "Merge Rules" popup). Human
+// labels for each merge kind and target token, plus `mergeRulesGridRows()`
+// which derives display rows STRAIGHT from MERGE_RULES (single source of truth).
+// The grid documents the rule set for EVERY branch type that has merge rules —
+// it is purely a reference of the scheme, independent of WHEN any merge is
+// actually required (that is a separate part of the process).
+export const MERGE_KIND_LABELS = {
+    [MERGE_REQUIRED]: 'Mandatory',
+    [MERGE_EVALUATE]: 'Evaluate',
+};
+
+const MERGE_TARGET_LABELS = {
+    main:                 'main',
+    origin:               'Origin (parent) branch',
+    'origin-scheme':      'Per origin-branch rules (e.g. → main)',
+    release:              'Origin release branch',
+    'release-csrs':       'Every CSR on the origin release',
+    'respin-hotfix-csr':  "Re-spun release's hot fix / CSR children",
+};
+
+// req #2877 — "Merges From": HOW a branch type's merges reach the tree. Under
+// the new scheme every change rides a dev branch. Dev-scheme branches
+// (development + the bootleg/hotfix exceptions, == MERGE_MENU_TYPES) ARE dev
+// branches, so they merge from the NAMED branch itself; every other type's
+// merge happens via a dev branch taken off it, following that type's rules.
+export const MERGES_FROM_NAMED = 'Via named branch';
+export const MERGES_FROM_DEV   = 'Via dev branch';
+
+// All branch types that carry merge rules, in toolbar display order (main has
+// none and is omitted).
+const MERGE_GRID_ORDER = ['release', 'sample-release', 'hotfix', 'bootleg', 'csr', 'development'];
+
+export function mergeRulesGridRows() {
+    return MERGE_GRID_ORDER
+        .filter(type => hasMergeRules(type))
+        .map(type => ({
+            type,
+            mergesFrom: hasMergeMenu(type) ? MERGES_FROM_NAMED : MERGES_FROM_DEV,
+            rules: (MERGE_RULES[type] || []).map(r => ({
+                dest: MERGE_TARGET_LABELS[r.target] || r.target,
+                kind: r.kind,
+                kindLabel: MERGE_KIND_LABELS[r.kind] || r.kind,
+            })),
+        }));
 }
 
 // Vertical offset of the merge's horizontal run BELOW the source branch line.
@@ -125,6 +195,23 @@ export function mergePath(x0, y0, x1, y1) {
         + `C ${x0 + dirX * cornerW * 0.6} ${y0}, ${xLaneStart - dirX * cornerW * 0.6} ${yLane}, ${xLaneStart} ${yLane} `
         + `L ${xTurn} ${yLane} `
         + `C ${xTurn + dirX * approachW * 0.6} ${yLane}, ${x1} ${y1 - dirApproach * vc}, ${x1} ${y1}`;
+}
+
+// req #2877 — a development branch's "scheme origin": the nearest ancestor that
+// is NOT itself a development branch (so a dev off a dev off a release resolves
+// to the release). Returns the branch object, or null when there is no non-dev
+// ancestor. Cycle-guarded. The dev branch inherits THIS branch's merge rules.
+function nonDevAncestor(branchId, branchById) {
+    const seen = new Set();
+    let cur = branchById.get(branchId);
+    while (cur && cur.parentBranchId && !seen.has(cur.parentBranchId)) {
+        seen.add(cur.parentBranchId);
+        const parent = branchById.get(cur.parentBranchId);
+        if (!parent) return null;
+        if (parent.type !== 'development') return parent;
+        cur = parent;
+    }
+    return null;
 }
 
 // Walk the parentBranchId chain to the first ancestor branch of `type`.
@@ -188,6 +275,21 @@ export function computeMerges({ model, layout, dayZeroBuildIds } = {}) {
     const associatedReleaseFor = (branch) => {
         const anc = ancestorOfType(branch.id, 'release', branchById);
         return (anc && hasTip(anc)) ? anc : null;
+    };
+
+    // req #2877 — the effective merge rules for a branch. Non-development types
+    // use their MERGE_RULES entry verbatim. A development branch INHERITS its
+    // scheme origin's rules (dev off release → release rules → main); its
+    // implicit merge back to its own origin is assumed and never drawn, so a dev
+    // off main (scheme origin main, no rules) yields nothing. The inherited
+    // rules' targets are resolved relative to the dev branch itself, which works
+    // because every target ('main', 'release', 'release-csrs', 'respin-…') keys
+    // off main or an ancestor walk — none of which re-selects the dev's origin.
+    const effectiveRules = (branch) => {
+        if (branch.type !== 'development') return MERGE_RULES[branch.type] || [];
+        const origin = nonDevAncestor(branch.id, branchById);
+        if (!origin || origin.type === 'main') return [];
+        return MERGE_RULES[origin.type] || [];
     };
 
     const resolveTargets = (branch, token) => {
@@ -263,8 +365,8 @@ export function computeMerges({ model, layout, dayZeroBuildIds } = {}) {
     // ── Standard merges — one source branch at a time ──────────────────────
     for (const branch of branches) {
         if (!hasTip(branch.id)) continue;                 // invisible or empty
-        const rules = MERGE_RULES[branch.type];
-        if (!rules || !rules.length) continue;            // main / unknown → none
+        const rules = effectiveRules(branch);             // dev → inherited scheme
+        if (!rules || !rules.length) continue;            // main / dev-off-main → none
         const sourceX = lastBuildXById.get(branch.id);    // origin branch tip
         const sourceY = branchYById.get(branch.id);
         for (const rule of rules) {

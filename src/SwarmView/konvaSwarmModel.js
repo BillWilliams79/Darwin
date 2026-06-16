@@ -477,6 +477,23 @@ export function startGlyphPlacement(chip, { cx, cr, trueX, hugGap } = {}) {
     return { glyphX: trueX, connector: null };
 }
 
+// ── Duration-line dash decision (req #2885) ─────────────────────────────────
+// A duration line is DASHED only when it represents an INTER-DAY continuation —
+// i.e. the work started before this row's own visible window (`startClamped`), so
+// the cross-day pass-through layer owns the off-screen/earlier portion. Dashed is
+// the visualizer's single, consistent signal for "this line crosses a day
+// boundary / extends beyond what is drawn on this row".
+//
+// In-progress ("started but not complete") work on its OWN day renders SOLID,
+// the same as a completed bead's same-day span. The hollow phantom bead — not the
+// line style — is what signals "still running". Previously this also dashed on
+// `markerMode === 'inprogress'`, which collided with the inter-day meaning: a
+// same-day, late-evening in-progress session (e.g. one started at 11:25pm)
+// rendered a dashed line near the end-of-day region and read as "the session
+// crossed midnight / the day already ended" even though it had not (req #2885).
+// Exported for unit-test coverage.
+export const durationDashed = (chip) => !!(chip && chip.startClamped);
+
 // ── Phase-bar segmentation for "in" zoom ────────────────────────────────────
 // Expand a completed chip's duration span [startX..endX] (pixels) into phase
 // segments, colored by the req #2332 buckets. Returns the computePhaseSegments
