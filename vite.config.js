@@ -19,6 +19,12 @@ function devserverMarker() {
       server.httpServer?.on('listening', () => {
         const addr = server.httpServer.address()
         const port = typeof addr === 'object' ? addr.port : addr
+        // Format is `port:pid` — intentionally NO deep-link route (req #2867).
+        // The deep-link route is a launch-time concept owned by the
+        // /devops-devserver-start skill and surfaces only in its `url=` output.
+        // Vite has no knowledge of which page the session's changes target, and
+        // this workspace marker's only consumers — devserver-stop.sh and
+        // run-e2e.sh — need just the port/pid, not the route.
         fs.writeFileSync(markerPath, `${port}:${process.pid}`)
       })
 
