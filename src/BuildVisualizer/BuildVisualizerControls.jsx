@@ -12,6 +12,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Box from '@mui/material/Box';
 import CheckIcon from '@mui/icons-material/Check';
 import BuildPatternMenu from './BuildPatternMenu';
+import MergeRulesDialog from './MergeRulesDialog';
 import { BRANCH_TYPES, branchTypeChipProps, branchTypeLabel } from './branchTypeChipStyles';
 import {
     THEME_VARIANTS,
@@ -53,6 +54,7 @@ const BuildVisualizerControls = ({
 }) => {
     const [snack, setSnack] = useState(null);
     const [themeAnchor, setThemeAnchor] = useState(null);
+    const [mergeRulesOpen, setMergeRulesOpen] = useState(false);
     const showSnack = (severity, message) => setSnack({ severity, message });
     const closeSnack = () => setSnack(null);
 
@@ -149,6 +151,19 @@ const BuildVisualizerControls = ({
                         />
                     </>
                 )}
+
+                {/* Merge Rules reference popup (req #2877) — always available,
+                    self-contained dialog state. */}
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                <Chip
+                    label="Merge Rules"
+                    size="small"
+                    onClick={() => setMergeRulesOpen(true)}
+                    variant="outlined"
+                    sx={{ cursor: 'pointer' }}
+                    aria-haspopup="dialog"
+                    data-testid="bv-merge-rules-chip"
+                />
 
                 {onToggleShowReleases && (
                     <>
@@ -354,6 +369,11 @@ const BuildVisualizerControls = ({
                     </>
                 )}
             </Paper>
+
+            <MergeRulesDialog
+                open={mergeRulesOpen}
+                onClose={() => setMergeRulesOpen(false)}
+            />
 
             <Snackbar
                 open={!!snack}
