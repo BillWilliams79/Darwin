@@ -123,9 +123,11 @@ export const DEFAULT_OPTS = {
     // Length of the tail line + arrow past the last build dot, in colW units.
     // UNIFORM across every branch — main, sub-branches, and empty branches all
     // use this one value so the follow-on piece is identical everywhere (req
-    // #2603 follow-up). Matches main's historical 0.9 (main is the reference the
-    // user calibrates against); the main trunk path reads the same constant.
-    arrowExtColumns: 0.9,
+    // #2603 follow-up). Shortened to 0.6 (req #2877) so the tail chunk + arrow
+    // consume ~60% of a column instead of nearly a full one — at 0.9 it read as
+    // a continuation into the next build slot. The main trunk path reads the
+    // same constant, so the trunk shortens in lockstep.
+    arrowExtColumns: 0.6,
     versionCloseOffset: 12,
     versionLaneGap: 12,
     versionLanes: true,
