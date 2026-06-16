@@ -19,6 +19,7 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 import { releaseTypeFor } from './readinessRules';
+import { branchLevelAtsFor, runsBuildAt } from './acceptanceTestConfig';
 
 function csv(ids) {
     return ids.map(n => Number(n)).filter(Number.isFinite).join(',');
@@ -161,9 +162,10 @@ export function useBuildVisualizerData(projectId) {
             const parentBuildRow = parentBuildSqlId ? buildBySqlId.get(parentBuildSqlId) : null;
             const parentBranchSqlId = parentBuildRow ? Number(parentBuildRow.branch_fk) : null;
             const parentBranchRow = parentBranchSqlId ? branchBySqlId.get(parentBranchSqlId) : null;
+            const effType = isTrunk ? 'main' : (br.branch_type || 'development');
             branches.push({
                 id: br.external_id,
-                type: isTrunk ? 'main' : (br.branch_type || 'development'),
+                type: effType,
                 name: br.name || '',
                 parentBuildId: isTrunk ? null : (parentBuildRow?.external_id || null),
                 parentBranchId: isTrunk ? null : (parentBranchRow?.external_id || null),
@@ -174,6 +176,13 @@ export function useBuildVisualizerData(projectId) {
                 minor: br.minor != null ? Number(br.minor) : 0,
                 labelEnd: br.label_end || null,
                 buildIds: myBuilds,
+                // req #2633 — Acceptance Tests. Branch-level AT names come from
+                // the frontend matrix (acceptanceTestConfig); the single pass/fail
+                // is the branches.acceptance_test_status column; Build AT is the
+                // per-build loop flag.
+                acceptanceTests: branchLevelAtsFor(effType),
+                acceptanceStatus: (br.acceptance_test_status === 'fail') ? 'fail' : 'pass',
+                buildAT: runsBuildAt(effType),
             });
         };
         if (trunkSqlId != null) pushBranch(branchBySqlId.get(trunkSqlId));
