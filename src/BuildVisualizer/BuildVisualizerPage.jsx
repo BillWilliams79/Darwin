@@ -68,6 +68,14 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 
+// Release-date formatter for the release datacard (req #2883 — moved here from
+// the Konva canvas when the release card became a page-owned click pop-up).
+const formatReleaseDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString();
+};
+
 // Press-and-hold tuning (req #2737, retimed req #2741). Builds cap at 14,
 // branch-create (hotfix/bootleg/development only) at 5. The TIMING is shared.
 const MAX_BUILDS_PER_HOLD = 14;
@@ -258,85 +266,80 @@ const BuildVisualizerPage = () => {
         writeStoredDarkVariant(variant);
     }, []);
 
-    // ─── Build-dot menu (req #2737) ────────────────────────────────────
-    // Opens on HOVER over a build. Build Info Card header + Execute Build +
-    // Production Ready two-state toggle + (if approved) release event + a flat
-    // list of every legal child branch (BranchEngine §4.7) as one-click buttons.
+    // ─── Build-dot menu (req #2737; click-only req #2883) ───────────────
+    // Opens on CLICK of a build (req #2883 — hover removed). Build Info Card
+    // header + Execute Build + Production Ready two-state toggle + (if approved)
+    // release event + a flat list of every legal child branch (BranchEngine
+    // §4.7) as one-click buttons.
     const [dotMenu, setDotMenu] = useState(null); // { buildRecord, mouseX, mouseY }
     // req #2633 — Acceptance Test pass/fail menu, opened by clicking a branch's
     // AT glyph. { branchId, status, top, left }.
     const [atMenu, setAtMenu] = useState(null);
+    // req #2883 — release datacard, opened by clicking a release star. Lifted
+    // out of the Konva canvas so all three pop-ups share page state and only one
+    // is ever open. { build, branchName, top, left }.
+    const [releaseCard, setReleaseCard] = useState(null);
+
+    // Close every Build Visualizer pop-up. Every open handler calls this first so
+    // only one pop-up shows at a time, regardless of type (req #2883).
+    const closeAllMenus = useCallback(() => {
+        setDotMenu(null);
+        setAtMenu(null);
+        setReleaseCard(null);
+    }, []);
 
     // The Konva canvas (req #2864) forwards a screen position anchored to the
-    // build DOT (just below it), not the raw pointer — so the paper opens beside
-    // the dot without covering the resting cursor (which previously fired a
-    // spurious canvas mouseleave that shut the menu). We use it verbatim as the
-    // Popover's top-left.
+    // build DOT (just below it). We use it verbatim as the Popover's top-left.
     const dotMenuPosition = dotMenu
         ? { top: dotMenu.mouseY, left: dotMenu.mouseX }
         : undefined;
 
-    // Hover-bridge close timer (req #2741). The menu opens on dot hover and the
-    // popup sits a hair away from the dot, so leaving the dot OR the popup
-    // schedules a short-delay close; entering the popup (or hovering another
-    // dot) cancels it. This lets the cursor travel dot→popup without flicker
-    // while guaranteeing the menu closes whenever the cursor rests on neither.
-    const dotCloseTimerRef = useRef(null);
-    const cancelCloseDotMenu = useCallback(() => {
-        if (dotCloseTimerRef.current) {
-            clearTimeout(dotCloseTimerRef.current);
-            dotCloseTimerRef.current = null;
-        }
-    }, []);
-
     const handleBuildClick = useCallback((buildRecord, e) => {
-        // `e` is the native DOM MouseEvent the Konva canvas forwards (req #2864 —
-        // either the hit-graph 'activate' event's .evt or the hover event's .evt).
-        // Use its clientX/clientY for menu positioning.
-        cancelCloseDotMenu(); // moving onto a dot cancels any pending close
+        // `e` is the native DOM MouseEvent the Konva canvas forwards (the hit-
+        // graph 'activate' event's .evt). Use its clientX/clientY for menu
+        // positioning. Close any other open pop-up first (req #2883 — one at a
+        // time, regardless of type).
+        closeAllMenus();
         setDotMenu({
             buildRecord,
             mouseX: e.clientX,
             mouseY: e.clientY,
         });
-    }, [cancelCloseDotMenu]);
+    }, [closeAllMenus]);
 
     // Empty-branch anchor click — opens the dot menu in "empty anchor" mode:
     // only Execute Build is shown (no buildRecord exists).
     const handleEmptyAnchorClick = useCallback((branchId, e) => {
-        cancelCloseDotMenu();
+        closeAllMenus();
         setDotMenu({
             emptyBranchId: branchId,
             mouseX: e.clientX,
             mouseY: e.clientY,
         });
-    }, [cancelCloseDotMenu]);
+    }, [closeAllMenus]);
 
-    const closeDotMenu = useCallback(() => {
-        cancelCloseDotMenu();
-        setDotMenu(null);
-    }, [cancelCloseDotMenu]);
+    // Release-star click → release datacard (req #2883). branchName is resolved
+    // by the canvas (it owns the branch-name lookup) and forwarded here.
+    const handleReleaseClick = useCallback((build, e, branchName) => {
+        closeAllMenus();
+        setReleaseCard({
+            build,
+            branchName,
+            top: e.clientY,
+            left: e.clientX,
+        });
+    }, [closeAllMenus]);
 
-    const scheduleCloseDotMenu = useCallback(() => {
-        cancelCloseDotMenu();
-        // 300 ms (was 150) — a more forgiving hover bridge. Crossing from the
-        // Konva dot to the DOM Popover passes briefly over the canvas with no
-        // bridging DOM element; a tight delay closed the menu mid-traverse
-        // (req #2864).
-        dotCloseTimerRef.current = setTimeout(() => {
-            dotCloseTimerRef.current = null;
-            setDotMenu(null);
-        }, 300);
-    }, [cancelCloseDotMenu]);
-
-    // Clear the pending close timer on unmount.
-    useEffect(() => cancelCloseDotMenu, [cancelCloseDotMenu]);
+    const closeDotMenu = useCallback(() => setDotMenu(null), []);
+    const closeReleaseCard = useCallback(() => setReleaseCard(null), []);
 
     // Close any open build (dot) menu when the active project changes (req
     // #2741). The menu is anchored to a build that belongs to the old project;
     // leaving it open after a switch/create strands a popup over unrelated data.
     useEffect(() => {
         setDotMenu(null);
+        setAtMenu(null);
+        setReleaseCard(null);
         setBranchEditor(null);
         setSampleBranchNumPrompt(null);
         // Also drop the delete-confirm dialog: it snapshots a SQL id from the
@@ -489,15 +492,17 @@ const BuildVisualizerPage = () => {
         setBranchEditor(null);
     }, [branchEditor, beName, beAtStatus, darwinUri, idToken, invalidateBuildData]);
 
-    // req #2633 — AT glyph click → pass/fail menu.
+    // req #2633 — AT glyph click → pass/fail menu. Close any other pop-up first
+    // (req #2883 — one at a time, regardless of type).
     const handleAtGlyphClick = useCallback((glyph, e) => {
+        closeAllMenus();
         setAtMenu({
             branchId: glyph.branchId,
             status: glyph.status,
             top: e.clientY,
             left: e.clientX,
         });
-    }, []);
+    }, [closeAllMenus]);
     const closeAtMenu = useCallback(() => setAtMenu(null), []);
     const setAtStatus = useCallback(async (status) => {
         if (!atMenu) return;
@@ -1119,13 +1124,15 @@ const BuildVisualizerPage = () => {
                 onEffectiveLevel={setEffectiveLevel}
                 onBuildClick={handleBuildClick}
                 onAtGlyphClick={handleAtGlyphClick}
-                onBuildLeave={scheduleCloseDotMenu}
+                onReleaseClick={handleReleaseClick}
                 onBranchClick={handleBranchClick}
                 onEmptyAnchorClick={handleEmptyAnchorClick}
                 resetViewNonce={resetViewNonce}
             />
 
-            {/* ─── Build-dot menu — non-modal hover Popover (req #2737) ─── */}
+            {/* ─── Build-dot menu — click-to-open, click-away to dismiss (req
+                #2737; req #2883 — hover removed, now a modal Popover that closes
+                on outside click like the AT menu). ─── */}
             <Popover
                 open={!!dotMenu}
                 onClose={closeDotMenu}
@@ -1137,30 +1144,11 @@ const BuildVisualizerPage = () => {
                 anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'left' }}
                 marginThreshold={0}
-                hideBackdrop
                 disableScrollLock
-                disableAutoFocus
-                disableEnforceFocus
-                disableRestoreFocus
                 // Fade, not the default Grow/scale — a scale animates the size
                 // and reads as wiggle. Opacity-only = stable position + fade in.
                 slots={{ transition: Fade }}
-                slotProps={{
-                    transition: { timeout: 140 },
-                    paper: {
-                        onMouseEnter: cancelCloseDotMenu,
-                        // onMouseMove too (req #2864): the menu opens UNDER the
-                        // cursor (MENU_CURSOR_INSET), so the pointer is already
-                        // inside the paper when it appears and onMouseEnter never
-                        // fires. Any movement over the paper must still cancel the
-                        // pending close, or Konva's dot-leave would shut the menu
-                        // the user is hovering.
-                        onMouseMove: cancelCloseDotMenu,
-                        onMouseLeave: scheduleCloseDotMenu,
-                        sx: { pointerEvents: 'auto' },
-                    },
-                }}
-                sx={{ pointerEvents: 'none' }}
+                slotProps={{ transition: { timeout: 140 } }}
                 data-testid="bv-build-menu"
             >
                 {isEmptyAnchorMenu ? (
@@ -1375,6 +1363,50 @@ const BuildVisualizerPage = () => {
                     <Typography color="error.main">Fail ✗</Typography>
                 </MenuItem>
             </Menu>
+
+            {/* ─── Release datacard — click a release star (req #2883). Lifted
+                out of the Konva canvas into a page-owned modal Popover so it is
+                mutually exclusive with the other pop-ups and dismisses on
+                outside click like them. ─── */}
+            <Popover
+                open={!!releaseCard}
+                onClose={closeReleaseCard}
+                anchorReference="anchorPosition"
+                anchorPosition={releaseCard ? { top: releaseCard.top, left: releaseCard.left } : undefined}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                marginThreshold={8}
+                disableScrollLock
+                data-testid="bv-release-card"
+            >
+                {releaseCard && (() => {
+                    const { build, branchName } = releaseCard;
+                    const details = build.releaseDetails?.length
+                        ? build.releaseDetails
+                        : (build.releaseCustomers || []).map(name => ({ name, date: null }));
+                    const releaseType = details.find(d => d.releaseType)?.releaseType;
+                    return (
+                        <Box sx={{ px: 1.5, py: 1, maxWidth: 260 }}>
+                            <Typography variant="subtitle2" fontWeight={700}>
+                                {releaseType ? `${releaseType} release` : 'Released'} — Build {build.version}
+                            </Typography>
+                            {branchName ? (
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                    {String(branchName).replace(/\n/g, ' / ')}
+                                </Typography>
+                            ) : null}
+                            <Box component="ul" sx={{ m: 0, mt: 0.75, pl: 2.25 }}>
+                                {details.map((d, i) => (
+                                    <Box component="li" key={`${d.name}-${i}`}
+                                         sx={{ fontSize: 12, lineHeight: 1.5 }}>
+                                        {d.name}{d.date ? ` — ${formatReleaseDate(d.date)}` : ''}
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Box>
+                    );
+                })()}
+            </Popover>
 
             <Dialog
                 open={!!releaseDialog}
