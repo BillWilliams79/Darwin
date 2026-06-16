@@ -810,7 +810,10 @@ const KonvaSwarmCanvas = ({
     return (
         <Box ref={containerRef} data-testid="konva-swarm-canvas"
              style={{ position: 'relative', height: 'calc(100vh - 150px)', minHeight: 480,
-                      marginLeft: 16, width: 'calc(100% - 16px)',
+                      // req #2870: the 16px left margin formerly cleared the floating
+                      // sidebar collapse edge-tab that overlapped this canvas's left edge.
+                      // That tab moved into the navbar, so the canvas reclaims full width.
+                      width: '100%',
                       border: `1px solid ${C.wire}`, borderRadius: 6, overflow: 'hidden',
                       background: C.bg, touchAction: 'none' }}>
             {size.w > 0 && (

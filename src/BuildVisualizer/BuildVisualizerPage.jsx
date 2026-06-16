@@ -30,6 +30,7 @@ import HoldCountButton from './HoldCountButton';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
 import { BRANCH_TYPES, branchTypeLabel } from './branchTypeChipStyles';
+import { hasMergeRules } from './mergeEngine';
 import { REGISTRY } from './d3LayoutEngine';
 import {
     nextBuildVersion,
@@ -82,6 +83,9 @@ const MULTI_BRANCH_TYPES = new Set(['hotfix', 'bootleg', 'development']);
 const VERSION_LANES_STORAGE_KEY = 'darwin.buildVisualizer.versionLanes.v1';
 const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
 const SHOW_RELEASES_STORAGE_KEY = 'darwin.bv.showReleases';
+// req #2603 — Merge display (per-branch merge arrows + day-zero declarations) is
+// DISPLAY-ONLY and NOT retained: it lives in in-session React state only, starts
+// empty, and clears on project switch / reload. No localStorage.
 
 const readShowReleases = () => {
     try {
@@ -163,9 +167,9 @@ const BuildVisualizerPage = () => {
 
     // "Reset view" — bump a nonce the canvas watches to re-frame on demand
     // (req #2741). Filter/stagger toggles preserve the user's pan; this is the
-    // explicit re-center control.
+    // explicit re-center control. The handler also clears all merge display
+    // (req #2603 follow-up) — see handleResetView below the merge state.
     const [resetViewNonce, setResetViewNonce] = useState(0);
-    const handleResetView = useCallback(() => setResetViewNonce(n => n + 1), []);
 
     // Semantic-zoom level (req #2864). `pinnedLevel` null = auto-by-zoom; 1|2|3
     // pins a level, overriding the zoom-driven selection. `effectiveLevel` is the
@@ -179,6 +183,39 @@ const BuildVisualizerPage = () => {
     const [showReleases, setShowReleases] = useState(() => readShowReleases());
     const toggleShowReleases = useCallback(() => setShowReleases(prev => !prev), []);
     useEffect(() => { writeShowReleases(showReleases); }, [showReleases]);
+
+    // ─── Merge engine (req #2603) ───────────────────────────────────────
+    // DISPLAY-ONLY, not retained. Merges are toggled PER BRANCH: an in-session
+    // set of branch extIds whose standard required/evaluate arrows show (toggled
+    // from the branch editor + build-dot menu). Day-zero arrows are independent
+    // (render regardless of the per-branch set). Both start empty and clear on
+    // project switch — no persistence.
+    const [mergeBranchIds, setMergeBranchIds] = useState([]);
+    const [dayZeroIds, setDayZeroIds] = useState([]);
+    useEffect(() => { setMergeBranchIds([]); setDayZeroIds([]); }, [projectId]);
+    const mergeBranchSet = useMemo(() => new Set(mergeBranchIds), [mergeBranchIds]);
+    const dayZeroSet = useMemo(() => new Set(dayZeroIds), [dayZeroIds]);
+    const toggleMergeBranch = useCallback((branchExtId) => {
+        if (!branchExtId) return;
+        setMergeBranchIds(prev => prev.includes(branchExtId)
+            ? prev.filter(x => x !== branchExtId)
+            : [...prev, branchExtId]);
+    }, []);
+    const toggleDayZero = useCallback((buildExtId) => {
+        if (!buildExtId) return;
+        setDayZeroIds(prev => prev.includes(buildExtId)
+            ? prev.filter(x => x !== buildExtId)
+            : [...prev, buildExtId]);
+    }, []);
+
+    // "Reset view" re-frames the canvas AND hides every merge currently showing
+    // — both the per-branch required/evaluate arrows and the day-zero red arrows
+    // (req #2603 follow-up).
+    const handleResetView = useCallback(() => {
+        setResetViewNonce(n => n + 1);
+        setMergeBranchIds([]);
+        setDayZeroIds([]);
+    }, []);
 
     // Theme — dark-variant handling.
     const { effectiveMode } = useContext(ThemeContext);
@@ -775,6 +812,23 @@ const BuildVisualizerPage = () => {
         }
     }, [dotMenu, darwinUri, idToken, invalidateBuildData]);
 
+    // Declare / clear a day-zero merge requirement on the clicked build (req
+    // #2603). Toggles the build's extId in the per-project localStorage set;
+    // the canvas fans red arrows out to all release/hotfix/CSR branches.
+    const handleToggleDayZero = useCallback(() => {
+        if (!dotMenu?.buildRecord) return;
+        toggleDayZero(dotMenu.buildRecord.id);
+        closeDotMenu();
+    }, [dotMenu, toggleDayZero, closeDotMenu]);
+
+    // Toggle the clicked build's BRANCH merge view (req #2603). Closes the menu
+    // so the arrows are visible against a clear canvas.
+    const handleToggleBranchMerges = useCallback(() => {
+        if (!dotMenuBranch) return;
+        toggleMergeBranch(dotMenuBranch.id);
+        closeDotMenu();
+    }, [dotMenuBranch, toggleMergeBranch, closeDotMenu]);
+
     const handlePerformReleaseEvent = useCallback(() => {
         if (!dotMenu) return;
         setReleaseDialog({ buildId: dotMenu.buildRecord.id });
@@ -960,6 +1014,8 @@ const BuildVisualizerPage = () => {
                 selectedTypes={selectedTypes}
                 staggerOn={staggerOn}
                 showReleases={showReleases}
+                mergeBranchIds={mergeBranchSet}
+                dayZeroBuildIds={dayZeroSet}
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 pinnedLevel={pinnedLevel}
@@ -1139,6 +1195,40 @@ const BuildVisualizerPage = () => {
                                 )
                         ))}
 
+                        {/* Per-branch merge view (req #2603). Toggles this
+                            build's branch in the merge-branch set so only the
+                            chosen branches' arrows render — merges are reasoned
+                            about one branch at a time, not all at once. Hidden
+                            on main (no merge rules). */}
+                        {dotMenuBranch && hasMergeRules(dotMenuBranch.type) && (
+                            <>
+                                <Divider />
+                                <MenuItem
+                                    onClick={handleToggleBranchMerges}
+                                    data-testid="bv-menu-branch-merges"
+                                >
+                                    {mergeBranchSet.has(dotMenuBranch.id)
+                                        ? 'Hide merges for this branch'
+                                        : 'Show merges for this branch'}
+                                </MenuItem>
+                            </>
+                        )}
+
+                        {/* Day-zero merge requirement (req #2603). Declares the
+                            build a zero-day source; the canvas fans red merge
+                            arrows to every release/hotfix/CSR branch, shown
+                            independently of any branch's merge view. */}
+                        <Divider />
+                        <MenuItem
+                            onClick={handleToggleDayZero}
+                            data-testid="bv-menu-dayzero"
+                            sx={{ color: 'error.main' }}
+                        >
+                            {dotMenu?.buildRecord && dayZeroSet.has(dotMenu.buildRecord.id)
+                                ? 'Clear day-zero merge'
+                                : 'Declare day-zero merge…'}
+                        </MenuItem>
+
                         {/* Delete build — destructive, at the bottom (req #2742).
                             Gated: last build, no child branch parented off it. */}
                         {dotMenu && dotMenuBranch && dotMenu.buildRecord && canDeleteBuild({
@@ -1310,6 +1400,23 @@ const BuildVisualizerPage = () => {
                                     branchFirstBuildVersion(branchEditorBranch),
                                 )}
                             </Typography>
+                            {/* Per-branch merge view (req #2603) — show this
+                                branch's required/evaluate merge arrows. Hidden on
+                                main (no merge rules). */}
+                            {hasMergeRules(branchEditorBranch.type) && (
+                                <FormControlLabel
+                                    sx={{ mt: 1, ml: 0 }}
+                                    control={(
+                                        <Switch
+                                            size="small"
+                                            checked={mergeBranchSet.has(branchEditorBranch.id)}
+                                            onChange={() => toggleMergeBranch(branchEditorBranch.id)}
+                                            inputProps={{ 'data-testid': 'bv-branch-merges-switch' }}
+                                        />
+                                    )}
+                                    label="Show merge arrows"
+                                />
+                            )}
                         </Box>
                     )}
                 </DialogContent>

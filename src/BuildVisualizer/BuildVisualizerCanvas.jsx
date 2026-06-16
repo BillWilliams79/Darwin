@@ -4,11 +4,12 @@
 // The diagram renderer was re-platformed from React-rendered SVG onto a Konva
 // canvas, mirroring the Swarm Visualizer migration (req #2841). This component
 // keeps the public prop contract the page already depends on (model, projectId,
-// loading/error, filters, the hover/click callbacks, resetViewNonce) and the
-// loading / error / empty states, then lazy-loads the heavy Konva render layer —
-// Konva pulls a large canvas bundle, so it is code-split exactly like the swarm
-// (KonvaSwarmCanvas via SwarmVisualizerView). The semantic-zoom logic, d3-zoom
-// pan/zoom, and all glyph drawing now live in KonvaBuildCanvas.
+// loading/error, filters, the MergeEngine display sets (req #2603), the
+// hover/click callbacks, resetViewNonce) and the loading / error / empty states,
+// then lazy-loads the heavy Konva render layer — Konva pulls a large canvas
+// bundle, so it is code-split exactly like the swarm (KonvaSwarmCanvas via
+// SwarmVisualizerView). The semantic-zoom logic, d3-zoom pan/zoom, merge-arrow
+// derivation, and all glyph drawing now live in KonvaBuildCanvas.
 
 import { Suspense, lazy } from 'react';
 import Box from '@mui/material/Box';
@@ -24,6 +25,8 @@ const BuildVisualizerCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
+    mergeBranchIds,
+    dayZeroBuildIds,
     appMode,
     darkVariant,
     pinnedLevel,
@@ -69,6 +72,8 @@ const BuildVisualizerCanvas = ({
                     selectedTypes={selectedTypes}
                     staggerOn={staggerOn}
                     showReleases={showReleases}
+                    mergeBranchIds={mergeBranchIds}
+                    dayZeroBuildIds={dayZeroBuildIds}
                     appMode={appMode}
                     darkVariant={darkVariant}
                     pinnedLevel={pinnedLevel}

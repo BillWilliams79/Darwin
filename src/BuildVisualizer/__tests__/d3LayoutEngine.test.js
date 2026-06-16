@@ -586,6 +586,42 @@ describe('empty branches', () => {
         expect(conn.lineD).toMatch(/^M .* L .*/);
     });
 
+    it('a branch keeps its tail arrow even when a child sprouts off its last build (req #2603)', () => {
+        // release has 2 builds; a sample-release branches off the release's LAST
+        // build. The release must still show its follow-on arrow — more builds
+        // can always be added to it.
+        const model = makeModel({
+            mainBuilds: 3,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm2', parentBranchId: 'main', buildCount: 2 },
+                { id: 'samp', type: 'sample-release', parentBuildId: 'rel-b2', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const relConn = layout.connectors.find(c => c.branchId === 'rel');
+        expect(relConn).toBeTruthy();
+        expect(relConn.hasArrow).toBe(true);
+    });
+
+    it('every branch (main + subs) uses the SAME follow-on tail length (req #2603)', () => {
+        const model = makeModel({
+            mainBuilds: 4,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm2', parentBranchId: 'main', buildCount: 2 },
+                { id: 'dev1', type: 'development', parentBuildId: 'm3', parentBranchId: 'main', buildCount: 3 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const tailEndX = (d) => parseFloat(d.match(/L (-?\d+(?:\.\d+)?) /)[1]);
+        const lastBuildX = (id) => Math.max(...layout.builds.filter(b => b.branchId === id).map(b => b.x));
+        const mainTail = tailEndX(layout.mainPath.d) - lastBuildX('main');
+        const relTail = tailEndX(layout.connectors.find(c => c.branchId === 'rel').lineD) - lastBuildX('rel');
+        const devTail = tailEndX(layout.connectors.find(c => c.branchId === 'dev1').lineD) - lastBuildX('dev1');
+        expect(relTail).toBeCloseTo(mainTail, 5);
+        expect(devTail).toBeCloseTo(mainTail, 5);
+        expect(mainTail).toBeCloseTo(DEFAULT_OPTS.colW * DEFAULT_OPTS.arrowExtColumns, 5);
+    });
+
     it('a branch with builds does NOT emit an emptyAnchors entry', () => {
         const model = makeModel({
             mainBuilds: 3,

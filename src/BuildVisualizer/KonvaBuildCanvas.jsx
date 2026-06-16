@@ -33,6 +33,7 @@ import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 
 import { computeLayout } from './d3LayoutEngine';
 import { computeSemanticModel, autoLevel, isGapId } from './semanticModel';
+import { computeMerges, MERGE_EVALUATE, MERGE_DAYZERO } from './mergeEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
 import { computeHiddenBranchIds } from './visibilityRules';
 import paletteFor from './d3ThemePalettes';
@@ -77,6 +78,8 @@ const KonvaBuildCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
+    mergeBranchIds,                // req #2603 — Set of SOURCE branch ids whose merges show
+    dayZeroBuildIds,               // req #2603 — Set of build ids declared day-zero
     appMode,
     darkVariant,
     pinnedLevel = null,            // null = auto-by-zoom; 1|2|3 = pinned
@@ -169,6 +172,18 @@ const KonvaBuildCanvas = ({
             { versionLanes: !!staggerOn, hiddenBranchIds: semantic.hiddenBranchIds },
         ),
         [semantic, staggerOn],
+    );
+
+    // MergeEngine (req #2603) — derive merge arrows from the ORIGINAL tree +
+    // the rendered layout. Pass the original `model` (full branch types/parents/
+    // buildIds, so the respin/day-zero rules read the real history) but the
+    // collapsed `layout` for positions — branch tips (last build) are never
+    // collapsed, so arrow endpoints stay correct under semantic zoom. Day-zero
+    // arrows are always in the set; the per-branch toggle gates standard arrows
+    // at draw time below.
+    const merges = useMemo(
+        () => computeMerges({ model, layout, dayZeroBuildIds }),
+        [model, layout, dayZeroBuildIds],
     );
 
     const branchNameById = useMemo(() => {
@@ -369,6 +384,34 @@ const KonvaBuildCanvas = ({
                                   strokeWidth={lineW} pointerLength={7 * inv} pointerWidth={6 * inv}
                                   pointerAtEnding={!!c.hasArrow} listening={false} />);
             }
+        }
+
+        // 1c. Merge arrows (req #2603, ported to Konva for req #2864). Day-zero
+        // arrows (red) ALWAYS render; standard required(solid)/evaluate(dashed)
+        // arrows render only for branches whose merge view is toggled on
+        // (mergeBranchIds, keyed by the SOURCE branch). The mergeEngine emits an
+        // SVG path string `d` (curve into a lane then a steep vertical arrival),
+        // drawn here as a Konva Path; the arrowhead — which SVG drew with a
+        // marker — is a small triangle at the destination, pointing along the
+        // path's vertical arrival. listening=false so arrows never steal hover.
+        for (const m of merges) {
+            const isDayZero = m.kind === MERGE_DAYZERO;
+            if (!isDayZero && !(mergeBranchIds instanceof Set && mergeBranchIds.has(m.source))) continue;
+            const col = isDayZero ? palette.mergeDayZero : palette.merge;
+            nodes.push(<Path key={`merge-${m.id}`} data={m.d} stroke={col}
+                             strokeWidth={(isDayZero ? 1.8 : 1.4) * inv}
+                             dash={m.kind === MERGE_EVALUATE ? [6 * inv, 4 * inv] : undefined}
+                             opacity={0.9} listening={false} />);
+            // Arrowhead — replicate mergeEngine's lane drop (MERGE_LANE_DROP=42)
+            // to recover the vertical arrival direction the path ends on.
+            const drop = (m.destY > m.sourceY) ? Math.min(42, (m.destY - m.sourceY) * 0.6) : 42;
+            const dir = m.destY >= (m.sourceY + drop) ? 1 : -1;
+            const ah = 7 * inv;
+            nodes.push(<Line key={`merge-ah-${m.id}`}
+                             points={[m.destX, m.destY,
+                                      m.destX - ah * 0.6, m.destY - dir * ah,
+                                      m.destX + ah * 0.6, m.destY - dir * ah]}
+                             closed fill={col} listening={false} />);
         }
 
         // 2. Branch labels (multi-line) + main endpoint labels.
