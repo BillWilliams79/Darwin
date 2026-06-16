@@ -90,6 +90,19 @@ export const DEFAULT_OPTS = {
     // directly above a release-bearing row, so release-free layouts are
     // unchanged and no global whitespace is added.
     releaseClearance: 30,
+    // req #2633 — Build AT renders a per-build self-loop + "Build AT" caption
+    // ABOVE every build (and ABOVE the release stars when a build also bears a
+    // release event). When `showBuildAt` is on, every row reserves this extra
+    // room above it so the loops/captions don't collide with the row above or,
+    // on release-bearing builds, with the star row. Sized as loop (~12) + cap
+    // text (~10) + gap.
+    buildAtClearance: 26,
+    showBuildAt: true,
+    // Master switch for ALL acceptance-test visuals (branch glyphs + names +
+    // Build AT). When false, no AT element renders and no AT clearance is
+    // reserved. `showBuildAt` is a SUB-toggle — Build AT only shows when both
+    // are on (req #2633 review round).
+    showAcceptanceTests: true,
     // Gap between adjacent strata (e.g. between Hot Fix's farthest lane and
     // Bootleg's closest-to-main lane). Bumped to 70 (= laneGap) so the
     // staggered far-lane version labels of an upper stratum's bottom lane
@@ -116,6 +129,13 @@ export const DEFAULT_OPTS = {
     canvasPadTop: 40,
     canvasPadBottom: 70,
 };
+
+// req #2633 — branch-level AT name labels stack BELOW a branch's latest build,
+// starting below the version far-lane so they never collide with build numbers.
+// Each name's row is ATNAME_LINE_H tall; the first name sits ATNAME_TOP_OFFSET
+// below the dot center (clears r + the two version lanes ≈ r + 24).
+const ATNAME_TOP_OFFSET = 36;
+const ATNAME_LINE_H = 12;
 
 function cfgFor(type) {
     return REGISTRY[type] || REGISTRY.development;
@@ -213,6 +233,7 @@ export function computeLayout(model, opts = {}) {
             branches: [], builds: [], connectors: [],
             mainPath: null, mainEndpointLabels: null,
             strata: [], emptyAnchors: [], collapseTokens: [],
+            atBranchGlyphs: [], atBuildLoops: [],
             width: 800, height: 200, mainY: 0,
         };
     }
@@ -322,6 +343,27 @@ export function computeLayout(model, opts = {}) {
         );
     const mainBearsRelease = branchBearsRelease(main);
 
+    // req #2633 — AT visibility (master + Build AT sub-toggle).
+    const showATs = o.showAcceptanceTests !== false;
+    const showBuildAtEff = showATs && o.showBuildAt !== false;
+    const buildAtRoom = showBuildAtEff ? o.buildAtClearance : 0;
+
+    // Branch-level AT NAME labels stack DOWNWARD below a branch's latest build,
+    // so a row carrying them must reserve extra room BELOW it (= above the next
+    // row in the top-to-bottom walk), proportional to the deepest name stack in
+    // the row. Only counts branches that actually render names (have builds +
+    // branch-level ATs) and only when the master AT toggle is on.
+    const branchAtNameCount = (b) =>
+        (showATs && (b.buildIds || []).length > 0 && Array.isArray(b.acceptanceTests))
+            ? b.acceptanceTests.length : 0;
+    const laneMaxAtNames = (stratumId, lane) =>
+        (branchesByStratum.get(stratumId) || []).reduce(
+            (max, b) => ((laneByBranch.get(b.id) || 0) === lane
+                ? Math.max(max, branchAtNameCount(b)) : max), 0);
+    const mainAtNames = branchAtNameCount(main);
+    // Extra vertical room a name-bearing row pushes onto the row below it.
+    const atNamesExtent = (n) => (n > 0 ? n * ATNAME_LINE_H : 0);
+
     // Build the ordered list of horizontal rows, top-to-bottom, then walk it
     // ONCE accumulating Y. Each row carries the base gap that precedes it and a
     // flag for whether it needs release clearance ABOVE it. This replaces the
@@ -345,12 +387,14 @@ export function computeLayout(model, opts = {}) {
             const gapAbove = lane === lanes - 1
                 ? (si === 0 ? o.laneGap : gapFor(aboveNonEmpty[si - 1], o.stratumGap))
                 : o.laneGap;
-            rows.push({ key: keyOf(s.id, lane), gapAbove, bearsRelease: laneBearsRelease(s.id, lane) });
+            rows.push({ key: keyOf(s.id, lane), gapAbove,
+                bearsRelease: laneBearsRelease(s.id, lane),
+                atNames: laneMaxAtNames(s.id, lane) });
         }
     });
     // Main — a sideGap below the closest above stratum (and a sideGap below
     // canvasPadTop when there are no above strata, matching the prior layout).
-    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease });
+    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease, atNames: mainAtNames });
     // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
     devNonEmpty.forEach((s, di) => {
         const lanes = laneCountByStratum.get(s.id);
@@ -358,22 +402,35 @@ export function computeLayout(model, opts = {}) {
             const gapAbove = lane === 0
                 ? (di === 0 ? o.sideGap : gapFor(devNonEmpty[di - 1], o.stratumGap))
                 : o.laneGap;
-            rows.push({ key: keyOf(s.id, lane), gapAbove, bearsRelease: laneBearsRelease(s.id, lane) });
+            rows.push({ key: keyOf(s.id, lane), gapAbove,
+                bearsRelease: laneBearsRelease(s.id, lane),
+                atNames: laneMaxAtNames(s.id, lane) });
         }
     });
 
     // Single top-to-bottom walk assigning Y to every row. The release clearance
     // is added to the gap ABOVE each release-bearing row (including the very
     // first row, so its stars/label don't clip the top of the canvas).
+    // req #2633 — when Build AT is shown it sits ABOVE every build (and above
+    // the release stars on release-bearing builds), so every row reserves an
+    // extra `buildAtClearance` (buildAtRoom, computed above) above it. This
+    // stacks ON TOP of releaseClearance for release-bearing rows. Additionally,
+    // a row carrying AT name labels pushes its name-stack DOWN into the gap
+    // above the NEXT row, so the previous row's `atNamesExtent` is added too.
     const laneY = new Map();
     let mainY = o.canvasPadTop;
+    let lastNamesExtent = 0; // names on the bottom-most row extend into the pad
     {
         let cursor = o.canvasPadTop;
+        let prevNamesExtent = 0;
         for (const row of rows) {
-            cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0);
+            cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0)
+                + buildAtRoom + prevNamesExtent;
             if (row.main) mainY = cursor;
             else laneY.set(row.key, cursor);
+            prevNamesExtent = atNamesExtent(row.atNames || 0);
         }
+        lastNamesExtent = prevNamesExtent;
     }
 
     // Map each branch to its row Y.
@@ -607,6 +664,67 @@ export function computeLayout(model, opts = {}) {
         };
     });
 
+    // ─── Step 8b. Acceptance Tests (req #2633) ─────────────────────────
+    // Two kinds (see acceptanceTestConfig.js):
+    //   • Branch-level ATs → stacked name labels below the branch's LATEST
+    //     build + a single pass/fail glyph (green ✓ / red ✗) from the branch's
+    //     acceptanceStatus.
+    //   • Build AT → an automatic per-build self-loop glyph (always pass) on
+    //     every build of a buildAT branch type.
+    const atBranchGlyphs = [];
+    const atBuildLoops = [];
+    for (const b of branches) {
+        if (isHidden(b.id)) continue;
+        const buildIds = b.buildIds || [];
+        const r = dotRadiusFor(b.type);
+        // Branch-level AT glyph sits MID-SEGMENT on the branch line, between the
+        // last build and the penultimate build (req #2633 review round). Names
+        // stay anchored below the LATEST build. With a single build there is no
+        // penultimate, so the glyph sits half a column back toward the branch
+        // shoulder.
+        const names = (showATs && Array.isArray(b.acceptanceTests)) ? b.acceptanceTests : [];
+        if (names.length && buildIds.length) {
+            const lastPos = positions[buildIds[buildIds.length - 1]];
+            const prevPos = buildIds.length >= 2 ? positions[buildIds[buildIds.length - 2]] : null;
+            if (lastPos) {
+                const midX = prevPos
+                    ? (lastPos.x + prevPos.x) / 2
+                    : lastPos.x - o.colW * 0.5;
+                atBranchGlyphs.push({
+                    branchId: b.id,
+                    x: midX,             // glyph: mid-segment, on the line
+                    y: lastPos.y,
+                    namesX: lastPos.x,   // name labels: below the latest build
+                    namesY: lastPos.y,
+                    // Names start below the version far-lane (no build-number
+                    // conflict) and step by nameLineH; the lane spacing reserves
+                    // room for the full stack (req #2633 review round).
+                    namesStartY: lastPos.y + r + ATNAME_TOP_OFFSET,
+                    nameLineH: ATNAME_LINE_H,
+                    radius: r,
+                    status: b.acceptanceStatus === 'fail' ? 'fail' : 'pass',
+                    names,
+                });
+            }
+        }
+        // Build AT — per-build loop glyph on EVERY build (req #2633 review
+        // round), gated by the effective Build AT toggle (master ATs AND the
+        // Build AT sub-toggle). Each loop knows whether its build also bears a
+        // release event.
+        if (showBuildAtEff && b.buildAT) {
+            buildIds.forEach(bid => {
+                const pos = positions[bid];
+                if (pos) {
+                    atBuildLoops.push({
+                        buildId: bid, branchId: b.id,
+                        x: pos.x, y: pos.y, radius: r,
+                        hasRelease: (releaseEvents[bid]?.length || 0) > 0,
+                    });
+                }
+            });
+        }
+    }
+
     // ─── Step 9. Main endpoint labels ──────────────────────────────────
     let mainEndpointLabels = null;
     if (mainBuildIds.length > 0) {
@@ -684,7 +802,8 @@ export function computeLayout(model, opts = {}) {
         : o.leftPad + Math.max(0, mainBuildIds.length - 1) * o.colW;
     const arrowTail = o.colW * o.arrowExtColumns;
     const totalWidth = maxBuildX + arrowTail + o.rightPad + 160;
-    const totalHeight = Math.ceil(lowestY + o.canvasPadBottom);
+    // Include the bottom-most row's AT-name stack so it isn't clipped (req #2633).
+    const totalHeight = Math.ceil(lowestY + o.canvasPadBottom + lastNamesExtent);
 
     // Cleanup transient markers.
     for (const b of branches) { delete b._modelOrder; }
@@ -697,7 +816,9 @@ export function computeLayout(model, opts = {}) {
         mainEndpointLabels,
         strata: strataBands,
         emptyAnchors,
-        collapseTokens,
+        collapseTokens,   // req #2864 — semantic-zoom "…" collapse tokens
+        atBranchGlyphs,   // req #2633 — branch-level AT glyph + name labels
+        atBuildLoops,     // req #2633 — per-build Build AT loops
         width: totalWidth,
         height: totalHeight,
         mainY,

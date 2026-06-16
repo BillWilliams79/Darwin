@@ -5,10 +5,11 @@
 // canvas, mirroring the Swarm Visualizer migration (req #2841). This component
 // keeps the public prop contract the page already depends on (model, projectId,
 // loading/error, filters, the MergeEngine display sets (req #2603), the
-// hover/click callbacks, resetViewNonce) and the loading / error / empty states,
-// then lazy-loads the heavy Konva render layer — Konva pulls a large canvas
-// bundle, so it is code-split exactly like the swarm (KonvaSwarmCanvas via
-// SwarmVisualizerView). The semantic-zoom logic, d3-zoom pan/zoom, merge-arrow
+// Acceptance-Test toggles + glyph-click (req #2633), the hover/click callbacks,
+// resetViewNonce) and the loading / error / empty states, then lazy-loads the
+// heavy Konva render layer — Konva pulls a large canvas bundle, so it is
+// code-split exactly like the swarm (KonvaSwarmCanvas via SwarmVisualizerView).
+// The semantic-zoom logic, d3-zoom pan/zoom, merge-arrow + acceptance-test
 // derivation, and all glyph drawing now live in KonvaBuildCanvas.
 
 import { Suspense, lazy } from 'react';
@@ -25,6 +26,8 @@ const BuildVisualizerCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
+    showBuildAt,
+    showAcceptanceTests,
     mergeBranchIds,
     dayZeroBuildIds,
     appMode,
@@ -35,6 +38,7 @@ const BuildVisualizerCanvas = ({
     onBuildLeave,
     onBranchClick,
     onEmptyAnchorClick,
+    onAtGlyphClick,
     resetViewNonce,
 }) => {
     if (isLoading) {
@@ -72,6 +76,8 @@ const BuildVisualizerCanvas = ({
                     selectedTypes={selectedTypes}
                     staggerOn={staggerOn}
                     showReleases={showReleases}
+                    showBuildAt={showBuildAt}
+                    showAcceptanceTests={showAcceptanceTests}
                     mergeBranchIds={mergeBranchIds}
                     dayZeroBuildIds={dayZeroBuildIds}
                     appMode={appMode}
@@ -82,6 +88,7 @@ const BuildVisualizerCanvas = ({
                     onBuildLeave={onBuildLeave}
                     onBranchClick={onBranchClick}
                     onEmptyAnchorClick={onEmptyAnchorClick}
+                    onAtGlyphClick={onAtGlyphClick}
                     resetViewNonce={resetViewNonce}
                 />
             </Suspense>

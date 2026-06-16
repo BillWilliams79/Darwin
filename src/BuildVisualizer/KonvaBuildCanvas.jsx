@@ -27,7 +27,7 @@
 import {
     memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Text, Path, Arrow, Star } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Text, Path, Arrow, Star } from 'react-konva';
 import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 
@@ -78,6 +78,8 @@ const KonvaBuildCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
+    showBuildAt,                   // req #2633 — per-build "Build AT" loops
+    showAcceptanceTests,           // req #2633 — master AT toggle
     mergeBranchIds,                // req #2603 — Set of SOURCE branch ids whose merges show
     dayZeroBuildIds,               // req #2603 — Set of build ids declared day-zero
     appMode,
@@ -88,6 +90,7 @@ const KonvaBuildCanvas = ({
     onBuildLeave,
     onBranchClick,
     onEmptyAnchorClick,
+    onAtGlyphClick,                // req #2633 — click a branch AT pass/fail glyph
     resetViewNonce = 0,
 }) => {
     const themeKey = appMode === 'dark'
@@ -166,12 +169,20 @@ const KonvaBuildCanvas = ({
         }),
         [model, level, expandedTokens, baseHiddenBranchIds],
     );
+    // Acceptance-test visibility (req #2633): master toggle + Build AT sub-toggle.
+    const atShown = showAcceptanceTests !== false;
+    const buildAtShown = atShown && showBuildAt !== false;
     const layout = useMemo(
         () => computeLayout(
             semantic.model || { branches: [], builds: {}, releaseEvents: {} },
-            { versionLanes: !!staggerOn, hiddenBranchIds: semantic.hiddenBranchIds },
+            {
+                versionLanes: !!staggerOn,
+                showAcceptanceTests: atShown,
+                showBuildAt: showBuildAt !== false,
+                hiddenBranchIds: semantic.hiddenBranchIds,
+            },
         ),
-        [semantic, staggerOn],
+        [semantic, staggerOn, atShown, showBuildAt],
     );
 
     // MergeEngine (req #2603) — derive merge arrows from the ORIGINAL tree +
@@ -328,6 +339,35 @@ const KonvaBuildCanvas = ({
             clientX: rect.left + t.x + wx * t.k,
             clientY: rect.top + t.y + wy * t.k + rWorld + 2,
         };
+    };
+
+    // Acceptance-Test status glyph (req #2633) — a green ✓ box (pass) or red ✗
+    // box (fail) centered at world (x, y), screen-constant `screenSize`. When
+    // `onClick` is supplied the box is the listening hit target (branch glyph);
+    // otherwise the whole thing is decorative (Build AT loop).
+    const atGlyphNodes = (key, x, y, status, screenSize, listening = false, onClick) => {
+        const pass = status !== 'fail';
+        const s = screenSize * inv;
+        const h = s / 2;
+        const fill = pass ? '#43a047' : '#e53935';
+        const stroke = pass ? '#2e7d32' : '#c62828';
+        const out = [
+            <Rect key={`${key}-box`} x={x - h} y={y - h} width={s} height={s} cornerRadius={2 * inv}
+                  fill={fill} stroke={stroke} strokeWidth={1 * inv} listening={listening}
+                  onActivate={onClick}
+                  onMouseEnter={onClick ? (e) => cursorPointer(e, true) : undefined}
+                  onMouseLeave={onClick ? (e) => cursorPointer(e, false) : undefined} />,
+        ];
+        if (pass) {
+            out.push(<Line key={`${key}-chk`} points={[x - h * 0.5, y, x - h * 0.1, y + h * 0.45, x + h * 0.6, y - h * 0.5]}
+                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" lineJoin="round" listening={false} />);
+        } else {
+            out.push(<Line key={`${key}-x1`} points={[x - h * 0.5, y - h * 0.5, x + h * 0.5, y + h * 0.5]}
+                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" listening={false} />);
+            out.push(<Line key={`${key}-x2`} points={[x + h * 0.5, y - h * 0.5, x - h * 0.5, y + h * 0.5]}
+                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" listening={false} />);
+        }
+        return out;
     };
 
     const toggleToken = useCallback((tokenId) => {
@@ -554,7 +594,44 @@ const KonvaBuildCanvas = ({
             );
         }
 
-        // 4. Release stars (hover → shared HTML datacard).
+        // 3d. Acceptance Tests (req #2633, ported to Konva for req #2864).
+        // Build AT loops sit just above each build (automatic, always pass); a
+        // small self-loop arc + a green ✓ glyph + a "Build AT" caption. Branch-
+        // level ATs render a clickable pass/fail glyph mid-segment on the branch
+        // line plus stacked AT-name labels below the latest build. All sizes/
+        // offsets are × inv so the glyphs stay constant on-screen like the dots.
+        for (const loop of layout.atBuildLoops || []) {
+            const rW = loop.radius * inv;
+            const topY = loop.y - rW - 4 * inv;
+            const cap = topY - 9 * inv;
+            const o7 = 7 * inv;
+            nodes.push(<Path key={`bat-arc-${loop.buildId}`}
+                             data={`M ${loop.x - rW} ${loop.y - rW} `
+                                 + `C ${loop.x - rW - o7} ${topY - o7}, `
+                                 + `${loop.x + rW + o7} ${topY - o7}, ${loop.x + rW} ${loop.y - rW}`}
+                             stroke="#9e9e9e" strokeWidth={1 * inv} listening={false} />);
+            nodes.push(...atGlyphNodes(`bat-${loop.buildId}`, loop.x, topY, 'pass', 9));
+            nodes.push(<Text key={`bat-cap-${loop.buildId}`} x={loop.x - 24 * inv} y={cap - 4 * inv}
+                             width={48 * inv} align="center" text="Build AT" fontSize={7 * inv}
+                             fill="#777" listening={false} />);
+        }
+        for (const g of layout.atBranchGlyphs || []) {
+            const lineH = 12 * inv;
+            // Names below the latest build, screen-constant spacing/offset.
+            const firstNameY = g.namesY + (g.radius + 30) * inv;
+            const nameColor = g.status === 'fail' ? '#c62828' : '#2e7d32';
+            (g.names || []).forEach((nm, i) => {
+                nodes.push(<Text key={`atn-${g.branchId}-${i}`} x={g.namesX - 60 * inv} y={firstNameY + i * lineH}
+                                 width={120 * inv} align="center" text={nm} fontSize={9 * inv}
+                                 fill={nameColor} listening={false} />);
+            });
+            // Clickable pass/fail glyph mid-segment on the branch line.
+            const onClick = onAtGlyphClick ? (e) => { if (!draggingRef.current) onAtGlyphClick(g, e?.evt || e); } : undefined;
+            nodes.push(...atGlyphNodes(`atb-${g.branchId}`, g.x, g.y, g.status, 13, !!onClick, onClick));
+        }
+
+        // 4. Release stars (hover → shared HTML datacard). Raised above the
+        // Build AT slot when Build AT is shown (req #2633 — release on top).
         if (showReleases) {
             for (const b of layout.builds) {
                 if (!b.releaseCustomers?.length) continue;
@@ -562,7 +639,7 @@ const KonvaBuildCanvas = ({
                 const n = b.releaseCustomers.length;
                 const ro = STAR_OUTER * inv;
                 const pitch = (2 * STAR_OUTER + 2) * inv;
-                const cy = b.y - 22 * inv;
+                const cy = b.y - (22 + (buildAtShown ? 16 : 0)) * inv;
                 const startX = b.x - ((n - 1) * pitch) / 2;
                 b.releaseCustomers.forEach((name, i) => {
                     nodes.push(<Star key={`star-${b.id}-${i}`} x={startX + i * pitch} y={cy}
