@@ -129,7 +129,9 @@ export const DEFAULT_OPTS = {
     // same constant, so the trunk shortens in lockstep.
     arrowExtColumns: 0.6,
     versionCloseOffset: 12,
-    versionLaneGap: 12,
+    // req #2891 — scaled 12→14.4 (×1.2) in lockstep with VERSION_FONT (9→10.8)
+    // so the close/far version lanes keep their vertical separation.
+    versionLaneGap: 14.4,
     versionLanes: true,
     hiddenBranchIds: null,
     canvasPadTop: 40,
@@ -140,10 +142,10 @@ export const DEFAULT_OPTS = {
 // starting below the version far-lane so they never collide with build numbers.
 // Each name's row is ATNAME_LINE_H tall; the first name sits ATNAME_TOP_OFFSET
 // below the dot center. req #2876 — AT name text grew to 80% of the branch-name
-// font (≈11.2px). The build-number far-lane bottoms out at r + close 12 + lane 12
-// + ~9 text ≈ r + 33; req #2876 r4 gives the AT names their OWN lane with a clear
-// gap by starting them at r + 52 (≈19px below the build numbers) so the two bands
-// never touch. The line height grew to match the taller text. These two constants
+// font (≈11.2px). req #2891 — VERSION_FONT grew to 10.8 and versionLaneGap to 14.4,
+// so the build-number far-lane now bottoms out at r + close 12 + lane 14.4 + ~10.8
+// text ≈ r + 37.2; the AT names start at r + 52 (≈14.8px below the build numbers)
+// so the two bands still never touch. The line height grew to match the taller text. These two constants
 // are the single source of truth for the layout reservation here AND the render.
 const ATNAME_TOP_OFFSET = 52;
 const ATNAME_LINE_H = 14;
