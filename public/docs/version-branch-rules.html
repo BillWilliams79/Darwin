@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Version &amp; Branch Rules — Single Source of Truth</title>
+<!--
+  Darwin Build Visualizer — Version & Branch ruleset, groomed to HTML (req #2902).
+  Human-facing single source of truth for the M.m.B.b version scheme and the
+  branch-creation rules. The engine-facing spec is memory/build-visualizer-design.md
+  §4 / §4.7 / §5; the rules are implemented in Darwin/src/BuildVisualizer/
+  versionEngine.js + branchEngine.js and tested in __tests__/.
+  Design language: memory/html-doc-design.md (deep-navy blueprint — fuses the
+  Build Visualizer `midnight` theme with the NVLink topology palette).
+-->
+<style>
+  :root {
+    --bg:        #0a1929;
+    --bg2:       #0c1d34;
+    --panel-a:   #19324e;
+    --panel-b:   #0c1d34;
+    --accent:    #5fa3d4;
+    --accent-lo: #4a8fc7;
+    --line:      #8ecae6;
+    --title:     #ffffff;
+    --body:      #cfe4f7;
+    --dim:       #9bbcd6;
+    --section:   #7bb8de;
+    --sep:       rgba(74,143,199,0.55);
+    --hair:      rgba(94,163,212,0.22);
+    --mono:      "Consolas","Menlo","SFMono-Regular",monospace;
+    --sans:      "Calibri","Segoe UI",system-ui,Arial,sans-serif;
+    /* dot / status semantics — mirrors midnight palette + starColors.js */
+    --dot-green:   #2dd4bf;
+    --dot-red:     #f87171;
+    --dot-yellow:  #ffd166;
+    --dot-gray:    #5b7387;
+    --dot-cust:    #3b82f6;
+    --gold:        #fbbf24;
+    --silver:      #d4d4d8;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #12263f 0%, transparent 60%),
+      var(--bg);
+    color: var(--body);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---- Header ---- */
+  header.masthead {
+    padding: 56px 0 28px;
+    border-bottom: 1px solid var(--hair);
+    margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 34px; line-height: 1.15; font-weight: 700;
+    color: var(--title); margin: 0 0 12px; letter-spacing: -.01em;
+  }
+  .lede { font-size: 16px; color: var(--dim); max-width: 62ch; margin: 0; }
+
+  /* ---- Identity tuple ---- */
+  .tuple {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 4px;
+    font-family: var(--mono);
+  }
+  .seg {
+    flex: 1 1 150px; min-width: 140px;
+    border: 1px solid var(--hair); border-radius: 10px;
+    background: linear-gradient(160deg, var(--panel-a), var(--panel-b));
+    padding: 14px 16px;
+  }
+  .seg .big { font-size: 26px; font-weight: 700; color: var(--title); }
+  .seg .k   { font-size: 12px; letter-spacing: .04em; color: var(--accent); margin-top: 4px; font-family: var(--sans); font-weight: 700; }
+  .seg .d   { font-size: 12.5px; color: var(--dim); margin-top: 2px; font-family: var(--sans); }
+  .seg.major .big { color: #a9d4f5; }
+  .seg.minor .big { color: #8ecae6; }
+  .seg.build .big { color: var(--dot-green); }
+  .seg.branch .big{ color: var(--gold); }
+
+  /* ---- Sections / cards ---- */
+  section { margin-top: 40px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--hair); border-radius: 6px; padding: 2px 8px; font-weight: 700;
+  }
+  h2 { font-size: 21px; color: var(--title); font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--dim); font-size: 14.5px; margin: -6px 0 14px; }
+
+  .card {
+    border: 1px solid var(--hair); border-radius: 12px;
+    background: linear-gradient(165deg, var(--panel-a), var(--panel-b));
+    padding: 20px 22px; margin: 14px 0;
+  }
+  .card > h3 {
+    font-size: 15px; color: var(--title); font-weight: 700; margin: 0 0 8px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--sep);
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px){ .cols { grid-template-columns: 1fr; } }
+  p { margin: 8px 0; }
+  code, .mono { font-family: var(--mono); font-size: .92em; color: #bfe3ff; }
+  .mono-chip {
+    font-family: var(--mono); background: rgba(94,163,212,0.12);
+    border: 1px solid var(--hair); border-radius: 5px; padding: 1px 6px; color: #cbeaff; white-space: nowrap;
+  }
+  strong { color: #eaf4ff; }
+  .accent { color: var(--accent); }
+
+  /* ---- Tables ---- */
+  .tbl-wrap { overflow-x: auto; margin: 6px 0; border-radius: 10px; border: 1px solid var(--hair); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 460px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  thead th { background: rgba(94,163,212,0.10); color: var(--section); font-weight: 700; letter-spacing: .02em; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mid, th.mid { text-align: center; }
+  .yes { color: var(--dot-green); font-weight: 700; }
+  .no  { color: #6c8299; }
+
+  /* ---- Callout ---- */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(94,163,212,0.07);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0;
+    font-size: 14px; color: var(--body);
+  }
+  .callout .lbl { color: var(--accent); font-weight: 700; letter-spacing: .04em; font-size: 12px; text-transform: uppercase; display:block; margin-bottom: 3px; }
+
+  /* ---- Legend swatches ---- */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 4px 0; }
+  .lg { display: flex; align-items: center; gap: 9px; font-size: 13.5px; }
+  .swatch { width: 15px; height: 15px; border-radius: 50%; border: 2px solid; flex: 0 0 auto; }
+  .star { width: 16px; height: 16px; flex: 0 0 auto; }
+
+  figure { margin: 8px 0 4px; }
+  .figbox {
+    border: 1px solid var(--hair); border-radius: 12px; overflow-x: auto;
+    background: repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(94,163,212,0.05) 39px, rgba(94,163,212,0.05) 40px), var(--bg2);
+    padding: 8px;
+  }
+  figure svg { display: block; }
+  figcaption { color: var(--dim); font-size: 12.5px; margin-top: 8px; text-align: center; }
+  .svg-name { font-family: var(--sans); font-weight: 600; }
+  .svg-ver  { font-family: var(--mono); }
+
+  footer {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hair);
+    color: var(--dim); font-size: 13px;
+  }
+  footer a { color: var(--accent); }
+  .kbd { font-family: var(--mono); color: #bfe3ff; }
+  ul.tight { margin: 8px 0; padding-left: 20px; }
+  ul.tight li { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Darwin · Build Visualizer</p>
+    <h1>Version &amp; Branch Rules</h1>
+    <p class="lede">The single source of truth for how Darwin numbers every build and decides which
+    branches may be created. Two entities, two version shapes, one reserved-range scheme — nothing more.</p>
+
+    <div class="tuple" role="img" aria-label="Version tuple Major dot Minor dot Build dot Branch">
+      <div class="seg major"><div class="big">M</div><div class="k">Major</div><div class="d">Product line — management decree</div></div>
+      <div class="seg minor"><div class="big">m</div><div class="k">Minor</div><div class="d">Release within the line — decree</div></div>
+      <div class="seg build"><div class="big">B</div><div class="k">Build</div><div class="d">Sequence on the line</div></div>
+      <div class="seg branch"><div class="big">b</div><div class="k">Branch #</div><div class="d">Reserved-range lane</div></div>
+    </div>
+    <p class="sub" style="margin-top:14px">Every build is uniquely identified by
+      <span class="mono-chip">Major.Minor.Build.Branch</span> — e.g.
+      <span class="mono-chip">1.3.41.2</span> is Major&nbsp;1, Minor&nbsp;3, Build&nbsp;41, Branch&nbsp;#&nbsp;2.</p>
+  </header>
+
+  <!-- 1 · Two entities -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Two entities — and nothing else</h2></div>
+    <div class="cols">
+      <div class="card">
+        <h3>Builds</h3>
+        <p>A point on a line. Each build carries its own <code>major</code>, <code>minor</code>,
+        <code>build_number</code> (B) and <code>branch_number</code> (b), <strong>stamped at creation</strong>.</p>
+        <p class="sub" style="margin:6px 0 0">No look-back: a build never re-derives its M.m from its branch or neighbours. Its stored tuple is the truth for rendering.</p>
+      </div>
+      <div class="card">
+        <h3>Branches</h3>
+        <p>A line that carries builds. It holds a <strong>current</strong> M.m used only to <em>stamp new builds</em>, plus a <code>type</code> and a <code>parent_build_fk</code>.</p>
+        <p class="sub" style="margin:6px 0 0">A <strong>release is a TYPE of branch</strong>, not a separate entity. Customer releases are events on a build (§ colour legend), not a branch type.</p>
+      </div>
+    </div>
+    <div class="callout"><span class="lbl">The whole model</span>
+      Two version <em>shapes</em> exist: <strong>trunk</strong> and <strong>sub-branch</strong>. Which shape a branch uses is decided entirely by its type.</div>
+  </section>
+
+  <!-- 2 · Trunk vs sub-branch -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Trunk vs. sub-branch</h2></div>
+    <p class="sub">The single distinction that drives every version number.</p>
+    <div class="cols">
+      <div class="card">
+        <h3 style="border-color:var(--dot-green)">Trunk &nbsp;·&nbsp; <span class="mono">main</span> + <span class="mono">release</span></h3>
+        <ul class="tight">
+          <li><strong>Branch # is always <span class="mono-chip">0</span>.</strong></li>
+          <li><strong>Build # increments</strong> monotonically: <span class="mono">…8.0 → …9.0 → …10.0</span>.</li>
+          <li>Live M.m line. <span class="mono">main</span>'s M.m can be reassigned; a <span class="mono">release</span>'s M.m is fixed for life.</li>
+        </ul>
+        <p class="sub" style="margin:8px 0 0">The two trunks never collide — they run <em>different</em> M.m lines (see §3).</p>
+      </div>
+      <div class="card">
+        <h3 style="border-color:var(--gold)">Sub-branch &nbsp;·&nbsp; everyone else</h3>
+        <ul class="tight">
+          <li><strong>Build # is FROZEN</strong> at the parent build's B at creation.</li>
+          <li><strong>Branch # walks</strong> its reserved range (see §4).</li>
+          <li>M.m is a frozen snapshot of the parent.</li>
+        </ul>
+        <p class="sub" style="margin:8px 0 0">Types: <span class="mono">sample-release</span> (Sprint), <span class="mono">csr</span>, <span class="mono">hotfix</span>, <span class="mono">development</span>, <span class="mono">bootleg</span>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · M.m governance -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Major.Minor is declared, never computed</h2></div>
+    <p class="sub">M.m changes only by management decree — at exactly two moments.</p>
+    <div class="cols">
+      <div class="card">
+        <h3>Project creation</h3>
+        <p>The first <span class="mono">main</span> branch is seeded with an (M, m) and a <em>First Build #</em> the user supplies in the New-project dialog.</p>
+      </div>
+      <div class="card">
+        <h3>Release hand-off</h3>
+        <p>Creating a <span class="mono">release</span> off <span class="mono">main</span> <strong>carries main's M.m onto the release</strong> — the release owns and continues that line.
+        <span class="mono">main</span> is left <strong>open</strong> and must be assigned a new (M, m) before its next build.</p>
+      </div>
+    </div>
+    <div class="callout"><span class="lbl">No auto-computed new-main</span>
+      There is no default new-main M.m. Creating a release opens <span class="mono">main</span> (an out-of-range <span class="mono">OPEN_SENTINEL</span>, <span class="mono">major/minor = −1</span>) and immediately prompts for the value. Convention bumps the minor (ship 5.0 → main 5.1) — but the engine never assumes it. A build on an open branch is refused until M.m is set.</div>
+  </section>
+
+  <!-- 4 · Build# -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Build # — the <span class="mono" style="font-size:.8em">B</span></h2></div>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>Build # behaviour</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">main</span> <span class="dim">(trunk)</span></td><td>Increments <span class="mono">1, 2, 3…</span> under the branch's M.m. Resets to <span class="mono">1</span> (or the seed First Build #) each time management assigns a new M.m after a release.</td></tr>
+        <tr><td><span class="mono">release</span> <span class="dim">(trunk)</span></td><td><strong>Continues</strong> the trunk sequence at Branch #&nbsp;0. First build = parent B + 1 (<span class="mono">…8.0 → …9.0</span>), then <span class="mono">…10.0…</span>. Its M.m never opens, so its B only ever increments.</td></tr>
+        <tr><td><span class="mono">sample-release · csr · hotfix · development · bootleg</span></td><td><strong>Frozen</strong> at the parent build's B. Every build on the branch reuses it; only Branch #&nbsp;walks.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- 5 · Branch# reserved ranges -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Branch # — the reserved-range <span class="mono" style="font-size:.8em">b</span></h2></div>
+    <p class="sub">Formula shape: <span class="mono-chip">base + ord0 × stride + i</span> — where <span class="mono">i</span> is the 0-indexed build position on the branch and <span class="mono">ord0</span> is this branch's 0-indexed ordinal among same-type siblings off the same parent build.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg width="900" height="164" viewBox="0 0 900 164" role="img" aria-label="Reserved Branch-number ranges shown as bands above a number line">
+          <!-- axis sits BELOW the bands so the line never crosses the range text -->
+          <line x1="40" y1="118" x2="880" y2="118" stroke="#8ecae6" stroke-width="1.5"/>
+          <polygon points="880,118 870,113 870,123" fill="#8ecae6"/>
+          <!-- connector ticks from each band down to the axis -->
+          <g stroke="#5fa3d4" stroke-width="1" opacity="0.45">
+            <line x1="210" y1="104" x2="210" y2="118"/>
+            <line x1="375" y1="104" x2="375" y2="118"/>
+            <line x1="540" y1="104" x2="540" y2="118"/>
+            <line x1="690" y1="104" x2="690" y2="118"/>
+            <line x1="815" y1="104" x2="815" y2="118"/>
+          </g>
+          <g font-family="Consolas,Menlo,monospace" font-size="12">
+            <!-- trunk 0 — a point on the axis -->
+            <circle cx="70" cy="118" r="6" fill="#102a43" stroke="#8ecae6" stroke-width="2"/>
+            <text x="70" y="94" fill="#8ecae6" text-anchor="middle" font-weight="700">0</text>
+            <text x="70" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">trunk</text>
+
+            <!-- Sprint (no k shorthand — range starts at 1) -->
+            <rect x="150" y="80" width="120" height="24" rx="5" fill="rgba(59,130,246,0.18)" stroke="#5fa3d4"/>
+            <text x="210" y="96" fill="#cbeaff" text-anchor="middle">1 – 50</text>
+            <text x="210" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">Sprint</text>
+
+            <rect x="300" y="80" width="150" height="24" rx="5" fill="rgba(94,163,212,0.14)" stroke="#5fa3d4"/>
+            <text x="375" y="96" fill="#cbeaff" text-anchor="middle">1000 – 1999</text>
+            <text x="375" y="68" fill="#8ecae6" text-anchor="middle" font-weight="700">1k</text>
+            <text x="375" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">CSR</text>
+
+            <rect x="480" y="80" width="120" height="24" rx="5" fill="rgba(248,113,113,0.16)" stroke="#f87171"/>
+            <text x="540" y="96" fill="#fecaca" text-anchor="middle">6000+</text>
+            <text x="540" y="68" fill="#8ecae6" text-anchor="middle" font-weight="700">6k</text>
+            <text x="540" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">Hotfix</text>
+
+            <rect x="630" y="80" width="120" height="24" rx="5" fill="rgba(94,163,212,0.14)" stroke="#5fa3d4"/>
+            <text x="690" y="96" fill="#cbeaff" text-anchor="middle">7000+</text>
+            <text x="690" y="68" fill="#8ecae6" text-anchor="middle" font-weight="700">7k</text>
+            <text x="690" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">Development</text>
+
+            <rect x="770" y="80" width="90" height="24" rx="5" fill="rgba(255,209,102,0.18)" stroke="#ffd166"/>
+            <text x="815" y="96" fill="#ffe6ad" text-anchor="middle">9000+</text>
+            <text x="815" y="68" fill="#8ecae6" text-anchor="middle" font-weight="700">9k</text>
+            <text x="815" y="140" fill="#cfe4f7" text-anchor="middle" font-family="Calibri,Segoe UI,sans-serif">Bootleg</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Reserved Branch-# bands make every <span class="svg-ver">b</span> decode unambiguously at a glance.</figcaption>
+    </figure>
+
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>First build's Branch #</th><th class="mid">Stride</th><th>Sibling-0 range</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">main / release</span> <span class="dim">(trunk)</span></td><td><span class="mono">0</span></td><td class="mid">—</td><td><span class="mono">0</span> (always)</td></tr>
+        <tr><td><span class="mono">sample-release</span></td><td><span class="mono">1 + ord0×50 + i</span></td><td class="mid">50</td><td><span class="mono">1 – 50</span></td></tr>
+        <tr><td><span class="mono">csr</span></td><td><span class="mono">ord1×1000 + i</span></td><td class="mid">1000</td><td><span class="mono">1000 – 1999</span></td></tr>
+        <tr><td><span class="mono">hotfix</span></td><td><span class="mono">6000 + ord0×50 + i</span></td><td class="mid">50</td><td><span class="mono">6000 – 6049</span></td></tr>
+        <tr><td><span class="mono">development</span></td><td><span class="mono">7000 + ord0×100 + i</span></td><td class="mid">100</td><td><span class="mono">7000 – 7099</span></td></tr>
+        <tr><td><span class="mono">bootleg</span></td><td><span class="mono">9000 + ord0×50 + i</span></td><td class="mid">50</td><td><span class="mono">9000 – 9049</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout"><span class="lbl">Decode example</span>
+      <span class="mono-chip">…7102</span> reads as the 3rd build (<span class="mono">i=2</span>) of the 2nd development branch (<span class="mono">ord0=1</span>) off its parent: <span class="mono">7000 + 1×100 + 2</span>. Stride sets how many builds one sibling can hold before it meets the next sibling's range.</div>
+  </section>
+
+  <!-- 6 · Worked example -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Worked example — one 5.0 line, end to end</h2></div>
+    <p class="sub">Read the diagram left-to-right; every dot's tuple is printed beneath it.</p>
+    <figure>
+      <div class="figbox">
+        <svg width="820" height="440" viewBox="0 0 820 440" role="img"
+             aria-label="Build graph: main 5.0 line releases at 5.0.8.0; release continues 5.0.9/10/11; main reopens at 5.1; hotfix and sprint sub-branches.">
+          <defs>
+            <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
+            </marker>
+          </defs>
+          <style>
+            .trunk{stroke:#8ecae6;stroke-width:2;fill:none}
+            .sub{stroke:#8ecae6;stroke-width:1.6;fill:none;opacity:.92}
+            .dot{fill:#102a43;stroke:#8ecae6;stroke-width:2}
+            .ver{font-family:Consolas,Menlo,monospace;font-size:10px;fill:#7fb3d5;text-anchor:middle}
+            .bname{font-family:Calibri,Segoe UI,sans-serif;font-size:12px;font-weight:600;fill:#caf0f8}
+          </style>
+
+          <!-- ===== MAIN trunk y=250 — one continuous line, single arrow ===== -->
+          <path class="trunk" d="M40,250 H770" marker-end="url(#ah)"/>
+          <text class="bname" x="40" y="236">main · 5.0</text>
+          <!-- main 5.0 dots at x 80..470 step 55 (8 dots) -->
+          <g>
+            <circle class="dot" cx="80"  cy="250" r="5.5"/><text class="ver" x="80"  y="270">5.0.1.0</text>
+            <circle class="dot" cx="135" cy="250" r="5.5"/><text class="ver" x="135" y="270">5.0.2.0</text>
+            <circle class="dot" cx="190" cy="250" r="5.5"/><text class="ver" x="190" y="270">5.0.3.0</text>
+            <circle class="dot" cx="245" cy="250" r="5.5"/><text class="ver" x="245" y="270">5.0.4.0</text>
+            <circle class="dot" cx="300" cy="250" r="5.5"/><text class="ver" x="300" y="270">5.0.5.0</text>
+            <circle class="dot" cx="355" cy="250" r="5.5"/><text class="ver" x="355" y="270">5.0.6.0</text>
+            <circle class="dot" cx="410" cy="250" r="5.5"/><text class="ver" x="410" y="270">5.0.7.0</text>
+            <circle class="dot" cx="465" cy="250" r="5.5"/><text class="ver" x="465" y="270">5.0.8.0</text>
+          </g>
+
+          <!-- ===== MAIN reopens 5.1 — continues on the same trunk line ===== -->
+          <g>
+            <circle class="dot" cx="575" cy="250" r="5.5"/><text class="ver" x="575" y="270">5.1.1.0</text>
+            <circle class="dot" cx="630" cy="250" r="5.5"/><text class="ver" x="630" y="270">5.1.2.0</text>
+            <circle class="dot" cx="685" cy="250" r="5.5"/><text class="ver" x="685" y="270">5.1.3.0</text>
+          </g>
+          <text class="bname" x="560" y="236" fill="#9bbcd6">↳ reopens · 5.1 (decree)</text>
+
+          <!-- ===== RELEASE trunk (Branch# 0) rises above from 5.0.8.0 (465,250) to y=150 ===== -->
+          <path class="sub" d="M465,250 C465,205 520,195 520,150 H700" marker-end="url(#ah)"/>
+          <text class="bname" x="520" y="140">release-1 · 5.0 (carries the line)</text>
+          <g>
+            <circle class="dot" cx="575" cy="150" r="6"/><text class="ver" x="575" y="171">5.0.9.0</text>
+            <circle class="dot" cx="630" cy="150" r="6"/><text class="ver" x="630" y="171">5.0.10.0</text>
+            <circle class="dot" cx="685" cy="150" r="6" fill="#2dd4bf" stroke="#99f6e4"/><text class="ver" x="685" y="171" fill="#9be9dc">5.0.11.0</text>
+          </g>
+
+          <!-- ===== SPRINT (sub-branch) off release 5.0.10.0 (630,150) rises to y=70 ===== -->
+          <path class="sub" d="M630,150 C630,115 685,110 685,70 H800" marker-end="url(#ah)"/>
+          <text class="bname" x="685" y="58">sprint · frozen B=10</text>
+          <g>
+            <circle class="dot" cx="740" cy="70" r="5.5"/><text class="ver" x="740" y="90">5.0.10.1</text>
+            <circle class="dot" cx="795" cy="70" r="5.5"/><text class="ver" x="795" y="90">5.0.10.2</text>
+          </g>
+
+          <!-- ===== HOTFIX (sub-branch) off main 5.1.3.0 (685,250) drops to y=350 ===== -->
+          <path class="sub" d="M685,250 C685,295 740,300 740,350 H800" marker-end="url(#ah)"/>
+          <text class="bname" x="740" y="382">hotfix · frozen B=3</text>
+          <g>
+            <circle class="dot" cx="760" cy="350" r="5.5" fill="#f87171" stroke="#fecaca"/><text class="ver" x="760" y="337" fill="#fecaca">5.1.3.6000</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>At <span class="svg-ver">5.0.8.0</span> a release is cut: it keeps Branch&nbsp;#&nbsp;0 and continues the Build&nbsp;# (<span class="svg-ver">9, 10, 11</span>) while <span class="svg-ver">main</span> reopens on the new <span class="svg-ver">5.1</span> line. No collision — the two trunks run different M.m. Sub-branches (sprint, hotfix) freeze their parent's Build&nbsp;# and walk a reserved Branch&nbsp;# range.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 7 · Branch-creation matrix -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>Which branch can be created from which</h2></div>
+    <p class="sub">Row = the branch type of the build you click. Column = the type you may create from it.
+      <span class="mono">main</span> is the singleton trunk — never a column, never created.</p>
+    <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Parent ↓ \ Create →</th>
+          <th class="mid">Sprint</th><th class="mid">release</th><th class="mid">csr</th>
+          <th class="mid">dev</th><th class="mid">hotfix</th><th class="mid">bootleg</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="mono">main</span></td>       <td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">Sprint</span></td>     <td class="mid no">·</td><td class="mid no">·</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">release</span></td>    <td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">csr</span></td>        <td class="mid yes">✓</td><td class="mid no">·</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">development</span></td><td class="mid yes">✓</td><td class="mid no">·</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid no">·</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">hotfix</span></td>     <td class="mid yes">✓</td><td class="mid no">·</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+        <tr><td><span class="mono">bootleg</span></td>    <td class="mid yes">✓</td><td class="mid no">·</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td><td class="mid yes">✓</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="cols" style="margin-top:14px">
+      <div class="card">
+        <h3>Four principles fix the whole table</h3>
+        <ul class="tight">
+          <li><strong>Development is always available</strong> — engineering is king; the whole column is ✓.</li>
+          <li><strong>Bootleg is maintenance</strong> — allowed from anywhere, including bootleg-off-bootleg.</li>
+          <li><strong>CSR from any parent</strong> — its quality gate is a property of the <em>build</em> (passed a release meeting), not the branch location.</li>
+          <li><strong>Sprint from any parent except another Sprint</strong> — "a sprint off a sprint, what a mess."</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>The two exceptions</h3>
+        <ul class="tight">
+          <li><span class="mono">release</span> is tightly held — created <strong>only</strong> from <span class="mono">main</span> or another <span class="mono">release</span>.</li>
+          <li><span class="mono">hotfix</span> may chain off <span class="mono">hotfix</span> and off <span class="mono">bootleg</span>, but <strong>not</strong> off <span class="mono">development</span>.</li>
+        </ul>
+        <p class="sub" style="margin:8px 0 0"><strong>Gate is the UI; the database is permissive.</strong> The matrix is enforced only in BranchEngine — SQL stores any parent/child pair, so a future "override" UI can bypass it with no schema change. There are currently <strong>no</strong> creation gates.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · Branch-type catalog -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>Branch-type catalog</h2></div>
+    <p class="sub">Stratum order top→bottom above main: Bootleg · Hot Fix · CSR · Release · Sprint — then <span class="mono">main</span>, then Development below.</p>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>Label</th><th>Shape</th><th>Stratum</th><th>Dot-colour convention</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">main</span></td><td>Main</td><td>trunk</td><td>centre</td><td class="no">— (the trunk)</td></tr>
+        <tr><td><span class="mono">release</span></td><td>Release</td><td>trunk</td><td>close to main</td><td><span class="yes">green</span> ceremony at last build</td></tr>
+        <tr><td><span class="mono">sample-release</span></td><td>Sprint / Sample</td><td>sub-branch</td><td>closest to main</td><td>gray = retired sample</td></tr>
+        <tr><td><span class="mono">csr</span></td><td>CSR</td><td>sub-branch</td><td>3</td><td class="no">— continuous-shipping mode</td></tr>
+        <tr><td><span class="mono">hotfix</span></td><td>Hot Fix</td><td>sub-branch</td><td>2</td><td style="color:var(--dot-red)">red = in-flight</td></tr>
+        <tr><td><span class="mono">bootleg</span></td><td>Bootleg</td><td>sub-branch</td><td>1 (farthest)</td><td style="color:var(--dot-yellow)">yellow = in-flight</td></tr>
+        <tr><td><span class="mono">development</span></td><td>Dev Branch</td><td>sub-branch</td><td>below main</td><td class="no">— (none)</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- 9 · Colour legend -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>Colour legend</h2></div>
+    <div class="cols">
+      <div class="card">
+        <h3>Build-dot colours <span class="dim" style="font-weight:400">— per build, not per branch</span></h3>
+        <div class="legend">
+          <span class="lg"><span class="swatch" style="background:#102a43;border-color:#8ecae6"></span> default — normal build</span>
+          <span class="lg"><span class="swatch" style="background:#2dd4bf;border-color:#99f6e4"></span> green — release ceremony</span>
+          <span class="lg"><span class="swatch" style="background:#f87171;border-color:#fecaca"></span> red — hotfix in-flight</span>
+          <span class="lg"><span class="swatch" style="background:#ffd166;border-color:#fde68a"></span> yellow — bootleg / soak</span>
+          <span class="lg"><span class="swatch" style="background:#5b7387;border-color:#8ecae6"></span> gray — retired / archived</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Release-event stars <span class="dim" style="font-weight:400">— above the dot, one per event</span></h3>
+        <div class="legend">
+          <span class="lg">
+            <svg class="star" viewBox="0 0 16 16"><polygon points="8,1 10,6 15,6 11,9.5 12.5,15 8,11.7 3.5,15 5,9.5 1,6 6,6" fill="#fbbf24" stroke="#b45309" stroke-width="1" stroke-linejoin="round"/></svg>
+            gold — release / sprint / csr
+          </span>
+          <span class="lg">
+            <svg class="star" viewBox="0 0 16 16"><polygon points="8,1 10,6 15,6 11,9.5 12.5,15 8,11.7 3.5,15 5,9.5 1,6 6,6" fill="#d4d4d8" stroke="#71717a" stroke-width="1" stroke-linejoin="round"/></svg>
+            silver — hotfix
+          </span>
+          <span class="lg">
+            <svg class="star" viewBox="0 0 16 16"><polygon points="8,1 10,6 15,6 11,9.5 12.5,15 8,11.7 3.5,15 5,9.5 1,6 6,6" fill="#ef4444" stroke="#991b1b" stroke-width="1" stroke-linejoin="round"/></svg>
+            red — bootleg
+          </span>
+        </div>
+        <p class="sub" style="margin:8px 0 0">A <em>customer release</em> is an event on a build — a star, not a branch type. Star colour is keyed by the branch type it shipped off.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong style="color:var(--body)">Single source of truth.</strong> This document is the groomed, human-facing statement of the rules.
+    The engine-facing spec lives in <span class="kbd">memory/build-visualizer-design.md</span> §4 / §4.7 / §5; the rules are implemented once in
+    <span class="kbd">Darwin/src/BuildVisualizer/versionEngine.js</span> + <span class="kbd">branchEngine.js</span> and validated by <span class="kbd">__tests__/</span>.
+    When a rule changes, the spec leads and the engine follows — then this page is re-groomed to match.</p>
+    <p style="margin-top:10px">Design language: <span class="kbd">memory/html-doc-design.md</span> — the deep-navy blueprint shared with the Build Visualizer
+    <span class="mono">midnight</span> theme and the NVLink topology views. &nbsp;·&nbsp; req&nbsp;#2902 · req&nbsp;#2893 · req&nbsp;#2894</p>
+  </footer>
+
+</div>
+</body>
+</html>
