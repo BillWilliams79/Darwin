@@ -34,11 +34,14 @@ describe('computeBranchNumber — §4.4 reserved ranges', () => {
         expect(computeBranchNumber('main', 0, 0)).toBe(MAIN_BRANCH_NUMBER);
         expect(computeBranchNumber('main', 3, 5)).toBe(0);
     });
-    it('release / sample-release: 1 + ord0*50 + i', () => {
-        expect(computeBranchNumber('release', 0, 0)).toBe(1);
-        expect(computeBranchNumber('release', 0, 2)).toBe(3);
-        expect(computeBranchNumber('release', 1, 0)).toBe(51);
+    it('release is a trunk type → always 0 (req #2893)', () => {
+        expect(computeBranchNumber('release', 0, 0)).toBe(MAIN_BRANCH_NUMBER);
+        expect(computeBranchNumber('release', 1, 5)).toBe(0);
+    });
+    it('sample-release: 1 + ord0*50 + i', () => {
         expect(computeBranchNumber('sample-release', 0, 0)).toBe(1);
+        expect(computeBranchNumber('sample-release', 0, 2)).toBe(3);
+        expect(computeBranchNumber('sample-release', 1, 0)).toBe(51);
     });
     it('hotfix: 6000 + ord0*50 + i', () => {
         expect(computeBranchNumber('hotfix', 0, 0)).toBe(6000);
@@ -85,9 +88,16 @@ describe('nextBuildVersion — §4.3', () => {
         const next = nextBuildVersion({ branchType: 'main', lastBuild: last, branchMm: { major: 5, minor: 1 } });
         expect(next).toEqual({ major: 5, minor: 1, build: 1, branchNumber: 0 });
     });
-    it('sub-branch freezes Build#, walks Branch# (5.0.8.1 → 5.0.8.2)', () => {
-        const b1 = { major: 5, minor: 0, build: 8, branchNumber: 1 };
+    it('release is a trunk continuation: Build# increments, Branch# 0 (5.0.9.0 → 5.0.10.0) [req #2893]', () => {
+        const b1 = { major: 5, minor: 0, build: 9, branchNumber: 0 };
         const b2 = nextBuildVersion({ branchType: 'release', lastBuild: b1, branchMm: { major: 5, minor: 0 } });
+        const b3 = nextBuildVersion({ branchType: 'release', lastBuild: b2, branchMm: { major: 5, minor: 0 } });
+        expect(formatVersion(b2)).toBe('5.0.10.0');
+        expect(formatVersion(b3)).toBe('5.0.11.0');
+    });
+    it('non-trunk sub-branch freezes Build#, walks Branch# (5.0.8.1 → 5.0.8.2)', () => {
+        const b1 = { major: 5, minor: 0, build: 8, branchNumber: 1 };
+        const b2 = nextBuildVersion({ branchType: 'sample-release', lastBuild: b1, branchMm: { major: 5, minor: 0 } });
         expect(formatVersion(b2)).toBe('5.0.8.2');
     });
     it('throws when the branch M.m is open (refuse path)', () => {
@@ -98,9 +108,13 @@ describe('nextBuildVersion — §4.3', () => {
 
 describe('firstBuildOnNewBranchVersion — §4.4/§4.5', () => {
     const parent = { major: 5, minor: 0, build: 8, branchNumber: 0 };
-    it('release off 5.0.8.0 → 5.0.8.1 (frozen B=8, Branch# 1)', () => {
+    it('release off 5.0.8.0 → 5.0.9.0 (trunk continuation: Build#+1, Branch# 0) [req #2893]', () => {
         expect(formatVersion(firstBuildOnNewBranchVersion({ type: 'release', parentBuild: parent, siblingOrd0: 0 })))
-            .toBe('5.0.8.1');
+            .toBe('5.0.9.0');
+    });
+    it('release ignores siblingOrd0 (always Branch# 0) [req #2893]', () => {
+        expect(formatVersion(firstBuildOnNewBranchVersion({ type: 'release', parentBuild: parent, siblingOrd0: 2 })))
+            .toBe('5.0.9.0');
     });
     it('hotfix off 5.1.3.0 → 5.1.3.6000; 2nd hotfix → 5.1.3.6050', () => {
         const p = { major: 5, minor: 1, build: 3, branchNumber: 0 };
@@ -109,10 +123,12 @@ describe('firstBuildOnNewBranchVersion — §4.4/§4.5', () => {
         expect(formatVersion(firstBuildOnNewBranchVersion({ type: 'hotfix', parentBuild: p, siblingOrd0: 1 })))
             .toBe('5.1.3.6050');
     });
-    it('sprint-release off release build 5.0.8.3 → 5.0.8.1 (frozen B=8)', () => {
-        const p = { major: 5, minor: 0, build: 8, branchNumber: 3 };
+    it('sprint-release off release build 5.0.10.0 → 5.0.10.1 (frozen B=10, Branch# walks) [req #2893]', () => {
+        // Under the req #2893 rule a release build is Branch# 0 on an
+        // incrementing Build#; the sprint freezes that Build# and walks Branch#.
+        const p = { major: 5, minor: 0, build: 10, branchNumber: 0 };
         expect(formatVersion(firstBuildOnNewBranchVersion({ type: 'sample-release', parentBuild: p, siblingOrd0: 0 })))
-            .toBe('5.0.8.1');
+            .toBe('5.0.10.1');
     });
 });
 
@@ -221,9 +237,11 @@ describe('suggestFirstBranchNumber', () => {
         expect(suggestFirstBranchNumber({ parentBuild: null, builds: {} })).toBe(1);
     });
 
-    it('handles the §4.5 worked example: release has builds at branchNum 0,1,2,3 → suggest 4', () => {
-        // release-1 has 3 builds: 5.0.8.1, 5.0.8.2, 5.0.8.3
-        // plus main build 5.0.8.0 shares the coordinate
+    it('suggests max+1 when a coordinate already hosts Branch#s 0,1,2,3 → suggest 4', () => {
+        // Generic collision-helper math: builds at branchNum 0,1,2,3 on one
+        // M.m.B coordinate → next free Branch# is 4. (Under the req #2893 release
+        // rule a release owns Branch# 0 on incrementing Build#s, so this exact
+        // clustering arises from sample-release siblings, not release builds.)
         const parentBuild = { major: 5, minor: 0, build: 8, branchNum: 3 };
         const builds = {
             m8:  { major: 5, minor: 0, build: 8, branchNum: 0 },
