@@ -34,6 +34,7 @@ import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 
 import { computeLayout } from './d3LayoutEngine';
+import { interpolateLayout, easeCubicOut, layoutSignature } from './layoutMorph';
 import { computeSemanticModel, autoLevel, isGapId } from './semanticModel';
 import { computeMerges, MERGE_EVALUATE, MERGE_DAYZERO } from './mergeEngine';
 import { BRANCH_TYPES } from './branchTypeChipStyles';
@@ -117,6 +118,14 @@ const KonvaBuildCanvas = ({
     const [transform, setTransform] = useState(null);
     // Per-token expand set (sticky within a level; cleared on level switch).
     const [expandedTokens, setExpandedTokens] = useState(() => new Set());
+    // req #2895 — layout morph. `prevLayoutRef` holds the last fully-settled
+    // layout; `morphRef` holds the active tween ({from, to, dy}); `morphP` is the
+    // eased progress that drives re-renders. See the morph driver effect below.
+    const prevLayoutRef = useRef(null);
+    const morphRef = useRef(null);
+    const morphProjectRef = useRef(null);
+    const morphLevelRef = useRef(null);
+    const [morphP, setMorphP] = useState(1);
 
     useLayoutEffect(() => {
         const el = containerRef.current;
@@ -190,16 +199,34 @@ const KonvaBuildCanvas = ({
         [semantic, staggerOn, atShown, showBuildAt],
     );
 
+    // Geometry signature (req #2895) — drives the morph on GEOMETRY change, not
+    // layout object identity. A single build execution invalidates 3 queries that
+    // resolve at different times; each rebuilds `layout` as a new object, but only
+    // one actually moves anything. Keying the morph off this signature collapses
+    // that cascade into one tween (no redundant second animation).
+    const layoutSig = useMemo(() => layoutSignature(layout), [layout]);
+
+    // Morph-interpolated layout used for ALL geometry (req #2895). When settled
+    // this IS `layout` (same ref → downstream memos stay stable); during a tween
+    // it's the per-node interpolation from layoutMorph. Hoisted above `merges` so
+    // merge arrows track the morphing build dots instead of snapping to their
+    // final positions. `morphP` (state) drives the per-frame re-render; `morphRef`
+    // (ref) holds the active {from, to, dy}. See the morph driver effect below.
+    const morph = morphRef.current;
+    const renderLayout = (morph && morphP < 1)
+        ? interpolateLayout(morph.from, morph.to, morphP, morph.dy)
+        : layout;
+
     // MergeEngine (req #2603) — derive merge arrows from the ORIGINAL tree +
     // the rendered layout. Pass the original `model` (full branch types/parents/
     // buildIds, so the respin/day-zero rules read the real history) but the
-    // collapsed `layout` for positions — branch tips (last build) are never
-    // collapsed, so arrow endpoints stay correct under semantic zoom. Day-zero
-    // arrows are always in the set; the per-branch toggle gates standard arrows
-    // at draw time below.
+    // collapsed `renderLayout` for positions — branch tips (last build) are never
+    // collapsed, so arrow endpoints stay correct under semantic zoom AND follow
+    // the morph. Day-zero arrows are always in the set; the per-branch toggle
+    // gates standard arrows at draw time below.
     const merges = useMemo(
-        () => computeMerges({ model, layout, dayZeroBuildIds }),
-        [model, layout, dayZeroBuildIds],
+        () => computeMerges({ model, layout: renderLayout, dayZeroBuildIds }),
+        [model, renderLayout, dayZeroBuildIds],
     );
 
     const branchNameById = useMemo(() => {
@@ -323,9 +350,90 @@ const KonvaBuildCanvas = ({
         if (!sameProject || lastFramedProjectRef.current !== projectId) return;
         if (!el || !zb || mainY == null || prevMainY == null || mainY === prevMainY) return;
         if (!transform || size.w === 0) return;
+        // req #2895 — pin the trunk: instantly shift the transform so the new
+        // mainY renders where the old one was. This RETAINS the user's view (no
+        // drift). Smoothness of the reflow itself is handled separately by the
+        // per-node layout morph (layoutMorph.js), which glides every glyph from
+        // its old to its new position IN mainY-relative space — so with this
+        // instant pin, unchanged content sits perfectly still while changed
+        // content eases. `dyPrev` (below) reuses this same (mainY - prevMainY)
+        // delta to align the morph's "from" frame to the pinned trunk.
         const ty = transform.y - (mainY - prevMainY) * transform.k;
         select(el).call(zb.transform, zoomIdentity.translate(transform.x, ty).scale(transform.k));
     }, [layout, projectId, size.w]);
+
+    // ── Layout morph driver (req #2895) ─────────────────────────────────────────
+    // On a same-project, same-level data reflow, tween every glyph from its old
+    // position to its new one (layoutMorph.interpolateLayout) so unchanged content
+    // holds still and changed content glides. SNAP (no tween) on the first layout,
+    // a project switch, a semantic-level change, or before the view is framed —
+    // those are user-driven or first-paint and should not animate. The tween runs
+    // on requestAnimationFrame; `dy` reuses the reflow effect's (newMainY -
+    // prevMainY) so the "from" frame aligns to the just-pinned trunk.
+    //
+    // Keyed on `layoutSig` (geometry), NOT `layout` object identity: a single
+    // build/hotfix execution invalidates 3 queries (branches → builds → releases)
+    // that resolve at DIFFERENT times, each rebuilding `layout`. Two failure modes
+    // this driver must avoid, both of which look like "the animation plays several
+    // times":
+    //   1. Geometrically-IDENTICAL rebuilds — collapsed by the `layoutSig` key
+    //      (Object.is on the string → effect doesn't re-run, tween undisturbed).
+    //   2. Geometrically-DIFFERENT intermediate states (branch appears, then its
+    //      build, then the release-clearance band) — each is a real new target.
+    //      Restarting the tween from the pre-burst layout would replay it from the
+    //      start on every resolution. Instead we RE-BASE: when a new target arrives
+    //      mid-tween, `from` becomes the CURRENT interpolated on-screen positions,
+    //      so the motion CONTINUES smoothly toward the newest target as ONE glide.
+    // `size.w` is intentionally NOT a dep — a resize must not cancel an in-flight
+    // rAF (the effect cleanup runs on every dep change). `layout`/`morphP` are read
+    // via the `layoutSig` key (a sig change always coincides with a fresh render).
+    useEffect(() => {
+        const sameProject = morphProjectRef.current === projectId;
+        const sameLevel = morphLevelRef.current === level;
+        morphProjectRef.current = projectId;
+        morphLevelRef.current = level;
+
+        // Re-base: if a tween is in flight, continue from where it visually IS now
+        // (the interpolated snapshot); otherwise start from the last settled layout.
+        const inFlight = morphRef.current && morphP < 1;
+        const from = inFlight
+            ? interpolateLayout(morphRef.current.from, morphRef.current.to, morphP, morphRef.current.dy)
+            : prevLayoutRef.current;
+
+        const canMorph = from && sameProject && sameLevel
+            && layout?.branches?.length && size.w > 0
+            && lastFramedProjectRef.current === projectId;
+
+        if (!canMorph) {
+            prevLayoutRef.current = layout;
+            morphRef.current = null;
+            setMorphP(1);
+            return undefined;
+        }
+
+        // A snapshot's mainY equals its source `to.mainY` (interpolateLayout copies
+        // it), and the trunk-pin has already shifted the transform by the same
+        // delta, so `dy` keeps the re-based "from" aligned to the pinned trunk.
+        const dy = (layout.mainY || 0) - (from.mainY || 0);
+        morphRef.current = { from, to: layout, dy };
+        const DURATION = 350;
+        const start = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        let raf = 0;
+        const tick = (now) => {
+            const t = Math.min(1, (now - start) / DURATION);
+            setMorphP(easeCubicOut(t));
+            if (t < 1) {
+                raf = requestAnimationFrame(tick);
+            } else {
+                prevLayoutRef.current = layout;
+                morphRef.current = null;
+            }
+        };
+        setMorphP(0);
+        raf = requestAnimationFrame(tick);
+        return () => { if (raf) cancelAnimationFrame(raf); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `layout`/`morphP`/`size.w` read via the `layoutSig` key; `size.w` deliberately not a trigger.
+    }, [layoutSig, projectId, level]);
 
     // Click resolution (d3-zoom can swallow Konva's synthetic click): on a
     // non-drag click, hit-test the topmost shape and fire 'activate'.
@@ -414,8 +522,15 @@ const KonvaBuildCanvas = ({
     }, []);
 
     // ── Render ──────────────────────────────────────────────────────────────
+    // `renderLayout` (hoisted above `merges`) is the morph-interpolated frame
+    // during a tween, else the real layout. Identity/interaction derivations
+    // (latestBuildIds, branchNameById, buildById) intentionally keep using the
+    // real `layout` — only on-screen positions tween.
     const nodes = [];
-    if (layout.branches.length) {
+    if (renderLayout.branches.length) {
+        // Rebind `layout` to the interpolated frame for the whole geometry block
+        // below (req #2895) — every position/path read here follows the morph.
+        const layout = renderLayout;
         const lineW = LINE_W * inv;
         const whispyW = 0.9 * inv;
 

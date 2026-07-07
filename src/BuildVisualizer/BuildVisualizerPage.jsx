@@ -31,6 +31,7 @@ import BuildVisualizerCanvas from './BuildVisualizerCanvas';
 import HoldCountButton from './HoldCountButton';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
+import { shouldShowCanvasSpinner } from './canvasSpinnerGate';
 import { BRANCH_TYPES, branchTypeLabel } from './branchTypeChipStyles';
 import { computeTypeVisibility } from './typeVisibility';
 import { hasMergeMenu } from './mergeEngine';
@@ -150,7 +151,9 @@ const BuildVisualizerPage = () => {
     // Active project's display name — used to compose the branch-location
     // string shown on build/branch click (req #2753).
     const projectName = lib.activePattern?.name || '';
-    const { isLoading: dataLoading, error: dataError, model } = useBuildVisualizerData(projectId);
+    const {
+        isInitialLoad, error: dataError, model,
+    } = useBuildVisualizerData(projectId);
 
     // Version of a branch's FIRST build (req #2753). The branch-location string
     // identifies the branch, so it is the same for the branch and every build
@@ -1137,7 +1140,15 @@ const BuildVisualizerPage = () => {
             <BuildVisualizerCanvas
                 model={model}
                 projectId={projectId}
-                isLoading={dataLoading || !lib.isReady}
+                // req #2895 — only cover the canvas with the spinner on the very
+                // first load; a mid-session refetch (run a build, edit a branch)
+                // keeps the canvas mounted so its pan/zoom transform survives and
+                // the view is retained instead of re-centering.
+                isLoading={shouldShowCanvasSpinner({
+                    initialLoad: isInitialLoad,
+                    ready: lib.isReady,
+                    hasBranches: !!model?.branches?.length,
+                })}
                 error={dataError || lib.error}
                 selectedTypes={selectedTypes}
                 staggerOn={staggerOn}
