@@ -121,32 +121,20 @@ describe('computeTypeVisibility — L1 hides types', () => {
 });
 
 describe('computeTypeVisibility — L2 main-trunk collapse', () => {
-    it('reports development "hidden" when the only dev branch is inside a collapsed run', () => {
-        // Two samples anchor the trunk (needed for main-trunk collapse to fire).
-        // The dev branch parents off m4, which lands inside the collapsed run
-        // between the m2 and m6 origin builds → hidden by the L2 collapse until
-        // the user expands that run (baseline view = hidden).
+    it('reports development "shown" at L2 — branch points always show (req #2892)', () => {
+        // req #2892: at L2 EVERY shown branch point survives collapse, including
+        // development, so a dev branch parented inside what used to be a collapsed
+        // main run stays visible (its branch-point build is protected). The stoplight
+        // therefore reads "shown" for development at L2, matching the canvas.
         const model = makeModel({ mainBuilds: 8, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm2' },
             { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
             { id: 'dev1', type: 'development', parentBuildId: 'm4' },
         ] });
         const r = computeTypeVisibility({ model, level: 2, selectedTypes: allTypes() });
-        expect(r.development).toBe('hidden');
+        expect(r.development).toBe('shown');
         // Samples anchor the trunk and stay shown at L2.
         expect(r['sample-release']).toBe('shown');
-    });
-
-    it('reveals the collapsed dev branch when its expand token is supplied', () => {
-        const model = makeModel({ mainBuilds: 8, subBranches: [
-            { id: 's1', type: 'sample-release', parentBuildId: 'm2' },
-            { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
-            { id: 'dev1', type: 'development', parentBuildId: 'm4' },
-        ] });
-        // The collapsed run between the m2 and m6 origins is [m3, m4, m5].
-        const expandedTokens = new Set(['__gap__:main:m3:m5']);
-        const r = computeTypeVisibility({ model, level: 2, selectedTypes: allTypes(), expandedTokens });
-        expect(r.development).toBe('shown');
     });
 });
 
