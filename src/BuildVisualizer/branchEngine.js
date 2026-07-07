@@ -101,11 +101,12 @@ export const GATE_BLOCK = 'block';
  * boundary: branchEngine owns policy, versionEngine owns version arithmetic.
  *
  * NB (req #2894): sample-release is now creatable off many more parents
- * (main, csr, hotfix, bootleg, development — see ALLOWED_CHILDREN), but the
- * prompt still fires ONLY for a `release` parent. Off any other parent the
- * sprint's frozen Build# is NOT already populated in the shared base:1/stride:50
- * range (those parents' builds live in the 0 / 1k / 6k / 7k / 9k ranges), so the
- * default first Branch# = 1 does not collide and no prompt is needed.
+ * (main, csr, hotfix, bootleg, development — see ALLOWED_CHILDREN), but this
+ * prompt still fires ONLY for a `release` parent. Under req #2893 (release is a
+ * trunk at Branch# 0) the structural collision this gate originally guarded is
+ * softened to a mere first-Branch# affordance — see design-guide §4.4
+ * "Sprint off release" for the current rationale. Off non-release parents no
+ * prompt is shown; the default first Branch# = 1 is always collision-free.
  */
 export function needsBranchNumberPrompt({ childType, parentBranchType }) {
     return childType === 'sample-release' && parentBranchType === 'release';
