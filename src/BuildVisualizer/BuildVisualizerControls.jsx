@@ -10,6 +10,7 @@ import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import CheckIcon from '@mui/icons-material/Check';
 import BuildPatternMenu from './BuildPatternMenu';
 import MergeRulesDialog from './MergeRulesDialog';
@@ -22,6 +23,15 @@ import {
     themeVariantAccent,
     themeVariantBorder,
 } from './themeVariants';
+
+// Branch-type "stoplight" (req #2897) — as the semantic level (L1/L2/L3) hides
+// whole branch types, each SELECTED chip carries a red/amber/green dot reporting
+// what the current viewport actually shows for that type. See typeVisibility.js.
+const STOPLIGHT = {
+    shown:   { color: '#43a047', text: 'fully shown at this zoom level' },
+    partial: { color: '#fbc02d', text: 'partially shown — some hidden at this zoom level' },
+    hidden:  { color: '#e53935', text: 'hidden at this zoom level' },
+};
 
 // Dedicated horizontal control row above the build viewer (req #2616). One row
 // only — a single horizontal control row above the build visualizer canvas.
@@ -36,6 +46,7 @@ const BuildVisualizerControls = ({
     lib,
     selectedTypes,
     onToggleType,
+    typeVisibility,
     staggerOn,
     onToggleStagger,
     onResetView,
@@ -47,6 +58,8 @@ const BuildVisualizerControls = ({
     pinnedLevel,
     effectiveLevel,
     onChangePinnedLevel,
+    collapseEnabled,
+    onToggleCollapseEnabled,
     showAcceptanceTests,
     onToggleShowAcceptanceTests,
     showBuildAt,
@@ -118,13 +131,35 @@ const BuildVisualizerControls = ({
                             {BRANCH_TYPES.map(type => {
                                 const selected = selectedTypes.includes(type);
                                 const chipProps = branchTypeChipProps(type);
-                                return (
+                                // Stoplight — only meaningful for selected types with
+                                // branches present ('none'/'off' → no dot).
+                                const status = selected ? typeVisibility?.[type] : undefined;
+                                const light = STOPLIGHT[status];
+                                const chip = (
                                     <Chip
                                         key={type}
                                         label={branchTypeLabel(type)}
                                         size="small"
                                         onClick={() => onToggleType(type)}
                                         {...(selected ? chipProps : { variant: 'outlined' })}
+                                        {...(light && {
+                                            icon: (
+                                                <Box
+                                                    component="span"
+                                                    data-testid={`branch-type-stoplight-${type}`}
+                                                    data-status={status}
+                                                    sx={{
+                                                        width: 9,
+                                                        height: 9,
+                                                        ml: '7px',
+                                                        borderRadius: '50%',
+                                                        flexShrink: 0,
+                                                        bgcolor: light.color,
+                                                        boxShadow: '0 0 0 1px rgba(0,0,0,0.35)',
+                                                    }}
+                                                />
+                                            ),
+                                        })}
                                         sx={{
                                             ...(selected ? chipProps.sx : {}),
                                             ...(!selected && { opacity: 0.5 }),
@@ -133,6 +168,15 @@ const BuildVisualizerControls = ({
                                         data-testid={`branch-type-chip-${type}`}
                                     />
                                 );
+                                return light ? (
+                                    <Tooltip
+                                        key={type}
+                                        title={`${branchTypeLabel(type)}: ${light.text}`}
+                                        arrow
+                                    >
+                                        {chip}
+                                    </Tooltip>
+                                ) : chip;
                             })}
                         </Stack>
                     </>
@@ -229,6 +273,29 @@ const BuildVisualizerControls = ({
                                     />
                                 );
                             })}
+                            {/* Collapse on/off (req #2892) — plays with the L2/L3
+                                collapse rules. Inert at L1 ("L1 is its own thing"),
+                                which always collapses regardless. */}
+                            {onToggleCollapseEnabled && (() => {
+                                const collapseInert = effectiveLevel === 1;
+                                return (
+                                    <Chip
+                                        label={`Collapse: ${collapseEnabled ? 'On' : 'Off'}`}
+                                        size="small"
+                                        onClick={collapseInert ? undefined : onToggleCollapseEnabled}
+                                        disabled={collapseInert}
+                                        {...(collapseEnabled && !collapseInert
+                                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
+                                            : { variant: 'outlined', sx: {
+                                                cursor: collapseInert ? 'not-allowed' : 'pointer',
+                                                ...(collapseInert && { opacity: 0.4 }),
+                                            } })}
+                                        aria-pressed={collapseEnabled ? 'true' : 'false'}
+                                        aria-disabled={collapseInert ? 'true' : 'false'}
+                                        data-testid="bv-collapse-toggle"
+                                    />
+                                );
+                            })()}
                         </Stack>
                     </>
                 )}

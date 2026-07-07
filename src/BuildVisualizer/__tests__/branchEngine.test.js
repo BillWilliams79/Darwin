@@ -8,9 +8,16 @@ import {
     GATE_PROCEED,
 } from '../branchEngine';
 
-// All fixtures below reproduce the RATIFIED branch-creation matrix from
-// memory/build-visualizer-design.md section 4.7.  The engine is correct iff it
-// reproduces them exactly.
+// All fixtures below are the EXECUTABLE TRANSCRIPTION of the ratified
+// branch-creation matrix in memory/build-visualizer-design.md §4.7 — the single
+// source of truth (req #2894). The document owns the policy; this test encodes it
+// and asserts branchEngine.js reproduces it exactly. If a matrix cell changes,
+// change the DOC first, then update these fixtures and the engine to match.
+//
+// Matrix as of req #2894:
+//   • csr is creatable from ANY parent (reverses the #2603 release-only rule).
+//   • sample-release (Sprint) is creatable from ANY parent EXCEPT another sprint.
+//   • hotfix is creatable off a hotfix AND off a bootleg (not off development).
 
 // ---------------------------------------------------------------------------
 // CREATABLE_TYPES — canonical ordering
@@ -35,10 +42,10 @@ describe('CREATABLE_TYPES', () => {
 // ---------------------------------------------------------------------------
 // ALLOWED_CHILDREN matrix — allowedChildTypes (returns ordered array)
 // ---------------------------------------------------------------------------
-describe('allowedChildTypes — section 4.7 matrix', () => {
-    it('main allows all creatable types except csr (csr is release-only, req #2603)', () => {
+describe('allowedChildTypes — section 4.7 matrix (req #2894)', () => {
+    it('main allows all six creatable types (csr now allowed off main, req #2894)', () => {
         expect(allowedChildTypes('main')).toEqual([
-            'sample-release', 'release', 'development', 'hotfix', 'bootleg',
+            'sample-release', 'release', 'csr', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
@@ -48,33 +55,33 @@ describe('allowedChildTypes — section 4.7 matrix', () => {
         ]);
     });
 
-    it('sample-release allows hotfix, bootleg, development only', () => {
+    it('sample-release allows csr, development, hotfix, bootleg (no sprint, no release)', () => {
         expect(allowedChildTypes('sample-release')).toEqual([
-            'development', 'hotfix', 'bootleg',
+            'csr', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
-    it('csr allows hotfix, bootleg, development only', () => {
+    it('csr allows sprint, csr, development, hotfix, bootleg (no release)', () => {
         expect(allowedChildTypes('csr')).toEqual([
-            'development', 'hotfix', 'bootleg',
+            'sample-release', 'csr', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
-    it('hotfix allows hotfix, bootleg, development only', () => {
+    it('hotfix allows sprint, csr, development, hotfix, bootleg (no release)', () => {
         expect(allowedChildTypes('hotfix')).toEqual([
-            'development', 'hotfix', 'bootleg',
+            'sample-release', 'csr', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
-    it('bootleg allows bootleg, development only', () => {
+    it('bootleg allows sprint, csr, development, hotfix, bootleg (hotfix off bootleg, req #2894)', () => {
         expect(allowedChildTypes('bootleg')).toEqual([
-            'development', 'bootleg',
+            'sample-release', 'csr', 'development', 'hotfix', 'bootleg',
         ]);
     });
 
-    it('development allows bootleg, development only', () => {
+    it('development allows sprint, csr, development, bootleg (no hotfix, no release)', () => {
         expect(allowedChildTypes('development')).toEqual([
-            'development', 'bootleg',
+            'sample-release', 'csr', 'development', 'bootleg',
         ]);
     });
 
@@ -110,50 +117,47 @@ describe('canCreate — representative matrix cells', () => {
         expect(canCreate(parent, 'development').allowed).toBe(true);
     });
 
+    // csr is allowed from every parent type (req #2894 — reverses #2603 release-only)
+    it.each([
+        'main', 'release', 'sample-release', 'csr', 'hotfix', 'bootleg', 'development',
+    ])('canCreate(%s, "csr") is true — csr allowed everywhere (req #2894)', (parent) => {
+        expect(canCreate(parent, 'csr').allowed).toBe(true);
+    });
+
+    // sample-release (Sprint) is allowed from every parent EXCEPT another sprint (req #2894)
+    it.each([
+        'main', 'release', 'csr', 'hotfix', 'bootleg', 'development',
+    ])('canCreate(%s, "sample-release") is true — sprint allowed everywhere but off a sprint (req #2894)', (parent) => {
+        expect(canCreate(parent, 'sample-release').allowed).toBe(true);
+    });
+    it('sample-release cannot create sample-release (sprint-off-sprint disallowed)', () => {
+        expect(canCreate('sample-release', 'sample-release').allowed).toBe(false);
+    });
+
     // release->release IS allowed (important design decision)
     it('release->release is allowed', () => {
         expect(canCreate('release', 'release').allowed).toBe(true);
     });
 
-    // hotfix->hotfix chain IS allowed
+    // hotfix chains: off a hotfix AND off a bootleg (req #2894); NOT off development
     it('hotfix->hotfix chaining is allowed', () => {
         expect(canCreate('hotfix', 'hotfix').allowed).toBe(true);
     });
-
-    // csr is release-only (req #2603): allowed off a release, blocked off main.
-    it('release can create csr', () => {
-        expect(canCreate('release', 'csr').allowed).toBe(true);
-    });
-    it('main cannot create csr (csr is release-only)', () => {
-        expect(canCreate('main', 'csr').allowed).toBe(false);
-    });
-
-    // sample-release CANNOT create release or csr
-    it('sample-release cannot create release', () => {
-        expect(canCreate('sample-release', 'release').allowed).toBe(false);
-    });
-    it('sample-release cannot create csr', () => {
-        expect(canCreate('sample-release', 'csr').allowed).toBe(false);
-    });
-    it('sample-release cannot create sample-release', () => {
-        expect(canCreate('sample-release', 'sample-release').allowed).toBe(false);
-    });
-
-    // Leaf-tier types (bootleg, development) can only make bootleg/development
-    it('bootleg cannot create release', () => {
-        expect(canCreate('bootleg', 'release').allowed).toBe(false);
-    });
-    it('bootleg cannot create hotfix', () => {
-        expect(canCreate('bootleg', 'hotfix').allowed).toBe(false);
-    });
-    it('development cannot create release', () => {
-        expect(canCreate('development', 'release').allowed).toBe(false);
+    it('bootleg can create hotfix (req #2894 — bootleg end-state)', () => {
+        expect(canCreate('bootleg', 'hotfix').allowed).toBe(true);
     });
     it('development cannot create hotfix', () => {
         expect(canCreate('development', 'hotfix').allowed).toBe(false);
     });
-    it('development cannot create csr', () => {
-        expect(canCreate('development', 'csr').allowed).toBe(false);
+
+    // release is the tightly-held type: only main and release may create it.
+    it('main can create release', () => {
+        expect(canCreate('main', 'release').allowed).toBe(true);
+    });
+    it.each([
+        'sample-release', 'csr', 'hotfix', 'bootleg', 'development',
+    ])('canCreate(%s, "release") is false — release only from main or release', (parent) => {
+        expect(canCreate(parent, 'release').allowed).toBe(false);
     });
 
     // canCreate returns an empty reason string on success
@@ -161,9 +165,9 @@ describe('canCreate — representative matrix cells', () => {
         expect(canCreate('main', 'release').reason).toBe('');
     });
 
-    // canCreate returns a descriptive reason on failure
+    // canCreate returns a descriptive reason on failure (development->release stays disallowed)
     it('disallowed result has a non-empty reason', () => {
-        const result = canCreate('bootleg', 'csr');
+        const result = canCreate('development', 'release');
         expect(result.allowed).toBe(false);
         expect(result.reason.length).toBeGreaterThan(0);
     });
