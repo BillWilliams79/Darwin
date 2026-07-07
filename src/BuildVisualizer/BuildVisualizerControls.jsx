@@ -58,6 +58,8 @@ const BuildVisualizerControls = ({
     pinnedLevel,
     effectiveLevel,
     onChangePinnedLevel,
+    collapseEnabled,
+    onToggleCollapseEnabled,
     showAcceptanceTests,
     onToggleShowAcceptanceTests,
     showBuildAt,
@@ -271,6 +273,29 @@ const BuildVisualizerControls = ({
                                     />
                                 );
                             })}
+                            {/* Collapse on/off (req #2892) — plays with the L2/L3
+                                collapse rules. Inert at L1 ("L1 is its own thing"),
+                                which always collapses regardless. */}
+                            {onToggleCollapseEnabled && (() => {
+                                const collapseInert = effectiveLevel === 1;
+                                return (
+                                    <Chip
+                                        label={`Collapse: ${collapseEnabled ? 'On' : 'Off'}`}
+                                        size="small"
+                                        onClick={collapseInert ? undefined : onToggleCollapseEnabled}
+                                        disabled={collapseInert}
+                                        {...(collapseEnabled && !collapseInert
+                                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
+                                            : { variant: 'outlined', sx: {
+                                                cursor: collapseInert ? 'not-allowed' : 'pointer',
+                                                ...(collapseInert && { opacity: 0.4 }),
+                                            } })}
+                                        aria-pressed={collapseEnabled ? 'true' : 'false'}
+                                        aria-disabled={collapseInert ? 'true' : 'false'}
+                                        data-testid="bv-collapse-toggle"
+                                    />
+                                );
+                            })()}
                         </Stack>
                     </>
                 )}
