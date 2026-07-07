@@ -427,6 +427,72 @@ describe('build records — branchType and releaseDetails', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 5b. MAIN-FACING VERSION LABELS (req #2899) — build numbers hug main; the
+//     stack direction differs above vs below main. Above-main + main render
+//     numbers BELOW the dot (toward main); below-main (dev) flips ABOVE the dot.
+// ---------------------------------------------------------------------------
+describe('version-label direction — main-facing (req #2899)', () => {
+    const { versionCloseOffset, versionLaneGap } = DEFAULT_OPTS;
+
+    it('above-main branch keeps numbers BELOW the dot (toward main) — unchanged', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'sr1', type: 'sample-release', parentBuildId: 'm1', buildCount: 2 }],
+        }));
+        const b0 = layout.builds.find(b => b.id === 'sr1-b1'); // index 0 → close lane
+        // Below the dot: versionY strictly greater than the dot center.
+        expect(b0.versionY).toBe(b0.y + b0.radius + versionCloseOffset);
+    });
+
+    it('main branch keeps numbers BELOW the dot', () => {
+        const layout = computeLayout(makeModel({ mainBuilds: 3 }));
+        const m0 = layout.builds.find(b => b.id === 'm1');
+        expect(m0.versionY).toBe(m0.y + m0.radius + versionCloseOffset);
+    });
+
+    it('below-main dev branch flips numbers ABOVE the dot (toward main)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+        }));
+        const d0 = layout.builds.find(b => b.id === 'dev1-b1'); // index 0 → close lane
+        const d1 = layout.builds.find(b => b.id === 'dev1-b2'); // index 1 → far lane
+        // Above the dot (smaller Y = higher on canvas = toward main).
+        expect(d0.versionY).toBe(d0.y - d0.radius - versionCloseOffset);
+        // Far lane steps FURTHER up (toward main), not down.
+        expect(d1.versionY).toBe(d1.y - d1.radius - versionCloseOffset - versionLaneGap);
+        expect(d1.versionY).toBeLessThan(d0.versionY);
+        // And both sit above the main line (numbers hug main from below).
+        expect(d0.versionY).toBeLessThan(d0.y);
+    });
+
+    it('below-main numbers sit between the dev dot and main (closer to main than the dot)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 1 }],
+        }));
+        const d0 = layout.builds.find(b => b.id === 'dev1-b1');
+        const dev = layout.branches.find(b => b.id === 'dev1');
+        expect(dev.y).toBeGreaterThan(layout.mainY);     // dev is below main
+        expect(d0.versionY).toBeLessThan(dev.y);          // numbers are above the dev dot
+        expect(d0.versionY).toBeGreaterThan(layout.mainY); // …but still below the main line
+    });
+
+    it('below-main build that BEARS a release keeps numbers BELOW the dot (clears its star)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+            releaseEvents: { 'dev1-b1': ['Acme'] },
+        }));
+        const rel = layout.builds.find(b => b.id === 'dev1-b1');   // release-bearing → below
+        const plain = layout.builds.find(b => b.id === 'dev1-b2'); // no release → flips above
+        expect(rel.versionY).toBe(rel.y + rel.radius + versionCloseOffset);
+        expect(rel.versionY).toBeGreaterThan(rel.y);
+        expect(plain.versionY).toBeLessThan(plain.y);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // 6. EMPTY MODEL — edge case
 // ---------------------------------------------------------------------------
 describe('empty model', () => {
