@@ -150,6 +150,32 @@ export const DEFAULT_OPTS = {
 const ATNAME_TOP_OFFSET = 52;
 const ATNAME_LINE_H = 14;
 
+// req #2896 — the AT reservation is now CONDITIONAL on whether an AT-name stack
+// would actually HIT the branch in the lane below (see Step 4). Deciding that
+// needs rough on-canvas text widths for the AT names (upper branch) and the
+// branch names (lower branch). These mirror the render-side fonts in
+// KonvaBuildCanvas.jsx: branch names render at LABEL_FONT (14px, weight 600),
+// AT names at 80% of that (≈11.2px). `NAME_CHAR_W` is an average glyph-advance
+// factor for a 600-weight proportional face — deliberately generous so we err
+// toward "they collide" (keep the gap) rather than a false "clear" that would
+// let text overlap. These are estimates for LAYOUT gating only; the render is
+// unchanged.
+const BRANCH_NAME_FONT = 14;
+const AT_NAME_FONT = BRANCH_NAME_FONT * 0.8; // 11.2 — matches render
+const NAME_CHAR_W = 0.6;
+// req #2896 — the branch name's LEFT EDGE should sit just to the left of the
+// branch's starting shoulder (parent.x). Was `+10` (a visible gap to the right
+// of the shoulder). A small negative nudge tucks the first glyph's left edge a
+// hair left of where the curve lands.
+const LABEL_X_OFFSET = -2;
+// Rough rendered width of the widest line of a text label, px. Multi-line names
+// split on '\n'; the widest line drives the footprint.
+const estTextWidth = (text, fontPx) => {
+    if (!text) return 0;
+    const longest = String(text).split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+    return longest * fontPx * NAME_CHAR_W;
+};
+
 function cfgFor(type) {
     return REGISTRY[type] || REGISTRY.development;
 }
@@ -402,6 +428,60 @@ export function computeLayout(model, opts = {}) {
     // Extra vertical room a name-bearing row pushes onto the row below it.
     const atNamesExtent = (n) => (n > 0 ? n * ATNAME_LINE_H : 0);
 
+    // req #2896 — the reservation above is only NEEDED when a branch's AT-name
+    // stack would actually collide with the branch in the lane below. These two
+    // helpers describe the two colliding shapes so the walk can test them:
+    //
+    //   atColumnFor(b)      → the x-span + depth of b's AT-name stack (it hangs
+    //                         DOWN from b's latest build, centered on the same
+    //                         mid-segment point the render uses in Step 8b).
+    //   branchFootprintFor  → the x-span a branch occupies on canvas (its line
+    //                         plus its name overhang / main's left endpoint
+    //                         label) — i.e. what an AT stack from above could hit.
+    const branchesForLane = (sid, lane) =>
+        (branchesByStratum.get(sid) || []).filter(b => (laneByBranch.get(b.id) || 0) === lane);
+    const atColumnFor = (b) => {
+        const names = (showATs && Array.isArray(b.acceptanceTests)) ? b.acceptanceTests : [];
+        const bids = (b.buildIds || []).filter(id => !isGapId(id));
+        if (!names.length || !bids.length) return null;
+        const lastPos = positions[bids[bids.length - 1]];
+        if (!lastPos) return null;
+        const prevPos = bids.length >= 2 ? positions[bids[bids.length - 2]] : null;
+        const midX = prevPos ? (lastPos.x + prevPos.x) / 2 : lastPos.x - o.colW * 0.5;
+        const half = Math.max(0, ...names.map(n => estTextWidth(n, AT_NAME_FONT))) / 2;
+        const n = names.length;
+        return {
+            left: midX - half,
+            right: midX + half,
+            extent: n * ATNAME_LINE_H,
+            // Bottom of the visible AT text, measured DOWN from the branch line.
+            bottomBelowLine: dotRadiusFor(b.type) + ATNAME_TOP_OFFSET
+                + (n - 1) * ATNAME_LINE_H + AT_NAME_FONT,
+        };
+    };
+    const branchFootprintFor = (b) => {
+        // Main is NOT in `visible`, so it has no `branchExtent` entry — build its
+        // footprint straight from its build positions (line span from first→last
+        // build) plus its left-endpoint label (Step 9: right-aligned at first.x−60).
+        if (b.id === main.id) {
+            if (!mainBuildIds.length) return null;
+            const first = positions[mainBuildIds[0]];
+            const last = positions[mainBuildIds[mainBuildIds.length - 1]];
+            if (!first || !last) return null;
+            const labelLeft = (first.x - 60) - estTextWidth(main.name || 'Main', BRANCH_NAME_FONT);
+            return { left: Math.min(first.x, labelLeft), right: last.x };
+        }
+        const ext = branchExtent.get(b.id);
+        if (!ext) return null;
+        let left = ext.xMin, right = ext.xMax;
+        if (b.name) {
+            const labelX = ext.xMin + LABEL_X_OFFSET;
+            left = Math.min(left, labelX);
+            right = Math.max(right, labelX + estTextWidth(b.name, BRANCH_NAME_FONT));
+        }
+        return { left, right };
+    };
+
     // Build the ordered list of horizontal rows, top-to-bottom, then walk it
     // ONCE accumulating Y. Each row carries the base gap that precedes it and a
     // flag for whether it needs release clearance ABOVE it. This replaces the
@@ -427,12 +507,14 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
-                atNames: laneMaxAtNames(s.id, lane) });
+                atNames: laneMaxAtNames(s.id, lane),
+                branches: branchesForLane(s.id, lane) });
         }
     });
     // Main — a sideGap below the closest above stratum (and a sideGap below
     // canvasPadTop when there are no above strata, matching the prior layout).
-    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease, atNames: mainAtNames });
+    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease,
+        atNames: mainAtNames, branches: [main] });
     // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
     devNonEmpty.forEach((s, di) => {
         const lanes = laneCountByStratum.get(s.id);
@@ -442,7 +524,8 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
-                atNames: laneMaxAtNames(s.id, lane) });
+                atNames: laneMaxAtNames(s.id, lane),
+                branches: branchesForLane(s.id, lane) });
         }
     });
 
@@ -454,21 +537,49 @@ export function computeLayout(model, opts = {}) {
     // extra `buildAtClearance` (buildAtRoom, computed above) above it. This
     // stacks ON TOP of releaseClearance for release-bearing rows. Additionally,
     // a row carrying AT name labels pushes its name-stack DOWN into the gap
-    // above the NEXT row, so the previous row's `atNamesExtent` is added too.
+    // above the NEXT row — but ONLY when that stack would actually HIT the
+    // branch(es) in the next row (req #2896). If the previous row's AT column is
+    // clear of every branch below it (last build far out, or short names), the
+    // reservation collapses to 0 and the diagram packs tighter.
     const laneY = new Map();
     let mainY = o.canvasPadTop;
     let lastNamesExtent = 0; // names on the bottom-most row extend into the pad
     {
         let cursor = o.canvasPadTop;
-        let prevNamesExtent = 0;
+        let prevRow = null;
         for (const row of rows) {
-            cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0)
-                + buildAtRoom + prevNamesExtent;
+            const baseGap = row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0)
+                + buildAtRoom;
+            // Collision-aware AT reservation for the gap ABOVE this row: for each
+            // AT-bearing branch in the row above, keep its stack height only if
+            // the stack (a) is deep enough to reach this row's name/line band once
+            // the gap is collapsed to baseGap, AND (b) horizontally overlaps some
+            // branch footprint in this row. Take the deepest such colliding stack.
+            let reserve = 0;
+            if (prevRow) {
+                for (const pb of prevRow.branches || []) {
+                    const col = atColumnFor(pb);
+                    if (!col || col.extent <= reserve) continue;
+                    // Highest element of a lower branch is its name, ~ (16 + font)
+                    // above its line. If the stack clears that, it can't collide.
+                    if (col.bottomBelowLine <= baseGap - (16 + BRANCH_NAME_FONT)) continue;
+                    const hits = (row.branches || []).some(cb => {
+                        const fp = branchFootprintFor(cb);
+                        return fp && col.right > fp.left && col.left < fp.right;
+                    });
+                    if (hits) reserve = col.extent;
+                }
+            }
+            cursor += baseGap + reserve;
             if (row.main) mainY = cursor;
             else laneY.set(row.key, cursor);
-            prevNamesExtent = atNamesExtent(row.atNames || 0);
+            prevRow = row;
         }
-        lastNamesExtent = prevNamesExtent;
+        // The bottom-most row has no lane below to collide with, but its AT names
+        // still render into the bottom pad — reserve the tallest stack there so
+        // the canvas contains the text (canvas height is unchanged by req #2896).
+        const last = rows[rows.length - 1];
+        lastNamesExtent = last ? atNamesExtent(last.atNames || 0) : 0;
     }
 
     // Map each branch to its row Y.
@@ -729,7 +840,10 @@ export function computeLayout(model, opts = {}) {
             side: stratumDef.side,
             y,
             isMain: false,
-            labelX: parentPos.x + 10,
+            // req #2896 — the name's LEFT EDGE aligns to the branch's starting
+            // shoulder (parent.x), nudged a hair left. Was `+10`, which left a
+            // visible gap to the right of where the branch line begins.
+            labelX: parentPos.x + LABEL_X_OFFSET,
             labelY: y - (hasRelease ? 34 : 16) - buildAtBump,
         };
     });
