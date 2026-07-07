@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout, STRATA_ORDER, DEFAULT_OPTS } from '../d3LayoutEngine';
+import { computeLayout, STRATA_ORDER, DEFAULT_OPTS, curveXAtY } from '../d3LayoutEngine';
 
 // ---------------------------------------------------------------------------
 // Helpers — build minimal models that exercise layout without noise.
@@ -490,6 +490,172 @@ describe('connectors', () => {
         const conn = layout.connectors[0];
         expect(conn.curveD).toMatch(/^M .* C .*/);
         expect(conn.lineD).toMatch(/^M .* L .*/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7b. curveXAtY — precise connector-curve geometry (req #2898)
+//    The connector curve is the cubic bezier (parentX, parentY) →
+//    (parentX, branchY) bowing left by `bow`. Its closed forms are
+//    X(t) = parentX − 3·bow·t·(1 − t) and Y(t) = parentY + (branchY −
+//    parentY)·smoothstep(t). curveXAtY returns X at a target Y.
+// ---------------------------------------------------------------------------
+describe('curveXAtY — connector curve geometry', () => {
+    const P = 1000, y0 = 500, y3 = 100, bow = 60;
+
+    it('reaches its deepest leftward point (parentX − 0.75·bow) at the vertical midpoint', () => {
+        const midY = (y0 + y3) / 2; // 300
+        expect(curveXAtY(P, y0, y3, bow, midY)).toBeCloseTo(P - 0.75 * bow, 6); // 955
+    });
+
+    it('hugs parentX near the branch endpoint — NOT the bounding-box edge', () => {
+        // A Y close to the branch end (y3) sits near t=1 where the curve has
+        // barely bowed. This is the crux of the false-positive fix: the
+        // bounding-box strip claims the curve reaches parentX − bow (= 940)
+        // here, but it is actually far to the right, near parentX.
+        const nearBranchY = y3 + 0.05 * (y0 - y3); // 120, 5% up from the branch end
+        const x = curveXAtY(P, y0, y3, bow, nearBranchY);
+        expect(x).toBeGreaterThan(P - 0.75 * bow); // shallower than the midpoint depth (955)
+        expect(x).toBeGreaterThan(P - bow);        // strictly right of the bbox edge (940)
+    });
+
+    it('hugs parentX near the parent endpoint too (symmetric)', () => {
+        const nearParentY = y0 - 0.05 * (y0 - y3); // 480, 5% down from the parent end
+        const x = curveXAtY(P, y0, y3, bow, nearParentY);
+        expect(x).toBeGreaterThan(P - 0.75 * bow);
+        expect(x).toBeGreaterThan(P - bow);
+    });
+
+    it('is symmetric about the midpoint and never crosses parentX', () => {
+        for (let f = 0.05; f < 1; f += 0.05) {
+            const yUp = y0 + f * (y3 - y0);
+            const yDn = y0 + (1 - f) * (y3 - y0);
+            expect(curveXAtY(P, y0, y3, bow, yUp)).toBeCloseTo(curveXAtY(P, y0, y3, bow, yDn), 6);
+            expect(curveXAtY(P, y0, y3, bow, yUp)).toBeLessThanOrEqual(P);
+        }
+    });
+
+    it('returns parentX at/outside the endpoints and for a degenerate zero-height curve', () => {
+        expect(curveXAtY(P, y0, y3, bow, y0)).toBe(P);        // at parent end
+        expect(curveXAtY(P, y0, y3, bow, y3)).toBe(P);        // at branch end
+        expect(curveXAtY(P, y0, y3, bow, y0 + 10)).toBe(P);   // beyond parent end
+        expect(curveXAtY(P, y0, y3, bow, y3 - 10)).toBe(P);   // beyond branch end
+        expect(curveXAtY(P, 300, 300, bow, 300)).toBe(P);     // branchY === parentY
+    });
+
+    it('demonstrates the old bounding-box test would false-positive where the new one is solid', () => {
+        // A branch line whose right end lands strictly between the bbox left
+        // edge (parentX − bow) and the true curve X at a near-endpoint height
+        // was wrongly dashed by the old strip test. The precise test keeps it
+        // solid because the curve is actually to the RIGHT of the line's end.
+        const nearBranchY = y3 + 0.08 * (y0 - y3);
+        const curveX = curveXAtY(P, y0, y3, bow, nearBranchY);
+        const otherXMax = (P - bow + curveX) / 2; // squarely inside the false-positive window
+        // Old strip test (bbox): otherXMax > parentX − bow  ⇒ would report a crossing.
+        expect(otherXMax).toBeGreaterThan(P - bow);
+        // New precise test: otherXMax < curveX ⇒ no crossing ⇒ solid.
+        expect(otherXMax).toBeLessThan(curveX);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7c. connector whispy (dashed) crossing decision (req #2898)
+//    A connector's curve goes `whispy` when it truly crosses another
+//    branch's horizontal line. The precise geometry must (a) still dash a
+//    real crossing and (b) leave a non-reaching neighbor solid.
+// ---------------------------------------------------------------------------
+describe('connector whispy crossing decision', () => {
+    it('dashes when the curve genuinely crosses an intervening branch line', () => {
+        // A bootleg (topmost stratum) branches off release-1; a hotfix line
+        // sits at the exact vertical midpoint of the bootleg curve — where the
+        // curve bows deepest — and spans across it. This is a real crossing.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 6 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b6', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b4', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(true);
+    });
+
+    it('stays solid when an intervening branch line does not reach the curve', () => {
+        // Same shape, but the hotfix line is short and ends well to the LEFT of
+        // where the bootleg curve actually is at the hotfix height — no crossing.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 12 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b12', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b2', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(false);
+    });
+
+    it('never dashes a same-parent sibling fan (lines start at the curve origin)', () => {
+        // hotfix + bootleg + csr all branch off the SAME release build: their
+        // lines start at parentX and extend rightward, so no curve crosses them.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 4 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'csr', type: 'csr', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        for (const id of ['boot', 'hf', 'csr']) {
+            const c = layout.connectors.find(x => x.branchId === id);
+            expect(c.curveWhispy).toBe(false);
+        }
+    });
+
+    it('does not dash for a branch beyond the parent build row (outside the curve span)', () => {
+        // A bootleg off release: its curve spans release→bootleg only. A long
+        // Sprint/Sample line sits BETWEEN release and main — outside the curve's
+        // vertical span — and spans across the bootleg's parent-build X. It must
+        // NOT dash the bootleg callout: there is no curve at the sample height
+        // (req #2898 review — curve-span bound, not a main-bounded bound).
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'smp', type: 'sample-release', parentBuildId: 'm1', parentBranchId: 'main', buildCount: 14 },
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 6 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b6', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(false);
+    });
+
+    it('applies the crossing test symmetrically for below-main development branches', () => {
+        // Two development branches (below main). The first spans a long line at
+        // the closer lane; the second, farther from main, curves down past it.
+        // A genuine crossing must dash; a short non-reaching line must not.
+        const crossing = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'devNear', type: 'development', parentBuildId: 'm2', parentBranchId: 'main', buildCount: 12 },
+                { id: 'devFar', type: 'development', parentBuildId: 'm5', parentBranchId: 'main', buildCount: 10 },
+            ],
+        });
+        const cl = computeLayout(crossing);
+        const devNear = cl.connectors.find(c => c.branchId === 'devNear');
+        const devFar = cl.connectors.find(c => c.branchId === 'devFar');
+        // devFar (farther from main) curves down past devNear's line at the
+        // midpoint where it bows deepest — a genuine crossing → dashed.
+        expect(devFar.curveWhispy).toBe(true);
+        // devNear's curve span ends above devFar's row, so devFar is OUTSIDE
+        // devNear's span (the curve-span bound) → devNear stays solid.
+        expect(devNear.curveWhispy).toBe(false);
     });
 });
 
