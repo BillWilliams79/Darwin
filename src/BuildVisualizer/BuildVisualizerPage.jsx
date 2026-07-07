@@ -32,6 +32,7 @@ import HoldCountButton from './HoldCountButton';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
 import { BRANCH_TYPES, branchTypeLabel } from './branchTypeChipStyles';
+import { computeTypeVisibility } from './typeVisibility';
 import { hasMergeMenu } from './mergeEngine';
 import { REGISTRY } from './d3LayoutEngine';
 import {
@@ -202,6 +203,15 @@ const BuildVisualizerPage = () => {
     // highlight the matching toolbar chip while on Auto.
     const [pinnedLevel, setPinnedLevel] = useState(null);
     const [effectiveLevel, setEffectiveLevel] = useState(2);
+
+    // Branch-type stoplight (req #2897) — per-type shown/partial/hidden/off/none
+    // at the level the canvas is currently rendering. Drives the chip-rail dots so
+    // the filter chips report what the viewport actually shows, not just the manual
+    // on/off filter. Reuses the canvas's own visibility functions (typeVisibility.js).
+    const typeVisibility = useMemo(
+        () => computeTypeVisibility({ model, level: effectiveLevel, selectedTypes }),
+        [model, effectiveLevel, selectedTypes],
+    );
 
     // Release overlay — Gold Star only (req #2741; the style picker + Chip Row
     // were removed). Toggle just shows/hides the overlay.
@@ -1090,6 +1100,7 @@ const BuildVisualizerPage = () => {
                 lib={lib}
                 selectedTypes={selectedTypes}
                 onToggleType={toggleType}
+                typeVisibility={typeVisibility}
                 staggerOn={staggerOn}
                 onToggleStagger={toggleStagger}
                 onResetView={handleResetView}
