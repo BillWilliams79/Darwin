@@ -47,7 +47,11 @@ export function isGapId(id) {
 // level switch — assumption #3 in the requirement.
 export const mainGapId = (firstHiddenBid, lastHiddenBid) =>
     `${GAP_PREFIX}:main:${firstHiddenBid}:${lastHiddenBid}`;
-export const branchGapId = (branchId) => `${GAP_PREFIX}:branch:${branchId}`;
+// Endpoint-keyed like mainGapId (req #2892): a per-branch collapse can now emit
+// more than one run (released builds split the branch), so the run's endpoints
+// make each token id unique + stable within a level.
+export const branchGapId = (branchId, firstHiddenBid, lastHiddenBid) =>
+    `${GAP_PREFIX}:branch:${branchId}:${firstHiddenBid}:${lastHiddenBid}`;
 
 /**
  * Transform a build-visualizer model for a semantic level.
@@ -121,28 +125,38 @@ export function computeSemanticModel(model, {
     const newBuildIdsByBranch = new Map();
 
     // ── Main-trunk collapse (L1 + L2) ───────────────────────────────────────
-    // Keep ONLY the single build where each SHOWN branch originates — same as a
-    // release branch (req #2881: no ±1 window, just the branch-origin build). The
-    // parent-build protection loop below keeps `bp` for every SHOWN non-dev branch
-    // (sample-release AND release), so sample branches now show exactly the one
-    // origin build. Also keep everything from the latest sample point to the end
-    // (tip rule). Everything else collapses into one clickable "…" per run.
+    // Keep the always-show milestones and collapse every un-anchored run between
+    // them into one clickable "…".
+    //
+    // req #2892 — the milestones are: the FIRST main build ("where we came from")
+    // and the LAST main build (the current tip) — BOTH levels; every SHOWN
+    // branch's branch point (incl. development, so "branch points always show"
+    // holds at L2 — at L1 dev branches are hidden, so isShown filters them out);
+    // and, at L2, every RELEASED main build. There is deliberately NO "tip run"
+    // (the old rule force-kept latest-sample-point → end fully expanded): with the
+    // milestones above already pinning the tail (last build + Release branch point
+    // + released builds), the span between the latest sample and a later Release
+    // now collapses like any other un-anchored run.
     //
     // With no sample branches there are no anchors to window around — collapsing
-    // the whole trunk to a single "…" would be useless, so main stays expanded.
+    // the whole trunk would be useless, so main stays expanded.
     const shownSamples = sampleBranches.filter(isShown);
     if (shownSamples.length && mainBuildIds.length) {
         const kept = new Set();
-        // Tip rule — latest sample point → end of main stays fully expanded.
-        if (latestSample && isShown(latestSample)) {
-            const lbp = branchPointMainIndex(latestSample);
-            if (lbp != null) for (let i = lbp; i < mainBuildIds.length; i++) kept.add(i);
+        // First + last main build always survive (first = origin, last = tip).
+        kept.add(0);
+        kept.add(mainBuildIds.length - 1);
+        if (level === 2) {
+            // L2 also keeps every released main build.
+            mainBuildIds.forEach((bid, i) => {
+                if ((releaseEvents[bid]?.length || 0) > 0) kept.add(i);
+            });
         }
-        // Protect the parent build of every SHOWN non-dev branch. Dev-branch
-        // parent builds stay collapsible (the dev branch is hidden inside the
-        // span, revealed on expand).
+        // Protect the branch-point build of every SHOWN branch (req #2892 — incl.
+        // development at L2). At L1 dev branches are hidden, so isShown filters
+        // them out; their parent build stays collapsible there.
         for (const b of branches) {
-            if (!isShown(b) || b.type === 'development') continue;
+            if (!isShown(b)) continue;
             const bp = branchPointMainIndex(b);
             if (bp != null) kept.add(bp);
         }
@@ -182,28 +196,57 @@ export function computeSemanticModel(model, {
         }
     }
 
-    // ── Per-branch build collapse — sample-release + release (L1 + L2) ───────
-    // A SHOWN sample/release branch with > 3 of its OWN builds collapses to
-    // first → "…" → last (req #2881: only the first and last build survive; the
-    // second-to-last build is no longer kept). < 4 builds: nothing to hide. Skip
-    // if any hidden middle build anchors a SHOWN child branch (connector dangle).
+    // ── Per-branch build collapse — every non-main branch (L1 + L2) ──────────
+    // A SHOWN non-main branch with > 3 of its OWN builds collapses its interior
+    // into "…" tokens — development branches collapse just like sample/release
+    // (req #2892 follow-up: "dev branches should collapse like any other branch").
+    // The FIRST and LAST build always survive (req #2881/#2892 — first/last build
+    // on any branch). At L2 every RELEASED build also survives (req #2892 —
+    // released builds always show), which can split the branch into more than one
+    // collapsed run — hence one token per run, endpoint-keyed. Any build that
+    // anchors a SHOWN child branch is kept too so the connector never dangles.
+    // < 4 builds: nothing to hide.
     for (const b of branches) {
-        if (b.type !== 'sample-release' && b.type !== 'release') continue;
+        if (b.type === 'main') continue;
         if (!isShown(b)) continue;
         const ids = branchBuildIds(b);
         if (ids.length <= 3) continue;
-        const tokenId = branchGapId(b.id);
-        if (expanded.has(tokenId)) continue;            // expanded → full branch
-        const middle = ids.slice(1, ids.length - 1);
-        const middleSet = new Set(middle);
-        const middleAnchorsShownChild = branches.some(
-            c => isShown(c) && c.parentBuildId != null && middleSet.has(c.parentBuildId),
-        );
-        if (middleAnchorsShownChild) continue;
-        newBuildIdsByBranch.set(b.id, [ids[0], tokenId, ids[ids.length - 1]]);
-        tokenMeta.set(tokenId, {
-            kind: 'branch', branchId: b.id, hiddenBuildIds: middle, revealBranchIds: [],
-        });
+
+        const lastIdx = ids.length - 1;
+        const keptB = new Set([0, lastIdx]);           // first + last always
+        if (level === 2) {
+            ids.forEach((bid, i) => {
+                if ((releaseEvents[bid]?.length || 0) > 0) keptB.add(i);
+            });
+        }
+        // Protect any own build that anchors a SHOWN child branch.
+        for (const c of branches) {
+            if (!isShown(c) || c.parentBuildId == null) continue;
+            const ci = ids.indexOf(c.parentBuildId);
+            if (ci >= 0) keptB.add(ci);
+        }
+
+        const out = [];
+        let changed = false;
+        let i = 0;
+        while (i < ids.length) {
+            if (keptB.has(i)) { out.push(ids[i]); i++; continue; }
+            let j = i;
+            while (j < ids.length && !keptB.has(j)) j++;
+            const runIds = ids.slice(i, j);
+            const tokenId = branchGapId(b.id, runIds[0], runIds[runIds.length - 1]);
+            if (expanded.has(tokenId)) {
+                out.push(...runIds);                    // expanded → reveal the run
+            } else {
+                out.push(tokenId);
+                tokenMeta.set(tokenId, {
+                    kind: 'branch', branchId: b.id, hiddenBuildIds: runIds, revealBranchIds: [],
+                });
+                changed = true;
+            }
+            i = j;
+        }
+        if (changed) newBuildIdsByBranch.set(b.id, out);
     }
 
     if (newBuildIdsByBranch.size === 0) {

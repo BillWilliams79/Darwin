@@ -148,6 +148,15 @@ export const DEFAULT_OPTS = {
 const ATNAME_TOP_OFFSET = 52;
 const ATNAME_LINE_H = 14;
 
+// req #2892 — a branch's NAME label renders ABOVE its line and multi-line names
+// (name split on '\n') stack UPWARD, one line every BRANCH_NAME_LINE_H world px
+// (the render in KonvaBuildCanvas steps the name lines by the same 18). The base
+// laneGap budgets for a single name line; every ADDITIONAL line must be reserved
+// above the lane so a tall name no longer bleeds into the lane above (worst at
+// the top of an AT stack). This constant is the single source of truth for that
+// per-line reservation AND must match the render's inter-line step.
+const BRANCH_NAME_LINE_H = 18;
+
 function cfgFor(type) {
     return REGISTRY[type] || REGISTRY.development;
 }
@@ -375,6 +384,19 @@ export function computeLayout(model, opts = {}) {
     // Extra vertical room a name-bearing row pushes onto the row below it.
     const atNamesExtent = (n) => (n > 0 ? n * ATNAME_LINE_H : 0);
 
+    // req #2892 — a branch NAME can be multi-line; the extra lines stack UPWARD
+    // and must be reserved ABOVE the lane so a tall name is encompassed by the
+    // lane rather than bleeding into the lane above. The base laneGap already
+    // budgets one line, so only lines BEYOND the first are reserved here.
+    const branchNameLines = (b) =>
+        (b && b.name != null) ? String(b.name).split('\n').length : 1;
+    const laneMaxExtraNameLines = (stratumId, lane) =>
+        (branchesByStratum.get(stratumId) || []).reduce(
+            (max, b) => ((laneByBranch.get(b.id) || 0) === lane
+                ? Math.max(max, branchNameLines(b) - 1) : max), 0);
+    // Upward room a lane reserves for its branch name's extra lines.
+    const nameReserveExtent = (extraLines) => (extraLines > 0 ? extraLines * BRANCH_NAME_LINE_H : 0);
+
     // Build the ordered list of horizontal rows, top-to-bottom, then walk it
     // ONCE accumulating Y. Each row carries the base gap that precedes it and a
     // flag for whether it needs release clearance ABOVE it. This replaces the
@@ -400,12 +422,14 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
-                atNames: laneMaxAtNames(s.id, lane) });
+                atNames: laneMaxAtNames(s.id, lane),
+                nameExtra: laneMaxExtraNameLines(s.id, lane) });
         }
     });
     // Main — a sideGap below the closest above stratum (and a sideGap below
     // canvasPadTop when there are no above strata, matching the prior layout).
-    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease, atNames: mainAtNames });
+    // Main uses endpoint labels (single line), so no name-extra reservation.
+    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease, atNames: mainAtNames, nameExtra: 0 });
     // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
     devNonEmpty.forEach((s, di) => {
         const lanes = laneCountByStratum.get(s.id);
@@ -415,7 +439,8 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
-                atNames: laneMaxAtNames(s.id, lane) });
+                atNames: laneMaxAtNames(s.id, lane),
+                nameExtra: laneMaxExtraNameLines(s.id, lane) });
         }
     });
 
@@ -436,7 +461,7 @@ export function computeLayout(model, opts = {}) {
         let prevNamesExtent = 0;
         for (const row of rows) {
             cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0)
-                + buildAtRoom + prevNamesExtent;
+                + buildAtRoom + prevNamesExtent + nameReserveExtent(row.nameExtra || 0);
             if (row.main) mainY = cursor;
             else laneY.set(row.key, cursor);
             prevNamesExtent = atNamesExtent(row.atNames || 0);

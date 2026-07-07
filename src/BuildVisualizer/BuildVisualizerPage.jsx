@@ -96,6 +96,7 @@ const DARK_VARIANT_STORAGE_KEY = 'darwin.buildVisualizer.darkVariant.v1';
 const SHOW_RELEASES_STORAGE_KEY = 'darwin.bv.showReleases';
 const SHOW_BUILD_AT_STORAGE_KEY = 'darwin.bv.buildAt'; // req #2633
 const SHOW_ATS_STORAGE_KEY = 'darwin.bv.showATs';     // req #2633 master toggle
+const COLLAPSE_ENABLED_STORAGE_KEY = 'darwin.bv.collapse'; // req #2892 header toggle
 // req #2603 — Merge display (per-branch merge arrows + day-zero declarations) is
 // DISPLAY-ONLY and NOT retained: it lives in in-session React state only, starts
 // empty, and clears on project switch / reload. No localStorage.
@@ -119,6 +120,12 @@ const readShowATs = () => {
 };
 const writeShowATs = (value) => {
     try { window.localStorage.setItem(SHOW_ATS_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
+};
+const readCollapseEnabled = () => {
+    try { return window.localStorage.getItem(COLLAPSE_ENABLED_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
+};
+const writeCollapseEnabled = (value) => {
+    try { window.localStorage.setItem(COLLAPSE_ENABLED_STORAGE_KEY, value ? 'on' : 'off'); } catch (_) {}
 };
 const readVersionLanes = () => {
     try { return window.localStorage.getItem(VERSION_LANES_STORAGE_KEY) !== 'off'; } catch (_) { return true; }
@@ -202,6 +209,13 @@ const BuildVisualizerPage = () => {
     // highlight the matching toolbar chip while on Auto.
     const [pinnedLevel, setPinnedLevel] = useState(null);
     const [effectiveLevel, setEffectiveLevel] = useState(2);
+
+    // Semantic collapse on/off (req #2892) — header toggle to "play with" the
+    // collapse rules. Off = full detail at L2/L3; L1 is its own thing and always
+    // collapses. Persisted.
+    const [collapseEnabled, setCollapseEnabled] = useState(() => readCollapseEnabled());
+    const toggleCollapseEnabled = useCallback(() => setCollapseEnabled(prev => !prev), []);
+    useEffect(() => { writeCollapseEnabled(collapseEnabled); }, [collapseEnabled]);
 
     // Release overlay — Gold Star only (req #2741; the style picker + Chip Row
     // were removed). Toggle just shows/hides the overlay.
@@ -1101,6 +1115,8 @@ const BuildVisualizerPage = () => {
                 pinnedLevel={pinnedLevel}
                 effectiveLevel={effectiveLevel}
                 onChangePinnedLevel={setPinnedLevel}
+                collapseEnabled={collapseEnabled}
+                onToggleCollapseEnabled={toggleCollapseEnabled}
                 showAcceptanceTests={showAcceptanceTests}
                 onToggleShowAcceptanceTests={toggleShowAcceptanceTests}
                 showBuildAt={showBuildAt}
@@ -1121,6 +1137,7 @@ const BuildVisualizerPage = () => {
                 appMode={effectiveMode}
                 darkVariant={darkVariant}
                 pinnedLevel={pinnedLevel}
+                collapseEnabled={collapseEnabled}
                 onEffectiveLevel={setEffectiveLevel}
                 onBuildClick={handleBuildClick}
                 onAtGlyphClick={handleAtGlyphClick}

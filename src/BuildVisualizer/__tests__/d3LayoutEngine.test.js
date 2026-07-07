@@ -359,6 +359,25 @@ describe('release clearance — extra room above a release-bearing row', () => {
         expect(layout.mainY).toBe(canvasPadTop + laneGap + sideGap); // 110 + 70 = 180
     });
 
+    it('a multi-line branch name reserves extra room above its lane (req #2892)', () => {
+        // BRANCH_NAME_LINE_H = 18 per additional name line. A single-line name is
+        // fully budgeted by the base laneGap; a two-line name reserves +18 above
+        // the lane so it is encompassed instead of bleeding into the lane above.
+        const single = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1, name: 'One' }],
+        }), { showBuildAt: false });
+        const twoLine = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1, name: 'One\nTwo' }],
+        }), { showBuildAt: false });
+        const yS = single.branches.find(b => b.id === 'bl1').y;
+        const yT = twoLine.branches.find(b => b.id === 'bl1').y;
+        expect(yT - yS).toBe(18);            // one extra name line → +BRANCH_NAME_LINE_H
+        // main is pushed down by the same amount (the reservation is above the lane).
+        expect(twoLine.mainY - single.mainY).toBe(18);
+    });
+
     it('a release on a dev branch pushes it further below main', () => {
         const plain = computeLayout(makeModel({
             mainBuilds: 3,

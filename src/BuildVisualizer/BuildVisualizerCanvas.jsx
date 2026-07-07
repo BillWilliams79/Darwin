@@ -33,6 +33,7 @@ const BuildVisualizerCanvas = ({
     appMode,
     darkVariant,
     pinnedLevel,
+    collapseEnabled,
     onEffectiveLevel,
     onBuildClick,
     onReleaseClick,
@@ -83,6 +84,7 @@ const BuildVisualizerCanvas = ({
                     appMode={appMode}
                     darkVariant={darkVariant}
                     pinnedLevel={pinnedLevel}
+                    collapseEnabled={collapseEnabled}
                     onEffectiveLevel={onEffectiveLevel}
                     onBuildClick={onBuildClick}
                     onReleaseClick={onReleaseClick}
