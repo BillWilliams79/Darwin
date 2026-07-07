@@ -46,7 +46,7 @@ import { DEFAULT_DARK_VARIANT, LIGHT_TRANSPORT_VARIANT } from './themeVariants';
 // constant regardless of zoom.
 const LINE_W = 1.4;
 const STAR_OUTER = 7;
-const VERSION_FONT = 9;
+const VERSION_FONT = 10.8;   // req #2891 — 1.2× the original 9 for legibility
 const LABEL_FONT = 14;
 const TOKEN_FONT = 16;
 // req #2876 — branch-level AT name labels render at 80% of the branch-name font
