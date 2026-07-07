@@ -140,6 +140,9 @@ const fmtDT = (s, tz) => {
 function durationSegments(chip, usePhases) {
     const endX = xWorld(chip.leftPct);
     let startX;
+    // req #2905 — an undo whose swarm-start is outside the two-calendar-day window
+    // carries no start relationship; draw only the tombstone (no duration line).
+    if (chip.startOutOfWindow) return [];
     if (chip.markerMode === 'left') return [];
     if (chip.startClamped || chip.startPct == null) startX = xWorld(0);
     else startX = xWorld(chip.startPct);

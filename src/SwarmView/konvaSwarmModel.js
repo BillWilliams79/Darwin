@@ -469,6 +469,8 @@ export function buildDayModel(date, ctx, { dataKey = 'category', nowIso = null }
 // Keys on `startPct != null`, so a bare completed requirement with no session
 // (markerMode 'left' but startPct === null) correctly yields null — no glyph.
 export function startGlyphPlacement(chip, { cx, cr, trueX, hugGap } = {}) {
+    // req #2905 — out-of-window undo tombstones carry no swarm-start anchor.
+    if (chip?.startOutOfWindow) return null;
     if (!chip || chip.startPct == null || chip.startClamped) return null;
     if (chip.markerMode === 'left') {
         const glyphX = cx - cr - hugGap;

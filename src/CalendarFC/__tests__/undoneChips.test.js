@@ -149,6 +149,50 @@ describe('buildUndoneChips', () => {
         expect(chips[0].coordination_type).toBe('planned');
     });
 
+    // req #2905 — two-calendar-day window between undo and its swarm-start.
+    describe('two-calendar-day start window (req #2905)', () => {
+        // xPctFn ignores tz/date; returns a number so nothing is dropped and
+        // startPct is computable. timezone 'UTC' makes calendar-day math obvious.
+        const xp = (ts) => (ts === 'OFF_WINDOW' ? null
+            : ts.includes('T10:00') ? 50 : 10);
+        const windowArgs = (undoneAt, startedAt) => callArgs({
+            timezone: 'UTC',
+            xPctFn: xp,
+            swarmUndos: [{ ...baseUndo, undone_at: undoneAt }],
+            swarmStarts: [{ ...baseSwarmStart, started_at: startedAt }],
+        });
+
+        it('keeps the relationship when start is the SAME calendar day', () => {
+            const c = buildUndoneChips(
+                windowArgs('2026-05-27T10:00:00Z', '2026-05-27T02:00:00Z'))[0];
+            expect(c.startOutOfWindow).toBe(false);
+            expect(c.swarmStart).not.toBeNull();
+            expect(c.swarmStartId).toBe(60);
+            expect(c.startPct).toBe(10);
+        });
+
+        it('keeps the relationship when start is the calendar day BEFORE', () => {
+            const c = buildUndoneChips(
+                windowArgs('2026-05-27T10:00:00Z', '2026-05-26T22:00:00Z'))[0];
+            expect(c.startOutOfWindow).toBe(false);
+            expect(c.swarmStart).not.toBeNull();
+            expect(c.startPct).toBe(10);
+        });
+
+        it('detaches the start when it is 2+ calendar days before the undo', () => {
+            const c = buildUndoneChips(
+                windowArgs('2026-05-27T10:00:00Z', '2026-05-25T22:00:00Z'))[0];
+            expect(c.startOutOfWindow).toBe(true);
+            expect(c.swarmStart).toBeNull();
+            expect(c.swarmStartId).toBeNull();
+            expect(c.startPct).toBeNull();
+            expect(c.startClamped).toBe(false);
+            // Tombstone itself still renders at its own undone_at position.
+            expect(c.isUndone).toBe(true);
+            expect(c.leftPct).toBe(50);
+        });
+    });
+
     it('produces multiple chips ordered by input', () => {
         const a = { ...baseUndo, id: 13, swarm_start_fk_at_undo: 67,
                     undone_at: '2026-05-27T10:15:00Z' };

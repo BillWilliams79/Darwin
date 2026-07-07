@@ -93,9 +93,31 @@ export const buildUndoneChips = ({
         const leftPct = xPctFn(undo.undone_at, timezone, selectedDate);
         if (leftPct === null) continue;
 
-        const ss = undo.swarm_start_fk_at_undo != null
+        const rawSs = undo.swarm_start_fk_at_undo != null
             ? startById.get(String(undo.swarm_start_fk_at_undo))
             : null;
+
+        // req #2905 — detach the tombstone from its swarm-start when the start is
+        // more than one calendar day before the undo. Within a two-calendar-day
+        // window (undo & start on the same day, or the start was the calendar day
+        // before the undo) we keep the relationship: the duration line + the
+        // swarm-start glyph. An older start would clamp its line to the strip's
+        // left edge and drag a long connector across unrelated rows, so for those
+        // we show a lone tombstone — no line, no start glyph, no swarm-start
+        // connection (isStartOutOfWindow drives the renderer skips).
+        let startOutOfWindow = false;
+        if (rawSs && rawSs.started_at) {
+            const undoDay = toLocaleDateString(undo.undone_at, timezone);
+            const startDay = toLocaleDateString(rawSs.started_at, timezone);
+            if (undoDay && startDay) {
+                const dayGap = Math.round(
+                    (Date.parse(`${undoDay}T00:00:00Z`) -
+                        Date.parse(`${startDay}T00:00:00Z`)) / 86400000,
+                );
+                if (dayGap > 1) startOutOfWindow = true;
+            }
+        }
+        const ss = startOutOfWindow ? null : rawSs;
         const canonicalStartedAt = ss?.started_at || undo.undone_at;
         const rawStart = canonicalStartedAt
             ? xPctFn(canonicalStartedAt, timezone, selectedDate)
@@ -112,6 +134,14 @@ export const buildUndoneChips = ({
             Math.abs(leftPct - startPct) < closeThresholdPct
         ) {
             markerMode = 'left';
+        }
+
+        // req #2905 — out-of-window undo: strip every start-relationship signal so
+        // the renderer draws only the tombstone (no line, no glyph, no anchor).
+        if (startOutOfWindow) {
+            startPct = null;
+            startClamped = false;
+            markerMode = 'normal';
         }
 
         const reqId = undo.req_id_at_undo != null ? String(undo.req_id_at_undo) : null;
@@ -139,6 +169,7 @@ export const buildUndoneChips = ({
             session: null,
             swarmStartId: ss ? ss.id : null,
             swarmStart: ss || null,
+            startOutOfWindow,
             groupKey: canonicalStartedAt || '',
             timezone,
             isUndone: true,
