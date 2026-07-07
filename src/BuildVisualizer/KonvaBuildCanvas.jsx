@@ -52,6 +52,15 @@ const TOKEN_FONT = 16;
 // req #2876 — branch-level AT name labels render at 80% of the branch-name font
 // (was a flat 9px, which read as too small next to the 14px branch names).
 const AT_NAME_FONT = LABEL_FONT * 0.8;   // 11.2
+// req #2890 — AT geometry in WORLD units (NOT × inv — the AT stack scales with
+// the diagram so the engine's world-space lane reservation bounds it at every
+// zoom). ONE "big" box per branch (the old small size-9 Build AT box is dropped);
+// Build AT is folded into the branch's AT-name list. These must stay in lockstep
+// with `branchAtClearance`/`ATNAME_LINE_H` in d3LayoutEngine (the reservation).
+const AT_BOX = 13;                       // big pass/fail box
+const AT_BOX_HALF = AT_BOX / 2;
+const AT_NAME_GAP = 3;                   // box top → first (lowest) name
+const BRANCH_BOX_DY_BASE = 20;           // AT box center, just above the dot
 
 // Parse "M x1 y1 L x2 y2" (the only shape layout emits for straight lines) into
 // [x1, y1, x2, y2]. Beziers are rendered as Path and never parsed here.
@@ -76,7 +85,7 @@ const KonvaBuildCanvas = ({
     selectedTypes,
     staggerOn,
     showReleases,
-    showBuildAt,                   // req #2633 — per-build "Build AT" loops
+    showBuildAt,                   // req #2633 → #2890 — folds "Build AT" into the AT list
     showAcceptanceTests,           // req #2633 — master AT toggle
     mergeBranchIds,                // req #2603 — Set of SOURCE branch ids whose merges show
     dayZeroBuildIds,               // req #2603 — Set of build ids declared day-zero
@@ -156,13 +165,12 @@ const KonvaBuildCanvas = ({
         [model, level, expandedTokens, baseHiddenBranchIds],
     );
     // Acceptance-test visibility (req #2633): master toggle + Build AT sub-toggle.
-    // req #2876 r5 — L1 (Overview) drops ALL AT display (branch glyphs + names AND
-    // Build AT loops). Passing showAcceptanceTests:false into computeLayout at L1
+    // req #2876 r5 — L1 (Overview) drops ALL AT display (the per-branch box + name
+    // list). Passing showAcceptanceTests:false into computeLayout at L1
     // suppresses every AT visual AND collapses their reserved vertical space, so
     // the overview stays uncluttered (the engine gates both render data and lane
     // reservations on showAcceptanceTests).
     const atShown = showAcceptanceTests !== false && level !== 1;
-    const buildAtShown = atShown && showBuildAt !== false;
     const layout = useMemo(
         () => computeLayout(
             semantic.model || { branches: [], builds: {}, releaseEvents: {} },
@@ -360,31 +368,33 @@ const KonvaBuildCanvas = ({
         };
     };
 
-    // Acceptance-Test status glyph (req #2633) — a green ✓ box (pass) or red ✗
-    // box (fail) centered at world (x, y), screen-constant `screenSize`. When
-    // `onClick` is supplied the box is the listening hit target (branch glyph);
-    // otherwise the whole thing is decorative (Build AT loop).
-    const atGlyphNodes = (key, x, y, status, screenSize, listening = false, onClick) => {
+    // Acceptance-Test status glyph (req #2633 → req #2890) — a green ✓ box (pass)
+    // or red ✗ box (fail) centered at world (x, y). req #2890 — `size` is now a
+    // WORLD dimension (NOT × inv), so the box scales WITH the diagram like the
+    // lanes, letting the engine's world-space lane reservation genuinely bound the
+    // AT stack at every zoom (see § "AT stack is world-scaled" in the design doc).
+    // The per-branch AT box supplies `onClick`, making it the listening hit target.
+    const atGlyphNodes = (key, x, y, status, size, listening = false, onClick) => {
         const pass = status !== 'fail';
-        const s = screenSize * inv;
+        const s = size;
         const h = s / 2;
         const fill = pass ? '#43a047' : '#e53935';
         const stroke = pass ? '#2e7d32' : '#c62828';
         const out = [
-            <Rect key={`${key}-box`} x={x - h} y={y - h} width={s} height={s} cornerRadius={2 * inv}
-                  fill={fill} stroke={stroke} strokeWidth={1 * inv} listening={listening}
+            <Rect key={`${key}-box`} x={x - h} y={y - h} width={s} height={s} cornerRadius={2}
+                  fill={fill} stroke={stroke} strokeWidth={1} listening={listening}
                   onActivate={onClick}
                   onMouseEnter={onClick ? (e) => cursorPointer(e, true) : undefined}
                   onMouseLeave={onClick ? (e) => cursorPointer(e, false) : undefined} />,
         ];
         if (pass) {
             out.push(<Line key={`${key}-chk`} points={[x - h * 0.5, y, x - h * 0.1, y + h * 0.45, x + h * 0.6, y - h * 0.5]}
-                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" lineJoin="round" listening={false} />);
+                           stroke="#fff" strokeWidth={1.4} lineCap="round" lineJoin="round" listening={false} />);
         } else {
             out.push(<Line key={`${key}-x1`} points={[x - h * 0.5, y - h * 0.5, x + h * 0.5, y + h * 0.5]}
-                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" listening={false} />);
+                           stroke="#fff" strokeWidth={1.4} lineCap="round" listening={false} />);
             out.push(<Line key={`${key}-x2`} points={[x + h * 0.5, y - h * 0.5, x - h * 0.5, y + h * 0.5]}
-                           stroke="#fff" strokeWidth={1.4 * inv} lineCap="round" listening={false} />);
+                           stroke="#fff" strokeWidth={1.4} lineCap="round" listening={false} />);
         }
         return out;
     };
@@ -408,7 +418,7 @@ const KonvaBuildCanvas = ({
             nodes.push(
                 <Rect key={`band-${s.id}`} x={0} y={s.yTop} width={layout.width}
                       height={s.yBottom - s.yTop} fill={s.bandFill || 'transparent'} listening={false} />,
-                <Text key={`band-lbl-${s.id}`} x={6} y={(s.yTop + s.yBottom) / 2 - 6 * inv}
+                <Text key={`band-lbl-${s.id}`} x={6} y={(s.labelY ?? (s.yTop + s.yBottom) / 2) - 6 * inv}
                       text={`${s.label}${s.laneCount > 1 ? ` (${s.laneCount} lanes)` : ''}`}
                       fontSize={10 * inv} fontStyle="600" fill={palette.label} opacity={0.45}
                       listening={false} />,
@@ -576,84 +586,47 @@ const KonvaBuildCanvas = ({
             );
         }
 
-        // 3d. Acceptance Tests (req #2633, ported to Konva for req #2864).
-        // Build AT loops sit just above each build (automatic, always pass); a
-        // small self-loop arc + a green ✓ glyph + a "Build AT" caption. Branch-
-        // level ATs render a clickable pass/fail glyph mid-segment on the branch
-        // line plus stacked AT-name labels below the latest build. All sizes/
-        // offsets are × inv so the glyphs stay constant on-screen like the dots.
-        for (const loop of layout.atBuildLoops || []) {
-            // req #2876 r3 — the Build AT loop STARTS AND TERMINATES on the build
-            // dot and balloons up to ENCAPSULATE the check mark, with the
-            // "Build AT" caption (same size as branch AT names) above it:
-            //   ✓ check wrapped by a loop rooted on the dot  →  gap  →  "Build AT"
-            // Both loop ends meet at the dot's top; the bulge surrounds the check.
-            // All offsets × inv so the column stays screen-constant like the dots.
-            const rW = loop.radius * inv;
-            const loopR = 8 * inv;            // bulge radius around the check mark
-            const capGap = 3 * inv;           // loop top → caption bottom
-            const cx = loop.x;
-            const dotTopY = loop.y - rW;      // anchor: loop both starts & ends here
-            const cy = dotTopY - loopR;       // check centered inside the bulge
-            const loopTopY = cy - loopR;      // top of the loop
-            // Balloon: from the dot anchor, out + up the left side, across the top,
-            // down the right side, back to the SAME dot anchor (a closed self-loop
-            // wrapping the check). Symmetric cubic beziers; widest near the check.
-            nodes.push(<Path key={`bat-arc-${loop.buildId}`} closed
-                             data={`M ${cx} ${dotTopY} `
-                                 + `C ${cx - loopR * 1.9} ${dotTopY - loopR * 0.2}, ${cx - loopR * 1.1} ${loopTopY}, ${cx} ${loopTopY} `
-                                 + `C ${cx + loopR * 1.1} ${loopTopY}, ${cx + loopR * 1.9} ${dotTopY - loopR * 0.2}, ${cx} ${dotTopY} Z`}
-                             stroke="#9e9e9e" strokeWidth={1.2 * inv} listening={false} />);
-            // Terminate arrowhead on the loop's descending RIGHT side, pointing
-            // DOWN toward the build (the loop travels top→down-the-right→back to
-            // the dot). Placed away from the dot/loop junction so it reads as a
-            // distinct arrowhead, not a few gray pixels merged into the curve
-            // (req #2876 r4). Point + tangent are the 2nd bezier sampled at t≈0.5.
-            const aAx = cx + loopR * 1.13, aAy = cy - loopR * 0.075;   // point on right side
-            const adx = loopR * 0.6, ady = loopR * 2.85;               // tangent (down-right)
-            const amag = Math.hypot(adx, ady) || 1;
-            const ux = adx / amag, uy = ady / amag;                    // unit travel (downward)
-            const apx = -uy, apy = ux;                                 // perpendicular
-            const ah = 6 * inv;
-            nodes.push(<Line key={`bat-arrow-${loop.buildId}`} closed fill="#9e9e9e" listening={false}
-                             points={[aAx + ux * ah * 0.6, aAy + uy * ah * 0.6,                 // tip
-                                      aAx - ux * ah * 0.4 + apx * ah * 0.5, aAy - uy * ah * 0.4 + apy * ah * 0.5,
-                                      aAx - ux * ah * 0.4 - apx * ah * 0.5, aAy - uy * ah * 0.4 - apy * ah * 0.5]} />);
-            // Check-mark glyph centered INSIDE the loop (drawn after → on top).
-            nodes.push(...atGlyphNodes(`bat-${loop.buildId}`, cx, cy, 'pass', 9));
-            // Caption above the loop, same font as branch-level AT names (req #2876).
-            const capY = loopTopY - capGap - AT_NAME_FONT * inv;
-            nodes.push(<Text key={`bat-cap-${loop.buildId}`} x={cx - 32 * inv} y={capY}
-                             width={64 * inv} align="center" text="Build AT" fontSize={AT_NAME_FONT * inv}
-                             fill="#777" listening={false} />);
-        }
+        // 3d. Acceptance Tests (req #2633 → req #2890, Konva port req #2864).
+        // ONE checkmark box per branch: a big clickable pass/fail box (no circle,
+        // no self-loop, no per-build boxes) ABOVE the branch's LATEST build, with
+        // the combined AT-name list — branch ATs + the folded-in "Build AT" line —
+        // stacked above it. req #2890 — the AT stack is drawn in WORLD units (NO
+        // × inv), so it scales WITH the diagram like the lanes. The engine reserves
+        // this exact world height above the row (branchAtClearance + n·lineH), so
+        // the lane pitch bounds the AT stack at EVERY zoom (a screen-constant stack
+        // would compress into the lane above at the fit-to-width base scale < 1).
         for (const g of layout.atBranchGlyphs || []) {
-            // Drive the name stack from the engine's own reservation constants so
-            // render == reservation (req #2876): namesStartY clears the build-number
-            // far-lane and nameLineH matches the larger AT font's line height. Both
-            // are world offsets relative to namesY, scaled by inv to stay
-            // screen-constant like the dots.
-            const lineH = (g.nameLineH || 14) * inv;
-            const firstNameY = g.namesY + (g.namesStartY - g.namesY) * inv;
+            const cx = g.x;
+            const boxCy = g.y - BRANCH_BOX_DY_BASE;         // box just above the dot (world)
+            const lineH = g.nameLineH || 14;
             const nameColor = g.status === 'fail' ? '#c62828' : '#2e7d32';
-            // req #2876 r3 — center the AT name stack under the pass/fail check box
-            // (the glyph at g.x, mid-segment), not under the latest build (g.namesX).
-            (g.names || []).forEach((nm, i) => {
-                nodes.push(<Text key={`atn-${g.branchId}-${i}`} x={g.x - 60 * inv} y={firstNameY + i * lineH}
-                                 width={120 * inv} align="center" text={nm} fontSize={AT_NAME_FONT * inv}
+            const names = g.names || [];
+            // Names stack UPWARD above the box: list order top→bottom, the LAST
+            // name sits just above the box top, the FIRST name highest.
+            const boxTopY = boxCy - (AT_BOX_HALF + AT_NAME_GAP);
+            names.forEach((nm, i) => {
+                const y = boxTopY - (names.length - i) * lineH;
+                nodes.push(<Text key={`atn-${g.branchId}-${i}`} x={cx - 60} y={y}
+                                 width={120} align="center" text={nm} fontSize={AT_NAME_FONT}
                                  fill={nameColor} listening={false} />);
             });
-            // Clickable pass/fail glyph mid-segment on the branch line.
+            // Clickable pass/fail box above the build.
             const onClick = onAtGlyphClick ? (e) => { if (!draggingRef.current) onAtGlyphClick(g, e?.evt || e); } : undefined;
-            nodes.push(...atGlyphNodes(`atb-${g.branchId}`, g.x, g.y, g.status, 13, !!onClick, onClick));
+            nodes.push(...atGlyphNodes(`atb-${g.branchId}`, cx, boxCy, g.status, AT_BOX, !!onClick, onClick));
         }
 
-        // 4. Release stars (click → release datacard; req #2883). Raised ABOVE the whole
-        // Build AT column when Build AT is shown so the stars never overlap the
-        // "Build AT" caption (req #2633 — release on top; req #2876 r2 — clear the
-        // taller encircled-loop stack: caption top ≈ 40px above the dot + star
-        // radius + gap ≈ 50). Build AT is universal across branch types, so every
-        // release build also carries a Build AT column beneath the star.
+        // 4. Release stars (click → release datacard; req #2883). Raised ABOVE the
+        // AT stack so a star never overlaps the AT box or, on a build that is ALSO
+        // a branch's latest (req #2890 — the single AT box + name list ride above
+        // the build), the AT names above it. Keyed by build position.
+        const branchAtTopByBuild = new Map();   // `${x}:${y}` → WORLD px above dot
+        for (const g of layout.atBranchGlyphs || []) {
+            const nNames = (g.names || []).length;
+            if (!nNames) continue;
+            const top = BRANCH_BOX_DY_BASE + AT_BOX_HALF + AT_NAME_GAP
+                + nNames * (g.nameLineH || 14) + 8;
+            branchAtTopByBuild.set(`${g.x}:${g.y}`, top);
+        }
         if (showReleases) {
             for (const b of layout.builds) {
                 if (!b.releaseCustomers?.length) continue;
@@ -661,7 +634,10 @@ const KonvaBuildCanvas = ({
                 const n = b.releaseCustomers.length;
                 const ro = STAR_OUTER * inv;
                 const pitch = (2 * STAR_OUTER + 2) * inv;
-                const cy = b.y - (buildAtShown ? 50 : 22) * inv;
+                // branchAtTop is a WORLD height (the AT stack is world-scaled,
+                // req #2890); the no-AT baseline (22) stays screen-constant.
+                const branchAtTop = branchAtTopByBuild.get(`${b.x}:${b.y}`) || 0;
+                const cy = b.y - Math.max(22 * inv, branchAtTop);
                 const startX = b.x - ((n - 1) * pitch) / 2;
                 b.releaseCustomers.forEach((name, i) => {
                     nodes.push(<Star key={`star-${b.id}-${i}`} x={startX + i * pitch} y={cy}

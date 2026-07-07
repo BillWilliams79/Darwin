@@ -1,6 +1,6 @@
 // req #2633 — computeLayout emits Acceptance Test annotations.
 import { describe, it, expect } from 'vitest';
-import { computeLayout } from '../d3LayoutEngine';
+import { computeLayout, DEFAULT_OPTS } from '../d3LayoutEngine';
 
 // Minimal model: main + one sub-branch, with AT fields populated the way
 // useBuildVisualizerData does.
@@ -36,7 +36,7 @@ function makeModel(sub) {
 }
 
 describe('computeLayout — branch-level AT glyphs', () => {
-    it('glyph sits MID-SEGMENT between the last two builds; names anchor under the latest build', () => {
+    it('glyph anchors ABOVE the latest build; names + box ride above the build (req #2890)', () => {
         const model = makeModel({
             id: 'rel', type: 'release', buildCount: 2,
             acceptanceTests: ['Sprint AT', 'Cert AT'], acceptanceStatus: 'pass',
@@ -48,23 +48,24 @@ describe('computeLayout — branch-level AT glyphs', () => {
         expect(g.status).toBe('pass');
         const relBuilds = layout.builds.filter(b => b.branchId === 'rel');
         const lastBuild = relBuilds.at(-1);
-        const prevBuild = relBuilds.at(-2);
-        // Glyph at the midpoint between the last two builds, on the line.
-        expect(g.x).toBeCloseTo((lastBuild.x + prevBuild.x) / 2);
+        // req #2890 — box anchored at the LATEST build's x/y (no longer mid-segment);
+        // the render lifts the box + names above the dot. Below-anchored fields gone.
+        expect(g.x).toBe(lastBuild.x);
         expect(g.y).toBe(lastBuild.y);
-        // Names anchored at the latest build.
-        expect(g.namesX).toBe(lastBuild.x);
+        expect(g.namesX).toBeUndefined();
+        expect(g.namesStartY).toBeUndefined();
+        expect(g.nameLineH).toBe(14);
     });
 
-    it('single-build branch places the glyph half a column back from the build', () => {
+    it('single-build branch anchors the glyph at the build (req #2890)', () => {
         const model = makeModel({
             id: 'hf', type: 'hotfix', buildCount: 1, acceptanceTests: ['Cert AT'],
         });
         const layout = computeLayout(model);
         const g = layout.atBranchGlyphs.find(x => x.branchId === 'hf');
         const lastBuild = layout.builds.filter(b => b.branchId === 'hf').at(-1);
-        expect(g.x).toBeLessThan(lastBuild.x);
-        expect(g.namesX).toBe(lastBuild.x);
+        expect(g.x).toBe(lastBuild.x);
+        expect(g.y).toBe(lastBuild.y);
     });
 
     it('propagates fail status', () => {
@@ -88,74 +89,82 @@ describe('computeLayout — branch-level AT glyphs', () => {
     });
 });
 
-describe('computeLayout — Build AT per-build loops', () => {
-    it('emits one loop per build on a buildAT branch', () => {
+describe('computeLayout — Build AT folded into the single per-branch box (req #2890)', () => {
+    it('adds a trailing "Build AT" line to the branch\'s AT-name list (no per-build boxes)', () => {
         const model = makeModel({ id: 'boot', type: 'bootleg', buildCount: 3, buildAT: true });
         const layout = computeLayout(model);
-        const loops = layout.atBuildLoops.filter(l => l.branchId === 'boot');
-        expect(loops).toHaveLength(3);
-        // Each loop sits at its build's coordinates.
-        for (const l of loops) {
-            const b = layout.builds.find(x => x.id === l.buildId);
-            expect(l.x).toBe(b.x);
-            expect(l.y).toBe(b.y);
-        }
+        // No per-build Build AT boxes are emitted anymore.
+        expect(layout.atBuildLoops).toBeUndefined();
+        // A bootleg (no branch-level ATs) with Build AT renders ONE box at the
+        // latest build, with just "Build AT" in the list.
+        const g = layout.atBranchGlyphs.find(x => x.branchId === 'boot');
+        expect(g).toBeTruthy();
+        expect(g.names).toEqual(['Build AT']);
+        const lastBuild = layout.builds.filter(b => b.branchId === 'boot').at(-1);
+        expect(g.x).toBe(lastBuild.x);
+        expect(g.y).toBe(lastBuild.y);
     });
 
-    it('emits no loops for a non-buildAT branch', () => {
+    it('appends "Build AT" AFTER the branch-level ATs in the combined list', () => {
+        const model = makeModel({
+            id: 'rel', type: 'release', buildCount: 2,
+            acceptanceTests: ['Sprint AT', 'Cert AT'], buildAT: true,
+        });
+        const g = computeLayout(model).atBranchGlyphs.find(x => x.branchId === 'rel');
+        expect(g.names).toEqual(['Sprint AT', 'Cert AT', 'Build AT']);
+    });
+
+    it('omits "Build AT" for a non-buildAT branch', () => {
         const model = makeModel({ id: 'rel', type: 'release', buildAT: false, acceptanceTests: ['Sprint AT'] });
-        const layout = computeLayout(model);
-        expect(layout.atBuildLoops.filter(l => l.branchId === 'rel')).toHaveLength(0);
+        const g = computeLayout(model).atBranchGlyphs.find(x => x.branchId === 'rel');
+        expect(g.names).toEqual(['Sprint AT']);
     });
 
-    it('the showBuildAt:false opt suppresses ALL loops (header toggle off)', () => {
+    it('the showBuildAt:false opt drops the "Build AT" line (header toggle off)', () => {
+        // bootleg has ONLY Build AT, so with the toggle off it has no AT names at
+        // all → no box emitted.
         const model = makeModel({ id: 'boot', type: 'bootleg', buildCount: 3, buildAT: true });
         const layout = computeLayout(model, { showBuildAt: false });
-        expect(layout.atBuildLoops).toHaveLength(0);
-    });
-
-    it('a loop flags whether its build also bears a release event', () => {
-        const model = makeModel({ id: 'boot', type: 'bootleg', buildCount: 2, buildAT: true });
-        // Attach a release to the first bootleg build.
-        const firstBid = 'boot-b1';
-        model.releaseEvents = { [firstBid]: ['Acme'] };
-        const layout = computeLayout(model);
-        const withRel = layout.atBuildLoops.find(l => l.buildId === firstBid);
-        const without = layout.atBuildLoops.find(l => l.buildId === 'boot-b2');
-        expect(withRel.hasRelease).toBe(true);
-        expect(without.hasRelease).toBe(false);
+        expect(layout.atBranchGlyphs.find(x => x.branchId === 'boot')).toBeUndefined();
+        // A branch WITH branch-level ATs keeps them but loses the Build AT line.
+        const relModel = makeModel({ id: 'rel', type: 'release', buildCount: 2, acceptanceTests: ['Sprint AT'], buildAT: true });
+        const g = computeLayout(relModel, { showBuildAt: false }).atBranchGlyphs.find(x => x.branchId === 'rel');
+        expect(g.names).toEqual(['Sprint AT']);
     });
 });
 
 describe('computeLayout — master Acceptance Tests toggle', () => {
-    it('showAcceptanceTests:false suppresses BOTH branch glyphs and Build AT loops', () => {
+    it('showAcceptanceTests:false suppresses the per-branch AT box entirely', () => {
         const model = makeModel({
             id: 'rel', type: 'release', buildCount: 2,
             acceptanceTests: ['Sprint AT', 'Cert AT'], buildAT: true,
         });
         const layout = computeLayout(model, { showAcceptanceTests: false });
         expect(layout.atBranchGlyphs).toHaveLength(0);
-        expect(layout.atBuildLoops).toHaveLength(0);
+        expect(layout.atBuildLoops).toBeUndefined();
     });
 });
 
-describe('computeLayout — AT name labels clear build numbers + expand lanes', () => {
-    it('name labels start BELOW the latest build version far-lane', () => {
-        const model = makeModel({
-            id: 'rel', type: 'release', buildCount: 2, acceptanceTests: ['Sprint AT'],
-        });
-        const layout = computeLayout(model, { versionLanes: true });
-        const g = layout.atBranchGlyphs.find(x => x.branchId === 'rel');
-        const lastBuild = layout.builds.filter(b => b.branchId === 'rel').at(-1);
-        // namesStartY must clear the build's version label row.
-        expect(g.namesStartY).toBeGreaterThan(lastBuild.versionY);
+describe('computeLayout — AT name stack rides ABOVE the build (req #2890)', () => {
+    it('a branch carrying N AT names reserves box + N lineHeights ABOVE its own row', () => {
+        // Isolate from the Build AT overlay (showBuildAt:false) so only the branch
+        // AT box + names factor into the row spacing.
+        const y = (names) => computeLayout(
+            makeModel({ id: 'rel', type: 'release', buildCount: 2, acceptanceTests: names }),
+            { showBuildAt: false },
+        ).branches.find(b => b.id === 'rel').y;
+        // The release row is the topmost above-stratum lane; adding names widens the
+        // gap ABOVE it, pushing the row DOWN by branchAtClearance + N*ATNAME_LINE_H.
+        expect(y(['Sprint AT', 'Cert AT']) - y([]))
+            .toBe(DEFAULT_OPTS.branchAtClearance + 2 * 14); // ATNAME_LINE_H = 14
     });
 
     // Two CSR branches off the same parent build land on two lanes (cs1 = lane 0
-    // lower/inner, cs2 = lane 1 upper). cs2's name stack extends DOWN toward cs1,
-    // so adding names to cs2 widens the cs1↔cs2 gap by names*lineH.
-    const twoCsr = (cs2Names = []) => computeLayout(makeModelTwoCsr(cs2Names));
-    function makeModelTwoCsr(cs2Names) {
+    // lower/inner, cs2 = lane 1 upper). req #2890 — name stacks rise UPWARD and are
+    // reserved in the OWN row's gapAbove, so adding names to cs1 (the LOWER lane)
+    // widens the cs1↔cs2 gap; adding them to cs2 (upper) does not.
+    const twoCsr = (cs1Names = []) => computeLayout(makeModelTwoCsr(cs1Names), { showBuildAt: false });
+    function makeModelTwoCsr(cs1Names) {
         const base = makeModel();
         const builds = { ...base.builds };
         const mk = (id, n) => {
@@ -169,9 +178,9 @@ describe('computeLayout — AT name labels clear build numbers + expand lanes', 
         };
         const branches = [base.branches[0]]; // main
         branches.push({ id: 'cs1', type: 'csr', name: 'cs1', parentBuildId: 'm1', parentBranchId: 'main',
-            buildIds: mk('cs1', 3), acceptanceTests: [], acceptanceStatus: 'pass', buildAT: false });
+            buildIds: mk('cs1', 3), acceptanceTests: cs1Names, acceptanceStatus: 'pass', buildAT: false });
         branches.push({ id: 'cs2', type: 'csr', name: 'cs2', parentBuildId: 'm1', parentBranchId: 'main',
-            buildIds: mk('cs2', 3), acceptanceTests: cs2Names, acceptanceStatus: 'pass', buildAT: false });
+            buildIds: mk('cs2', 3), acceptanceTests: [], acceptanceStatus: 'pass', buildAT: false });
         return { branches, builds, releaseEvents: {}, releaseEventDetails: {} };
     }
     const gap = (layout) => {
@@ -180,9 +189,9 @@ describe('computeLayout — AT name labels clear build numbers + expand lanes', 
         return Math.abs(cs1.y - cs2.y);
     };
 
-    it('adding N AT names to a lane widens the gap to the lane below by N lineHeights', () => {
+    it('adding N AT names to the LOWER lane widens the gap to the lane above by box + N lineHeights', () => {
         const noNames = gap(twoCsr([]));
         const threeNames = gap(twoCsr(['Sprint AT', 'OEM AT', 'Cert AT']));
-        expect(threeNames - noNames).toBe(3 * 14); // ATNAME_LINE_H = 14 (req #2876)
+        expect(threeNames - noNames).toBe(DEFAULT_OPTS.branchAtClearance + 3 * 14);
     });
 });

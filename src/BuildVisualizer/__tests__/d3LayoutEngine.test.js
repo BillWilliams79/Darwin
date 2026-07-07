@@ -285,10 +285,10 @@ describe('labelY — top-track raise for release events', () => {
         expect(rel.labelY).toBe(rel.y - 34);
     });
 
-    // req #2876 r2 — when Build AT is shown, the branch name lifts an extra 34px
-    // above its normal track so it clears the tall encircled-loop + "Build AT"
-    // caption column that rides above each build.
-    it('Build AT shown lifts the branch name an extra 34px (no release)', () => {
+    // req #2890 — there is no per-build Build AT caption column above every build
+    // anymore (the single AT box rides above the branch's LATEST build, far from
+    // the shoulder label), so toggling Build AT no longer lifts the branch name.
+    it('the branch name track is independent of the Build AT toggle (no release)', () => {
         const model = makeModel({
             mainBuilds: 3,
             subBranches: [{ id: 'rel1', type: 'release', parentBuildId: 'm1', buildCount: 2 }],
@@ -296,7 +296,7 @@ describe('labelY — top-track raise for release events', () => {
         const off = computeLayout(model, { showBuildAt: false }).branches.find(b => b.id === 'rel1');
         const on = computeLayout(model, { showBuildAt: true }).branches.find(b => b.id === 'rel1');
         expect(off.labelY).toBe(off.y - 16);
-        expect(on.labelY).toBe(on.y - 16 - 34);
+        expect(on.labelY).toBe(on.y - 16);
     });
 });
 
@@ -310,9 +310,9 @@ describe('release clearance — extra room above a release-bearing row', () => {
     // Two CSR branches off the SAME parent build overlap horizontally, so they
     // land on different lanes of the CSR stratum (lane 0 = inner/lower, lane 1
     // = outer/upper). cs1 is first in model order → lane 0 (nearest main).
-    // showBuildAt:false isolates the release-clearance geometry from the
-    // additive Build AT overlay (req #2633), which otherwise adds a fixed
-    // buildAtClearance to every row.
+    // showBuildAt:false keeps these CSR branches (which have no branch-level ATs)
+    // from picking up a folded-in "Build AT" name line, so the row spacing here
+    // reflects only the release-clearance geometry (req #2890).
     const twoCsr = (releaseEvents = {}) => computeLayout(makeModel({
         mainBuilds: 4,
         subBranches: [
@@ -525,6 +525,42 @@ describe('stratum bands', () => {
         expect(hfBand).toBeTruthy();
         expect(hfBand.yTop).toBeLessThan(hfBand.yBottom);
         expect(hfBand.laneCount).toBe(2); // two overlapping branches
+    });
+
+    // req #2890 — the swim-lane band grows UPWARD to enclose the AT box + name
+    // list that rides above the topmost lane's build, so the AT names render
+    // INSIDE the release band, not in the white gap above it. Holds for all
+    // release/branch types that carry ATs.
+    it('band top extends up to enclose the topmost lane AT stack', () => {
+        const model = makeModel({
+            mainBuilds: 4,
+            subBranches: [{ id: 'rel1', type: 'release', parentBuildId: 'm1', buildCount: 2 }],
+        });
+        const rel = model.branches.find(b => b.id === 'rel1');
+        rel.acceptanceTests = ['Sprint AT', 'Functional AT', 'OEM AT', 'RC AT', 'Cert AT'];
+        rel.buildAT = true; // → 5 ATs + folded "Build AT" = 6 names
+        const layout = computeLayout(model);
+        const relBranch = layout.branches.find(b => b.id === 'rel1');
+        const relBand = layout.strata.find(s => s.id === 'release');
+        const n = 6;
+        // Band top reaches at least the reserved AT stack height above the dots.
+        expect(relBranch.y - relBand.yTop).toBeGreaterThanOrEqual(DEFAULT_OPTS.branchAtClearance + n * 14);
+        // The band bottom keeps the symmetric half-gap (AT stack rises up only).
+        expect(relBand.yBottom - relBranch.y).toBe(DEFAULT_OPTS.laneGap * 0.5);
+        // The swim-lane label stays anchored to the dots, not the extended band.
+        expect(relBand.labelY).toBe(relBranch.y);
+    });
+
+    it('band top uses the symmetric half-gap when the top lane has no ATs', () => {
+        const model = makeModel({
+            mainBuilds: 4,
+            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 2 }],
+        });
+        // bootleg has no branch-level ATs; suppress Build AT so the lane carries none.
+        const layout = computeLayout(model, { showBuildAt: false });
+        const blBranch = layout.branches.find(b => b.id === 'bl1');
+        const blBand = layout.strata.find(s => s.id === 'bootleg');
+        expect(blBranch.y - blBand.yTop).toBe(DEFAULT_OPTS.laneGap * 0.5);
     });
 });
 
@@ -740,25 +776,25 @@ describe('collapse tokens — __gap__ sentinels', () => {
 //    A semantic-zoom __gap__ id in buildIds must not get a Build AT loop or a
 //    branch glyph anchored to it (it would paint over the "…" token).
 // ---------------------------------------------------------------------------
-describe('acceptance-test glyphs skip __gap__ collapse sentinels', () => {
-    it('emits no Build AT loop for a gap sentinel and anchors the branch glyph to a real build', () => {
+describe('acceptance-test glyph skips __gap__ collapse sentinels', () => {
+    it('anchors the single branch glyph to the last REAL build, not a sentinel (req #2890)', () => {
         const model = makeModel({ mainBuilds: 3 });
         const main = model.branches.find(b => b.type === 'main');
-        // Collapse the middle main build into a sentinel; main runs AT + Build AT.
-        main.buildIds = ['m1', '__gap__:main:m2:m2', 'm3'];
+        // Collapse the LAST main build into a sentinel; main runs AT + Build AT.
+        main.buildIds = ['m1', 'm2', '__gap__:main:m3:m3'];
         main.acceptanceTests = ['Daily AT'];
         main.acceptanceStatus = 'pass';
         main.buildAT = true;
 
         const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: true });
-        // Build AT loops only on the two REAL builds, never the sentinel.
-        const loopIds = layout.atBuildLoops.map(l => l.buildId).sort();
-        expect(loopIds).toEqual(['m1', 'm3']);
-        expect(layout.atBuildLoops.some(l => String(l.buildId).startsWith('__gap__'))).toBe(false);
-        // Branch glyph anchors to the last real build's row, not the sentinel.
+        // One box per branch; Build AT is folded into the name list, no per-build loops.
+        expect(layout.atBuildLoops).toBeUndefined();
         const glyph = layout.atBranchGlyphs.find(g => g.branchId === 'main');
         expect(glyph).toBeTruthy();
-        const m3 = layout.builds.find(b => b.id === 'm3');
-        expect(glyph.y).toBe(m3.y);
+        expect(glyph.names).toEqual(['Daily AT', 'Build AT']);
+        // Anchors to m2 (the last REAL build), never the trailing sentinel.
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(glyph.x).toBe(m2.x);
+        expect(glyph.y).toBe(m2.y);
     });
 });
