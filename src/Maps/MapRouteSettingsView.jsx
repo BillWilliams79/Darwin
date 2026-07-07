@@ -173,6 +173,10 @@ const MapRouteSettingsView = () => {
                 initialState={{
                     sorting: { sortModel: [{ field: 'name', sort: 'asc' }] },
                 }}
+                pageSizeOptions={rows.length >= 100 && rows.length <= 300
+                    ? [25, 50, 100, { value: -1, label: 'All' }]
+                    : [25, 50, 100]
+                }
                 autoHeight
                 disableRowSelectionOnClick
                 density="compact"
