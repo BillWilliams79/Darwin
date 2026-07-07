@@ -13,7 +13,7 @@
 // fetch, since /customer_releases stores customer_fk only.
 
 import { useContext, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -32,10 +32,20 @@ export function useBuildVisualizerData(projectId) {
     const creatorFk = profile?.id || null;
     const enabled = !!idToken && !!creatorFk && !!darwinUri && !!projectId;
 
+    // req #2895 — every query carries `placeholderData: keepPreviousData` so a
+    // query-key change (below, the builds/releases keys embed CSVs of the prior
+    // level's ids) returns the PREVIOUS result during the refetch instead of
+    // undefined. Without it, adding/running a build changes `buildIdsCsv`, the
+    // releases query gets a brand-new key with no cache, `isLoading` spikes true,
+    // and the page swaps the canvas for a spinner — unmounting KonvaBuildCanvas
+    // and destroying its pan/zoom transform, which then re-frames from scratch
+    // (the "re-center on redraw" bug). Mirrors the Swarm canvas fix
+    // (SwarmVisualizerView.jsx / hooks/useDataQueries.js).
     const branchesQuery = useQuery({
         queryKey: ['bv-d3-branches', creatorFk, projectId],
         queryFn: () => fetchEntity(`${darwinUri}/branches?project_fk=${projectId}`, idToken),
         enabled,
+        placeholderData: keepPreviousData,
     });
 
     const branchRows = useMemo(
@@ -51,6 +61,7 @@ export function useBuildVisualizerData(projectId) {
             idToken,
         ),
         enabled: enabled && !!branchIdsCsv,
+        placeholderData: keepPreviousData,
     });
 
     const buildRows = useMemo(
@@ -66,12 +77,14 @@ export function useBuildVisualizerData(projectId) {
             idToken,
         ),
         enabled: enabled && !!buildIdsCsv,
+        placeholderData: keepPreviousData,
     });
 
     const customersQuery = useQuery({
         queryKey: ['bv-d3-customers', creatorFk],
         queryFn: () => fetchEntity(`${darwinUri}/customers`, idToken),
         enabled,
+        placeholderData: keepPreviousData,
     });
 
     const isLoading =
@@ -79,6 +92,13 @@ export function useBuildVisualizerData(projectId) {
         || buildsQuery.isLoading
         || releasesQuery.isLoading
         || customersQuery.isLoading;
+
+    // req #2895 — first-ever load (nothing to draw yet) vs a background refetch
+    // (branches already in hand). The page gates the full-canvas spinner on this
+    // so a mid-session refetch never unmounts KonvaBuildCanvas. With
+    // keepPreviousData above, `branchRows` stays populated through a refetch, so
+    // this only trips before the very first successful load.
+    const isInitialLoad = isLoading && !branchRows.length;
 
     const error =
         branchesQuery.error
@@ -235,6 +255,7 @@ export function useBuildVisualizerData(projectId) {
 
     return {
         isLoading,
+        isInitialLoad,
         isReady: enabled && !!branchesQuery.isSuccess,
         error,
         model,
