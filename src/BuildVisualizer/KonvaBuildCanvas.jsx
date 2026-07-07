@@ -46,7 +46,7 @@ import { DEFAULT_DARK_VARIANT, LIGHT_TRANSPORT_VARIANT } from './themeVariants';
 // constant regardless of zoom.
 const LINE_W = 1.4;
 const STAR_OUTER = 7;
-const VERSION_FONT = 9;
+const VERSION_FONT = 10.8;   // req #2891 — 1.2× the original 9 for legibility
 const LABEL_FONT = 14;
 const TOKEN_FONT = 16;
 // req #2876 — branch-level AT name labels render at 80% of the branch-name font
@@ -92,6 +92,7 @@ const KonvaBuildCanvas = ({
     appMode,
     darkVariant,
     pinnedLevel = null,            // null = auto-by-zoom; 1|2|3 = pinned
+    collapseEnabled = true,        // req #2892 — header toggle; off = full detail at L2/L3
     onEffectiveLevel,              // report the active level back to the toolbar
     onBuildClick,
     onReleaseClick,                // req #2883 — click a release star → release datacard
@@ -157,12 +158,17 @@ const KonvaBuildCanvas = ({
         });
     }, [model, selectedTypes]);
 
+    // req #2892 — the header Collapse toggle disables semantic collapse for L2
+    // (and L3, already full detail) by feeding the transform level 3, a pure
+    // pass-through. L1 is its own thing — it always collapses regardless.
+    const semanticLevel = (collapseEnabled === false && level >= 2) ? 3 : level;
+
     // Semantic transform → collapse-aware layout.
     const semantic = useMemo(
         () => computeSemanticModel(model || { branches: [] }, {
-            level, expandedTokens, baseHiddenBranchIds,
+            level: semanticLevel, expandedTokens, baseHiddenBranchIds,
         }),
-        [model, level, expandedTokens, baseHiddenBranchIds],
+        [model, semanticLevel, expandedTokens, baseHiddenBranchIds],
     );
     // Acceptance-test visibility (req #2633): master toggle + Build AT sub-toggle.
     // req #2876 r5 — L1 (Overview) drops ALL AT display (the per-branch box + name
@@ -677,7 +683,8 @@ const KonvaBuildCanvas = ({
                 padding: '2px 8px', borderRadius: 10, pointerEvents: 'none', userSelect: 'none',
             }} data-testid="bv-zoom-level">
                 {level === 1 ? 'L1 · Overview' : level === 3 ? 'L3 · Full detail' : 'L2 · Detail'}
-                {pinnedLevel != null ? ' · pinned' : ''} · drag to pan · scroll to zoom
+                {pinnedLevel != null ? ' · pinned' : ''}
+                {collapseEnabled === false && level >= 2 ? ' · collapse off' : ''} · drag to pan · scroll to zoom
             </div>
         </div>
     );

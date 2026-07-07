@@ -124,7 +124,9 @@ export const DEFAULT_OPTS = {
     // same constant, so the trunk shortens in lockstep.
     arrowExtColumns: 0.6,
     versionCloseOffset: 12,
-    versionLaneGap: 12,
+    // req #2891 — scaled 12→14.4 (×1.2) in lockstep with VERSION_FONT (9→10.8)
+    // so the close/far version lanes keep their vertical separation.
+    versionLaneGap: 14.4,
     versionLanes: true,
     hiddenBranchIds: null,
     canvasPadTop: 40,
@@ -132,12 +134,17 @@ export const DEFAULT_OPTS = {
 };
 
 // req #2890 — branch-level AT name labels stack ABOVE a branch's latest build,
-// sitting on top of the big pass/fail box (which itself rides above the build,
-// clearing the Build AT column when Build AT is shown). Each name's row is
-// ATNAME_LINE_H tall. req #2876 — AT name text is 80% of the branch-name font
-// (≈11.2px); the line height matches the taller text. ATNAME_LINE_H is the
-// single source of truth for the name-stack reservation here AND the render.
+// sitting on top of the big pass/fail box. Each name's row is ATNAME_LINE_H
+// tall. req #2876 — AT name text is 80% of the branch-name font (≈11.2px); the
+// line height matches the taller text. ATNAME_LINE_H is the single source of
+// truth for the name-stack reservation here AND the render.
 const ATNAME_LINE_H = 14;
+
+// req #2896 — the branch name's LEFT EDGE should sit just to the left of the
+// branch's starting shoulder (parent.x). Was `+10` (a visible gap to the right
+// of the shoulder). A small negative nudge tucks the first glyph's left edge a
+// hair left of where the curve lands.
+const LABEL_X_OFFSET = -2;
 
 function cfgFor(type) {
     return REGISTRY[type] || REGISTRY.development;
@@ -199,6 +206,31 @@ function connectorControlPoints(p0, p3, bow) {
         p1: { x: p0.x - bow, y: p0.y },
         p2: { x: p0.x - bow, y: p3.y },
     };
+}
+
+// The horizontal X the connector curve ACTUALLY occupies at a given Y.
+// The curve is the cubic bezier (parentX, parentY) → (parentX, branchY) whose
+// two control points sit at (parentX − bow, …) — see connectorControlPoints.
+// Because both endpoints share x = parentX and both controls share x =
+// parentX − bow, the parametric X and Y collapse to closed forms:
+//
+//   X(t) = parentX − 3·bow·t·(1 − t)          (max depth parentX − 0.75·bow at t=½)
+//   Y(t) = parentY + (branchY − parentY)·S(t), S(t) = 3t² − 2t³  (smoothstep)
+//
+// So the deepest leftward reach (parentX − 0.75·bow) happens only at the
+// VERTICAL MIDPOINT; near either endpoint the curve hugs parentX. To test
+// whether another branch's horizontal line (at otherY) is crossed we need the
+// curve's X at THAT height, not the bounding-box strip [parentX − bow,
+// parentX]. Invert smoothstep with the closed-form identity
+// t = ½ − sin(asin(1 − 2u)/3) for u = S(t) = the vertical fraction, then
+// evaluate X. Verified exact against a 100k-sample bezier (req #2898).
+export function curveXAtY(parentX, parentY, branchY, bow, targetY) {
+    if (branchY === parentY) return parentX;
+    const u = (targetY - parentY) / (branchY - parentY);
+    // Outside the endpoints the curve is at its endpoint X (= parentX).
+    if (u <= 0 || u >= 1) return parentX;
+    const t = 0.5 - Math.sin(Math.asin(1 - 2 * u) / 3);
+    return parentX - 3 * bow * t * (1 - t);
 }
 
 // Curve-fan rank — siblings sharing parentBuildId and same side. Inner = 1.
@@ -403,7 +435,8 @@ export function computeLayout(model, opts = {}) {
     });
     // Main — a sideGap below the closest above stratum (and a sideGap below
     // canvasPadTop when there are no above strata, matching the prior layout).
-    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease, atNames: mainAtNames });
+    rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease,
+        atNames: mainAtNames });
     // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
     devNonEmpty.forEach((s, di) => {
         const lanes = laneCountByStratum.get(s.id);
@@ -465,31 +498,36 @@ export function computeLayout(model, opts = {}) {
     //
     //   • crossesOtherBranch (new) — another branch on the SAME side sits
     //     strictly between this branch and main, AND that other branch's
-    //     horizontal line STRICTLY overlaps this curve's bow strip.
+    //     horizontal line actually overlaps this curve WHERE THE CURVE IS at
+    //     that other line's height.
     //
     // Geometry of THIS curve: a cubic bezier from (parent.x, parent.y) to
-    // (parent.x, branch.y) with control points at (parent.x − bow, …). The
-    // curve's X strip at any Y in between is [parent.x − bow, parent.x].
+    // (parent.x, branch.y) with control points at (parent.x − bow, …). Its
+    // bounding-box X strip is [parent.x − bow, parent.x], but the curve only
+    // reaches the deep edge (parent.x − 0.75·bow) at its VERTICAL MIDPOINT —
+    // near either endpoint it hugs parent.x. `curveXAtY` gives the curve's
+    // true X at any height. (req #2898 — the old bounding-box test whispy'd
+    // callouts, e.g. the exemplar's topmost bootleg, whose intervening rows
+    // sit near the branch endpoint where the curve hasn't bowed left yet.)
     //
-    // For another branch's horizontal line at otherY to lie inside that
-    // strip we need TWO STRICT conditions:
-    //   (a) other.xMin < parent.x  — the other line must extend to the LEFT
-    //       of parent.x (otherwise it's at/right of where my curve lands).
-    //   (b) other.xMax > parent.x − thisBow — the other line must reach
-    //       INTO the strip (otherwise the curve flies past on the left).
+    // For another branch's horizontal line at otherY to actually be crossed,
+    // the curve's X at otherY must fall STRICTLY inside the other line's span:
+    //   (a) other.xMin < curveX  — the other line must start LEFT of the
+    //       curve point (otherwise it's entirely to the right of it).
+    //   (b) other.xMax > curveX  — the other line must extend PAST the curve
+    //       point (otherwise the curve flies right of the line's end).
     //
     // Strictly less-than on (a) is load-bearing: same-parent siblings have
-    // `other.xMin == this.parent.x` exactly. Their horizontal lines start
-    // AT parent.x and extend rightward; my curve flies LEFT of parent.x.
-    // Loose <= would whispy every same-parent sibling-fan curve — the bug
-    // that hid the "Sprint Cycle" hotfixes/bootlegs/CSRs entirely.
+    // `other.xMin == this.parent.x` and curveX ≤ parent.x, so `xMin < curveX`
+    // is false and they never whispy — the bug that hid the "Sprint Cycle"
+    // hotfixes/bootlegs/CSRs entirely.
     //
     // The parent BRANCH (the branch on which this branch's parent build
     // sits) is also excluded — the curve originates at that branch's
     // horizontal line, so calling it a "crossing" double-counts the start
     // point. Example: a hotfix off release-1's build #2 starts at
     // release-1's line; release-1 is not a crossing.
-    function crossesOtherBranch(branch, parentX, y, thisBow) {
+    function crossesOtherBranch(branch, parentX, parentBuildY, y, thisBow) {
         const sideAbove = y < mainY;
         for (const other of branchById.values()) {
             if (other === branch) continue;
@@ -500,15 +538,21 @@ export function computeLayout(model, opts = {}) {
             if (otherY == null) continue;
             const otherSideAbove = otherY < mainY;
             if (otherSideAbove !== sideAbove) continue;
-            // `other` must sit strictly between this branch and the trunk.
-            if (sideAbove) {
-                if (!(y < otherY && otherY < mainY)) continue;
-            } else {
-                if (!(mainY < otherY && otherY < y)) continue;
-            }
+            // `other` must sit strictly within the curve's ACTUAL vertical
+            // span — between the branch row (y) and the PARENT BUILD row
+            // (parentBuildY), NOT all the way to main (req #2898 review). The
+            // curve only exists between its two endpoints; a branch beyond the
+            // parent build (e.g. a Sprint/Sample row between release and main
+            // for a bootleg-off-release) has no curve at its height. Without
+            // this bound, curveXAtY would clamp such an out-of-span otherY to
+            // the endpoint X (parentX) and the strip test could false-dash.
+            const spanLo = Math.min(parentBuildY, y);
+            const spanHi = Math.max(parentBuildY, y);
+            if (!(otherY > spanLo && otherY < spanHi)) continue;
             const ext = branchExtent.get(other.id);
             if (!ext) continue;
-            if (ext.xMin < parentX && ext.xMax > parentX - thisBow) return true;
+            const curveX = curveXAtY(parentX, parentBuildY, y, thisBow, otherY);
+            if (ext.xMin < curveX && ext.xMax > curveX) return true;
         }
         return false;
     }
@@ -563,7 +607,7 @@ export function computeLayout(model, opts = {}) {
         const crossesTrunk =
             (parentPos.y < mainY && y > mainY)
             || (parentPos.y > mainY && y < mainY);
-        const crossesAnother = crossesOtherBranch(branch, parentPos.x, y, bow);
+        const crossesAnother = crossesOtherBranch(branch, parentPos.x, parentPos.y, y, bow);
 
         connectors.push({
             branchId: branch.id,
@@ -600,6 +644,16 @@ export function computeLayout(model, opts = {}) {
     for (const b of branches) {
         if (isHidden(b.id)) continue;
         const r = dotRadiusFor(b.type);
+        // req #2899 — build-number labels sit on the MAIN-FACING side of the dot
+        // so the version stack always grows toward main, and the stack direction
+        // is DIFFERENT above vs below main. Above-main branches already render
+        // their numbers BELOW the dot (which points toward main), so they are
+        // unchanged; below-main (dev) branches flip to ABOVE the dot so their
+        // numbers hug main too. Main itself (center) keeps numbers below.
+        // Guard: release stars always render ABOVE the dot for every branch type
+        // (KonvaBuildCanvas — b.y − 22/50), so a below-main build that carries a
+        // release keeps its numbers BELOW the dot to clear its own star.
+        const isBelowMain = (branchY.get(b.id) ?? mainY) > mainY;
         (b.buildIds || []).forEach((bid, i) => {
             const pos = positions[bid];
             if (isGapId(bid)) {
@@ -609,6 +663,11 @@ export function computeLayout(model, opts = {}) {
             const data = buildsMap[bid];
             if (!pos || !data) return;
             const laneOffset = (o.versionLanes && i % 2 === 1) ? o.versionLaneGap : 0;
+            const bearsRelease = (releaseEvents[bid]?.length || 0) > 0;
+            const flipUp = isBelowMain && !bearsRelease;
+            const versionY = flipUp
+                ? pos.y - r - o.versionCloseOffset - laneOffset
+                : pos.y + r + o.versionCloseOffset + laneOffset;
             buildRecords.push({
                 id: bid,
                 branchId: b.id,
@@ -620,7 +679,7 @@ export function computeLayout(model, opts = {}) {
                 approvedForRelease: !!data.approvedForRelease,
                 version: formatVersion(fromModelBuild(data)),
                 versionX: pos.x,
-                versionY: pos.y + r + o.versionCloseOffset + laneOffset,
+                versionY,
                 releaseCustomers: releaseEvents[bid] || [],
                 releaseDetails: releaseEventDetails[bid] || [],
             });
@@ -666,7 +725,13 @@ export function computeLayout(model, opts = {}) {
             side: stratumDef.side,
             y,
             isMain: false,
-            labelX: parentPos.x + 10,
+            // req #2896 — the name's LEFT EDGE aligns to the branch's starting
+            // shoulder (parent.x), nudged a hair left. Was `+10`, which left a
+            // visible gap to the right of where the branch line begins.
+            // req #2890 — no buildAtBump: there is no per-build Build AT caption
+            // column above every build anymore (the single AT box rides above the
+            // branch's LATEST build), so the shoulder name only clears the release track.
+            labelX: parentPos.x + LABEL_X_OFFSET,
             labelY: y - (hasRelease ? 34 : 16),
         };
     });

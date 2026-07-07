@@ -42,7 +42,7 @@ const branchOf = (m, id) => m.branches.find(b => b.id === id).buildIds;
 describe('isGapId', () => {
     it('recognizes sentinel ids and rejects real build ids', () => {
         expect(isGapId(mainGapId('m1', 'm3'))).toBe(true);
-        expect(isGapId(branchGapId('s1'))).toBe(true);
+        expect(isGapId(branchGapId('s1', 's1-b1', 's1-b4'))).toBe(true);
         expect(isGapId('m1')).toBe(false);
         expect(isGapId(null)).toBe(false);
         expect(isGapId(42)).toBe(false);
@@ -97,27 +97,25 @@ describe('L1 — visibility', () => {
 });
 
 describe('L2 — main-trunk collapse around sample branch points', () => {
-    it('keeps ONLY the branch-origin build (no ±1 window) plus a tip run (req #2881)', () => {
-        // samples at m2 and m6 (latest). Keep m2 (s1 origin), m6 (s2 origin) and
-        // the tip m6→m7. Everything else collapses — no neighbours of m2 survive.
+    it('keeps branch-origin builds + first + last main build (req #2881, #2892)', () => {
+        // samples at m2 and m6. Keep m2 (s1 origin), m6 (s2 origin), m0 (first),
+        // m7 (last). Everything else collapses — there is no "tip run" any more.
         const model = makeModel({ mainBuilds: 8, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm2' },
             { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
         ] });
         const r = computeSemanticModel(model, { level: 2 });
         const out = mainOf(r.model);
-        // Origin builds + tip only.
+        expect(out).toContain('m0');         // first main build always shown (req #2892)
         expect(out).toContain('m2');         // s1 origin
         expect(out).toContain('m6');         // s2 origin
-        expect(out).toContain('m7');         // tip
-        // ±1 neighbours of the (non-tip) branch origin now collapse.
-        expect(out).not.toContain('m0');
-        expect(out).not.toContain('m1');     // was kept by old ±1 window
-        expect(out).not.toContain('m3');     // was kept by old ±1 window
+        expect(out).toContain('m7');         // tip / last main build
+        expect(out).not.toContain('m1');     // collapses between m0 and m2
+        expect(out).not.toContain('m3');
         expect(out).not.toContain('m4');
         expect(out).not.toContain('m5');
         const gaps = out.filter(isGapId);
-        expect(gaps.length).toBe(2);         // [m0,m1] run + [m3,m4,m5] run
+        expect(gaps.length).toBe(2);         // [m1] run + [m3,m4,m5] run
         // token meta records the hidden builds of the between-origins run.
         const between = r.tokenMeta.get(mainGapId('m3', 'm5'));
         expect(between.hiddenBuildIds).toEqual(['m3', 'm4', 'm5']);
@@ -143,17 +141,20 @@ describe('L2 — main-trunk collapse around sample branch points', () => {
         expect(r.hiddenBranchIds.has('h1')).toBe(false);
     });
 
-    it('hides a dev branch whose branch point falls inside a collapsed span', () => {
+    it('keeps a dev branch point visible at L2 — branch points always show (req #2892)', () => {
+        // req #2892: at L2 EVERY shown branch point survives collapse, including
+        // development. So m4 (dev1 origin) stays, dev1 is not hidden, and no token
+        // needs to reveal it.
         const model = makeModel({ mainBuilds: 8, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm1' },
             { id: 's2', type: 'sample-release', parentBuildId: 'm7' },
             { id: 'dev1', type: 'development', parentBuildId: 'm4' },
         ] });
         const r = computeSemanticModel(model, { level: 2 });
-        expect(r.hiddenBranchIds.has('dev1')).toBe(true);
-        // the collapsed token records the reveal-on-expand branch
-        const tok = [...r.tokenMeta.values()].find(t => t.revealBranchIds.includes('dev1'));
-        expect(tok).toBeTruthy();
+        expect(mainOf(r.model)).toContain('m4');
+        expect(r.hiddenBranchIds.has('dev1')).toBe(false);
+        const anyReveals = [...r.tokenMeta.values()].some(t => t.revealBranchIds.includes('dev1'));
+        expect(anyReveals).toBe(false);
     });
 
     it('does NOT mark an L1-hidden dev branch as revealable on main-gap expand', () => {
@@ -178,9 +179,10 @@ describe('per-branch build collapse (sample + release, >3 builds)', () => {
         ] });
         const r = computeSemanticModel(model, { level: 2 });
         const out = branchOf(r.model, 's1');
+        const tok = branchGapId('s1', 's1-b1', 's1-b4');
         // Only the first and last build survive — the second-to-last (s1-b4) collapses too.
-        expect(out).toEqual(['s1-b0', branchGapId('s1'), 's1-b5']);
-        expect(r.tokenMeta.get(branchGapId('s1')).hiddenBuildIds).toEqual(['s1-b1', 's1-b2', 's1-b3', 's1-b4']);
+        expect(out).toEqual(['s1-b0', tok, 's1-b5']);
+        expect(r.tokenMeta.get(tok).hiddenBuildIds).toEqual(['s1-b1', 's1-b2', 's1-b3', 's1-b4']);
     });
 
     it('leaves a branch with <= 3 builds untouched', () => {
@@ -191,12 +193,93 @@ describe('per-branch build collapse (sample + release, >3 builds)', () => {
         expect(branchOf(r.model, 's1').some(isGapId)).toBe(false);
     });
 
-    it('does not branch-collapse hotfix/dev branches', () => {
+    it('branch-collapses dev and hotfix branches like any other branch (req #2892)', () => {
         const model = makeModel({ mainBuilds: 4, subBranches: [
             { id: 'h1', type: 'hotfix', parentBuildId: 'm2', buildCount: 6 },
+            { id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 6 },
         ] });
         const r = computeSemanticModel(model, { level: 2 });
-        expect(branchOf(r.model, 'h1').some(isGapId)).toBe(false);
+        // Both collapse to first · … · last.
+        expect(branchOf(r.model, 'h1')).toEqual(['h1-b0', branchGapId('h1', 'h1-b1', 'h1-b4'), 'h1-b5']);
+        expect(branchOf(r.model, 'dev1')).toEqual(['dev1-b0', branchGapId('dev1', 'dev1-b1', 'dev1-b4'), 'dev1-b5']);
+    });
+});
+
+describe('req #2892 — always-show milestones', () => {
+    it('L2 keeps the first main build, the last main build, and released main builds', () => {
+        const model = makeModel({
+            mainBuilds: 8,
+            subBranches: [
+                { id: 's1', type: 'sample-release', parentBuildId: 'm1' },
+                { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
+            ],
+            releaseEvents: { m3: ['AcmeCorp'] },        // a released build on main
+        });
+        const r = computeSemanticModel(model, { level: 2 });
+        const out = mainOf(r.model);
+        expect(out).toContain('m0');                    // first main build
+        expect(out).toContain('m7');                    // last main build
+        expect(out).toContain('m3');                    // released build stays
+    });
+
+    it('L1 keeps the first + last main build ("where we came from" + the tip)', () => {
+        const model = makeModel({ mainBuilds: 8, subBranches: [
+            { id: 's1', type: 'sample-release', parentBuildId: 'm2' },
+            { id: 's2', type: 'sample-release', parentBuildId: 'm6' },
+        ] });
+        const r = computeSemanticModel(model, { level: 1 });
+        const out = mainOf(r.model);
+        expect(out).toContain('m0');                    // survives even at L1
+        expect(out).toContain('m7');                    // tip survives
+        expect(out.some(isGapId)).toBe(true);           // rest still collapses
+    });
+
+    it('L2 main collapses between the latest sample and a later Release (no tip run)', () => {
+        // samples at m1 (idx1) + m3 (idx3, latest); release branches at m7 (idx7).
+        // The old tip rule force-kept idx3→end; now idx4,5,6 collapse.
+        const model = makeModel({ mainBuilds: 10, subBranches: [
+            { id: 's1', type: 'sample-release', parentBuildId: 'm1' },
+            { id: 's2', type: 'sample-release', parentBuildId: 'm3' },
+            { id: 'rel', type: 'release', parentBuildId: 'm7' },
+        ] });
+        const r = computeSemanticModel(model, { level: 2 });
+        const out = mainOf(r.model);
+        expect(out).toContain('m3');                    // latest sample point
+        expect(out).toContain('m7');                    // release branch point
+        expect(out).not.toContain('m4');                // the span now collapses
+        expect(out).not.toContain('m5');
+        expect(out).not.toContain('m6');
+        expect(r.tokenMeta.get(mainGapId('m4', 'm6')).hiddenBuildIds).toEqual(['m4', 'm5', 'm6']);
+    });
+
+    it('L2 keeps a released build on a long sample branch, splitting it into runs', () => {
+        const model = makeModel({
+            mainBuilds: 4,
+            subBranches: [
+                { id: 's1', type: 'sample-release', parentBuildId: 'm2', buildCount: 6 },
+            ],
+            releaseEvents: { 's1-b3': ['AcmeCorp'] },   // delivered mid-branch
+        });
+        const r = computeSemanticModel(model, { level: 2 });
+        const out = branchOf(r.model, 's1');
+        expect(out[0]).toBe('s1-b0');                   // first
+        expect(out[out.length - 1]).toBe('s1-b5');      // last
+        expect(out).toContain('s1-b3');                 // released build stays
+        expect(out.filter(isGapId).length).toBe(2);     // [b1,b2] run + [b4] run
+    });
+
+    it('L1 does NOT keep a released mid-branch build (L1 is its own thing)', () => {
+        const model = makeModel({
+            mainBuilds: 4,
+            subBranches: [
+                // latest + delivered sample so it stays shown at L1
+                { id: 's1', type: 'sample-release', parentBuildId: 'm2', buildCount: 6 },
+            ],
+            releaseEvents: { 's1-b3': ['AcmeCorp'] },
+        });
+        const r = computeSemanticModel(model, { level: 1 });
+        const out = branchOf(r.model, 's1');
+        expect(out).toEqual(['s1-b0', branchGapId('s1', 's1-b1', 's1-b4'), 's1-b5']);
     });
 });
 
@@ -205,7 +288,7 @@ describe('expanded tokens', () => {
         const model = makeModel({ mainBuilds: 4, subBranches: [
             { id: 's1', type: 'sample-release', parentBuildId: 'm2', buildCount: 6 },
         ] });
-        const tok = branchGapId('s1');
+        const tok = branchGapId('s1', 's1-b1', 's1-b4');
         const r = computeSemanticModel(model, { level: 2, expandedTokens: new Set([tok]) });
         expect(branchOf(r.model, 's1')).toEqual(['s1-b0', 's1-b1', 's1-b2', 's1-b3', 's1-b4', 's1-b5']);
         expect(r.tokenMeta.has(tok)).toBe(false);
