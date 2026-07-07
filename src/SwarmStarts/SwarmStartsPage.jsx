@@ -72,6 +72,13 @@ export default function SwarmStartsPage() {
         return m;
     }, [swarmStarts, sessionsArray, junction]);
 
+    // Req #2906 — total sessions launched across every invocation, summed from
+    // each row's session_count, for the "N invocations starting M sessions" line.
+    const totalSessions = useMemo(
+        () => swarmStarts.reduce((sum, s) => sum + (Number(s.session_count) || 0), 0),
+        [swarmStarts],
+    );
+
     const columns = useMemo(() => [
         { field: 'id', headerName: 'ID', width: 70, type: 'number' },
         { field: 'session_count', headerName: 'Sessions', width: 90, type: 'number' },
@@ -240,7 +247,7 @@ export default function SwarmStartsPage() {
                 </ToggleButtonGroup>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                     {view === 'table'
-                        ? `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} — click a row for full summary`
+                        ? `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} starting ${totalSessions} session${totalSessions === 1 ? '' : 's'}`
                         : `${swarmStarts.length} invocation${swarmStarts.length === 1 ? '' : 's'} in stats`}
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
