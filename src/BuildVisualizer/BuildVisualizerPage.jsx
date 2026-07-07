@@ -600,7 +600,8 @@ const BuildVisualizerPage = () => {
             }
             firstVersion = nextBuildVersion({ branchType: 'main', lastBuild: null, branchMm });
         } else {
-            // Sub-branch — use firstBuildOnNewBranchVersion with parent build.
+            // Branch off a parent build — firstBuildOnNewBranchVersion handles
+            // both trunk `release` (Build#+1, Branch# 0) and frozen sub-branches.
             const parentBuild = fromModelBuild(
                 branch.parentBuildId ? model.builds?.[branch.parentBuildId] : null,
             );

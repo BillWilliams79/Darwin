@@ -1,18 +1,22 @@
-// Build Visualizer — VersionEngine (req #2737).
+// Build Visualizer — VersionEngine (req #2737, release rule req #2893).
 //
-// THE single source of truth for version numbers (M.m.B.b). Authoritative rules
-// live in memory/build-visualizer-design.md §4; this module is their executable
-// form. Every place that creates a build or a branch — and every place that
-// renders a version string — MUST route through here. No inline version
-// arithmetic anywhere else (that scattering is exactly why prior version fixes
-// never stuck).
+// SINGLE SOURCE OF TRUTH — the RULES live in memory/build-visualizer-design.md
+// §4 (the authoritative spec). This module is the sole IMPLEMENTATION site of
+// those rules — no inline version arithmetic lives anywhere else (that
+// scattering is exactly why prior version fixes never stuck) — and it is
+// VALIDATED against the spec by __tests__/versionEngine.test.js (the §4.5
+// worked examples). Doc changes lead; code + tests follow. Every place that
+// creates a build or a branch — and every place that renders a version
+// string — MUST route through here.
 //
 // Canonical version object: { major, minor, build, branchNumber }
 //   major (M), minor (m) — declared by management, stamped per-build (§4.2).
 //                          A build never looks back to derive its M.m.
-//   build (B)            — monotonic on main; FROZEN to the parent build's B on
-//                          every sub-branch (§4.3).
-//   branchNumber (b)     — 0 on main; reserved-range walk on subs (§4.4).
+//   build (B)            — monotonic on the trunk (main AND release, which is a
+//                          trunk continuation — req #2893); FROZEN to the parent
+//                          build's B on every non-trunk sub-branch (§4.3).
+//   branchNumber (b)     — 0 on the trunk (main AND release — req #2893);
+//                          reserved-range walk on non-trunk subs (§4.4).
 //
 // Naming bridges (two pre-existing conventions this module reconciles):
 //   • in-memory model build → { build, branchNum, major, minor }  (useBuildVisualizerData)
@@ -50,10 +54,12 @@ export function openMm() {
 //     branchNumber = base + (ord0 + ordBase) * stride + buildIndex
 // `ord0` is the 0-indexed ordinal of this branch among same-type sibling
 // branches off the same parent build. `csr` is expressed with ordBase=1 so it
-// evaluates to ord1 * 1000 (csr-1 → 1000–1999, csr-2 → 2000–2999). `main` is
-// special-cased to MAIN_BRANCH_NUMBER and never consults this table.
+// evaluates to ord1 * 1000 (csr-1 → 1000–1999, csr-2 → 2000–2999). `main` AND
+// `release` are trunk types (req #2893) — both special-cased to
+// MAIN_BRANCH_NUMBER and never consult this table.
+// NOTE: `release` is deliberately ABSENT — it is a trunk type (req #2893), always
+// Branch# 0, and never consults this table. Only non-trunk sub-branches appear here.
 const BRANCH_NUMBER_RULES = {
-    release:          { base: 1,    stride: 50,   ordBase: 0 },
     'sample-release': { base: 1,    stride: 50,   ordBase: 0 },
     csr:              { base: 0,    stride: 1000, ordBase: 1 },
     hotfix:           { base: 6000, stride: 50,   ordBase: 0 },
@@ -68,10 +74,11 @@ const num = (v, fallback) => (v == null || Number.isNaN(Number(v)) ? fallback : 
 
 /**
  * §4.4 — Branch# for the build at `buildIndex` (0-based) on a sub-branch that is
- * the `ord0`-th (0-based) of its type off its parent build. `main` → 0.
+ * the `ord0`-th (0-based) of its type off its parent build. Trunk types
+ * (`main` AND `release` — req #2893) → 0.
  */
 export function computeBranchNumber(branchType, ord0 = 0, buildIndex = 0) {
-    if (branchType === 'main') return MAIN_BRANCH_NUMBER;
+    if (branchType === 'main' || branchType === 'release') return MAIN_BRANCH_NUMBER;
     const rule = BRANCH_NUMBER_RULES[branchType] || FALLBACK_RULE;
     return rule.base + (ord0 + rule.ordBase) * rule.stride + buildIndex;
 }
@@ -118,8 +125,8 @@ export function firstMainBuildVersion({ major = 1, minor = 0, initialBuildNumber
 
 /**
  * §4.3 / §4.4 — next build appended to an EXISTING branch.
- *   main → Build# increments, Branch# stays 0.
- *   sub  → Build# frozen, Branch# walks +1 (the build index i advances by one).
+ *   trunk (main AND release — req #2893) → Build# increments, Branch# stays 0.
+ *   non-trunk sub → Build# frozen, Branch# walks +1 (build index i advances).
  *
  * M.m is stamped from the BRANCH's current M.m (`branchMm`) — NOT the last
  * build — because that is the single "stamp source" per §4.3/§4.2: for main it
@@ -128,9 +135,11 @@ export function firstMainBuildVersion({ major = 1, minor = 0, initialBuildNumber
  * isOpenMm(branchMm) first and refuse the build when open (§4.2). Throws if
  * called with an open M.m so the rule cannot be silently bypassed.
  *
- * main Build# RESETS to 1 whenever the M.m changes (§4.3 — management assigned
+ * Trunk Build# RESETS to 1 whenever the M.m changes (§4.3 — management assigned
  * a new M.m after a release: `5.0.8.0` → main `5.1` → next build `5.1.1.0`);
- * it only increments while the M.m is unchanged.
+ * it only increments while the M.m is unchanged. A `release` line's M.m is
+ * fixed for its lifetime (it never opens), so in practice the reset branch is
+ * only exercised by `main`; release simply increments.
  */
 export function nextBuildVersion({ branchType, lastBuild, branchMm }) {
     if (isOpenMm(branchMm)) {
@@ -139,7 +148,8 @@ export function nextBuildVersion({ branchType, lastBuild, branchMm }) {
     const last = lastBuild || null;
     const major = num(branchMm.major, 1);
     const minor = num(branchMm.minor, 0);
-    if (branchType === 'main') {
+    // Trunk types: main and release (req #2893). Both increment Build#, Branch# 0.
+    if (branchType === 'main' || branchType === 'release') {
         const sameMm = last && num(last.major, NaN) === major && num(last.minor, NaN) === minor;
         return {
             major,
@@ -157,14 +167,32 @@ export function nextBuildVersion({ branchType, lastBuild, branchMm }) {
 }
 
 /**
- * §4.3 / §4.4 — first build on a NEWLY CREATED sub-branch off `parentBuild`.
- * Build# frozen to the parent's; Branch# is the reserved-range start for this
- * sibling ordinal; M.m inherited (stamped) from the parent build.
+ * §4.3 / §4.4 — first build on a NEWLY CREATED branch off `parentBuild`.
+ *
+ * `release` (req #2893) is a TRUNK CONTINUATION, not a sub-branch: it keeps
+ * Branch# 0 and CONTINUES the Build# sequence — its first build is the parent's
+ * Build# + 1 (e.g. main …5.0.8.0 → release first build 5.0.9.0). The release
+ * inherits (is stamped with) the parent build's M.m and owns that M.m line
+ * going forward while main is reassigned a new M.m by management.
+ *   Assumption (§4.5): ONE release line per parent build. A second release cut
+ *   off the same build would also be Branch# 0 on the same Build# sequence and
+ *   collide; the sample-release scheme covers the parallel case if needed.
+ *
+ * Every OTHER sub-branch: Build# frozen to the parent's; Branch# is the
+ * reserved-range start for this sibling ordinal; M.m inherited from the parent.
  * `siblingOrd0` = count of pre-existing same-type sibling branches off the same
- * parent build (0 for the first).
+ * parent build (0 for the first). `siblingOrd0` is ignored for `release`.
  */
 export function firstBuildOnNewBranchVersion({ type, parentBuild, siblingOrd0 = 0 }) {
     const p = parentBuild || {};
+    if (type === 'release') {
+        return {
+            major: num(p.major, 1),
+            minor: num(p.minor, 0),
+            build: num(p.build, 1) + 1,
+            branchNumber: MAIN_BRANCH_NUMBER,
+        };
+    }
     return {
         major: num(p.major, 1),
         minor: num(p.minor, 0),
