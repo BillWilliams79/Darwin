@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout, STRATA_ORDER, DEFAULT_OPTS } from '../d3LayoutEngine';
+import { computeLayout, STRATA_ORDER, DEFAULT_OPTS, curveXAtY } from '../d3LayoutEngine';
 
 // ---------------------------------------------------------------------------
 // Helpers — build minimal models that exercise layout without noise.
@@ -359,25 +359,6 @@ describe('release clearance — extra room above a release-bearing row', () => {
         expect(layout.mainY).toBe(canvasPadTop + laneGap + sideGap); // 110 + 70 = 180
     });
 
-    it('a multi-line branch name reserves extra room above its lane (req #2892)', () => {
-        // BRANCH_NAME_LINE_H = 18 per additional name line. A single-line name is
-        // fully budgeted by the base laneGap; a two-line name reserves +18 above
-        // the lane so it is encompassed instead of bleeding into the lane above.
-        const single = computeLayout(makeModel({
-            mainBuilds: 3,
-            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1, name: 'One' }],
-        }), { showBuildAt: false });
-        const twoLine = computeLayout(makeModel({
-            mainBuilds: 3,
-            subBranches: [{ id: 'bl1', type: 'bootleg', parentBuildId: 'm1', buildCount: 1, name: 'One\nTwo' }],
-        }), { showBuildAt: false });
-        const yS = single.branches.find(b => b.id === 'bl1').y;
-        const yT = twoLine.branches.find(b => b.id === 'bl1').y;
-        expect(yT - yS).toBe(18);            // one extra name line → +BRANCH_NAME_LINE_H
-        // main is pushed down by the same amount (the reservation is above the lane).
-        expect(twoLine.mainY - single.mainY).toBe(18);
-    });
-
     it('a release on a dev branch pushes it further below main', () => {
         const plain = computeLayout(makeModel({
             mainBuilds: 3,
@@ -446,6 +427,72 @@ describe('build records — branchType and releaseDetails', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 5b. MAIN-FACING VERSION LABELS (req #2899) — build numbers hug main; the
+//     stack direction differs above vs below main. Above-main + main render
+//     numbers BELOW the dot (toward main); below-main (dev) flips ABOVE the dot.
+// ---------------------------------------------------------------------------
+describe('version-label direction — main-facing (req #2899)', () => {
+    const { versionCloseOffset, versionLaneGap } = DEFAULT_OPTS;
+
+    it('above-main branch keeps numbers BELOW the dot (toward main) — unchanged', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'sr1', type: 'sample-release', parentBuildId: 'm1', buildCount: 2 }],
+        }));
+        const b0 = layout.builds.find(b => b.id === 'sr1-b1'); // index 0 → close lane
+        // Below the dot: versionY strictly greater than the dot center.
+        expect(b0.versionY).toBe(b0.y + b0.radius + versionCloseOffset);
+    });
+
+    it('main branch keeps numbers BELOW the dot', () => {
+        const layout = computeLayout(makeModel({ mainBuilds: 3 }));
+        const m0 = layout.builds.find(b => b.id === 'm1');
+        expect(m0.versionY).toBe(m0.y + m0.radius + versionCloseOffset);
+    });
+
+    it('below-main dev branch flips numbers ABOVE the dot (toward main)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+        }));
+        const d0 = layout.builds.find(b => b.id === 'dev1-b1'); // index 0 → close lane
+        const d1 = layout.builds.find(b => b.id === 'dev1-b2'); // index 1 → far lane
+        // Above the dot (smaller Y = higher on canvas = toward main).
+        expect(d0.versionY).toBe(d0.y - d0.radius - versionCloseOffset);
+        // Far lane steps FURTHER up (toward main), not down.
+        expect(d1.versionY).toBe(d1.y - d1.radius - versionCloseOffset - versionLaneGap);
+        expect(d1.versionY).toBeLessThan(d0.versionY);
+        // And both sit above the main line (numbers hug main from below).
+        expect(d0.versionY).toBeLessThan(d0.y);
+    });
+
+    it('below-main numbers sit between the dev dot and main (closer to main than the dot)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 1 }],
+        }));
+        const d0 = layout.builds.find(b => b.id === 'dev1-b1');
+        const dev = layout.branches.find(b => b.id === 'dev1');
+        expect(dev.y).toBeGreaterThan(layout.mainY);     // dev is below main
+        expect(d0.versionY).toBeLessThan(dev.y);          // numbers are above the dev dot
+        expect(d0.versionY).toBeGreaterThan(layout.mainY); // …but still below the main line
+    });
+
+    it('below-main build that BEARS a release keeps numbers BELOW the dot (clears its star)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 3,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm1', buildCount: 2 }],
+            releaseEvents: { 'dev1-b1': ['Acme'] },
+        }));
+        const rel = layout.builds.find(b => b.id === 'dev1-b1');   // release-bearing → below
+        const plain = layout.builds.find(b => b.id === 'dev1-b2'); // no release → flips above
+        expect(rel.versionY).toBe(rel.y + rel.radius + versionCloseOffset);
+        expect(rel.versionY).toBeGreaterThan(rel.y);
+        expect(plain.versionY).toBeLessThan(plain.y);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // 6. EMPTY MODEL — edge case
 // ---------------------------------------------------------------------------
 describe('empty model', () => {
@@ -509,6 +556,172 @@ describe('connectors', () => {
         const conn = layout.connectors[0];
         expect(conn.curveD).toMatch(/^M .* C .*/);
         expect(conn.lineD).toMatch(/^M .* L .*/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7b. curveXAtY — precise connector-curve geometry (req #2898)
+//    The connector curve is the cubic bezier (parentX, parentY) →
+//    (parentX, branchY) bowing left by `bow`. Its closed forms are
+//    X(t) = parentX − 3·bow·t·(1 − t) and Y(t) = parentY + (branchY −
+//    parentY)·smoothstep(t). curveXAtY returns X at a target Y.
+// ---------------------------------------------------------------------------
+describe('curveXAtY — connector curve geometry', () => {
+    const P = 1000, y0 = 500, y3 = 100, bow = 60;
+
+    it('reaches its deepest leftward point (parentX − 0.75·bow) at the vertical midpoint', () => {
+        const midY = (y0 + y3) / 2; // 300
+        expect(curveXAtY(P, y0, y3, bow, midY)).toBeCloseTo(P - 0.75 * bow, 6); // 955
+    });
+
+    it('hugs parentX near the branch endpoint — NOT the bounding-box edge', () => {
+        // A Y close to the branch end (y3) sits near t=1 where the curve has
+        // barely bowed. This is the crux of the false-positive fix: the
+        // bounding-box strip claims the curve reaches parentX − bow (= 940)
+        // here, but it is actually far to the right, near parentX.
+        const nearBranchY = y3 + 0.05 * (y0 - y3); // 120, 5% up from the branch end
+        const x = curveXAtY(P, y0, y3, bow, nearBranchY);
+        expect(x).toBeGreaterThan(P - 0.75 * bow); // shallower than the midpoint depth (955)
+        expect(x).toBeGreaterThan(P - bow);        // strictly right of the bbox edge (940)
+    });
+
+    it('hugs parentX near the parent endpoint too (symmetric)', () => {
+        const nearParentY = y0 - 0.05 * (y0 - y3); // 480, 5% down from the parent end
+        const x = curveXAtY(P, y0, y3, bow, nearParentY);
+        expect(x).toBeGreaterThan(P - 0.75 * bow);
+        expect(x).toBeGreaterThan(P - bow);
+    });
+
+    it('is symmetric about the midpoint and never crosses parentX', () => {
+        for (let f = 0.05; f < 1; f += 0.05) {
+            const yUp = y0 + f * (y3 - y0);
+            const yDn = y0 + (1 - f) * (y3 - y0);
+            expect(curveXAtY(P, y0, y3, bow, yUp)).toBeCloseTo(curveXAtY(P, y0, y3, bow, yDn), 6);
+            expect(curveXAtY(P, y0, y3, bow, yUp)).toBeLessThanOrEqual(P);
+        }
+    });
+
+    it('returns parentX at/outside the endpoints and for a degenerate zero-height curve', () => {
+        expect(curveXAtY(P, y0, y3, bow, y0)).toBe(P);        // at parent end
+        expect(curveXAtY(P, y0, y3, bow, y3)).toBe(P);        // at branch end
+        expect(curveXAtY(P, y0, y3, bow, y0 + 10)).toBe(P);   // beyond parent end
+        expect(curveXAtY(P, y0, y3, bow, y3 - 10)).toBe(P);   // beyond branch end
+        expect(curveXAtY(P, 300, 300, bow, 300)).toBe(P);     // branchY === parentY
+    });
+
+    it('demonstrates the old bounding-box test would false-positive where the new one is solid', () => {
+        // A branch line whose right end lands strictly between the bbox left
+        // edge (parentX − bow) and the true curve X at a near-endpoint height
+        // was wrongly dashed by the old strip test. The precise test keeps it
+        // solid because the curve is actually to the RIGHT of the line's end.
+        const nearBranchY = y3 + 0.08 * (y0 - y3);
+        const curveX = curveXAtY(P, y0, y3, bow, nearBranchY);
+        const otherXMax = (P - bow + curveX) / 2; // squarely inside the false-positive window
+        // Old strip test (bbox): otherXMax > parentX − bow  ⇒ would report a crossing.
+        expect(otherXMax).toBeGreaterThan(P - bow);
+        // New precise test: otherXMax < curveX ⇒ no crossing ⇒ solid.
+        expect(otherXMax).toBeLessThan(curveX);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7c. connector whispy (dashed) crossing decision (req #2898)
+//    A connector's curve goes `whispy` when it truly crosses another
+//    branch's horizontal line. The precise geometry must (a) still dash a
+//    real crossing and (b) leave a non-reaching neighbor solid.
+// ---------------------------------------------------------------------------
+describe('connector whispy crossing decision', () => {
+    it('dashes when the curve genuinely crosses an intervening branch line', () => {
+        // A bootleg (topmost stratum) branches off release-1; a hotfix line
+        // sits at the exact vertical midpoint of the bootleg curve — where the
+        // curve bows deepest — and spans across it. This is a real crossing.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 6 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b6', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b4', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(true);
+    });
+
+    it('stays solid when an intervening branch line does not reach the curve', () => {
+        // Same shape, but the hotfix line is short and ends well to the LEFT of
+        // where the bootleg curve actually is at the hotfix height — no crossing.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 12 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b12', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b2', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(false);
+    });
+
+    it('never dashes a same-parent sibling fan (lines start at the curve origin)', () => {
+        // hotfix + bootleg + csr all branch off the SAME release build: their
+        // lines start at parentX and extend rightward, so no curve crosses them.
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 4 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'hf', type: 'hotfix', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+                { id: 'csr', type: 'csr', parentBuildId: 'rel-b3', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        for (const id of ['boot', 'hf', 'csr']) {
+            const c = layout.connectors.find(x => x.branchId === id);
+            expect(c.curveWhispy).toBe(false);
+        }
+    });
+
+    it('does not dash for a branch beyond the parent build row (outside the curve span)', () => {
+        // A bootleg off release: its curve spans release→bootleg only. A long
+        // Sprint/Sample line sits BETWEEN release and main — outside the curve's
+        // vertical span — and spans across the bootleg's parent-build X. It must
+        // NOT dash the bootleg callout: there is no curve at the sample height
+        // (req #2898 review — curve-span bound, not a main-bounded bound).
+        const model = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'smp', type: 'sample-release', parentBuildId: 'm1', parentBranchId: 'main', buildCount: 14 },
+                { id: 'rel', type: 'release', parentBuildId: 'm6', parentBranchId: 'main', buildCount: 6 },
+                { id: 'boot', type: 'bootleg', parentBuildId: 'rel-b6', parentBranchId: 'rel', buildCount: 1 },
+            ],
+        });
+        const layout = computeLayout(model);
+        const boot = layout.connectors.find(c => c.branchId === 'boot');
+        expect(boot.curveWhispy).toBe(false);
+    });
+
+    it('applies the crossing test symmetrically for below-main development branches', () => {
+        // Two development branches (below main). The first spans a long line at
+        // the closer lane; the second, farther from main, curves down past it.
+        // A genuine crossing must dash; a short non-reaching line must not.
+        const crossing = makeModel({
+            mainBuilds: 6,
+            subBranches: [
+                { id: 'devNear', type: 'development', parentBuildId: 'm2', parentBranchId: 'main', buildCount: 12 },
+                { id: 'devFar', type: 'development', parentBuildId: 'm5', parentBranchId: 'main', buildCount: 10 },
+            ],
+        });
+        const cl = computeLayout(crossing);
+        const devNear = cl.connectors.find(c => c.branchId === 'devNear');
+        const devFar = cl.connectors.find(c => c.branchId === 'devFar');
+        // devFar (farther from main) curves down past devNear's line at the
+        // midpoint where it bows deepest — a genuine crossing → dashed.
+        expect(devFar.curveWhispy).toBe(true);
+        // devNear's curve span ends above devFar's row, so devFar is OUTSIDE
+        // devNear's span (the curve-span bound) → devNear stays solid.
+        expect(devNear.curveWhispy).toBe(false);
     });
 });
 
@@ -779,5 +992,85 @@ describe('acceptance-test glyphs skip __gap__ collapse sentinels', () => {
         expect(glyph).toBeTruthy();
         const m3 = layout.builds.find(b => b.id === 'm3');
         expect(glyph.y).toBe(m3.y);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// req #2896 — Conditional AT-name-stack vertical reservation + branch-name
+// left-alignment.
+//   • The gap below an AT-bearing lane is only widened by the stack height when
+//     the stack would actually HIT the branch in the lane below. When the upper
+//     branch's last build is far to the right of the lower branch (or its names
+//     don't overlap it), the gap collapses.
+//   • The branch name's left edge aligns to the branch's starting shoulder
+//     (parent.x), nudged 2px left — no longer +10px to the right.
+// ---------------------------------------------------------------------------
+describe('req #2896 conditional AT reservation + name alignment', () => {
+    const laneYOf = (layout, id) => layout.branches.find(b => b.id === id)?.y;
+
+    it('reserves the stack height when the upper ATs collide with the branch below', () => {
+        // Two 1-build dev branches off the SAME parent build => they overlap
+        // horizontally => different lanes, one directly above the other. The
+        // upper branch carries a 3-name AT stack that hangs into the lower name.
+        const model = makeModel({ mainBuilds: 6, subBranches: [
+            { id: 'A', type: 'development', name: 'Feature Alpha Long Name', buildCount: 1, parentBuildId: 'm2' },
+            { id: 'B', type: 'development', name: 'Feature Beta', buildCount: 1, parentBuildId: 'm2' },
+        ]});
+        const A = model.branches.find(b => b.id === 'A');
+        A.acceptanceTests = ['Login AT', 'Signup AT', 'Reset AT'];
+        A.acceptanceStatus = 'pass';
+
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const delta = laneYOf(layout, 'B') - laneYOf(layout, 'A');
+        // laneGap + the 3-name stack (3 * ATNAME_LINE_H = 42).
+        expect(delta).toBe(DEFAULT_OPTS.laneGap + 3 * 14);
+    });
+
+    it('collapses the gap when the upper branch last build is far right of the branch below', () => {
+        // A runs 5 builds off m1 (extends far right); B is a single build off m1
+        // (short, near the trunk). A's AT column sits under its far-right last
+        // build, clear of B's footprint => no collision => gap collapses.
+        const model = makeModel({ mainBuilds: 6, subBranches: [
+            { id: 'A', type: 'development', name: 'Alpha', buildCount: 5, parentBuildId: 'm1' },
+            { id: 'B', type: 'development', name: 'Beta', buildCount: 1, parentBuildId: 'm1' },
+        ]});
+        const A = model.branches.find(b => b.id === 'A');
+        A.acceptanceTests = ['Login AT', 'Signup AT', 'Reset AT'];
+        A.acceptanceStatus = 'pass';
+
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const delta = laneYOf(layout, 'B') - laneYOf(layout, 'A');
+        // No reservation added: adjacent dev lanes sit exactly one laneGap apart.
+        expect(delta).toBe(DEFAULT_OPTS.laneGap);
+    });
+
+    it('reserves when an above-stratum branch AT stack collides with main below it', () => {
+        // A sample-release branch sits directly above main. Its AT stack hangs
+        // down toward main and overlaps main's line/builds -> reservation kept.
+        // main is not in `visible`, so its footprint must be built from build
+        // positions (regression guard: branchFootprintFor(main) must not be null).
+        const model = makeModel({ mainBuilds: 5, subBranches: [
+            { id: 'S', type: 'sample-release', name: 'Sample Release', buildCount: 2, parentBuildId: 'm2' },
+        ]});
+        const S = model.branches.find(b => b.id === 'S');
+        S.acceptanceTests = ['Smoke AT', 'Nightly AT', 'Perf AT'];
+        S.acceptanceStatus = 'pass';
+
+        const withAts = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const noAts = computeLayout(model, { showAcceptanceTests: false, showBuildAt: false });
+        const mainY = (l) => l.branches.find(b => b.isMain).y;
+        // Turning ATs on must push main DOWN (reservation applied); if the main
+        // footprint were null the two would be equal.
+        expect(mainY(withAts)).toBeGreaterThan(mainY(noAts));
+    });
+
+    it('aligns the branch name left edge to the branch start (2px left of parent.x)', () => {
+        const model = makeModel({ mainBuilds: 4, subBranches: [
+            { id: 'A', type: 'development', name: 'Alpha', buildCount: 2, parentBuildId: 'm2' },
+        ]});
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const A = layout.branches.find(b => b.id === 'A');
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(A.labelX).toBe(m2.x - 2);
     });
 });
