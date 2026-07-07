@@ -994,3 +994,83 @@ describe('acceptance-test glyphs skip __gap__ collapse sentinels', () => {
         expect(glyph.y).toBe(m3.y);
     });
 });
+
+// ---------------------------------------------------------------------------
+// req #2896 — Conditional AT-name-stack vertical reservation + branch-name
+// left-alignment.
+//   • The gap below an AT-bearing lane is only widened by the stack height when
+//     the stack would actually HIT the branch in the lane below. When the upper
+//     branch's last build is far to the right of the lower branch (or its names
+//     don't overlap it), the gap collapses.
+//   • The branch name's left edge aligns to the branch's starting shoulder
+//     (parent.x), nudged 2px left — no longer +10px to the right.
+// ---------------------------------------------------------------------------
+describe('req #2896 conditional AT reservation + name alignment', () => {
+    const laneYOf = (layout, id) => layout.branches.find(b => b.id === id)?.y;
+
+    it('reserves the stack height when the upper ATs collide with the branch below', () => {
+        // Two 1-build dev branches off the SAME parent build => they overlap
+        // horizontally => different lanes, one directly above the other. The
+        // upper branch carries a 3-name AT stack that hangs into the lower name.
+        const model = makeModel({ mainBuilds: 6, subBranches: [
+            { id: 'A', type: 'development', name: 'Feature Alpha Long Name', buildCount: 1, parentBuildId: 'm2' },
+            { id: 'B', type: 'development', name: 'Feature Beta', buildCount: 1, parentBuildId: 'm2' },
+        ]});
+        const A = model.branches.find(b => b.id === 'A');
+        A.acceptanceTests = ['Login AT', 'Signup AT', 'Reset AT'];
+        A.acceptanceStatus = 'pass';
+
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const delta = laneYOf(layout, 'B') - laneYOf(layout, 'A');
+        // laneGap + the 3-name stack (3 * ATNAME_LINE_H = 42).
+        expect(delta).toBe(DEFAULT_OPTS.laneGap + 3 * 14);
+    });
+
+    it('collapses the gap when the upper branch last build is far right of the branch below', () => {
+        // A runs 5 builds off m1 (extends far right); B is a single build off m1
+        // (short, near the trunk). A's AT column sits under its far-right last
+        // build, clear of B's footprint => no collision => gap collapses.
+        const model = makeModel({ mainBuilds: 6, subBranches: [
+            { id: 'A', type: 'development', name: 'Alpha', buildCount: 5, parentBuildId: 'm1' },
+            { id: 'B', type: 'development', name: 'Beta', buildCount: 1, parentBuildId: 'm1' },
+        ]});
+        const A = model.branches.find(b => b.id === 'A');
+        A.acceptanceTests = ['Login AT', 'Signup AT', 'Reset AT'];
+        A.acceptanceStatus = 'pass';
+
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const delta = laneYOf(layout, 'B') - laneYOf(layout, 'A');
+        // No reservation added: adjacent dev lanes sit exactly one laneGap apart.
+        expect(delta).toBe(DEFAULT_OPTS.laneGap);
+    });
+
+    it('reserves when an above-stratum branch AT stack collides with main below it', () => {
+        // A sample-release branch sits directly above main. Its AT stack hangs
+        // down toward main and overlaps main's line/builds -> reservation kept.
+        // main is not in `visible`, so its footprint must be built from build
+        // positions (regression guard: branchFootprintFor(main) must not be null).
+        const model = makeModel({ mainBuilds: 5, subBranches: [
+            { id: 'S', type: 'sample-release', name: 'Sample Release', buildCount: 2, parentBuildId: 'm2' },
+        ]});
+        const S = model.branches.find(b => b.id === 'S');
+        S.acceptanceTests = ['Smoke AT', 'Nightly AT', 'Perf AT'];
+        S.acceptanceStatus = 'pass';
+
+        const withAts = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const noAts = computeLayout(model, { showAcceptanceTests: false, showBuildAt: false });
+        const mainY = (l) => l.branches.find(b => b.isMain).y;
+        // Turning ATs on must push main DOWN (reservation applied); if the main
+        // footprint were null the two would be equal.
+        expect(mainY(withAts)).toBeGreaterThan(mainY(noAts));
+    });
+
+    it('aligns the branch name left edge to the branch start (2px left of parent.x)', () => {
+        const model = makeModel({ mainBuilds: 4, subBranches: [
+            { id: 'A', type: 'development', name: 'Alpha', buildCount: 2, parentBuildId: 'm2' },
+        ]});
+        const layout = computeLayout(model, { showAcceptanceTests: true, showBuildAt: false });
+        const A = layout.branches.find(b => b.id === 'A');
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(A.labelX).toBe(m2.x - 2);
+    });
+});

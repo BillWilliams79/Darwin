@@ -1,11 +1,18 @@
-// Build Visualizer — BranchEngine (req #2737).
+// Build Visualizer — BranchEngine (req #2737, matrix revised #2894).
 //
-// THE single source of truth for branch-CREATION policy: which branch types may
-// be created from which parent branch type, and any gating (e.g. on a build
-// being approved-for-release). Authoritative rules: memory/build-visualizer-design.md
-// §4.7. The "Create branch" submenu renders from allowedChildTypes(); the
-// create handler calls canCreate() + creationGate() before any mutation. No
-// branch-creation policy lives anywhere else.
+// SINGLE SOURCE OF TRUTH — the DOCUMENT, not this file (req #2894).
+// The authoritative branch-creation matrix + principles live in
+// memory/build-visualizer-design.md §4.7 "Branch-Creation Rules". This module is
+// the *implementation* of that document, and branchEngine.test.js is the
+// *executable transcription* of it. When the doc and this code disagree, the DOC
+// wins: update the doc first, then bring ALLOWED_CHILDREN and the test fixtures
+// back into agreement with it. Keep all three in lock-step.
+//
+// This module is still the sole PLACE branch-creation policy is implemented in
+// code: the "Create branch" submenu renders from allowedChildTypes(); the create
+// handler calls canCreate() + creationGate() before any mutation. No
+// branch-creation policy lives anywhere else in code — but the policy it encodes
+// is owned by the document.
 //
 // Version numbers are NOT this module's concern — that is versionEngine.js.
 //
@@ -31,21 +38,27 @@ export const CREATABLE_TYPES = [
 ];
 
 // §4.7 allowed/not-allowed matrix — keyed by PARENT branch type → set of child
-// types creatable from it. Principles that fix the whole table:
-//   • bootleg is maintenance → allowed from anywhere (incl. bootleg-off-bootleg)
+// types creatable from it. Principles that fix the whole table (revised #2894):
 //   • development is always available ("engineering is king") → allowed everywhere
-//   • hotfix may chain off a hotfix
-//   • csr is a Customer-Specific Release off a RELEASE only — never off main
-//     (req #2603 follow-up): a CSR specializes an existing release, so main is
-//     not a legal parent.
+//   • bootleg is maintenance → allowed from anywhere (incl. bootleg-off-bootleg)
+//   • csr is available from ANY parent (req #2894, reverses the #2603 release-only
+//     rule): a CSR is gated CONCEPTUALLY by a passed full-production-release
+//     quality gate on the designated build, not by branch structure — "the branch
+//     location doesn't matter, it's about the build." → allowed everywhere.
+//   • sample-release (Sprint/Sample) is available from ANY parent EXCEPT another
+//     sprint (req #2894). Sprint-off-sprint is disallowed ("what a mess").
+//   • hotfix may chain off a hotfix, AND off a bootleg (req #2894) — a bootleg's
+//     common end-state is a release-ready hotfix carrying its fixes. (Part 2 will
+//     auto-generate that hotfix branch; see design-guide §4.7.) hotfix is NOT
+//     creatable off development.
 const ALLOWED_CHILDREN = {
-    main:             new Set(['sample-release', 'release', 'hotfix', 'bootleg', 'development']),
+    main:             new Set(['sample-release', 'release', 'csr', 'hotfix', 'bootleg', 'development']),
     release:          new Set(['sample-release', 'release', 'csr', 'hotfix', 'bootleg', 'development']),
-    'sample-release': new Set(['hotfix', 'bootleg', 'development']),
-    csr:              new Set(['hotfix', 'bootleg', 'development']),
-    hotfix:           new Set(['hotfix', 'bootleg', 'development']),
-    bootleg:          new Set(['bootleg', 'development']),
-    development:      new Set(['bootleg', 'development']),
+    'sample-release': new Set(['csr', 'hotfix', 'bootleg', 'development']),
+    csr:              new Set(['sample-release', 'csr', 'hotfix', 'bootleg', 'development']),
+    hotfix:           new Set(['sample-release', 'csr', 'hotfix', 'bootleg', 'development']),
+    bootleg:          new Set(['sample-release', 'csr', 'hotfix', 'bootleg', 'development']),
+    development:      new Set(['sample-release', 'csr', 'bootleg', 'development']),
 };
 
 /** The child types creatable from a parent of `parentType`, in display order. */
@@ -86,6 +99,14 @@ export const GATE_BLOCK = 'block';
  * used set; those live in versionEngine.js (suggestFirstBranchNumber /
  * usedBranchNumbersFor). Keeping them separate matches the existing module
  * boundary: branchEngine owns policy, versionEngine owns version arithmetic.
+ *
+ * NB (req #2894): sample-release is now creatable off many more parents
+ * (main, csr, hotfix, bootleg, development — see ALLOWED_CHILDREN), but this
+ * prompt still fires ONLY for a `release` parent. Under req #2893 (release is a
+ * trunk at Branch# 0) the structural collision this gate originally guarded is
+ * softened to a mere first-Branch# affordance — see design-guide §4.4
+ * "Sprint off release" for the current rationale. Off non-release parents no
+ * prompt is shown; the default first Branch# = 1 is always collision-free.
  */
 export function needsBranchNumberPrompt({ childType, parentBranchType }) {
     return childType === 'sample-release' && parentBranchType === 'release';
