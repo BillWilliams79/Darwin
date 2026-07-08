@@ -8,6 +8,7 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
+import { effortChipProps, effortLabel } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 import { renderSourceRef } from './repoGitHubMap.jsx';
 import SessionsStatsView from './SessionsStatsView';
@@ -80,6 +81,18 @@ const getSessionColumns = (navigate, timezone) => [
             <Chip label={aiModelLabel(params.value)} size="small"
                   {...aiModelChipProps(params.value)}
                   data-testid="chip-ai-model" />
+        ),
+    },
+    {
+        // req #2916 — the Claude Code effort level the session ran with.
+        // Pre-migration rows render as High (the documented backfill default).
+        field: 'effort',
+        headerName: 'Effort',
+        width: 100,
+        renderCell: (params) => (
+            <Chip label={effortLabel(params.value)} size="small"
+                  {...effortChipProps(params.value)}
+                  data-testid="chip-effort" />
         ),
     },
     {
@@ -180,6 +193,9 @@ const SessionCard = ({ session, navigate, timezone }) => (
                     <Chip label={aiModelLabel(session.ai_model)} size="small"
                           {...aiModelChipProps(session.ai_model)}
                           data-testid="chip-ai-model" />
+                    <Chip label={effortLabel(session.effort)} size="small"
+                          {...effortChipProps(session.effort)}
+                          data-testid="chip-effort" />
                     {session.dev_server_port && (
                         <Chip label={`Port ${session.dev_server_port}`} size="small" color="primary"
                               component="a" href={`https://localhost:${session.dev_server_port}`}

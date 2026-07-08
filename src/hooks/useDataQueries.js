@@ -181,7 +181,7 @@ export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,sort_order', enabled = true } = {}) {
+export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -229,7 +229,7 @@ export const useAllSwarmCompletes        = swarmCompletes.useAll;
 export const useSwarmCompleteById        = swarmCompletes.useById;
 export const useAllSwarmCompleteSessions = swarmCompleteSessions.useAll;
 
-export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,ai_model,category_fk', enabled = true } = {}) {
+export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 

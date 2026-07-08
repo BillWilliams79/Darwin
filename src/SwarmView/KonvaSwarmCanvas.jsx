@@ -38,6 +38,7 @@ import {
 } from '../CalendarFC/timeSeriesSizes';
 import { sessionTokenCost, formatTokens } from './sessionPhases';
 import { aiModelLabel } from './modelChipStyles';
+import { effortLabel } from './effortChipStyles';
 import { computeDayHeaders } from './dayHeaderLayout';
 import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
@@ -1000,6 +1001,13 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Model</span>
                         <span style={{ fontWeight: 600 }}>
                             {aiModelLabel(chip.session?.ai_model || chip.ai_model)}</span></div>
+                )}
+                {/* req #2916 — the Claude Code effort level, same session-wins fallback
+                    as Model; pre-#2916 rows → High. */}
+                {(chip.session?.effort || chip.effort) && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Effort</span>
+                        <span style={{ fontWeight: 600 }}>
+                            {effortLabel(chip.session?.effort || chip.effort)}</span></div>
                 )}
                 {chip.isPhantom && (
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Status</span>
