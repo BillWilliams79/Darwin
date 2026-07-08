@@ -22,6 +22,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../modelChipStyles';
+import { EFFORT_COLOR, EFFORTS, effortLabel } from '../effortChipStyles';
 import { formatDuration } from '../../utils/formatDuration';
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -102,6 +103,7 @@ const RequirementDetail = () => {
         requirement_status: 'authoring',
         coordination_type: 'implemented',
         ai_model: 'opus',
+        effort: 'xhigh',
         started_at: null,
         completed_at: null,
         deferred_at: null,
@@ -346,6 +348,13 @@ const RequirementDetail = () => {
         saveField('ai_model', newVal);
     };
 
+    const handleEffortChange = (event, newVal) => {
+        // Effort is mandatory (req #2916) — newVal is always one of the five
+        // values; no deselect-to-null path, mirroring autonomy and model.
+        setRequirement(prev => ({ ...prev, effort: newVal }));
+        saveField('effort', newVal);
+    };
+
     const handleCategoryChange = async (event) => {
         const newCategoryFk = parseInt(event.target.value, 10);
         if (!Number.isFinite(newCategoryFk)) return;  // ignore the placeholder value
@@ -486,9 +495,14 @@ const RequirementDetail = () => {
                 Category/Description below don't shift when the requirement is saved
                 and the row becomes visible. */}
             <Box sx={{
-                display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
+                display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
                 ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
             }}>
+                {/* minWidth matches the Autonomy label below so the first chips of both
+                    rows share a left edge. */}
+                <Typography variant="subtitle2" color="text.secondary" sx={{ minWidth: 72 }}>
+                    Status
+                </Typography>
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
                     {[
                         { value: 'authoring',   label: 'Authoring', chipSx: { bgcolor: '#fbc02d', color: '#000' } },
@@ -574,7 +588,9 @@ const RequirementDetail = () => {
                         opacity: isFaded ? 0.4 : 1,
                         ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
                     }}>
-                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
+                        {/* minWidth matches the Status label above so both rows' first chips
+                            share a left edge. */}
+                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'} sx={{ minWidth: 72 }}>
                             Autonomy
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
@@ -604,43 +620,87 @@ const RequirementDetail = () => {
                 );
             })()}
 
-            {/* Model (req #2909) — the Claude model the swarm session runs with, directly below
-                Autonomy with identical editability/fade/new-mode rules. Pre-migration rows fall
-                back to 'opus' (the documented backfill default). */}
+            {/* Model + Effort (req #2909 / #2916) — the Claude launch settings, grouped in one
+                rounded-rectangle area directly below Autonomy with identical editability/fade/
+                new-mode rules. Pre-migration rows fall back to 'opus' / 'high' (the documented
+                backfill defaults). */}
             {(() => {
                 const isReady = currentStatus === 'swarm_ready';
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isReady;
                 const currentModel = requirement.ai_model || 'opus';
+                const currentEffort = requirement.effort || 'high';
+                const rowSx = { display: 'flex', gap: 1, alignItems: 'center' };
+                const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
 
                 return (
-                    <Box sx={{
-                        display: 'flex', gap: 1, mb: 2, alignItems: 'center', ...NARROW,
-                        opacity: isFaded ? 0.4 : 1,
-                        ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
-                    }}>
-                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
-                            Model
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} data-testid="ai-model-selector">
-                            {AI_MODELS.map((value) => {
-                                const selected = currentModel === value;
-                                return (
-                                    <Chip
-                                        key={value}
-                                        label={aiModelLabel(value)}
-                                        size="small"
-                                        disabled={!isEditable}
-                                        onClick={() => { if (!selected) handleModelChange(null, value); }}
-                                        data-testid={`model-${value}`}
-                                        {...(selected
-                                            ? { sx: { bgcolor: AI_MODEL_COLOR[value], color: '#000', cursor: isEditable ? 'pointer' : 'default' } }
-                                            : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
-                                        )}
-                                    />
-                                );
-                            })}
-                        </Stack>
+                    // A real <fieldset>/<legend> pair so the "AI Settings" caption sits ON the
+                    // border line at top-left with the line notched behind the text.
+                    <Box
+                        component="fieldset"
+                        data-testid="launch-settings-group"
+                        sx={{
+                            width: 'fit-content', maxWidth: '100%',
+                            m: 0, mb: 2, px: 1.5, pt: 0.25, pb: 1.25,
+                            display: 'flex', flexDirection: 'column', gap: 1.5,
+                            border: 1, borderColor: 'common.white', borderRadius: 2,
+                            opacity: isFaded ? 0.4 : 1,
+                            ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                        }}
+                    >
+                        <Box component="legend" sx={{ ml: 1, px: 0.5 }}>
+                            <Typography variant="subtitle2" color={labelColor}>
+                                AI Settings
+                            </Typography>
+                        </Box>
+                        <Box sx={rowSx}>
+                            <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 48 }}>
+                                Model
+                            </Typography>
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="ai-model-selector">
+                                {AI_MODELS.map((value) => {
+                                    const selected = currentModel === value;
+                                    return (
+                                        <Chip
+                                            key={value}
+                                            label={aiModelLabel(value)}
+                                            size="small"
+                                            disabled={!isEditable}
+                                            onClick={() => { if (!selected) handleModelChange(null, value); }}
+                                            data-testid={`model-${value}`}
+                                            {...(selected
+                                                ? { sx: { bgcolor: AI_MODEL_COLOR[value], color: '#000', cursor: isEditable ? 'pointer' : 'default' } }
+                                                : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
+                                            )}
+                                        />
+                                    );
+                                })}
+                            </Stack>
+                        </Box>
+                        <Box sx={rowSx}>
+                            <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 48 }}>
+                                Effort
+                            </Typography>
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="effort-selector">
+                                {EFFORTS.map((value) => {
+                                    const selected = currentEffort === value;
+                                    return (
+                                        <Chip
+                                            key={value}
+                                            label={effortLabel(value)}
+                                            size="small"
+                                            disabled={!isEditable}
+                                            onClick={() => { if (!selected) handleEffortChange(null, value); }}
+                                            data-testid={`effort-${value}`}
+                                            {...(selected
+                                                ? { sx: { bgcolor: EFFORT_COLOR[value], color: '#000', cursor: isEditable ? 'pointer' : 'default' } }
+                                                : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
+                                            )}
+                                        />
+                                    );
+                                })}
+                            </Stack>
+                        </Box>
                     </Box>
                 );
             })()}

@@ -34,6 +34,7 @@ import {
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens,
          TOKEN_TYPES, tokenPhaseKey } from './sessionPhases';
 import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from './modelChipStyles';
+import { EFFORTS, EFFORT_COLOR, effortLabel } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 
 const STATS_WIDTH = 1140;
@@ -128,6 +129,7 @@ const emptyStats = () => ({
     groupSplit: GROUP_ORDER.map(g => ({ label: GROUP_LABEL[g], group: g, count: 0 })),
     phaseAggregate: [],
     modelAggregate: [],
+    effortAggregate: [],
     durationHistogram: DURATION_BUCKETS.map(b => ({ label: b.label, count: 0 })),
     statusHistogram: STATUS_ORDER.map(label => ({ label, count: 0 })),
     trend: [],
@@ -183,9 +185,17 @@ export function computeSessionStats(rows) {
     const modelMap = Object.fromEntries(
         AI_MODELS.map(m => [m, { count: 0, secs: 0, tokens: 0 }]));
 
+    // Per-effort aggregation (req #2916) — same shape as the model rollup.
+    // Unknown/NULL effort normalizes to 'high' (the documented pre-#2916
+    // backfill rule; NOT the new-row default xhigh).
+    const normalizeEffort = (e) => (EFFORT_COLOR[e] ? e : 'high');
+    const effortMap = Object.fromEntries(
+        EFFORTS.map(e => [e, { count: 0, secs: 0, tokens: 0 }]));
+
     for (const row of rows) {
         if (row.swarm_status in statusMap) statusMap[row.swarm_status] += 1;
         modelMap[normalizeModel(row.ai_model)].count += 1;
+        effortMap[normalizeEffort(row.effort)].count += 1;
     }
 
     for (const row of instrumented) {
@@ -221,6 +231,11 @@ export function computeSessionStats(rows) {
         const modelEntry = modelMap[normalizeModel(row.ai_model)];
         modelEntry.secs += dur;
         modelEntry.tokens += rowTokens;
+
+        // req #2916 — time/token totals by effort (instrumented rows only).
+        const effortEntry = effortMap[normalizeEffort(row.effort)];
+        effortEntry.secs += dur;
+        effortEntry.tokens += rowTokens;
 
         if (hasTokens) {
             tokenTrackedSecs += dur;
@@ -353,6 +368,18 @@ export function computeSessionStats(rows) {
                 count: modelMap[m].count,
                 secs: modelMap[m].secs,
                 tokens: modelMap[m].tokens,
+            }))
+            .filter(e => e.count > 0),
+        // req #2916 — per-effort rollup (count over all rows; secs/tokens from
+        // instrumented rows). Efforts with zero sessions are dropped.
+        effortAggregate: EFFORTS
+            .map(e => ({
+                effort: e,
+                label: effortLabel(e),
+                color: EFFORT_COLOR[e],
+                count: effortMap[e].count,
+                secs: effortMap[e].secs,
+                tokens: effortMap[e].tokens,
             }))
             .filter(e => e.count > 0),
         durationHistogram: DURATION_BUCKETS.map(b => ({ label: b.label, count: durationHistMap[b.label] || 0 })),
@@ -547,6 +574,10 @@ const TOKEN_TYPE_COLORS = Object.fromEntries(TOKEN_TYPE_META.map(t => [t.label, 
 const MODEL_PIE_COLORS = Object.fromEntries(
     AI_MODELS.map(m => [aiModelLabel(m), AI_MODEL_COLOR[m]]));
 
+// Effort-split pie colors, keyed by capitalized effort label (req #2916).
+const EFFORT_PIE_COLORS = Object.fromEntries(
+    EFFORTS.map(e => [effortLabel(e), EFFORT_COLOR[e]]));
+
 export default function SessionsStatsView({ rows = [] }) {
     const stats = computeSessionStats(rows);
     const navigate = useNavigate();
@@ -609,6 +640,14 @@ export default function SessionsStatsView({ rows = [] }) {
     const modelLegendItems = stats.modelAggregate.map(m => ({
         label: `${m.label} (${m.count} session${m.count === 1 ? '' : 's'})`,
         color: m.color,
+    }));
+
+    // Effort split (req #2916) — same paired time/token pie shape as Model.
+    const effortTimeData = stats.effortAggregate.map(e => ({ label: e.label, count: e.secs }));
+    const effortTokenData = stats.effortAggregate.map(e => ({ label: e.label, count: e.tokens }));
+    const effortLegendItems = stats.effortAggregate.map(e => ({
+        label: `${e.label} (${e.count} session${e.count === 1 ? '' : 's'})`,
+        color: e.color,
     }));
 
     return (
@@ -737,6 +776,16 @@ export default function SessionsStatsView({ rows = [] }) {
                     tokenData={modelTokenData}
                     colorMap={MODEL_PIE_COLORS}
                     legendItems={modelLegendItems}
+                    showToken={hasTokenData} />
+
+                <DualPieCard
+                    title="Effort Split"
+                    subtitle="Share of time vs token cost by effort level (req #2916 — pre-migration sessions count as High)"
+                    testId="chart-effort-split"
+                    timeData={effortTimeData}
+                    tokenData={effortTokenData}
+                    colorMap={EFFORT_PIE_COLORS}
+                    legendItems={effortLegendItems}
                     showToken={hasTokenData} />
 
                 <ChartCard

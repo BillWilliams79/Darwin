@@ -431,3 +431,46 @@ describe('computeSessionStats model split (req #2909)', () => {
         ]);
     });
 });
+
+describe('computeSessionStats effort split (req #2916)', () => {
+    it('returns empty effortAggregate for empty input', () => {
+        expect(computeSessionStats([]).effortAggregate).toEqual([]);
+    });
+
+    it('counts sessions per effort, normalizing null/unknown to high (the backfill rule)', () => {
+        const rows = [
+            mkSession({ effort: 'xhigh' }),
+            mkSession({ effort: 'xhigh' }),
+            mkSession({ effort: 'ultracode' }),
+            mkSession({ effort: null }),      // pre-#2916 → high
+            mkSession({ effort: 'max' }),     // unknown → high
+        ];
+        const s = computeSessionStats(rows);
+        const byEffort = Object.fromEntries(s.effortAggregate.map(e => [e.effort, e]));
+        expect(byEffort.xhigh.count).toBe(2);
+        expect(byEffort.ultracode.count).toBe(1);
+        expect(byEffort.high.count).toBe(2);
+        expect(byEffort.low).toBeUndefined(); // zero-count efforts dropped
+    });
+
+    it('accrues time and token totals per effort from instrumented rows only', () => {
+        const rows = [
+            mkSession({ effort: 'ultracode', implementing_secs: 100,
+                        phase_tokens: { implementing: tok(0, 0, 0, 40) } }),
+            mkSession({ effort: 'ultracode', implementing_secs: 50 }),
+            mkSession({ effort: 'ultracode', instrumented: 0, legacy_secs: 999 }),
+        ];
+        const s = computeSessionStats(rows);
+        const ultra = s.effortAggregate.find(e => e.effort === 'ultracode');
+        expect(ultra.count).toBe(3);      // legacy still counted
+        expect(ultra.secs).toBe(150);     // legacy time excluded
+        expect(ultra.tokens).toBe(40);
+    });
+
+    it('carries capitalized label + palette color per effort', () => {
+        const s = computeSessionStats([mkSession({ effort: 'xhigh' })]);
+        expect(s.effortAggregate).toEqual([
+            { effort: 'xhigh', label: 'XHigh', color: '#ff8a65', count: 1, secs: 0, tokens: 0 },
+        ]);
+    });
+});

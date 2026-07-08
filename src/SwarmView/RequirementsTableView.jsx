@@ -28,6 +28,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
+import { effortChipProps, effortLabel } from './effortChipStyles';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
@@ -36,10 +37,11 @@ import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
 // + checkbox column). Exported so SwarmView.jsx can align the header row (toggle + chips +
 // settings) to the same width — keeps the settings icon flush with the table's right edge.
 // Columns: checkbox(50) + id(70) + category(150) + title(220) + status(140)
-//          + autonomy(110) + sessions(200) + created(105) + completed(105) = 1150
-export const SWARM_TABLE_WIDTH = 1200;
+//          + autonomy(110) + model(100) + effort(100) + sessions(200)
+//          + created(105) + completed(105) = 1350
+export const SWARM_TABLE_WIDTH = 1400;
 
-const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,completed_at,create_ts';
+const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,effort,completed_at,create_ts';
 
 const WRAP_CELL_SX = {
     whiteSpace: 'normal',
@@ -275,6 +277,18 @@ const RequirementsTableView = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
                     <Chip label={aiModelLabel(params.value)} size="small"
                           {...aiModelChipProps(params.value)} />
+                </Box>
+            ),
+        },
+        {
+            // req #2916 — the Claude Code effort level the swarm session runs with.
+            field: 'effort',
+            headerName: 'Effort',
+            width: 100,
+            renderCell: (params) => (
+                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                    <Chip label={effortLabel(params.value)} size="small"
+                          {...effortChipProps(params.value)} />
                 </Box>
             ),
         },
