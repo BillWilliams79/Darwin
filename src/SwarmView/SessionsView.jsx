@@ -7,6 +7,7 @@ import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
+import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 import { renderSourceRef } from './repoGitHubMap.jsx';
 import SessionsStatsView from './SessionsStatsView';
@@ -69,6 +70,18 @@ const getSessionColumns = (navigate, timezone) => [
         renderCell: (params) => renderRequirementCell(params.value, navigate),
     },
     { field: 'title',        headerName: 'Title',       width: 250 },
+    {
+        // req #2909 — the Claude model the session ran with. Pre-migration
+        // rows render as Opus (the documented backfill default).
+        field: 'ai_model',
+        headerName: 'Model',
+        width: 90,
+        renderCell: (params) => (
+            <Chip label={aiModelLabel(params.value)} size="small"
+                  {...aiModelChipProps(params.value)}
+                  data-testid="chip-ai-model" />
+        ),
+    },
     {
         field: 'dev_server_port',
         headerName: 'Dev Server',
@@ -164,6 +177,9 @@ const SessionCard = ({ session, navigate, timezone }) => (
                     </Typography>
                 )}
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip label={aiModelLabel(session.ai_model)} size="small"
+                          {...aiModelChipProps(session.ai_model)}
+                          data-testid="chip-ai-model" />
                     {session.dev_server_port && (
                         <Chip label={`Port ${session.dev_server_port}`} size="small" color="primary"
                               component="a" href={`https://localhost:${session.dev_server_port}`}

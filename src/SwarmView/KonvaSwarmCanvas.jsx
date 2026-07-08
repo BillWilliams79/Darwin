@@ -37,6 +37,7 @@ import {
     formatCoordination, PHASE_UNCLASSIFIED_COLOR,
 } from '../CalendarFC/timeSeriesSizes';
 import { sessionTokenCost, formatTokens } from './sessionPhases';
+import { aiModelLabel } from './modelChipStyles';
 import { computeDayHeaders } from './dayHeaderLayout';
 import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
@@ -992,6 +993,14 @@ const DataCard = ({ chip, x, y, containerW, containerH }) => {
                 <div className="ts-datacard-title">{chip.id != null ? `#${chip.id} ` : ''}{chip.title || '(untitled)'}</div>
                 <div className="ts-datacard-row"><span className="ts-datacard-key">Category</span><span>{chip.categoryName || '—'}</span></div>
                 <div className="ts-datacard-row"><span className="ts-datacard-key">Autonomy</span><span>{formatCoordination(chip.coordination_type)}</span></div>
+                {/* req #2909 — the Claude model the session ran with, tinted with the
+                    shared model palette. Session value wins; falls back to the chip's
+                    own ai_model (requirement-derived phantom); pre-#2909 rows → Opus. */}
+                {(chip.session?.ai_model || chip.ai_model) && (
+                    <div className="ts-datacard-row"><span className="ts-datacard-key">Model</span>
+                        <span style={{ fontWeight: 600 }}>
+                            {aiModelLabel(chip.session?.ai_model || chip.ai_model)}</span></div>
+                )}
                 {chip.isPhantom && (
                     <div className="ts-datacard-row"><span className="ts-datacard-key">Status</span>
                         <span style={{ color: '#43A047', fontWeight: 600 }}>
