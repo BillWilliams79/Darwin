@@ -21,6 +21,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
+import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../modelChipStyles';
 import { formatDuration } from '../../utils/formatDuration';
 import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
@@ -100,6 +101,7 @@ const RequirementDetail = () => {
         category_fk: null,
         requirement_status: 'authoring',
         coordination_type: 'implemented',
+        ai_model: 'opus',
         started_at: null,
         completed_at: null,
         deferred_at: null,
@@ -335,6 +337,13 @@ const RequirementDetail = () => {
         // values; the chip can no longer deselect to null.
         setRequirement(prev => ({ ...prev, coordination_type: newVal }));
         saveField('coordination_type', newVal);
+    };
+
+    const handleModelChange = (event, newVal) => {
+        // Model is mandatory (req #2909) — newVal is always one of the four
+        // values; no deselect-to-null path, mirroring autonomy.
+        setRequirement(prev => ({ ...prev, ai_model: newVal }));
+        saveField('ai_model', newVal);
     };
 
     const handleCategoryChange = async (event) => {
@@ -585,6 +594,47 @@ const RequirementDetail = () => {
                                         onClick={() => { if (!selected) handleCoordinationChange(null, value); }}
                                         {...(selected
                                             ? (chipSx ? { sx: { ...chipSx, cursor: isEditable ? 'pointer' : 'default' } } : { color, sx: { cursor: isEditable ? 'pointer' : 'default' } })
+                                            : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
+                                        )}
+                                    />
+                                );
+                            })}
+                        </Stack>
+                    </Box>
+                );
+            })()}
+
+            {/* Model (req #2909) — the Claude model the swarm session runs with, directly below
+                Autonomy with identical editability/fade/new-mode rules. Pre-migration rows fall
+                back to 'opus' (the documented backfill default). */}
+            {(() => {
+                const isReady = currentStatus === 'swarm_ready';
+                const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
+                const isFaded = !isReady;
+                const currentModel = requirement.ai_model || 'opus';
+
+                return (
+                    <Box sx={{
+                        display: 'flex', gap: 1, mb: 2, alignItems: 'center', ...NARROW,
+                        opacity: isFaded ? 0.4 : 1,
+                        ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                    }}>
+                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}>
+                            Model
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} data-testid="ai-model-selector">
+                            {AI_MODELS.map((value) => {
+                                const selected = currentModel === value;
+                                return (
+                                    <Chip
+                                        key={value}
+                                        label={aiModelLabel(value)}
+                                        size="small"
+                                        disabled={!isEditable}
+                                        onClick={() => { if (!selected) handleModelChange(null, value); }}
+                                        data-testid={`model-${value}`}
+                                        {...(selected
+                                            ? { sx: { bgcolor: AI_MODEL_COLOR[value], color: '#000', cursor: isEditable ? 'pointer' : 'default' } }
                                             : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
                                         )}
                                     />

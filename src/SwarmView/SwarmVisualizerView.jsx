@@ -126,7 +126,7 @@ const SwarmVisualizerView = () => {
 
     const { data: requirements = [] } = useRequirementsDone(
         profile?.userName, fetchStart, fetchEnd,
-        { fields: 'id,title,completed_at,category_fk,requirement_status,coordination_type' }
+        { fields: 'id,title,completed_at,category_fk,requirement_status,coordination_type,ai_model' }
     );
     const { data: sessions = [] } = useSessions(profile?.userName);
     const { data: categoryList = [] } = useAllCategories(
@@ -166,7 +166,7 @@ const SwarmVisualizerView = () => {
     // coordination/status.
     const { data: allRequirements = [] } = useAllRequirements(
         profile?.userName,
-        { fields: 'id,title,category_fk,coordination_type,requirement_status,completed_at,started_at' },
+        { fields: 'id,title,category_fk,coordination_type,ai_model,requirement_status,completed_at,started_at' },
     );
     // Active dev servers (req #2857) — overlay a clickable port pill on each bead
     // whose session has an active, associated dev server. The table holds only

@@ -388,3 +388,46 @@ describe('computeSessionStats token economics (req #2845)', () => {
         expect(s.tokenTrend[0]).toMatchObject({ date: '2026-06-01', tokens: 150 });
     });
 });
+
+describe('computeSessionStats model split (req #2909)', () => {
+    it('returns empty modelAggregate for empty input', () => {
+        expect(computeSessionStats([]).modelAggregate).toEqual([]);
+    });
+
+    it('counts sessions per model, normalizing null/unknown to opus', () => {
+        const rows = [
+            mkSession({ ai_model: 'sonnet' }),
+            mkSession({ ai_model: 'sonnet' }),
+            mkSession({ ai_model: 'haiku' }),
+            mkSession({ ai_model: null }),      // pre-#2909 → opus
+            mkSession({ ai_model: 'bogus' }),   // unknown → opus
+        ];
+        const s = computeSessionStats(rows);
+        const byModel = Object.fromEntries(s.modelAggregate.map(m => [m.model, m]));
+        expect(byModel.sonnet.count).toBe(2);
+        expect(byModel.haiku.count).toBe(1);
+        expect(byModel.opus.count).toBe(2);
+        expect(byModel.fable).toBeUndefined(); // zero-count models dropped
+    });
+
+    it('accrues time and token totals per model from instrumented rows only', () => {
+        const rows = [
+            mkSession({ ai_model: 'fable', implementing_secs: 100,
+                        phase_tokens: { implementing: tok(0, 0, 0, 40) } }),
+            mkSession({ ai_model: 'fable', implementing_secs: 50 }),
+            mkSession({ ai_model: 'fable', instrumented: 0, legacy_secs: 999 }),
+        ];
+        const s = computeSessionStats(rows);
+        const fable = s.modelAggregate.find(m => m.model === 'fable');
+        expect(fable.count).toBe(3);      // legacy still counted
+        expect(fable.secs).toBe(150);     // legacy time excluded
+        expect(fable.tokens).toBe(40);
+    });
+
+    it('carries capitalized label + palette color per model', () => {
+        const s = computeSessionStats([mkSession({ ai_model: 'haiku' })]);
+        expect(s.modelAggregate).toEqual([
+            { model: 'haiku', label: 'Haiku', color: '#ffcc80', count: 1, secs: 0, tokens: 0 },
+        ]);
+    });
+});
