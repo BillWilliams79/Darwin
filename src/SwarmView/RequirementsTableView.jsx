@@ -27,6 +27,7 @@ import { requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
+import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
@@ -38,7 +39,7 @@ import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
 //          + autonomy(110) + sessions(200) + created(105) + completed(105) = 1150
 export const SWARM_TABLE_WIDTH = 1200;
 
-const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,completed_at,create_ts';
+const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,completed_at,create_ts';
 
 const WRAP_CELL_SX = {
     whiteSpace: 'normal',
@@ -265,6 +266,18 @@ const RequirementsTableView = () => {
             },
         },
         { field: 'coordination_type', headerName: 'Autonomy', width: 110 },
+        {
+            // req #2909 — the Claude model the swarm session runs with.
+            field: 'ai_model',
+            headerName: 'Model',
+            width: 100,
+            renderCell: (params) => (
+                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                    <Chip label={aiModelLabel(params.value)} size="small"
+                          {...aiModelChipProps(params.value)} />
+                </Box>
+            ),
+        },
         {
             field: 'sessions',
             headerName: 'Sessions',

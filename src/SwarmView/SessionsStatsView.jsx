@@ -33,6 +33,7 @@ import {
 
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens,
          TOKEN_TYPES, tokenPhaseKey } from './sessionPhases';
+import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from './modelChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 
 const STATS_WIDTH = 1140;
@@ -126,6 +127,7 @@ const emptyStats = () => ({
     topCostSessions: [],
     groupSplit: GROUP_ORDER.map(g => ({ label: GROUP_LABEL[g], group: g, count: 0 })),
     phaseAggregate: [],
+    modelAggregate: [],
     durationHistogram: DURATION_BUCKETS.map(b => ({ label: b.label, count: 0 })),
     statusHistogram: STATUS_ORDER.map(label => ({ label, count: 0 })),
     trend: [],
@@ -173,8 +175,17 @@ export function computeSessionStats(rows) {
     // calendar day (YYYY-MM-DD from started_at) → { date, sumDuration, count }
     const dayMap = new Map();
 
+    // Per-model aggregation (req #2909). Session count over ALL rows (legacy
+    // included — the model is known regardless of timing instrumentation);
+    // time/token sums accrue in the instrumented loop below. Unknown/NULL
+    // ai_model normalizes to 'opus' (the documented pre-#2909 backfill rule).
+    const normalizeModel = (m) => (AI_MODEL_COLOR[m] ? m : 'opus');
+    const modelMap = Object.fromEntries(
+        AI_MODELS.map(m => [m, { count: 0, secs: 0, tokens: 0 }]));
+
     for (const row of rows) {
         if (row.swarm_status in statusMap) statusMap[row.swarm_status] += 1;
+        modelMap[normalizeModel(row.ai_model)].count += 1;
     }
 
     for (const row of instrumented) {
@@ -205,6 +216,11 @@ export function computeSessionStats(rows) {
         totalTrackedSecs += dur;
         const bucket = DURATION_BUCKETS.find(b => dur >= b.min && dur < b.max);
         if (bucket) durationHistMap[bucket.label] += 1;
+
+        // req #2909 — time/token totals by model (instrumented rows only).
+        const modelEntry = modelMap[normalizeModel(row.ai_model)];
+        modelEntry.secs += dur;
+        modelEntry.tokens += rowTokens;
 
         if (hasTokens) {
             tokenTrackedSecs += dur;
@@ -327,6 +343,18 @@ export function computeSessionStats(rows) {
             count: groupSecs(g),
         })),
         phaseAggregate,
+        // req #2909 — per-model rollup (count over all rows; secs/tokens from
+        // instrumented rows). Models with zero sessions are dropped.
+        modelAggregate: AI_MODELS
+            .map(m => ({
+                model: m,
+                label: aiModelLabel(m),
+                color: AI_MODEL_COLOR[m],
+                count: modelMap[m].count,
+                secs: modelMap[m].secs,
+                tokens: modelMap[m].tokens,
+            }))
+            .filter(e => e.count > 0),
         durationHistogram: DURATION_BUCKETS.map(b => ({ label: b.label, count: durationHistMap[b.label] || 0 })),
         statusHistogram: STATUS_ORDER.map(label => ({ label, count: statusMap[label] || 0 })),
         trend,
@@ -515,6 +543,10 @@ const PHASE_PIE_COLORS = Object.fromEntries(REAL_PHASES.map(p => [p.label, p.col
 // Token-type composition colors, keyed by friendly label (req #2845).
 const TOKEN_TYPE_COLORS = Object.fromEntries(TOKEN_TYPE_META.map(t => [t.label, t.color]));
 
+// Model-split pie colors, keyed by capitalized model label (req #2909).
+const MODEL_PIE_COLORS = Object.fromEntries(
+    AI_MODELS.map(m => [aiModelLabel(m), AI_MODEL_COLOR[m]]));
+
 export default function SessionsStatsView({ rows = [] }) {
     const stats = computeSessionStats(rows);
     const navigate = useNavigate();
@@ -568,6 +600,15 @@ export default function SessionsStatsView({ rows = [] }) {
 
     const tokenTypeData = TOKEN_TYPE_META.map(t => ({
         label: t.label, count: stats.tokenTypeTotals[t.key] || 0, color: t.color,
+    }));
+
+    // Model split (req #2909) — time + token pies keyed by capitalized model
+    // label; the shared legend carries the session count per model.
+    const modelTimeData = stats.modelAggregate.map(m => ({ label: m.label, count: m.secs }));
+    const modelTokenData = stats.modelAggregate.map(m => ({ label: m.label, count: m.tokens }));
+    const modelLegendItems = stats.modelAggregate.map(m => ({
+        label: `${m.label} (${m.count} session${m.count === 1 ? '' : 's'})`,
+        color: m.color,
     }));
 
     return (
@@ -686,6 +727,16 @@ export default function SessionsStatsView({ rows = [] }) {
                     tokenData={tokenGroupData}
                     colorMap={GROUP_PIE_COLORS}
                     legendItems={groupLegendItems}
+                    showToken={hasTokenData} />
+
+                <DualPieCard
+                    title="Model Split"
+                    subtitle="Share of time vs token cost by Claude model (req #2909 — pre-migration sessions count as Opus)"
+                    testId="chart-model-split"
+                    timeData={modelTimeData}
+                    tokenData={modelTokenData}
+                    colorMap={MODEL_PIE_COLORS}
+                    legendItems={modelLegendItems}
                     showToken={hasTokenData} />
 
                 <ChartCard

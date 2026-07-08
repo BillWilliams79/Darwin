@@ -79,7 +79,7 @@ export const devServers = createEntityQueries({
 // never read by the UI). The detail view fetches the full single row, so it gets
 // phase_tokens regardless of this projection.
 const SWARM_SESSION_DEFAULT_FIELDS =
-    'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,' +
+    'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,' +
     'worktree_path,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +

@@ -10,6 +10,7 @@ import AppContext from '../../Context/AppContext';
 import call_rest_api from '../../RestApi/RestApi';
 import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
+import { aiModelChipProps, aiModelLabel } from '../modelChipStyles';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
@@ -132,6 +133,11 @@ const SwarmSessionDetail = () => {
                 <Chip label={swarmStatusLabel(session.swarm_status)}
                       {...swarmStatusChipProps(session.swarm_status)}
                       data-testid="chip-swarm-status" />
+                {/* req #2909 — the Claude model the session ran with */}
+                <Chip label={aiModelLabel(session.ai_model)}
+                      size="small"
+                      {...aiModelChipProps(session.ai_model)}
+                      data-testid="chip-ai-model" />
                 <Tooltip title="Delete session" enterDelay={400} enterNextDelay={200}>
                     <IconButton
                         onClick={() => sessionDelete.openDialog({ sessionId: parseInt(id) })}
