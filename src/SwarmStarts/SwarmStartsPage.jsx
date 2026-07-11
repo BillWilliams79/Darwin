@@ -23,7 +23,11 @@ import { formatDuration } from '../utils/formatDuration';
 import { selectRequirementsForSwarmStart } from './requirementsList';
 import SwarmStartsStatsView from './SwarmStartsStatsView';
 
+import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
+
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -101,9 +105,31 @@ export default function SwarmStartsPage() {
             valueGetter: (_v, row) => Boolean(row.auto_start),
         },
         {
+            // req #2955 (backed by #2949's swarm_starts.ai_model column) — the
+            // launcher's model, i.e. the model that incurred this start's cost.
+            field: 'ai_model',
+            headerName: 'Model',
+            width: 70,
+            renderCell: (params) => (
+                <Chip label={aiModelLabel(params.value)} size="small"
+                      {...aiModelChipProps(params.value)}
+                      data-testid="chip-ai-model" />
+            ),
+        },
+        {
+            field: 'effort',
+            headerName: 'Effort',
+            width: 90,
+            renderCell: (params) => (
+                <Chip label={effortLabel(params.value)} size="small"
+                      {...effortChipProps(params.value)}
+                      data-testid="chip-effort" />
+            ),
+        },
+        {
             field: 'arguments',
             headerName: 'Arguments',
-            width: 390,
+            width: 150,
             renderCell: (params) => (
                 <Tooltip title={params.value || '—'}>
                     <Typography variant="body2" component="span"

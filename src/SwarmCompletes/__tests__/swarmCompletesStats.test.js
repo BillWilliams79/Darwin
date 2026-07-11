@@ -156,4 +156,44 @@ describe('computeSwarmCompleteStats (req #2794)', () => {
             { date: '2026-06-08', count: 2, tokens: 15 },
         ]);
     });
+
+    // req #2955 — model/effort histograms (backed by #2949's swarm_completes columns).
+    describe('modelHistogram / effortHistogram (req #2955)', () => {
+        it('returns all-zero histograms with full label set for empty input', () => {
+            const s = computeSwarmCompleteStats([]);
+            expect(s.modelHistogram.map(b => b.label)).toEqual(['Haiku', 'Sonnet', 'Opus', 'Fable']);
+            expect(s.modelHistogram.every(b => b.count === 0)).toBe(true);
+            expect(s.effortHistogram.map(b => b.label)).toEqual(['Low', 'Medium', 'High', 'XHigh', 'Ultracode']);
+            expect(s.effortHistogram.every(b => b.count === 0)).toBe(true);
+        });
+
+        it('counts rows into their model/effort bucket', () => {
+            const rows = [
+                mkRow({ ai_model: 'sonnet', effort: 'xhigh' }),
+                mkRow({ ai_model: 'sonnet', effort: 'low' }),
+                mkRow({ ai_model: 'opus', effort: 'high' }),
+            ];
+            const s = computeSwarmCompleteStats(rows);
+            const models = Object.fromEntries(s.modelHistogram.map(b => [b.label, b.count]));
+            const efforts = Object.fromEntries(s.effortHistogram.map(b => [b.label, b.count]));
+            expect(models.Sonnet).toBe(2);
+            expect(models.Opus).toBe(1);
+            expect(models.Haiku).toBe(0);
+            expect(efforts.XHigh).toBe(1);
+            expect(efforts.Low).toBe(1);
+            expect(efforts.High).toBe(1);
+        });
+
+        it('normalizes unknown/NULL model to opus and effort to high (documented backfill rule)', () => {
+            const rows = [
+                mkRow({ ai_model: null, effort: null }),
+                mkRow({ ai_model: 'bogus', effort: 'bogus' }),
+            ];
+            const s = computeSwarmCompleteStats(rows);
+            const models = Object.fromEntries(s.modelHistogram.map(b => [b.label, b.count]));
+            const efforts = Object.fromEntries(s.effortHistogram.map(b => [b.label, b.count]));
+            expect(models.Opus).toBe(2);
+            expect(efforts.High).toBe(2);
+        });
+    });
 });

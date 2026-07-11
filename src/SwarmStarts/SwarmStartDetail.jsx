@@ -17,6 +17,8 @@ import {
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import { swarmStatusChipProps, swarmStatusLabel } from '../SwarmView/swarmStatusChipProps';
+import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 import { parseSummary } from './SwarmStartsPage';
 import { selectSessionsForSwarmStart } from './sessionFilter';
 
@@ -57,6 +59,27 @@ const getLinkedSessionColumns = (timezone) => [
     // darwinai-config-directly-to-1`) on one line at density="compact"; anything
     // narrower wraps and inflates row height.
     { field: 'branch',   headerName: 'Branch', width: 360 },
+    {
+        // req #2955 — each linked session carries its own ai_model/effort.
+        field: 'ai_model',
+        headerName: 'Model',
+        width: 70,
+        renderCell: (params) => (
+            <Chip label={aiModelLabel(params.value)} size="small"
+                  {...aiModelChipProps(params.value)}
+                  data-testid="chip-ai-model" />
+        ),
+    },
+    {
+        field: 'effort',
+        headerName: 'Effort',
+        width: 90,
+        renderCell: (params) => (
+            <Chip label={effortLabel(params.value)} size="small"
+                  {...effortChipProps(params.value)}
+                  data-testid="chip-effort" />
+        ),
+    },
     {
         field: 'duration',
         headerName: 'Duration',
@@ -204,6 +227,14 @@ export default function SwarmStartDetail() {
                         <Chip label={machineName} size="small" variant="outlined"
                               data-testid="swarm-start-machine" />
                     }
+                    {/* req #2955 — the launcher's model/effort (#2949's swarm_starts
+                        columns), the model/effort that incurred this start's cost. */}
+                    <Chip label={aiModelLabel(row.ai_model)} size="small"
+                          {...aiModelChipProps(row.ai_model)}
+                          data-testid="chip-ai-model" />
+                    <Chip label={effortLabel(row.effort)} size="small"
+                          {...effortChipProps(row.effort)}
+                          data-testid="chip-effort" />
                 </Box>
             </Box>
 

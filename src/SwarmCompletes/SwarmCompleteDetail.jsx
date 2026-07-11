@@ -38,6 +38,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { DataGrid } from '@mui/x-data-grid';
 import { coordinationChipProps } from '../SwarmView/coordinationChipStyles';
+import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 
 const statusChipProps = (status) => {
     switch (status) {
@@ -69,6 +71,27 @@ const getLinkedSessionColumns = (timezone) => [
     },
     { field: 'title',    headerName: 'Title',  flex: 1, minWidth: 220 },
     { field: 'branch',   headerName: 'Branch', width: 360 },
+    {
+        // req #2955 — each linked session carries its own ai_model/effort.
+        field: 'ai_model',
+        headerName: 'Model',
+        width: 90,
+        renderCell: (params) => (
+            <Chip label={aiModelLabel(params.value)} size="small"
+                  {...aiModelChipProps(params.value)}
+                  data-testid="chip-ai-model" />
+        ),
+    },
+    {
+        field: 'effort',
+        headerName: 'Effort',
+        width: 100,
+        renderCell: (params) => (
+            <Chip label={effortLabel(params.value)} size="small"
+                  {...effortChipProps(params.value)}
+                  data-testid="chip-effort" />
+        ),
+    },
     {
         field: 'duration',
         headerName: 'Duration',
@@ -193,6 +216,15 @@ export default function SwarmCompleteDetail() {
                         <Chip label={`coordination: ${row.coordination_type}`} size="small"
                               {...coordinationChipProps(row.coordination_type)} />
                     )}
+                    {/* req #2955 — the finalizing session's model/effort (#2949's
+                        swarm_completes columns), the model/effort that incurred
+                        this complete's cost. */}
+                    <Chip label={aiModelLabel(row.ai_model)} size="small"
+                          {...aiModelChipProps(row.ai_model)}
+                          data-testid="chip-ai-model" />
+                    <Chip label={effortLabel(row.effort)} size="small"
+                          {...effortChipProps(row.effort)}
+                          data-testid="chip-effort" />
                     <Chip label={`${row.session_count} session${row.session_count === 1 ? '' : 's'}`}
                           size="small" variant="outlined"
                           {...(row.session_count > 0
