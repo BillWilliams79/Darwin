@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -320,6 +320,15 @@ export function usePriorityCardOrder(creatorFk, domainId, { enabled = true } = {
 
 // Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
 export const useDevServersBySession = devServers.useBySession;
+
+// Req #2943 — machines registry: which machine ran a session / start / dev-server
+// claim. useMachines drives the /swarm/machines management page AND the client-
+// side id→title resolution for the Machine columns on Sessions / Starts / Dev
+// Servers. machineKeys.all(creatorFk) is the invalidation prefix after an inline
+// rename / close.
+export const useMachines = machines.useAll;
+export const useMachine  = machines.useById;
+export const machineKeys = machines.keys;
 
 export function useRecurringTasks(creatorFk, {
     fields = 'id,description,recurrence,anchor_date,area_fk,priority,accumulate,insert_position,active,last_generated',

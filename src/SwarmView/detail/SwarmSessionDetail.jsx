@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -43,6 +43,13 @@ const SwarmSessionDetail = () => {
 
     const { data: session, isLoading } = useSession(id);
     const { data: devServers = [] } = useDevServersBySession(id);
+    // req #2943 — resolve the session's machine name from the machines cache.
+    const { data: machinesData = [] } = useMachines(profile?.userName);
+    const machineName = React.useMemo(() => {
+        if (!session || session.machine_fk == null) return null;
+        const m = machinesData.find(x => x.id === session.machine_fk);
+        return m ? m.title : null;
+    }, [machinesData, session]);
     // Req #2422 — reverse junction lookup for the parent swarm_start.
     // Multi-parent policy: pick the most-recent swarm_start (highest fk).
     // Matches SessionsView's last-most-recent-wins map and the MCP resource's
@@ -278,6 +285,15 @@ const SwarmSessionDetail = () => {
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Worktree Path</Typography>
                         <Typography variant="body2" data-testid="session-worktree-path">
                             {session.worktree_path}
+                        </Typography>
+                    </Box>
+                }
+
+                {session.machine_fk != null &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Machine</Typography>
+                        <Typography variant="body2" data-testid="session-machine">
+                            {machineName || `#${session.machine_fk}`}
                         </Typography>
                     </Box>
                 }

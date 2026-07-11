@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers, useAllSwarmStartSessions } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
@@ -125,6 +125,14 @@ const getSessionColumns = (navigate, timezone) => [
             : '—',
     },
     {
+        // req #2943 — which machine ran this session. Name resolved client-side
+        // from the machines query cache; NULL / unresolved renders em-dash.
+        field: 'machine_name',
+        headerName: 'Machine',
+        width: 130,
+        renderCell: (params) => params.value || '—',
+    },
+    {
         field: 'duration',
         headerName: 'Duration',
         width: 120,
@@ -227,6 +235,14 @@ const SessionsView = () => {
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: devServersData } = useDevServers(profile?.userName);
     const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
+    const { data: machinesData } = useMachines(profile?.userName);
+
+    // req #2943 — machine id → friendly name for the Machine column.
+    const machineNameById = useMemo(() => {
+        const map = {};
+        (machinesData || []).forEach(m => { map[m.id] = m.title; });
+        return map;
+    }, [machinesData]);
     const sessionStatusFilter = useShowClosedStore(s => s.sessionStatusFilter);
     const toggleSessionStatus = useShowClosedStore(s => s.toggleSessionStatus);
 
@@ -264,6 +280,7 @@ const SessionsView = () => {
             ...s,
             dev_server_port: devServerMap[s.id] || null,
             swarm_start_fk: swarmStartBySession[s.id] || null,
+            machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
           }))
         : null;
 

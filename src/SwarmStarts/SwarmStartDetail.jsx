@@ -12,6 +12,7 @@ import {
     useSwarmStartById,
     useSessions,
     useAllSwarmStartSessions,
+    useMachines,
 } from '../hooks/useDataQueries';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
@@ -100,6 +101,13 @@ export default function SwarmStartDetail() {
     // out naturally when filtered against the user's own `useSessions` list.
     const { data: sessionsArray, isLoading: sessionsLoading } = useSessions(creatorFk);
     const { data: junction, isLoading: junctionLoading } = useAllSwarmStartSessions(creatorFk);
+    // req #2943 — resolve this start's machine name from the machines cache.
+    const { data: machinesData = [] } = useMachines(creatorFk);
+    const machineName = useMemo(() => {
+        if (!row || row.machine_fk == null) return null;
+        const m = machinesData.find(x => x.id === row.machine_fk);
+        return m ? m.title : `#${row.machine_fk}`;
+    }, [machinesData, row]);
 
     const linkedSessions = useMemo(
         () => selectSessionsForSwarmStart(sessionsArray, junction, swarmStartId),
@@ -192,6 +200,10 @@ export default function SwarmStartDetail() {
                               }
                               : {})}
                           data-testid="swarm-start-session-count-chip" />
+                    {machineName &&
+                        <Chip label={machineName} size="small" variant="outlined"
+                              data-testid="swarm-start-machine" />
+                    }
                 </Box>
             </Box>
 
