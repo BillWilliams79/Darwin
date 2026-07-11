@@ -29,6 +29,8 @@ import {
 } from 'recharts';
 
 import { parsePhaseBreakdown } from './SwarmCompleteDetail';
+import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { EFFORTS, EFFORT_COLOR, effortLabel } from '../SwarmView/effortChipStyles';
 
 const STATS_WIDTH = 1140;
 const TOP_PHASES_LIMIT = 12;
@@ -92,6 +94,8 @@ const emptyStats = () => ({
     phaseAggregate: [],
     phaseTokenTotal: 0,
     throughput: [],
+    modelHistogram: AI_MODELS.map(m => ({ label: aiModelLabel(m), count: 0 })),
+    effortHistogram: EFFORTS.map(e => ({ label: effortLabel(e), count: 0 })),
 });
 
 // Pure aggregator — rows → stats object. Exported for unit testing.
@@ -115,6 +119,12 @@ export function computeSwarmCompleteStats(rows) {
     const skillMap = new Map();          // skill_name → count
     const wallHistMap = Object.fromEntries(WALL_BUCKETS.map(b => [b.label, 0]));
     const turnsHistMap = Object.fromEntries(TURN_BUCKETS.map(b => [b.label, 0]));
+    // req #2955 (#2949's swarm_completes.ai_model/effort columns) — the
+    // finalizing session's model/effort. Unknown/NULL normalizes to the
+    // documented backfill defaults ('opus' / 'high'), same rule as
+    // SessionsStatsView's per-model/effort rollup.
+    const modelMap = Object.fromEntries(AI_MODELS.map(m => [m, 0]));
+    const effortMap = Object.fromEntries(EFFORTS.map(e => [e, 0]));
     // phase name → { phase, completes, tokens, wall }
     const phaseMap = new Map();
     // calendar date (YYYY-MM-DD from started_at) → { date, count, tokens }
@@ -130,6 +140,10 @@ export function computeSwarmCompleteStats(rows) {
         // Skill
         const skill = row.skill_name || '—';
         skillMap.set(skill, (skillMap.get(skill) || 0) + 1);
+
+        // Model/Effort (req #2955)
+        modelMap[AI_MODEL_COLOR[row.ai_model] ? row.ai_model : 'opus'] += 1;
+        effortMap[EFFORT_COLOR[row.effort] ? row.effort : 'high'] += 1;
 
         // Tokens
         inputTotal += Number(row.tokens_input) || 0;
@@ -227,6 +241,8 @@ export function computeSwarmCompleteStats(rows) {
         phaseAggregate,
         phaseTokenTotal,
         throughput,
+        modelHistogram: AI_MODELS.map(m => ({ label: aiModelLabel(m), count: modelMap[m] })),
+        effortHistogram: EFFORTS.map(e => ({ label: effortLabel(e), count: effortMap[e] })),
     };
 }
 
@@ -313,6 +329,12 @@ const SKILL_COLORS = {
     'swarm-complete': '#26c6da',
     'primary-ai-swarm-complete': '#ffa726',
 };
+// Model/effort pie colors (req #2955), keyed by capitalized label — mirrors
+// SessionsStatsView's MODEL_PIE_COLORS/EFFORT_PIE_COLORS.
+const MODEL_PIE_COLORS = Object.fromEntries(
+    AI_MODELS.map(m => [aiModelLabel(m), AI_MODEL_COLOR[m]]));
+const EFFORT_PIE_COLORS = Object.fromEntries(
+    EFFORTS.map(e => [effortLabel(e), EFFORT_COLOR[e]]));
 const PIE_FALLBACK = ['#7E57C2', '#E91E63', '#ffca28', '#66bb6a', '#42a5f5'];
 
 const colorFor = (label, map, idx) => map[label] || PIE_FALLBACK[idx % PIE_FALLBACK.length];
@@ -431,6 +453,28 @@ export default function SwarmCompletesStatsView({ rows = [] }) {
                     <PieDistribution data={stats.skillHistogram}
                                      colorMap={SKILL_COLORS}
                                      testId="pie-skill" />
+                </ChartCard>
+
+                {/* Model/Effort Split (req #2955) — cost-by-model/effort at a
+                    glance, mirroring SessionsStatsView's Model/Effort Split. */}
+                <ChartCard
+                    title="Model Split"
+                    height={240}
+                    testId="chart-model-histogram"
+                >
+                    <PieDistribution data={stats.modelHistogram}
+                                     colorMap={MODEL_PIE_COLORS}
+                                     testId="pie-model" />
+                </ChartCard>
+
+                <ChartCard
+                    title="Effort Split"
+                    height={240}
+                    testId="chart-effort-histogram"
+                >
+                    <PieDistribution data={stats.effortHistogram}
+                                     colorMap={EFFORT_PIE_COLORS}
+                                     testId="pie-effort" />
                 </ChartCard>
 
                 <ChartCard

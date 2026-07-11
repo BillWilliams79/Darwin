@@ -13,6 +13,8 @@ import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import SwarmCompletesStatsView from './SwarmCompletesStatsView';
+import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -90,6 +92,29 @@ export default function SwarmCompletesPage() {
             renderCell: (params) => (
                 <Chip label={params.value} size="small"
                       {...statusChipProps(params.value)} />
+            ),
+        },
+        {
+            // req #2955 (backed by #2949's swarm_completes.ai_model column) — the
+            // finalizing session's model, i.e. the model that incurred this
+            // complete's cost.
+            field: 'ai_model',
+            headerName: 'Model',
+            width: 90,
+            renderCell: (params) => (
+                <Chip label={aiModelLabel(params.value)} size="small"
+                      {...aiModelChipProps(params.value)}
+                      data-testid="chip-ai-model" />
+            ),
+        },
+        {
+            field: 'effort',
+            headerName: 'Effort',
+            width: 100,
+            renderCell: (params) => (
+                <Chip label={effortLabel(params.value)} size="small"
+                      {...effortChipProps(params.value)}
+                      data-testid="chip-effort" />
             ),
         },
         { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
