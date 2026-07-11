@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useDevServers, useSessions, useAllRequirements } from '../hooks/useDataQueries';
+import { useDevServers, useSessions, useAllRequirements, useMachines } from '../hooks/useDataQueries';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
@@ -82,6 +82,16 @@ const getDevServerColumns = (navigate, timezone) => [
               </a>
             : '—',
     },
+    {
+        // req #2943 — which machine hosts this dev server. Name resolved
+        // client-side from the machines cache; NULL / unresolved → em-dash. (The
+        // browser can't detect which machine it is on, so the column itself is
+        // the disambiguator — `https://localhost:<port>` only works locally.)
+        field: 'machine_name',
+        headerName: 'Machine',
+        width: 130,
+        renderCell: (params) => params.value || '—',
+    },
     { field: 'pid',            headerName: 'PID',        width: 90,  type: 'number' },
 ];
 
@@ -158,6 +168,14 @@ const DevServersView = () => {
     const { data: devServersArray } = useDevServers(profile?.userName);
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: allRequirements } = useAllRequirements(profile?.userName);
+    const { data: machinesData } = useMachines(profile?.userName);
+
+    // req #2943 — machine id → friendly name for the Machine column.
+    const machineNameById = useMemo(() => {
+        const map = {};
+        (machinesData || []).forEach(m => { map[m.id] = m.title; });
+        return map;
+    }, [machinesData]);
 
     const sessionToRequirementId = useMemo(() => {
         if (!sessionsArray) return {};
@@ -182,7 +200,8 @@ const DevServersView = () => {
         requirement_title: s.session_fk
             ? requirementMap[sessionToRequirementId[s.session_fk]]?.title ?? null
             : null,
-    })), [devServersArray, sessionToRequirementId, requirementMap]);
+        machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
+    })), [devServersArray, sessionToRequirementId, requirementMap, machineNameById]);
 
     const sortedServers = enrichedServers
         ? [...enrichedServers].sort((a, b) => b.id - a.id)

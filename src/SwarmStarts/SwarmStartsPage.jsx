@@ -15,6 +15,7 @@ import {
     useAllSwarmStarts,
     useSessions,
     useAllSwarmStartSessions,
+    useMachines,
 } from '../hooks/useDataQueries';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
@@ -56,6 +57,14 @@ export default function SwarmStartsPage() {
     // SessionsView); reusing them keeps this page free of extra round-trips.
     const { data: sessionsArray = [] } = useSessions(creatorFk);
     const { data: junction = [] } = useAllSwarmStartSessions(creatorFk);
+    const { data: machinesData = [] } = useMachines(creatorFk);
+
+    // req #2943 — machine id → friendly name for the Machine column.
+    const machineNameById = useMemo(() => {
+        const m = {};
+        machinesData.forEach(x => { m[x.id] = x.title; });
+        return m;
+    }, [machinesData]);
 
     // View toggle (Table | Stats) — req #2686.
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
@@ -178,12 +187,21 @@ export default function SwarmStartsPage() {
             valueFormatter: formatNum },
         { field: 'turn_count', headerName: 'Turns', width: 80, type: 'number' },
         {
+            // req #2943 — which machine ran this /swarm-start. Name resolved
+            // client-side from the machines cache; NULL / unresolved → em-dash.
+            field: 'machine_fk',
+            headerName: 'Machine',
+            width: 130,
+            valueGetter: (_v, row) =>
+                row.machine_fk != null ? (machineNameById[row.machine_fk] ?? '—') : '—',
+        },
+        {
             field: 'started_at',
             headerName: 'Started',
             width: 200,
             valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
         },
-    ], [timezone, requirementsByStart]);
+    ], [timezone, requirementsByStart, machineNameById]);
 
     // Req #2685 — row height grows to fit one line per linked session.
     // Empty rows fall back to the prior fixed 52px so the table doesn't

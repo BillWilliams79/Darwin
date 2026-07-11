@@ -31,6 +31,7 @@ import RequirementDetail from './SwarmView/detail/RequirementDetail';
 import SessionsView from './SwarmView/SessionsView';
 import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
+import MachinesView from './Machines/MachinesView';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import MapsPage from './Maps/MapsPage';
@@ -165,6 +166,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="devservers" element= {<AuthenticatedRoute>
                                                              <DevServersView />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/machines" element= {<AuthenticatedRoute>
+                                                             <MachinesView />
                                                          </AuthenticatedRoute>} />
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />

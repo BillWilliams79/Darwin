@@ -80,7 +80,7 @@ export const devServers = createEntityQueries({
 // phase_tokens regardless of this projection.
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
-    'worktree_path,started_at,completed_at,last_transition_at,' +
+    'worktree_path,machine_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';
@@ -97,7 +97,7 @@ export const sessions = createEntityQueries({
 // useSwarmStartById (creator-scoped key).
 // ---------------------------------------------------------------------------
 const SWARM_START_DEFAULT_FIELDS =
-    'id,arguments,auto_start,session_count,' +
+    'id,arguments,auto_start,session_count,machine_fk,' +
     'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
     'wall_seconds,turn_count,start_summary,telemetry,started_at,creator_fk';
 
@@ -170,4 +170,26 @@ export const swarmCompletes = createEntityQueries({
 export const swarmCompleteSessions = createEntityQueries({
     entity: 'swarm_complete_sessions',
     defaultFields: 'swarm_complete_fk,session_fk',
+});
+
+// ---------------------------------------------------------------------------
+// machines (req #2943) — which machine ran a session / start / dev-server claim.
+// Hooks: useMachines (all) + useMachine (byId, creator-scoped).
+//
+// Routes through the default `darwinUri` (dev/prod split, req #2683): dev reads
+// darwin_dev.machines (seeded fixtures), prod reads darwin.machines. NOT an
+// `ops` table — machine attribution is real content the user manages on the
+// /swarm/machines page. `fieldsInKey` so a projection change doesn't collide on
+// the shared cache entry. `closed` machines still render (page shows a Closed
+// column) so no closed-filter here — sort_order-then-id, NULLs last, server-side.
+// ---------------------------------------------------------------------------
+const MACHINE_DEFAULT_FIELDS =
+    'id,title,description,hostname,platform,arch,hw_model,os_version,' +
+    'last_seen_at,closed,sort_order,creator_fk,create_ts,update_ts';
+
+export const machines = createEntityQueries({
+    entity: 'machines',
+    defaultFields: MACHINE_DEFAULT_FIELDS,
+    fieldsInKey: true,
+    defaultSort: 'sort_order:asc',
 });
