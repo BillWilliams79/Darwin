@@ -72,6 +72,14 @@ const getSessionColumns = (navigate, timezone) => [
     },
     { field: 'title',        headerName: 'Title',       width: 250 },
     {
+        // req #2943 — which machine ran this session. Name resolved client-side
+        // from the machines query cache; NULL / unresolved renders em-dash.
+        field: 'machine_name',
+        headerName: 'Machine',
+        width: 130,
+        renderCell: (params) => params.value || '—',
+    },
+    {
         // req #2909 — the Claude model the session ran with. Pre-migration
         // rows render as Opus (the documented backfill default).
         field: 'ai_model',
@@ -123,14 +131,6 @@ const getSessionColumns = (navigate, timezone) => [
                     sx={{ cursor: 'pointer' }}
                     data-testid={`session-launch-${params.row.id}`} />
             : '—',
-    },
-    {
-        // req #2943 — which machine ran this session. Name resolved client-side
-        // from the machines query cache; NULL / unresolved renders em-dash.
-        field: 'machine_name',
-        headerName: 'Machine',
-        width: 130,
-        renderCell: (params) => params.value || '—',
     },
     {
         field: 'duration',
