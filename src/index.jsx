@@ -32,6 +32,10 @@ import SessionsView from './SwarmView/SessionsView';
 import SwarmSessionDetail from './SwarmView/detail/SwarmSessionDetail';
 import DevServersView from './DevServers/DevServersView';
 import MachinesView from './Machines/MachinesView';
+import AgentsPage from './Agents/AgentsPage';
+import AgentDetail from './Agents/AgentDetail';
+import InstructionsPage from './Agents/InstructionsPage';
+import DocumentsPage from './Agents/DocumentsPage';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import MapsPage from './Maps/MapsPage';
@@ -169,6 +173,23 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/machines" element= {<AuthenticatedRoute>
                                                              <MachinesView />
+                                                         </AuthenticatedRoute>} />
+                    {/* Agents registry (req #2998). React Router v6 ranks routes by
+                        SPECIFICITY, not declaration order, so the two literal
+                        sub-routes outrank "agents/:id" wherever they appear —
+                        "instructions"/"documents" can never be matched as an agent
+                        id. They are listed first for readability only. */}
+                    <Route path="agents" element= {<AuthenticatedRoute>
+                                                             <AgentsPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="agents/instructions" element= {<AuthenticatedRoute>
+                                                             <InstructionsPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="agents/documents" element= {<AuthenticatedRoute>
+                                                             <DocumentsPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="agents/:id" element= {<AuthenticatedRoute>
+                                                             <AgentDetail />
                                                          </AuthenticatedRoute>} />
                     <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />

@@ -193,3 +193,66 @@ export const machines = createEntityQueries({
     fieldsInKey: true,
     defaultSort: 'sort_order:asc',
 });
+
+// ---------------------------------------------------------------------------
+// agents registry (req #2997 / #2998) — the five tables behind /agents.
+//
+// Routes through the default `darwinUri` (dev/prod split, req #2683). NOT `ops`
+// tables: the registry is content the user manages, and the MCP daemon reads it
+// from production while the dev UI reads seeded darwin_dev rows. Both databases
+// are seeded by scripts/seed-agents-registry.py, so dev review sees real data.
+//
+// `agent_documents` and `agent_instructions` are JUNCTIONS with composite PKs
+// and NO `id` column — never request `fields=id` on them, and they take no
+// byId hook. They also carry no `creator_fk` (correctly absent from
+// Lambda-Rest CREATOR_FK_TABLES), so their foreign keys are `creatorScoped:
+// false`; scoping happens on the parent rows the UI joins them against.
+// ---------------------------------------------------------------------------
+
+export const agents = createEntityQueries({
+    entity: 'agents',
+    defaultFields:
+        'id,name,file_name,overview,ai_model,effort,location,closed,sort_order,' +
+        'creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'sort_order:asc',
+});
+
+export const instructions = createEntityQueries({
+    entity: 'instructions',
+    defaultFields: 'id,name,content,closed,sort_order,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'sort_order:asc',
+});
+
+export const architectureDocuments = createEntityQueries({
+    entity: 'architecture_documents',
+    defaultFields:
+        'id,name,doc_type,location,url,closed,sort_order,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'sort_order:asc',
+});
+
+export const agentDocuments = createEntityQueries({
+    entity: 'agent_documents',
+    // No `id` column — composite PK (agent_fk, document_fk). `owned_document_fk`
+    // is a VIRTUAL generated column carrying the one-owner-per-document UNIQUE
+    // key; it is deliberately not projected (the UI derives ownership from
+    // `relationship === 'owned'`).
+    defaultFields: 'agent_fk,document_fk,relationship,notes,sort_order',
+    fieldsInKey: true,
+    foreignKeys: [
+        { field: 'agent_fk', as: 'agent', creatorScoped: false },
+        { field: 'document_fk', as: 'document', creatorScoped: false },
+    ],
+});
+
+export const agentInstructions = createEntityQueries({
+    entity: 'agent_instructions',
+    defaultFields: 'agent_fk,instruction_fk,sort_order',
+    fieldsInKey: true,
+    foreignKeys: [
+        { field: 'agent_fk', as: 'agent', creatorScoped: false },
+        { field: 'instruction_fk', as: 'instruction', creatorScoped: false },
+    ],
+});
