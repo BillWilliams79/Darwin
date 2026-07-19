@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
-import { useAllCategories } from '../../hooks/useDataQueries';
+import { useAllCategories, useMachines } from '../../hooks/useDataQueries';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
@@ -104,6 +104,7 @@ const RequirementDetail = () => {
         coordination_type: 'implemented',
         ai_model: 'opus',
         effort: 'xhigh',
+        machine_fk: null,   // req #2978 — every requirement is born "Any machine"
         started_at: null,
         completed_at: null,
         deferred_at: null,
@@ -142,6 +143,26 @@ const RequirementDetail = () => {
         fields: 'id,category_name',
         closed: 0,
     });
+
+    // Req #2978 — machine pin options. Machines are an OPEN set (rows in the
+    // `machines` table), so the chip list is data-driven rather than a static
+    // constant like AI_MODELS/EFFORTS. Only OPEN machines are offerable: a
+    // retired machine must not be a new pin target. A requirement already
+    // pinned to a since-retired machine still renders that pin (see
+    // `pinnedMachineMissing` below) so the state is never silently lost.
+    const { data: machinesData = [] } = useMachines(profile?.userName);
+    const openMachines = useMemo(
+        () => (machinesData || [])
+            .filter(m => !m.closed)
+            .sort((a, b) => {
+                // Hand sort_order first (NULL sinks to the end), then title.
+                const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+                const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+                if (ao !== bo) return ao - bo;
+                return (a.title || '').localeCompare(b.title || '');
+            }),
+        [machinesData]
+    );
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
@@ -353,6 +374,14 @@ const RequirementDetail = () => {
         // values; no deselect-to-null path, mirroring autonomy and model.
         setRequirement(prev => ({ ...prev, effort: newVal }));
         saveField('effort', newVal);
+    };
+
+    const handleMachineChange = (newVal) => {
+        // Req #2978 — unlike autonomy/model/effort, NULL is a REAL value here:
+        // it means "Any machine". newVal is either a machines.id or null (Any).
+        setRequirement(prev => ({ ...prev, machine_fk: newVal }));
+        // REST PUT NULL convention: the literal string 'NULL' clears the column.
+        saveField('machine_fk', newVal === null ? 'NULL' : newVal);
     };
 
     const handleCategoryChange = async (event) => {
@@ -701,6 +730,76 @@ const RequirementDetail = () => {
                                 })}
                             </Stack>
                         </Box>
+                    </Box>
+                );
+            })()}
+
+            {/* Machine pin (req #2978) — WHERE this requirement is allowed to run.
+                "Any" (NULL) is the default and the common case; a pin restricts
+                /swarm-start, /swarm-restart and /swarm-resume to that machine.
+                Same editability/fade/new-mode rules as Autonomy/Model/Effort.
+                Chips are deliberately NEUTRAL (outlined → filled when selected):
+                machines are an open set, so there is no per-machine color file
+                to mirror modelChipStyles/effortChipStyles. */}
+            {(() => {
+                // The Machine pin is editable in authoring, approved AND swarm_ready.
+                // Fade tracks EDITABILITY, not swarm_ready alone: the pin is a
+                // planning-time decision the user makes while authoring, so fading it
+                // in authoring/approved would misrepresent a fully-editable control as
+                // disabled. (The AI Settings group above still fades on !swarm_ready —
+                // a deliberate difference, not an oversight.)
+                const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
+                const isFaded = !isEditable;
+                const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
+                const currentMachine = requirement.machine_fk ?? null;
+                // A pin pointing at a machine that is closed (or already gone
+                // from the list) still has to render — otherwise the chip row
+                // would silently show "Any" for a requirement that is in fact
+                // pinned, and the user could never see or clear it.
+                const pinnedMachineMissing =
+                    currentMachine !== null &&
+                    !openMachines.some(m => m.id === currentMachine);
+                const pinnedMachine = pinnedMachineMissing
+                    ? (machinesData || []).find(m => m.id === currentMachine)
+                    : null;
+
+                return (
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
+                               opacity: isFaded ? 0.4 : 1,
+                               ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }) }}>
+                        <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 72 }}>
+                            Machine
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="machine-selector">
+                            {[
+                                { id: null, label: 'Any' },
+                                ...openMachines.map(m => ({ id: m.id, label: m.title })),
+                                // Retired-but-pinned tail entry (see above).
+                                ...(pinnedMachineMissing
+                                    ? [{ id: currentMachine,
+                                         label: pinnedMachine ? `${pinnedMachine.title} (retired)` : `#${currentMachine}` }]
+                                    : []),
+                            ].map(({ id: machineId, label }) => {
+                                const selected = currentMachine === machineId;
+                                return (
+                                    <Chip
+                                        key={machineId === null ? 'any' : machineId}
+                                        label={label}
+                                        size="small"
+                                        disabled={!isEditable}
+                                        // `disabled` only stops pointer events via CSS on a
+                                        // MUI Chip — guard the handler too so a non-editable
+                                        // status can never write a pin.
+                                        onClick={() => { if (isEditable && !selected) handleMachineChange(machineId); }}
+                                        data-testid={`machine-${machineId === null ? 'any' : machineId}`}
+                                        {...(selected
+                                            ? { sx: { cursor: isEditable ? 'pointer' : 'default' } }
+                                            : { variant: 'outlined', sx: { cursor: isEditable ? 'pointer' : 'default', opacity: !isEditable ? 0.3 : 0.6 } }
+                                        )}
+                                    />
+                                );
+                            })}
+                        </Stack>
                     </Box>
                 );
             })()}

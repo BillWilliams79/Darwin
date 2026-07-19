@@ -22,7 +22,7 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useAllRequirements, useAllCategories, useSessions } from '../hooks/useDataQueries';
+import { useAllRequirements, useAllCategories, useSessions, useMachines } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
@@ -37,11 +37,11 @@ import { requirementBucketKey } from '../utils/aggregateRequirementTrends';
 // + checkbox column). Exported so SwarmView.jsx can align the header row (toggle + chips +
 // settings) to the same width — keeps the settings icon flush with the table's right edge.
 // Columns: checkbox(50) + id(70) + category(150) + title(220) + status(140)
-//          + autonomy(110) + model(100) + effort(100) + sessions(200)
-//          + created(105) + completed(105) = 1350
-export const SWARM_TABLE_WIDTH = 1400;
+//          + autonomy(110) + model(100) + effort(100) + machine(120) + sessions(200)
+//          + created(105) + completed(105) = 1470
+export const SWARM_TABLE_WIDTH = 1520;
 
-const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,effort,completed_at,create_ts';
+const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,effort,machine_fk,completed_at,create_ts';
 
 const WRAP_CELL_SX = {
     whiteSpace: 'normal',
@@ -91,11 +91,22 @@ const RequirementsTableView = () => {
     });
     const { data: sessions = [] } = useSessions(creatorFk);
 
+    // req #2978 — machine pin. Includes CLOSED machines: a requirement pinned to
+    // a since-retired machine must still resolve to a name here rather than
+    // falling back to the raw id.
+    const { data: machines = [] } = useMachines(creatorFk);
+
     const categoryMap = useMemo(() => {
         const m = new Map();
         for (const c of categories) m.set(c.id, c.category_name);
         return m;
     }, [categories]);
+
+    const machineMap = useMemo(() => {
+        const m = new Map();
+        for (const mc of machines) m.set(mc.id, mc.title);
+        return m;
+    }, [machines]);
 
     // requirement_id -> sessions linked via source_ref, newest first.
     const sessionsByRequirementId = useMemo(() => {
@@ -290,6 +301,20 @@ const RequirementsTableView = () => {
                     <Chip label={effortLabel(params.value)} size="small"
                           {...effortChipProps(params.value)} />
                 </Box>
+            ),
+        },
+        {
+            // req #2978 — the machine this requirement is PINNED to (where it is
+            // allowed to run). NULL renders "Any", the default and common case —
+            // deliberately not an em-dash: unpinned is a meaningful state, not a
+            // missing value.
+            field: 'machine_fk',
+            headerName: 'Machine',
+            width: 120,
+            valueGetter: (value, row) => (
+                row.machine_fk == null
+                    ? 'Any'
+                    : (machineMap.get(row.machine_fk) || `#${row.machine_fk}`)
             ),
         },
         {
