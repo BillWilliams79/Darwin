@@ -7,6 +7,8 @@ import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
+import { machineChipProps, machineLabel, UNASSIGNED_MACHINE } from './machineChipStyles';
+import ChipFilter from '../Components/ChipFilter';
 import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
 import { effortChipProps, effortLabel } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
@@ -30,6 +32,15 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Typography } from '@mui/material';
 
 const SESSIONS_VIEW_STORAGE_KEY = 'darwin-swarm-sessions-view';
+
+// req #2992 — status vocabulary is fixed, so its options are module-level.
+// swarmStatusChipProps supplies the semantic colors; the ChipFilter palette is
+// not consulted for this dimension.
+const sessionStatusOptions = ALL_SESSION_STATUSES.map(status => ({
+    value: status,
+    label: swarmStatusLabel(status),
+    chipProps: swarmStatusChipProps(status),
+}));
 
 // Render a chip for source_ref values matching `requirement:N` (clickable,
 // primary-color, navigates to the requirement detail). For other shapes
@@ -74,10 +85,16 @@ const getSessionColumns = (navigate, timezone) => [
     {
         // req #2943 — which machine ran this session. Name resolved client-side
         // from the machines query cache; NULL / unresolved renders em-dash.
+        // req #2992 — rendered as a chip in the same palette color the machine
+        // selector uses, so the filter chip and the rows it admits match.
         field: 'machine_name',
         headerName: 'Machine',
         width: 130,
-        renderCell: (params) => params.value || '—',
+        renderCell: (params) => params.value
+            ? <Chip label={params.value} size="small"
+                    {...machineChipProps(params.row.machine_fk)}
+                    data-testid="chip-machine" />
+            : '—',
     },
     {
         // req #2909 — the Claude model the session ran with. Pre-migration
@@ -245,6 +262,34 @@ const SessionsView = () => {
     }, [machinesData]);
     const sessionStatusFilter = useShowClosedStore(s => s.sessionStatusFilter);
     const toggleSessionStatus = useShowClosedStore(s => s.toggleSessionStatus);
+    const sessionMachineFilter = useShowClosedStore(s => s.sessionMachineFilter);
+    const toggleSessionMachine = useShowClosedStore(s => s.toggleSessionMachine);
+
+    // req #2992 — machine selector options: one per open machine, plus the
+    // Unassigned sentinel. Sorted by id so palette colors stay put as machines
+    // come and go.
+    const machineOptions = useMemo(() => {
+        const machines = [...(machinesData || [])]
+            .filter(m => !m.closed)
+            .sort((a, b) => a.id - b.id);
+        return [
+            ...machines.map(m => ({
+                value: m.id,
+                label: m.title,
+                chipProps: machineChipProps(m.id),
+            })),
+            {
+                value: UNASSIGNED_MACHINE,
+                label: machineLabel(UNASSIGNED_MACHINE),
+                chipProps: machineChipProps(UNASSIGNED_MACHINE),
+            },
+        ];
+    }, [machinesData]);
+
+    const machineOptionValues = useMemo(
+        () => machineOptions.map(o => o.value),
+        [machineOptions],
+    );
 
     // View toggle (Table | Stats) — req #2825.
     const [view, setView] = useViewPreference(SESSIONS_VIEW_STORAGE_KEY, 'table');
@@ -284,8 +329,20 @@ const SessionsView = () => {
           }))
         : null;
 
+    // req #2992 — a session's machine filter key. Anything without a chip of its
+    // own (NULL machine_fk, or an fk pointing at a closed/deleted machine) maps
+    // to the Unassigned sentinel, so every row is governed by a chip the user
+    // can actually see. Without this fallback, sessions from a retired machine
+    // would vanish with no visible control to bring them back.
+    const machineKeyFor = (session) =>
+        (session.machine_fk != null && machineOptionValues.includes(session.machine_fk))
+            ? session.machine_fk
+            : UNASSIGNED_MACHINE;
+
     const filteredSessions = enrichedSessions
-        ? enrichedSessions.filter(s => sessionStatusFilter.includes(s.swarm_status))
+        ? enrichedSessions.filter(s =>
+            sessionStatusFilter.includes(s.swarm_status)
+            && (sessionMachineFilter === null || sessionMachineFilter.includes(machineKeyFor(s))))
         : null;
 
     const sortedSessions = filteredSessions
@@ -316,28 +373,21 @@ const SessionsView = () => {
                 </ToggleButtonGroup>
                 <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Swarm Sessions</Typography>
                 {view === 'table' && (
-                    <Stack direction="row" spacing={0.5} data-testid="session-status-filter">
-                        {ALL_SESSION_STATUSES.map(status => {
-                            const selected = sessionStatusFilter.includes(status);
-                            const chipProps = swarmStatusChipProps(status);
-                            return (
-                                <Chip
-                                    key={status}
-                                    label={swarmStatusLabel(status)}
-                                    size="small"
-                                    onClick={() => toggleSessionStatus(status)}
-                                    {...(selected ? chipProps : { variant: 'outlined' })}
-                                    sx={{
-                                        ...(selected ? chipProps.sx : {}),
-                                        ...(!selected && { opacity: 0.5 }),
-                                        cursor: 'pointer',
-                                        textTransform: 'capitalize',
-                                    }}
-                                    data-testid={`filter-chip-${status}`}
-                                />
-                            );
-                        })}
-                    </Stack>
+                    <>
+                        <ChipFilter
+                            options={machineOptions}
+                            selected={sessionMachineFilter}
+                            onToggle={(value) => toggleSessionMachine(value, machineOptionValues)}
+                            testId="session-machine-filter"
+                            chipTestIdPrefix="machine-filter-chip"
+                        />
+                        <ChipFilter
+                            options={sessionStatusOptions}
+                            selected={sessionStatusFilter}
+                            onToggle={toggleSessionStatus}
+                            testId="session-status-filter"
+                        />
+                    </>
                 )}
             </Box>
 
