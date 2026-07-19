@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Swarm Branching — How a Session Gets Its Own Universe</title>
+<!--
+  Darwin AI Workspace — Swarm branching system, groomed to HTML (req #2982).
+  Human-facing statement of what branches when a swarm session is created, what
+  deliberately does not, and an honest strengths/holes analysis. The specs are
+  SWARM.md + memory/swarm-reference.md; the implementation is scripts/swarm/*
+  via the /hygiene skill; tests validate in tests/swarm/.
+  Design language: memory/html-doc-design.md (deep-navy blueprint — fuses the
+  Build Visualizer `midnight` theme with the NVLink topology palette).
+-->
+<style>
+  :root {
+    --bg:        #0a1929;
+    --bg2:       #0c1d34;
+    --panel-a:   #19324e;
+    --panel-b:   #0c1d34;
+    --accent:    #5fa3d4;
+    --accent-lo: #4a8fc7;
+    --line:      #8ecae6;
+    --title:     #ffffff;
+    --body:      #cfe4f7;
+    --dim:       #9bbcd6;
+    --section:   #7bb8de;
+    --sep:       rgba(74,143,199,0.55);
+    --hair:      rgba(94,163,212,0.22);
+    --mono:      "Consolas","Menlo","SFMono-Regular",monospace;
+    --sans:      "Calibri","Segoe UI",system-ui,Arial,sans-serif;
+    --dot-green:   #2dd4bf;
+    --dot-red:     #f87171;
+    --dot-yellow:  #ffd166;
+    --dot-gray:    #5b7387;
+    --dot-cust:    #3b82f6;
+    --gold:        #fbbf24;
+    --silver:      #d4d4d8;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #12263f 0%, transparent 60%),
+      var(--bg);
+    color: var(--body);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 96px; }
+
+  header.masthead {
+    padding: 56px 0 28px;
+    border-bottom: 1px solid var(--hair);
+    margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 34px; line-height: 1.15; font-weight: 700;
+    color: var(--title); margin: 0 0 12px; letter-spacing: -.01em;
+  }
+  .lede { font-size: 16px; color: var(--dim); max-width: 62ch; margin: 0; }
+
+  .tuple {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 4px;
+    font-family: var(--mono);
+  }
+  .seg {
+    flex: 1 1 150px; min-width: 140px;
+    border: 1px solid var(--hair); border-radius: 10px;
+    background: linear-gradient(160deg, var(--panel-a), var(--panel-b));
+    padding: 14px 16px;
+  }
+  .seg .big { font-size: 22px; font-weight: 700; color: var(--title); }
+  .seg .k   { font-size: 12px; letter-spacing: .04em; color: var(--accent); margin-top: 4px; font-family: var(--sans); font-weight: 700; }
+  .seg .d   { font-size: 12.5px; color: var(--dim); margin-top: 2px; font-family: var(--sans); }
+
+  section { margin-top: 40px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--hair); border-radius: 6px; padding: 2px 8px; font-weight: 700;
+  }
+  h2 { font-size: 21px; color: var(--title); font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--dim); font-size: 14.5px; margin: -6px 0 14px; }
+
+  .card {
+    border: 1px solid var(--hair); border-radius: 12px;
+    background: linear-gradient(165deg, var(--panel-a), var(--panel-b));
+    padding: 20px 22px; margin: 14px 0;
+  }
+  .card > h3 {
+    font-size: 15px; color: var(--title); font-weight: 700; margin: 0 0 8px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--sep);
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px){ .cols { grid-template-columns: 1fr; } }
+  p { margin: 8px 0; }
+  code, .mono { font-family: var(--mono); font-size: .92em; color: #bfe3ff; }
+  .mono-chip {
+    font-family: var(--mono); background: rgba(94,163,212,0.12);
+    border: 1px solid var(--hair); border-radius: 5px; padding: 1px 6px; color: #cbeaff; white-space: nowrap;
+  }
+  strong { color: #eaf4ff; }
+  .accent { color: var(--accent); }
+  .dim { color: var(--dim); }
+
+  .tbl-wrap { overflow-x: auto; margin: 6px 0; border-radius: 10px; border: 1px solid var(--hair); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 460px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  thead th { background: rgba(94,163,212,0.10); color: var(--section); font-weight: 700; letter-spacing: .02em; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mid, th.mid { text-align: center; }
+  .yes { color: var(--dot-green); font-weight: 700; }
+  .no  { color: #6c8299; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(94,163,212,0.07);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0;
+    font-size: 14px; color: var(--body);
+  }
+  .callout .lbl { color: var(--accent); font-weight: 700; letter-spacing: .04em; font-size: 12px; text-transform: uppercase; display:block; margin-bottom: 3px; }
+
+  figure { margin: 8px 0 4px; }
+  .figbox {
+    border: 1px solid var(--hair); border-radius: 12px; overflow-x: auto;
+    background: repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(94,163,212,0.05) 39px, rgba(94,163,212,0.05) 40px), var(--bg2);
+    padding: 8px;
+  }
+  figure svg { display: block; }
+  figcaption { color: var(--dim); font-size: 12.5px; margin-top: 8px; text-align: center; }
+  .svg-name { font-family: var(--sans); font-weight: 600; }
+  .svg-ver  { font-family: var(--mono); }
+
+  footer {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hair);
+    color: var(--dim); font-size: 13px;
+  }
+  footer a { color: var(--accent); }
+  .kbd { font-family: var(--mono); color: #bfe3ff; }
+  ul.tight { margin: 8px 0; padding-left: 20px; }
+  ul.tight li { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Darwin · Swarm System</p>
+    <h1>Swarm Branching</h1>
+    <p class="lede">When <span class="mono">/swarm-start</span> launches a session, it builds that session
+    a private universe: one feature branch replicated across every affected repo, checked out as real git
+    worktrees under one directory. This page states exactly what branches, what deliberately doesn't,
+    and where the seams are.</p>
+
+    <div class="tuple" role="img" aria-label="Branching identity: worktree directory, feature branch, draft PR per repo">
+      <div class="seg"><div class="big">wt-&lt;req&gt;-&lt;task&gt;/</div><div class="k">Worktree root</div><div class="d">One directory = one session</div></div>
+      <div class="seg"><div class="big">feature/&lt;req&gt;-&lt;task&gt;</div><div class="k">Branch</div><div class="d">Same name in every affected repo</div></div>
+      <div class="seg"><div class="big">draft PR</div><div class="k">Per repo</div><div class="d">Opened at checkout, from birth</div></div>
+    </div>
+  </header>
+
+  <!-- 1 · How branching happens -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>How a session branches</h2></div>
+    <p class="sub">All git state changes route through one skill — <span class="mono">/hygiene</span> —
+      invoked once per affected repo. DarwinAI-Config is always first and becomes the worktree root.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg width="880" height="210" viewBox="0 0 880 210" role="img"
+             aria-label="Flow: swarm-start invokes hygiene checkout per repo; each checkout saves the primary clone, adds a worktree on the feature branch, opens a draft PR, and records the repo in the session manifest.">
+          <defs>
+            <marker id="fa" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
+            </marker>
+          </defs>
+          <style>
+            .st{fill:#19324e;stroke:#5fa3d4;stroke-width:1.2}
+            .t{font-family:Calibri,Segoe UI,sans-serif;font-size:12.5px;font-weight:700;fill:#ffffff}
+            .d{font-family:Calibri,Segoe UI,sans-serif;font-size:11px;fill:#9bbcd6}
+            .m{font-family:Consolas,Menlo,monospace;font-size:10.5px;fill:#7fb3d5}
+            .fl{stroke:#8ecae6;stroke-width:1.6;fill:none}
+          </style>
+
+          <rect class="st" x="20" y="75" width="130" height="60" rx="10"/>
+          <text class="t" x="85" y="100" text-anchor="middle">/swarm-start</text>
+          <text class="d" x="85" y="117" text-anchor="middle">per affected repo →</text>
+
+          <rect class="st" x="190" y="75" width="150" height="60" rx="10"/>
+          <text class="t" x="265" y="96" text-anchor="middle">save primary clone</text>
+          <text class="d" x="265" y="112" text-anchor="middle">commit dirty · pull-merge</text>
+          <text class="d" x="265" y="126" text-anchor="middle">push — origin is fresh</text>
+
+          <rect class="st" x="380" y="75" width="150" height="60" rx="10"/>
+          <text class="t" x="455" y="96" text-anchor="middle">worktree add</text>
+          <text class="m" x="455" y="113" text-anchor="middle">-b feature/&lt;req&gt;-&lt;task&gt;</text>
+          <text class="d" x="455" y="127" text-anchor="middle">real checkout, no symlinks</text>
+
+          <rect class="st" x="570" y="75" width="130" height="60" rx="10"/>
+          <text class="t" x="635" y="96" text-anchor="middle">draft PR</text>
+          <text class="d" x="635" y="113" text-anchor="middle">init commit + push</text>
+          <text class="d" x="635" y="127" text-anchor="middle">audit trail from birth</text>
+
+          <rect class="st" x="740" y="75" width="120" height="60" rx="10"/>
+          <text class="t" x="800" y="96" text-anchor="middle">manifest</text>
+          <text class="m" x="800" y="113" text-anchor="middle">affectedRepos[]</text>
+          <text class="d" x="800" y="127" text-anchor="middle">session state</text>
+
+          <path class="fl" d="M150,105 H185" marker-end="url(#fa)"/>
+          <path class="fl" d="M340,105 H375" marker-end="url(#fa)"/>
+          <path class="fl" d="M530,105 H565" marker-end="url(#fa)"/>
+          <path class="fl" d="M700,105 H735" marker-end="url(#fa)"/>
+
+          <text class="d" x="440" y="35" text-anchor="middle" font-size="12">…then npm install (Darwin) and a terminal launch with the coordination-specific auto-prompt</text>
+          <path class="fl" d="M440,45 V68" marker-end="url(#fa)" opacity="0.5"/>
+        </svg>
+      </div>
+      <figcaption>One <span class="mono">/hygiene checkout</span> per repo. Multi-item launches run these
+      rounds in parallel from the primary session — three sessions in ~2 minutes.</figcaption>
+    </figure>
+
+    <div class="callout"><span class="lbl">Mid-session growth</span>
+      The affected-repo list is a launch-time declaration, not a cage. A worker that discovers it needs
+      another repo invokes <span class="mono">/hygiene checkout &lt;repo&gt;</span> — the repo joins the
+      session as a real worktree on the same feature branch, with its own draft PR. Hand-rolled
+      <span class="mono">git worktree add</span> is banned; improvised sequences have corrupted repos.</div>
+  </section>
+
+  <!-- 2 · Worktree anatomy -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Worktree anatomy — real checkouts, no symlinks</h2></div>
+    <p class="sub">The anti-fragile layout (req&nbsp;#2232). Every repo present is a genuine git worktree;
+      repos not in the session are simply absent.</p>
+    <div class="cols">
+      <div class="card">
+        <h3>Inside <span class="mono">wt-&lt;req&gt;-&lt;task&gt;/</span></h3>
+        <ul class="tight">
+          <li><strong>Root = DarwinAI-Config worktree</strong> — CLAUDE.md, SWARM.md, <span class="mono">memory/</span>, <span class="mono">scripts/</span>, all checked out on the feature branch.</li>
+          <li><span class="mono">Darwin/</span>, <span class="mono">Lambda-*/</span>, <span class="mono">DarwinSQL/</span> — real sub-repo worktrees, <em>only if affected</em>.</li>
+          <li><span class="mono">.swarm-manifest.json</span> — gitignored session state: IDs, branch, PRs, coordination type.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Guard rails</h3>
+        <ul class="tight">
+          <li><strong>Write isolation</strong> — a PreToolUse hook blocks edits outside the worktree (plus <span class="mono">/tmp</span> and auto-memory paths).</li>
+          <li><strong>No worker writes main</strong> — every change flows through the feature branch and its PR; the only direct-to-main path is the primary's closeout skill.</li>
+          <li><strong>Never touch <span class="mono">.git/</span> internals</strong> — lock-file trouble stops the session and surfaces to the user (2026-04-14 corruption incident rule).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · What branches, what doesn't -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>What branches — and what deliberately doesn't</h2></div>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Thing</th><th class="mid">Branched?</th><th>How it travels</th></tr></thead>
+      <tbody>
+        <tr><td>Every repo in <span class="mono">affectedRepos</span></td><td class="mid yes">✓</td><td>Same <span class="mono">feature/&lt;req&gt;-&lt;task&gt;</span> branch in each; one PR per repo ties the multi-repo change together</td></tr>
+        <tr><td>Tracked memory (<span class="mono">memory/*.md</span>)</td><td class="mid yes">✓</td><td>Ordinary files in the DarwinAI-Config worktree — knowledge edits ride the same PR as code</td></tr>
+        <tr><td>Skills, scripts, agents (<span class="mono">.claude/</span>, <span class="mono">scripts/</span>)</td><td class="mid yes">✓</td><td>Part of the config checkout — a session can safely evolve the machinery it runs on</td></tr>
+        <tr><td>Unaffected sub-repos</td><td class="mid no">·</td><td>Absent from the worktree entirely; join later via <span class="mono">/hygiene checkout</span> if needed</td></tr>
+        <tr><td>Database (RDS: requirements, sessions, app data)</td><td class="mid no">·</td><td><strong>Shared and live</strong> — all sessions read/write the same MySQL; schema DDL is gated by migration files + snapshots, not branches</td></tr>
+        <tr><td>Per-session artifacts (<span class="mono">PLAN.md</span>, <span class="mono">SWARM_SESSION.md</span>, manifest)</td><td class="mid no">·</td><td>Gitignored; authoritative copies land in the MCP session record and the forensics archive at close-out</td></tr>
+        <tr><td>User layer (<span class="mono">~/.claude</span> settings, dotfiles) + auto-memory</td><td class="mid no">·</td><td>Machine-level, outside the session; synced by <span class="mono">darcfg</span> at primary session boundaries</td></tr>
+        <tr><td><span class="mono">node_modules/</span>, dev servers, terminals</td><td class="mid no">·</td><td>Rebuilt/launched per session (~287&nbsp;MB and one <span class="mono">npm install</span> per Darwin worktree)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout"><span class="lbl">The design line</span>
+      Git-carried state branches; <strong>live shared state does not</strong>. The database, the deployed
+      site, and the machine identity are single instances that every session converges on through gates
+      (migrations, deploy locks, session-boundary sync) rather than through branches.</div>
+  </section>
+
+  <!-- 4 · Branch lifecycle -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Branch lifecycle — four exits</h2></div>
+    <p class="sub">A feature branch is born at <span class="mono">/swarm-start</span> and dies through
+      exactly one of four user-initiated doors.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg width="860" height="240" viewBox="0 0 860 240" role="img"
+             aria-label="Branch diagram: main trunk with a feature branch curving up at swarm-start, commits along the branch, then merging back at swarm-complete; pause holds the branch open; undo terminates it without merging.">
+          <defs>
+            <marker id="bh" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
+            </marker>
+          </defs>
+          <style>
+            .trunk{stroke:#8ecae6;stroke-width:2;fill:none}
+            .branch-line{stroke:#8ecae6;stroke-width:1.6;fill:none;opacity:.92}
+            .dot{fill:#102a43;stroke:#8ecae6;stroke-width:2}
+            .ver{font-family:Consolas,Menlo,monospace;font-size:10px;fill:#7fb3d5;text-anchor:middle}
+            .bname{font-family:Calibri,Segoe UI,sans-serif;font-size:12px;font-weight:600;fill:#caf0f8}
+          </style>
+
+          <!-- main trunk -->
+          <path class="trunk" d="M40,180 H820" marker-end="url(#bh)"/>
+          <text class="bname" x="40" y="166">main</text>
+          <circle class="dot" cx="120" cy="180" r="5.5"/>
+          <circle class="dot" cx="620" cy="180" r="6" fill="#2dd4bf" stroke="#99f6e4"/>
+          <text class="ver" x="620" y="202">merge + deploy</text>
+
+          <!-- feature branch rises from main -->
+          <path class="branch-line" d="M120,180 C120,135 175,125 175,80 H560 C600,80 590,180 620,180"/>
+          <text class="bname" x="200" y="66">feature/&lt;req&gt;-&lt;task&gt;</text>
+
+          <circle class="dot" cx="240" cy="80" r="5.5"/><text class="ver" x="240" y="100">init commit · draft PR</text>
+          <circle class="dot" cx="360" cy="80" r="5.5"/><text class="ver" x="360" y="100">work commits</text>
+          <circle class="dot" cx="470" cy="80" r="5.5" fill="#ffd166" stroke="#fde68a"/><text class="ver" x="470" y="100">pause · [PAUSED]</text>
+
+          <!-- undo branch: terminated -->
+          <path class="branch-line" d="M120,180 C120,222 160,228 190,228 H320" opacity="0.55"/>
+          <circle class="dot" cx="250" cy="228" r="5.5" fill="#f87171" stroke="#fecaca"/>
+          <text class="ver" x="250" y="220">undo — PR closed, branch deleted, audit row kept</text>
+
+          <text class="ver" x="120" y="202">/swarm-start</text>
+        </svg>
+      </div>
+      <figcaption>The happy path merges and deploys; pause parks the branch on GitHub for
+      <span class="svg-ver">/swarm-resume</span>; undo destroys the branch but never its audit trail.</figcaption>
+    </figure>
+
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Exit</th><th>Branch fate</th><th>What survives</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">/swarm-complete</span></td><td>Merged into the default branch per repo (<span class="mono">/hygiene merge</span>: freshen from origin, push, PR ready, merge), then deploy runs <strong>after</strong> the merge under a lock — every deploy is a superset of prior deploys</td><td>Everything — plus archived transcript, notes, git-ops log</td></tr>
+        <tr><td><span class="mono">/swarm-pause</span></td><td>Committed, pushed, PR tagged <span class="mono">[PAUSED]</span>; local worktree removed</td><td>Branch + PR on GitHub; Darwin session row is the source of truth for resuming</td></tr>
+        <tr><td><span class="mono">/swarm-undo</span></td><td>PR closed unmerged; remote + local branches deleted</td><td>A <span class="mono">swarm_undos</span> audit row (reason, snapshot) that outlives the session record</td></tr>
+        <tr><td><span class="mono">/swarm-resume</span> / <span class="mono">/swarm-restart</span></td><td>Not an exit — rebuilds worktrees from the paused branch, or relaunches a killed terminal for a still-live worktree</td><td>—</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- 5 · Strengths and holes -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>What's good — and where the holes are</h2></div>
+    <div class="cols">
+      <div class="card">
+        <h3 style="border-color:var(--dot-green)">Strengths</h3>
+        <ul class="tight">
+          <li><strong>True isolation.</strong> N sessions edit N disjoint trees — a worker cannot touch a sibling's files, and the write-isolation hook enforces it mechanically.</li>
+          <li><strong>Everything is a PR.</strong> Every session leaves a reviewable, revertable GitHub trail from its first minute — including memory and skill changes.</li>
+          <li><strong>Merge-only, commit-only.</strong> No rebase anywhere in the machinery; every state change is a commit, and conflicts resolve in-band by the session that owns the work.</li>
+          <li><strong>One branch name across repos</strong> ties a multi-repo change into one findable unit — resume rebuilds the whole session from GitHub alone.</li>
+          <li><strong>Anti-fragile layout.</strong> Real worktrees, zero symlinks: a corrupted or deleted session directory cannot reach the primary clones.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="border-color:var(--dot-yellow)">Holes — known and accepted</h3>
+        <ul class="tight">
+          <li><strong>The database is not branched.</strong> Schema DDL and shared-table writes from one session are instantly visible to all. Migration files, <span class="mono">darwin_dev</span>-first verification, and RDS snapshots gate it — process, not isolation.</li>
+          <li><strong>Deploy is a shared endpoint.</strong> Parallel <span class="mono">deployed</span> sessions once raced last-writer-wins on S3; the post-merge deploy + lock (req&nbsp;#2386) serializes it, but deploys still couple sessions in time.</li>
+          <li><strong>Machine-local files sit outside the fence.</strong> Concurrent sessions share <span class="mono">~/.claude/settings.json</span> and friends — observed churn under sibling sessions; darcfg surfaces conflicts but can't isolate them.</li>
+          <li><strong>Session-scoped context is thinner than a branch.</strong> <span class="mono">PLAN.md</span> and session notes are gitignored; they survive only via the MCP record and close-out archive — a crash before archiving loses the notes.</li>
+          <li><strong>Cost scales linearly.</strong> Each session is a full checkout (~287&nbsp;MB <span class="mono">node_modules</span> for Darwin) and an independent Claude context — N sessions ≈ N× tokens.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout"><span class="lbl">Net assessment</span>
+      The branch fence is drawn exactly around what git can version. Inside it, isolation is total and
+      auditable; outside it (database, deploy, machine identity), the system substitutes gates and
+      session-boundary sync. The holes are all in the second category — shared by design, guarded by
+      process.</div>
+  </section>
+
+  <footer>
+    <p><strong style="color:var(--body)">Groomed presentation.</strong> The specs are
+    <span class="kbd">SWARM.md</span> and <span class="kbd">memory/swarm-reference.md</span>; the
+    implementation is the <span class="kbd">/hygiene</span> skill and <span class="kbd">scripts/swarm/*</span>,
+    validated by <span class="kbd">tests/swarm/</span>. When a rule changes, the spec leads and this page
+    is re-groomed.</p>
+    <p style="margin-top:10px">Design language: <span class="kbd">memory/html-doc-design.md</span> — the deep-navy blueprint
+    shared with the Build Visualizer <span class="mono">midnight</span> theme and the NVLink topology views.
+    &nbsp;·&nbsp; req&nbsp;#2982 · req&nbsp;#2232 · req&nbsp;#2348 · req&nbsp;#2386</p>
+  </footer>
+
+</div>
+</body>
+</html>
