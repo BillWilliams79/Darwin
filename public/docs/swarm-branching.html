@@ -300,7 +300,7 @@
           </defs>
           <style>
             .trunk{stroke:#8ecae6;stroke-width:2;fill:none}
-            .sub{stroke:#8ecae6;stroke-width:1.6;fill:none;opacity:.92}
+            .branch-line{stroke:#8ecae6;stroke-width:1.6;fill:none;opacity:.92}
             .dot{fill:#102a43;stroke:#8ecae6;stroke-width:2}
             .ver{font-family:Consolas,Menlo,monospace;font-size:10px;fill:#7fb3d5;text-anchor:middle}
             .bname{font-family:Calibri,Segoe UI,sans-serif;font-size:12px;font-weight:600;fill:#caf0f8}
@@ -314,7 +314,7 @@
           <text class="ver" x="620" y="202">merge + deploy</text>
 
           <!-- feature branch rises from main -->
-          <path class="sub" d="M120,180 C120,135 175,125 175,80 H560 C600,80 590,180 620,180"/>
+          <path class="branch-line" d="M120,180 C120,135 175,125 175,80 H560 C600,80 590,180 620,180"/>
           <text class="bname" x="200" y="66">feature/&lt;req&gt;-&lt;task&gt;</text>
 
           <circle class="dot" cx="240" cy="80" r="5.5"/><text class="ver" x="240" y="100">init commit · draft PR</text>
@@ -322,7 +322,7 @@
           <circle class="dot" cx="470" cy="80" r="5.5" fill="#ffd166" stroke="#fde68a"/><text class="ver" x="470" y="100">pause · [PAUSED]</text>
 
           <!-- undo branch: terminated -->
-          <path class="sub" d="M120,180 C120,222 160,228 190,228 H320" opacity="0.55"/>
+          <path class="branch-line" d="M120,180 C120,222 160,228 190,228 H320" opacity="0.55"/>
           <circle class="dot" cx="250" cy="228" r="5.5" fill="#f87171" stroke="#fecaca"/>
           <text class="ver" x="250" y="220">undo — PR closed, branch deleted, audit row kept</text>
 
@@ -355,7 +355,7 @@
         <ul class="tight">
           <li><strong>True isolation.</strong> N sessions edit N disjoint trees — a worker cannot touch a sibling's files, and the write-isolation hook enforces it mechanically.</li>
           <li><strong>Everything is a PR.</strong> Every session leaves a reviewable, revertable GitHub trail from its first minute — including memory and skill changes.</li>
-          <li><strong>Merge-only, commit-only.</strong> No rebase, no stash anywhere in the machinery; every state change is a commit, and conflicts resolve in-band by the session that owns the work.</li>
+          <li><strong>Merge-only, commit-only.</strong> No rebase anywhere in the machinery; every state change is a commit, and conflicts resolve in-band by the session that owns the work.</li>
           <li><strong>One branch name across repos</strong> ties a multi-repo change into one findable unit — resume rebuilds the whole session from GitHub alone.</li>
           <li><strong>Anti-fragile layout.</strong> Real worktrees, zero symlinks: a corrupted or deleted session directory cannot reach the primary clones.</li>
         </ul>
