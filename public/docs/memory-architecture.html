@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Memory Architecture — Storage, Sync &amp; the Split-Brain Fix</title>
+<!--
+  Darwin AI Workspace — Memory architecture, groomed to HTML (req #2982).
+  Human-facing statement of the four-bucket memory model, the physical storage
+  map, and the split-brain solution (req #2952/#2963). The engine-facing specs
+  are memory/memory-architecture.md and memory/architect-user-repo.md.
+  Design language: memory/html-doc-design.md (deep-navy blueprint — fuses the
+  Build Visualizer `midnight` theme with the NVLink topology palette).
+-->
+<style>
+  :root {
+    --bg:        #0a1929;
+    --bg2:       #0c1d34;
+    --panel-a:   #19324e;
+    --panel-b:   #0c1d34;
+    --accent:    #5fa3d4;
+    --accent-lo: #4a8fc7;
+    --line:      #8ecae6;
+    --title:     #ffffff;
+    --body:      #cfe4f7;
+    --dim:       #9bbcd6;
+    --section:   #7bb8de;
+    --sep:       rgba(74,143,199,0.55);
+    --hair:      rgba(94,163,212,0.22);
+    --mono:      "Consolas","Menlo","SFMono-Regular",monospace;
+    --sans:      "Calibri","Segoe UI",system-ui,Arial,sans-serif;
+    --dot-green:   #2dd4bf;
+    --dot-red:     #f87171;
+    --dot-yellow:  #ffd166;
+    --dot-gray:    #5b7387;
+    --dot-cust:    #3b82f6;
+    --gold:        #fbbf24;
+    --silver:      #d4d4d8;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #12263f 0%, transparent 60%),
+      var(--bg);
+    color: var(--body);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 96px; }
+
+  header.masthead {
+    padding: 56px 0 28px;
+    border-bottom: 1px solid var(--hair);
+    margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 34px; line-height: 1.15; font-weight: 700;
+    color: var(--title); margin: 0 0 12px; letter-spacing: -.01em;
+  }
+  .lede { font-size: 16px; color: var(--dim); max-width: 62ch; margin: 0; }
+
+  .tuple {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 4px;
+    font-family: var(--mono);
+  }
+  .seg {
+    flex: 1 1 150px; min-width: 140px;
+    border: 1px solid var(--hair); border-radius: 10px;
+    background: linear-gradient(160deg, var(--panel-a), var(--panel-b));
+    padding: 14px 16px;
+  }
+  .seg .big { font-size: 26px; font-weight: 700; color: var(--title); }
+  .seg .k   { font-size: 12px; letter-spacing: .04em; color: var(--accent); margin-top: 4px; font-family: var(--sans); font-weight: 700; }
+  .seg .d   { font-size: 12.5px; color: var(--dim); margin-top: 2px; font-family: var(--sans); }
+
+  section { margin-top: 40px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--hair); border-radius: 6px; padding: 2px 8px; font-weight: 700;
+  }
+  h2 { font-size: 21px; color: var(--title); font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--dim); font-size: 14.5px; margin: -6px 0 14px; }
+
+  .card {
+    border: 1px solid var(--hair); border-radius: 12px;
+    background: linear-gradient(165deg, var(--panel-a), var(--panel-b));
+    padding: 20px 22px; margin: 14px 0;
+  }
+  .card > h3 {
+    font-size: 15px; color: var(--title); font-weight: 700; margin: 0 0 8px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--sep);
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px){ .cols { grid-template-columns: 1fr; } }
+  p { margin: 8px 0; }
+  code, .mono { font-family: var(--mono); font-size: .92em; color: #bfe3ff; }
+  .mono-chip {
+    font-family: var(--mono); background: rgba(94,163,212,0.12);
+    border: 1px solid var(--hair); border-radius: 5px; padding: 1px 6px; color: #cbeaff; white-space: nowrap;
+  }
+  strong { color: #eaf4ff; }
+  .accent { color: var(--accent); }
+  .dim { color: var(--dim); }
+
+  .tbl-wrap { overflow-x: auto; margin: 6px 0; border-radius: 10px; border: 1px solid var(--hair); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 460px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  thead th { background: rgba(94,163,212,0.10); color: var(--section); font-weight: 700; letter-spacing: .02em; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mid, th.mid { text-align: center; }
+  .yes { color: var(--dot-green); font-weight: 700; }
+  .no  { color: #6c8299; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(94,163,212,0.07);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0;
+    font-size: 14px; color: var(--body);
+  }
+  .callout .lbl { color: var(--accent); font-weight: 700; letter-spacing: .04em; font-size: 12px; text-transform: uppercase; display:block; margin-bottom: 3px; }
+
+  figure { margin: 8px 0 4px; }
+  .figbox {
+    border: 1px solid var(--hair); border-radius: 12px; overflow-x: auto;
+    background: repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(94,163,212,0.05) 39px, rgba(94,163,212,0.05) 40px), var(--bg2);
+    padding: 8px;
+  }
+  figure svg { display: block; }
+  figcaption { color: var(--dim); font-size: 12.5px; margin-top: 8px; text-align: center; }
+
+  footer {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hair);
+    color: var(--dim); font-size: 13px;
+  }
+  footer a { color: var(--accent); }
+  .kbd { font-family: var(--mono); color: #bfe3ff; }
+  ul.tight { margin: 8px 0; padding-left: 20px; }
+  ul.tight li { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Darwin · AI Workspace</p>
+    <h1>Memory Architecture</h1>
+    <p class="lede">Where the Darwin AI workspace stores what it knows, how that knowledge reaches every
+    session on every machine, and how the split-brain problem was closed to a one-session bound.</p>
+
+    <div class="tuple" role="img" aria-label="Four memory buckets">
+      <div class="seg"><div class="big" style="color:#a9d4f5">1</div><div class="k">CLAUDE.md</div><div class="d">Binding rules — every session</div></div>
+      <div class="seg"><div class="big" style="color:#8ecae6">2</div><div class="k">Auto-memory</div><div class="d">Index + topics — primary only</div></div>
+      <div class="seg"><div class="big" style="color:var(--dot-green)">3</div><div class="k">Worker injections</div><div class="d">Manifest + work spec</div></div>
+      <div class="seg"><div class="big" style="color:var(--gold)">4</div><div class="k">On-demand topics</div><div class="d">Read when relevant — any session</div></div>
+    </div>
+  </header>
+
+  <!-- 1 · Four buckets -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>The four-bucket model</h2></div>
+    <p class="sub">Each bucket loads into a different session type at a different time. Nothing loads twice.</p>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Bucket</th><th>Files</th><th>Loaded by</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1 · Shared binding rules</strong></td><td><span class="mono">CLAUDE.md</span></td><td>Every session — primary and every worker</td><td>Injected automatically at session start</td></tr>
+        <tr><td><strong>2 · Primary auto-memory</strong></td><td><span class="mono">memory/MEMORY.md</span> index + <span class="mono">memory/*.md</span> topics</td><td>Primary only</td><td>Index at start (~29&nbsp;KB budget); topics never auto-load</td></tr>
+        <tr><td><strong>3 · Worker injections</strong></td><td><span class="mono">.swarm-manifest.json</span> + requirement description (MCP)</td><td>Workers only</td><td>Manifest at start; work spec fetched as first action</td></tr>
+        <tr><td><strong>4 · On-demand topics</strong></td><td>Any <span class="mono">memory/*.md</span></td><td>Any session</td><td>Read explicitly when the index hook signals relevance</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout"><span class="lbl">Why workers skip bucket 2</span>
+      A worker's context is CLAUDE.md (rules) + its requirement (spec) + the code itself. Project history,
+      cost figures, and style preferences are the primary's decision-making load — shipping them to every
+      worker would be pure token cost.</div>
+  </section>
+
+  <!-- 2 · Storage map -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Where memories physically live</h2></div>
+    <p class="sub">One tracked home, one visible indirection. Memory is ordinary git-tracked markdown in
+      the <strong>DarwinAI-Config</strong> repo at <span class="mono-chip">&lt;clone&gt;/memory/</span>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg width="880" height="270" viewBox="0 0 880 270" role="img"
+             aria-label="Storage map: GitHub DarwinAI-Config repo syncs to the local clone's memory directory; a symlink wires it into Claude Code's auto-memory load path; worker worktrees carry the same files on feature branches.">
+          <defs>
+            <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
+            </marker>
+          </defs>
+          <style>
+            .box{fill:#19324e;stroke:#5fa3d4;stroke-width:1.2;rx:10}
+            .bx2{fill:#0c1d34;stroke:#5fa3d4;stroke-width:1.2}
+            .t{font-family:Calibri,Segoe UI,sans-serif;font-size:13px;font-weight:600;fill:#ffffff}
+            .m{font-family:Consolas,Menlo,monospace;font-size:11px;fill:#7fb3d5}
+            .d{font-family:Calibri,Segoe UI,sans-serif;font-size:11.5px;fill:#9bbcd6}
+            .fl{stroke:#8ecae6;stroke-width:1.6;fill:none}
+            .lk{stroke:#ffd166;stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+            .lbl{font-family:Calibri,Segoe UI,sans-serif;font-size:11px;fill:#8ecae6}
+          </style>
+
+          <!-- GitHub -->
+          <rect class="box" x="30" y="95" width="180" height="72" rx="10"/>
+          <text class="t" x="120" y="120" text-anchor="middle">GitHub</text>
+          <text class="m" x="120" y="138" text-anchor="middle">DarwinAI-Config</text>
+          <text class="d" x="120" y="154" text-anchor="middle">single remote source of truth</text>
+
+          <!-- Clone -->
+          <rect class="box" x="300" y="95" width="220" height="72" rx="10"/>
+          <text class="t" x="410" y="120" text-anchor="middle">Primary clone</text>
+          <text class="m" x="410" y="138" text-anchor="middle">&lt;clone&gt;/memory/*.md</text>
+          <text class="d" x="410" y="154" text-anchor="middle">MEMORY.md index + topic files</text>
+
+          <!-- pull/push -->
+          <path class="fl" d="M210,122 H295" marker-end="url(#ah)"/>
+          <path class="fl" d="M300,145 H215" marker-end="url(#ah)"/>
+          <text class="lbl" x="255" y="112" text-anchor="middle">pull at session start</text>
+          <text class="lbl" x="255" y="163" text-anchor="middle">PR merge / closeout</text>
+
+          <!-- Claude Code loader -->
+          <rect class="bx2" x="610" y="30" width="240" height="72" rx="10"/>
+          <text class="t" x="730" y="55" text-anchor="middle">Claude Code auto-memory</text>
+          <text class="m" x="730" y="73" text-anchor="middle">~/.claude/projects/&lt;enc&gt;/memory</text>
+          <text class="d" x="730" y="89" text-anchor="middle">loads MEMORY.md every primary session</text>
+
+          <!-- symlink -->
+          <path class="lk" d="M520,110 C560,100 570,75 605,66" marker-end="url(#ah)"/>
+          <text class="lbl" x="566" y="55" text-anchor="middle" fill="#ffd166">symlink (recreated at restore)</text>
+
+          <!-- Worker worktrees -->
+          <rect class="bx2" x="610" y="160" width="240" height="72" rx="10"/>
+          <text class="t" x="730" y="185" text-anchor="middle">Worker worktrees</text>
+          <text class="m" x="730" y="203" text-anchor="middle">wt-*/memory/*.md</text>
+          <text class="d" x="730" y="219" text-anchor="middle">same files on feature/&lt;req&gt; branches</text>
+
+          <!-- worktree flow -->
+          <path class="fl" d="M520,150 C560,160 570,185 605,193" marker-end="url(#ah)"/>
+          <text class="lbl" x="566" y="215" text-anchor="middle">git worktree</text>
+        </svg>
+      </div>
+      <figcaption>The one storage home and its two consumers. The <span class="mono">~/.claude</span> symlink is
+      the single load-path indirection — deliberate, visible, and recreated per machine at restore time.</figcaption>
+    </figure>
+
+    <div class="cols">
+      <div class="card">
+        <h3>The index contract</h3>
+        <p><span class="mono">MEMORY.md</span> is a <strong>pure index</strong> — one line per memory,
+        no content bodies. Claude Code loads it at session start under a ~29&nbsp;KB budget and silently
+        truncates past it, so the index targets under 8&nbsp;KB. Content lives in topic files, which cost
+        nothing until a session actually reads them.</p>
+      </div>
+      <div class="card">
+        <h3>The symlink</h3>
+        <p>Claude Code looks for auto-memory at
+        <span class="mono">~/.claude/projects/&lt;encoded-path&gt;/memory</span>. A symlink points that
+        location at the tracked <span class="mono">&lt;clone&gt;/memory/</span> — so "AI memory" and
+        "repo docs" are the <strong>same files</strong>, versioned, reviewed, and merged like any code.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · Split brain -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>The split-brain problem — and the fix</h2></div>
+    <p class="sub">Two machines (macOS + WSL) each run a primary session. Anything that lives on one
+      machine and syncs by hand will diverge — the 2026-07-10 incident proved it.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg width="880" height="250" viewBox="0 0 880 250" role="img"
+             aria-label="Two machines each running a primary session, joined by three sync channels: the config repo for shared memory, darcfg for the user layer, and shared RDS for live swarm state.">
+          <defs>
+            <marker id="ah2" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
+            </marker>
+            <marker id="ah2r" markerWidth="9" markerHeight="9" refX="1" refY="4" orient="auto">
+              <path d="M8,0 L0,4 L8,8 Z" fill="#8ecae6"/>
+            </marker>
+          </defs>
+          <style>
+            .mc{fill:#19324e;stroke:#5fa3d4;stroke-width:1.4}
+            .hub{fill:#0c1d34;stroke:#8ecae6;stroke-width:1.4}
+            .t2{font-family:Calibri,Segoe UI,sans-serif;font-size:13.5px;font-weight:700;fill:#ffffff}
+            .m2{font-family:Consolas,Menlo,monospace;font-size:11px;fill:#7fb3d5}
+            .d2{font-family:Calibri,Segoe UI,sans-serif;font-size:11.5px;fill:#9bbcd6}
+            .ch{stroke:#8ecae6;stroke-width:1.6;fill:none}
+            .chl{font-family:Calibri,Segoe UI,sans-serif;font-size:11px;fill:#8ecae6}
+          </style>
+
+          <!-- machine A -->
+          <rect class="mc" x="30" y="60" width="200" height="130" rx="12"/>
+          <text class="t2" x="130" y="86" text-anchor="middle">Machine A · macOS</text>
+          <text class="d2" x="130" y="106" text-anchor="middle">primary session</text>
+          <text class="m2" x="130" y="126" text-anchor="middle">CLAUDE.md + memory/</text>
+          <text class="m2" x="130" y="143" text-anchor="middle">~/.claude settings · dotfiles</text>
+          <text class="m2" x="130" y="160" text-anchor="middle">darwin-canon.json</text>
+
+          <!-- machine B -->
+          <rect class="mc" x="650" y="60" width="200" height="130" rx="12"/>
+          <text class="t2" x="750" y="86" text-anchor="middle">Machine B · WSL</text>
+          <text class="d2" x="750" y="106" text-anchor="middle">primary session</text>
+          <text class="m2" x="750" y="126" text-anchor="middle">CLAUDE.md + memory/</text>
+          <text class="m2" x="750" y="143" text-anchor="middle">~/.claude settings · dotfiles</text>
+          <text class="m2" x="750" y="160" text-anchor="middle">darwin-canon.json</text>
+
+          <!-- hub: three channels -->
+          <rect class="hub" x="330" y="30" width="220" height="44" rx="9"/>
+          <text class="t2" x="440" y="49" text-anchor="middle" font-size="12.5">DarwinAI-Config (git)</text>
+          <text class="d2" x="440" y="65" text-anchor="middle">pull at start · PR merge at close</text>
+
+          <rect class="hub" x="330" y="100" width="220" height="44" rx="9"/>
+          <text class="t2" x="440" y="119" text-anchor="middle" font-size="12.5">darcfg (bare git over $HOME)</text>
+          <text class="d2" x="440" y="135" text-anchor="middle">pull at start · checkpoint at close</text>
+
+          <rect class="hub" x="330" y="170" width="220" height="44" rx="9"/>
+          <text class="t2" x="440" y="189" text-anchor="middle" font-size="12.5">Shared RDS (MySQL)</text>
+          <text class="d2" x="440" y="205" text-anchor="middle">requirements · sessions · swarm state</text>
+
+          <!-- channel lines -->
+          <path class="ch" d="M230,90 H325" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+          <path class="ch" d="M550,52 H645" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+          <path class="ch" d="M230,125 H325" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+          <path class="ch" d="M550,122 H645" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+          <path class="ch" d="M230,165 C280,180 290,192 325,192" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+          <path class="ch" d="M550,192 C590,192 600,180 645,165" marker-end="url(#ah2)" marker-start="url(#ah2r)"/>
+        </svg>
+      </div>
+      <figcaption>Every layer of the primary's identity has a named sync channel. Session boundaries are the
+      sync points — no daemon, no manual cadence.</figcaption>
+    </figure>
+
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Layer</th><th>Sync mechanism</th><th class="mid">Divergence bound</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">CLAUDE.md</span> + <span class="mono">memory/</span> (shared knowledge)</td>
+            <td>DarwinAI-Config <span class="mono">SessionStart</span> / throttled pull hook at start; PR merge at closeout</td>
+            <td class="mid yes">one session</td></tr>
+        <tr><td>Requirements · sessions · swarm state</td>
+            <td>Shared RDS — single source of truth, read via MCP</td>
+            <td class="mid yes">live</td></tr>
+        <tr><td>User layer (<span class="mono">settings.json</span>, statusline, dotfiles)</td>
+            <td><span class="mono">darcfg</span> bare-git-over-<span class="mono">$HOME</span> — start-pull + close-push checkpoint (req&nbsp;#2952)</td>
+            <td class="mid yes">one session</td></tr>
+        <tr><td>Model/effort defaults</td>
+            <td><span class="mono">darwin-canon.json</span> (tracked canon) reconciled into <span class="mono">settings.json</span> at session boundaries (req&nbsp;#2963) — a CLI <span class="mono">/model</span> switch self-heals, never redefines canon</td>
+            <td class="mid yes">one session</td></tr>
+        <tr><td>Harness (Claude Code install)</td>
+            <td>Versioned installs (Swarm Independence Program, req&nbsp;#2938/#2939)</td>
+            <td class="mid">per-install</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <div class="callout"><span class="lbl">The solved state</span>
+      Before req&nbsp;#2952 the user layer synced only when someone remembered to push — split brain by
+      construction. Now <strong>every layer either lives in one shared place (RDS) or auto-syncs at
+      session boundaries</strong>: pull on start, checkpoint on close. Cross-machine divergence of the
+      primary identity is bounded by one session, and conflicts surface for a human — never auto-clobber.</div>
+  </section>
+
+  <!-- 4 · How memory flows through a swarm -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>How workers write memory — sync through git</h2></div>
+    <p class="sub">There is no memory-merge machinery. Memory syncs because memory <em>is</em> tracked files.</p>
+    <div class="cols">
+      <div class="card">
+        <h3>Durable knowledge — rides the PR</h3>
+        <p>A worker edits <span class="mono">&lt;worktree&gt;/memory/&lt;topic&gt;.md</span> with the Edit
+        tool. That lands as a normal commit on <span class="mono">feature/&lt;reqId&gt;-&lt;task&gt;</span>;
+        <span class="mono">/swarm-complete</span> merges DarwinAI-Config like any other repo, and every other
+        session picks the knowledge up at its next start-pull.</p>
+      </div>
+      <div class="card">
+        <h3>Session-scoped — gitignored, then archived</h3>
+        <ul class="tight">
+          <li><span class="mono">PLAN.md</span> — authoritative copy lands in the MCP session record.</li>
+          <li><span class="mono">memory/SWARM_SESSION.md</span> — archived to <span class="mono">~/.darwin-swarm-archive/</span> at close-out.</li>
+          <li>Per-worker auto-memory — stays local; the worker promotes what deserves to survive into tracked <span class="mono">memory/</span>.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout"><span class="lbl">Design tenet</span>
+      Memory is not memorization. Code patterns, file paths, and git history are derivable from the
+      repo — memory files carry only what the code <em>cannot</em> say: preferences, decisions,
+      incidents, and the why behind them.</div>
+  </section>
+
+  <footer>
+    <p><strong style="color:var(--body)">Groomed presentation.</strong> The specs are
+    <span class="kbd">memory/memory-architecture.md</span> (four-bucket model) and
+    <span class="kbd">memory/architect-user-repo.md</span> (split-brain end-state, darcfg, canon);
+    the sync scripts live in <span class="kbd">scripts/swarm/</span> and are validated by
+    <span class="kbd">tests/swarm/</span>. When a rule changes, the spec leads and this page is re-groomed.</p>
+    <p style="margin-top:10px">Design language: <span class="kbd">memory/html-doc-design.md</span> — the deep-navy blueprint
+    shared with the Build Visualizer <span class="mono">midnight</span> theme and the NVLink topology views.
+    &nbsp;·&nbsp; req&nbsp;#2982 · req&nbsp;#2952 · req&nbsp;#2963</p>
+  </footer>
+
+</div>
+</body>
+</html>
