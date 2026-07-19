@@ -26,8 +26,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import Tab from '@mui/material/Tab';
@@ -46,6 +44,15 @@ import RequirementJumpInput from '../NavBar/RequirementJumpInput';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
+import ChipFilter from '../Components/ChipFilter';
+
+// req #2992 — fixed vocabulary, so options are module-level. Colors come from
+// requirementStatusChipProps, not the ChipFilter palette.
+const requirementStatusOptions = ALL_REQUIREMENT_STATUSES.map(status => ({
+    value: status,
+    label: requirementStatusLabel(status),
+    chipProps: requirementStatusChipProps(status),
+}));
 
 const SWARM_VIEW_STORAGE_KEY = 'darwin-swarm-view';
 
@@ -286,28 +293,12 @@ const SwarmView = () => {
                         {view === 'visualizer' && <VisualizerToolbar />}
                         <Box sx={{ flexGrow: 1 }} />
                         {(view === 'cards' || (view === 'table' && !drill)) && (
-                            <Stack direction="row" spacing={0.5} data-testid="requirement-status-filter">
-                                {ALL_REQUIREMENT_STATUSES.map(status => {
-                                    const selected = requirementStatusFilter.includes(status);
-                                    const chipProps = requirementStatusChipProps(status);
-                                    return (
-                                        <Chip
-                                            key={status}
-                                            label={requirementStatusLabel(status)}
-                                            size="small"
-                                            onClick={() => toggleRequirementStatus(status)}
-                                            {...(selected ? chipProps : { variant: 'outlined' })}
-                                            sx={{
-                                                ...(selected ? chipProps.sx : {}),
-                                                ...(!selected && { opacity: 0.5 }),
-                                                cursor: 'pointer',
-                                                textTransform: 'capitalize',
-                                            }}
-                                            data-testid={`filter-chip-${status}`}
-                                        />
-                                    );
-                                })}
-                            </Stack>
+                            <ChipFilter
+                                options={requirementStatusOptions}
+                                selected={requirementStatusFilter}
+                                onToggle={toggleRequirementStatus}
+                                testId="requirement-status-filter"
+                            />
                         )}
                         {view === 'cards' && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
