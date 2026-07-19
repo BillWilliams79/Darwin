@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -728,3 +728,25 @@ export function useCustomerReleasesByBuild(creatorFk, buildId, { enabled = true 
         enabled: enabled && !!creatorFk && !!buildId && !!idToken,
     });
 }
+
+// Req #2997 / #2998 — agents registry. Five hooks families drive /agents,
+// /agents/:id, /agents/instructions, and /agents/documents. The two junctions
+// expose no byId hook (composite PK, no `id` column); the UI joins them
+// client-side against the agent / instruction / document rows.
+export const useAgents     = agents.useAll;
+export const useAgent      = agents.useById;
+export const agentKeys     = agents.keys;
+
+export const useInstructions   = instructions.useAll;
+export const useInstruction    = instructions.useById;
+export const instructionKeys   = instructions.keys;
+
+export const useArchitectureDocuments = architectureDocuments.useAll;
+export const useArchitectureDocument  = architectureDocuments.useById;
+export const architectureDocumentKeys = architectureDocuments.keys;
+
+export const useAgentDocuments    = agentDocuments.useAll;
+export const agentDocumentKeys    = agentDocuments.keys;
+
+export const useAgentInstructions = agentInstructions.useAll;
+export const agentInstructionKeys = agentInstructions.keys;

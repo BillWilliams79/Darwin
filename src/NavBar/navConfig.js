@@ -17,6 +17,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import UndoIcon from '@mui/icons-material/Undo';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ComputerIcon from '@mui/icons-material/Computer';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -67,6 +68,7 @@ export const NAV_LINKS = [
     { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
+    { path: '/agents', label: 'Agents', icon: SmartToyIcon, group: 'swarm' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
