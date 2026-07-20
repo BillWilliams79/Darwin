@@ -644,16 +644,11 @@ export function computeLayout(model, opts = {}) {
     for (const b of branches) {
         if (isHidden(b.id)) continue;
         const r = dotRadiusFor(b.type);
-        // req #2899 — build-number labels sit on the MAIN-FACING side of the dot
-        // so the version stack always grows toward main, and the stack direction
-        // is DIFFERENT above vs below main. Above-main branches already render
-        // their numbers BELOW the dot (which points toward main), so they are
-        // unchanged; below-main (dev) branches flip to ABOVE the dot so their
-        // numbers hug main too. Main itself (center) keeps numbers below.
-        // Guard: release stars always render ABOVE the dot for every branch type
-        // (KonvaBuildCanvas — b.y − 22/50), so a below-main build that carries a
-        // release keeps its numbers BELOW the dot to clear its own star.
-        const isBelowMain = (branchY.get(b.id) ?? mainY) > mainY;
+        // req #3003 — build-number labels always render BELOW the dot, for
+        // every branch type including dev (below-main). req #2899 previously
+        // flipped below-main (dev) labels ABOVE the dot to keep the version
+        // stack growing toward main; that produced incorrectly-placed dev
+        // build numbers and has been reverted.
         (b.buildIds || []).forEach((bid, i) => {
             const pos = positions[bid];
             if (isGapId(bid)) {
@@ -663,11 +658,7 @@ export function computeLayout(model, opts = {}) {
             const data = buildsMap[bid];
             if (!pos || !data) return;
             const laneOffset = (o.versionLanes && i % 2 === 1) ? o.versionLaneGap : 0;
-            const bearsRelease = (releaseEvents[bid]?.length || 0) > 0;
-            const flipUp = isBelowMain && !bearsRelease;
-            const versionY = flipUp
-                ? pos.y - r - o.versionCloseOffset - laneOffset
-                : pos.y + r + o.versionCloseOffset + laneOffset;
+            const versionY = pos.y + r + o.versionCloseOffset + laneOffset;
             buildRecords.push({
                 id: bid,
                 branchId: b.id,
