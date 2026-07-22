@@ -72,10 +72,19 @@ const NavBarSidebar = () => {
     // staleTime: terminal_number is effectively immutable for the lifetime of a
     // dev server claim, so a 60s staleTime trades immediate freshness for one
     // refetch per minute instead of one per render (req #2419 W2 polish).
+    // Enabled in ALL environments (not just dev): production also needs to know
+    // whether the dev-server table is empty so the Dev Servers nav link can grey
+    // out (req #3005). Lightweight, user-scoped GET; 60s staleTime keeps it to
+    // roughly one refetch per minute.
     const { data: devServersArray } = useDevServers(profile?.userName, {
-        enabled: isDev,
+        enabled: !!profile?.userName,
         staleTime: 60_000,
     });
+    // Grey out the Dev Servers link when its table has no rows. Dev-server records
+    // are ephemeral (we don't keep history), so an empty table means "nothing
+    // running" — the only nav item that behaves this way. `undefined` (loading)
+    // is deliberately NOT treated as empty to avoid a grey flash on first paint.
+    const devServersEmpty = Array.isArray(devServersArray) && devServersArray.length === 0;
     const currentDevTerminal = useMemo(() => {
         if (!isDev || !devServersArray) return null;
         const port = parseInt(window.location.port || '0', 10);
@@ -119,6 +128,9 @@ const NavBarSidebar = () => {
     const renderNavItem = (link, showText) => {
         const Icon = link.icon;
         const active = isActive(link.path);
+        // Dev Servers greys out when its (ephemeral) table is empty — visual only,
+        // the link stays clickable so the empty grid is still reachable (req #3005).
+        const greyed = link.path === '/devservers' && devServersEmpty;
         const button = (
             <ListItemButton
                 key={link.path}
@@ -130,6 +142,7 @@ const NavBarSidebar = () => {
                     py: 0.6,
                     px: showText ? 1.5 : 1,
                     minHeight: 36,
+                    opacity: greyed ? 0.4 : 1,
                     justifyContent: showText ? 'initial' : 'center',
                     '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
                 }}
@@ -426,11 +439,14 @@ const NavBarSidebar = () => {
                 >
                     {visibleLinks.map((link) => {
                         const Icon = link.icon;
+                        // Mirror the desktop grey-out for an empty Dev Servers table (req #3005).
+                        const greyed = link.path === '/devservers' && devServersEmpty;
                         return (
                             <BottomNavigationAction
                                 key={link.path}
                                 label={link.label}
                                 icon={<Icon />}
+                                sx={greyed ? { opacity: 0.4 } : undefined}
                             />
                         );
                     })}
