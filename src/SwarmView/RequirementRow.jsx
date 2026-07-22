@@ -30,8 +30,6 @@ import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PendingIcon from '@mui/icons-material/Pending';
 import { coordinationIconColor } from './coordinationChipStyles';
-import { aiModelLabel } from './modelChipStyles';
-import { effortLabel } from './effortChipStyles';
 import SyncIcon from '@mui/icons-material/Sync';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 
@@ -411,15 +409,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     const showCoord = ['swarm_ready', 'development'].includes(status);
                     if (!showCoord) return null;
                     const isCoordEditable = status === 'swarm_ready';
-                    // req #2909 — surface the launch model alongside autonomy in the
-                    // tooltip (the card row has no room for a second glyph; the full
-                    // Model selector lives on the requirement detail page).
-                    // req #2916 — the launch effort rides the same tooltip.
-                    const modelSuffix = ` · Model: ${aiModelLabel(requirement.ai_model)}`
-                        + ` · Effort: ${effortLabel(requirement.effort)}`;
                     const tooltip = isCoordEditable
-                        ? (coordTooltip[coordType] || 'No autonomy — click to set') + modelSuffix
-                        : `Locked — not editable${modelSuffix}`;
+                        ? (coordTooltip[coordType] || 'No autonomy — click to set')
+                        : 'Locked — not editable';
                     return (
                         <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
                             <span>
