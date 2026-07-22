@@ -17,7 +17,7 @@
 // is the user-facing name for the CLI's top effort level (injected as
 // `claude --effort max`). Pre-#2916 rows were backfilled to 'high' — the
 // documented assumption for all historical data — so null/unknown falls back
-// to high styling, NOT to the new-row default (xhigh).
+// to high styling, which is also the new-row default (req #3007).
 
 export const EFFORT_COLOR = {
     low:       '#e0e0e0', // grey

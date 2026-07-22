@@ -103,7 +103,7 @@ const RequirementDetail = () => {
         requirement_status: 'authoring',
         coordination_type: 'implemented',
         ai_model: 'opus',
-        effort: 'xhigh',
+        effort: 'high',
         machine_fk: null,   // req #2978 — every requirement is born "Any machine"
         started_at: null,
         completed_at: null,

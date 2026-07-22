@@ -187,7 +187,7 @@ export function computeSessionStats(rows) {
 
     // Per-effort aggregation (req #2916) — same shape as the model rollup.
     // Unknown/NULL effort normalizes to 'high' (the documented pre-#2916
-    // backfill rule; NOT the new-row default xhigh).
+    // backfill rule, which is also the new-row default since req #3007).
     const normalizeEffort = (e) => (EFFORT_COLOR[e] ? e : 'high');
     const effortMap = Object.fromEntries(
         EFFORTS.map(e => [e, { count: 0, secs: 0, tokens: 0 }]));
