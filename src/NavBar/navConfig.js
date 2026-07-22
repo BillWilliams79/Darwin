@@ -18,6 +18,8 @@ import UndoIcon from '@mui/icons-material/Undo';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ComputerIcon from '@mui/icons-material/Computer';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import RuleIcon from '@mui/icons-material/Rule';
+import DescriptionIcon from '@mui/icons-material/Description';
 
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
@@ -70,7 +72,12 @@ export const NAV_LINKS = [
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
+    // Instructions + Documents listings live under AGENTS (req #3013) — the same
+    // icons the Agents page header chips used, kept in that order (Instructions
+    // then Documents).
     { path: '/agents', label: 'Agents', icon: SmartToyIcon, group: 'agents' },
+    { path: '/agents/instructions', label: 'Instructions', icon: RuleIcon, group: 'agents' },
+    { path: '/agents/documents', label: 'Documents', icon: DescriptionIcon, group: 'agents' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
