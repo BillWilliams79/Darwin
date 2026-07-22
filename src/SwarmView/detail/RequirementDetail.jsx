@@ -201,6 +201,11 @@ const RequirementDetail = () => {
             description: requirement.description || '',
             category_fk: requirement.category_fk,
             requirement_status: 'authoring',
+            // req #3007: ai_model + effort have NO database default — copy the
+            // source requirement's values (fall back to opus / high) so the
+            // POST never omits them and the DB never stores an invalid ''.
+            ai_model: requirement.ai_model || 'opus',
+            effort: requirement.effort || 'high',
         };
         const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
             .catch(() => null);
@@ -396,12 +401,17 @@ const RequirementDetail = () => {
         // New-mode (req #2414): picking a category is the first save. POST creates
         // the requirement, then we navigate to the canonical detail URL.
         if (isNew) {
+            // req #3007: ai_model + effort have NO database default — the caller
+            // MUST send them, or the DB stores an invalid ''. Send the draft's
+            // values (defaults: opus / high) explicitly.
             const draft = {
                 title: requirement?.title || '',
                 description: requirement?.description || '',
                 requirement_status: requirement?.requirement_status || 'authoring',
                 category_fk: newCategoryFk,
                 project_fk: null,
+                ai_model: requirement?.ai_model || 'opus',
+                effort: requirement?.effort || 'high',
             };
             const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
                 .catch(() => null);
