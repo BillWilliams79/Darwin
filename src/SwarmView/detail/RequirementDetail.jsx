@@ -103,7 +103,7 @@ const RequirementDetail = () => {
         requirement_status: 'authoring',
         coordination_type: 'implemented',
         ai_model: 'opus',
-        effort: 'xhigh',
+        effort: 'high',
         machine_fk: null,   // req #2978 — every requirement is born "Any machine"
         started_at: null,
         completed_at: null,
@@ -201,6 +201,11 @@ const RequirementDetail = () => {
             description: requirement.description || '',
             category_fk: requirement.category_fk,
             requirement_status: 'authoring',
+            // req #3007: ai_model + effort have NO database default — copy the
+            // source requirement's values (fall back to opus / high) so the
+            // POST never omits them and the DB never stores an invalid ''.
+            ai_model: requirement.ai_model || 'opus',
+            effort: requirement.effort || 'high',
         };
         const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
             .catch(() => null);
@@ -396,12 +401,17 @@ const RequirementDetail = () => {
         // New-mode (req #2414): picking a category is the first save. POST creates
         // the requirement, then we navigate to the canonical detail URL.
         if (isNew) {
+            // req #3007: ai_model + effort have NO database default — the caller
+            // MUST send them, or the DB stores an invalid ''. Send the draft's
+            // values (defaults: opus / high) explicitly.
             const draft = {
                 title: requirement?.title || '',
                 description: requirement?.description || '',
                 requirement_status: requirement?.requirement_status || 'authoring',
                 category_fk: newCategoryFk,
                 project_fk: null,
+                ai_model: requirement?.ai_model || 'opus',
+                effort: requirement?.effort || 'high',
             };
             const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
                 .catch(() => null);
@@ -650,13 +660,16 @@ const RequirementDetail = () => {
             })()}
 
             {/* Model + Effort (req #2909 / #2916) — the Claude launch settings, grouped in one
-                rounded-rectangle area directly below Autonomy with identical editability/fade/
-                new-mode rules. Pre-migration rows fall back to 'opus' / 'high' (the documented
-                backfill defaults). */}
+                rounded-rectangle area directly below Autonomy with identical editability and
+                new-mode rules. Fade, however, tracks EDITABILITY (like the Machine pin), not
+                swarm_ready alone (req #3008) — so it stays full opacity in authoring/approved.
+                Pre-migration rows fall back to 'opus' / 'high' (the documented backfill defaults). */}
             {(() => {
-                const isReady = currentStatus === 'swarm_ready';
+                // Req #3008 — AI Settings (Model + Effort) fade only when NOT editable.
+                // They are a planning-time decision the user makes while authoring/approved,
+                // so fading them there misrepresented fully-editable controls as disabled.
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
-                const isFaded = !isReady;
+                const isFaded = !isEditable;
                 const currentModel = requirement.ai_model || 'opus';
                 const currentEffort = requirement.effort || 'high';
                 const rowSx = { display: 'flex', gap: 1, alignItems: 'center' };
@@ -746,8 +759,8 @@ const RequirementDetail = () => {
                 // Fade tracks EDITABILITY, not swarm_ready alone: the pin is a
                 // planning-time decision the user makes while authoring, so fading it
                 // in authoring/approved would misrepresent a fully-editable control as
-                // disabled. (The AI Settings group above still fades on !swarm_ready —
-                // a deliberate difference, not an oversight.)
+                // disabled. (The AI Settings group above now uses this same
+                // editability-based fade rule — req #3008.)
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isEditable;
                 const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
