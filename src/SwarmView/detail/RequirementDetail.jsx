@@ -650,13 +650,16 @@ const RequirementDetail = () => {
             })()}
 
             {/* Model + Effort (req #2909 / #2916) — the Claude launch settings, grouped in one
-                rounded-rectangle area directly below Autonomy with identical editability/fade/
-                new-mode rules. Pre-migration rows fall back to 'opus' / 'high' (the documented
-                backfill defaults). */}
+                rounded-rectangle area directly below Autonomy with identical editability and
+                new-mode rules. Fade, however, tracks EDITABILITY (like the Machine pin), not
+                swarm_ready alone (req #3008) — so it stays full opacity in authoring/approved.
+                Pre-migration rows fall back to 'opus' / 'high' (the documented backfill defaults). */}
             {(() => {
-                const isReady = currentStatus === 'swarm_ready';
+                // Req #3008 — AI Settings (Model + Effort) fade only when NOT editable.
+                // They are a planning-time decision the user makes while authoring/approved,
+                // so fading them there misrepresented fully-editable controls as disabled.
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
-                const isFaded = !isReady;
+                const isFaded = !isEditable;
                 const currentModel = requirement.ai_model || 'opus';
                 const currentEffort = requirement.effort || 'high';
                 const rowSx = { display: 'flex', gap: 1, alignItems: 'center' };
@@ -746,8 +749,8 @@ const RequirementDetail = () => {
                 // Fade tracks EDITABILITY, not swarm_ready alone: the pin is a
                 // planning-time decision the user makes while authoring, so fading it
                 // in authoring/approved would misrepresent a fully-editable control as
-                // disabled. (The AI Settings group above still fades on !swarm_ready —
-                // a deliberate difference, not an oversight.)
+                // disabled. (The AI Settings group above now uses this same
+                // editability-based fade rule — req #3008.)
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isEditable;
                 const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
