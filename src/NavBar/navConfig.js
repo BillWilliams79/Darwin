@@ -25,6 +25,7 @@ export const NAV_GROUPS = [
     { id: 'maps', label: 'MAPS' },
     ...(import.meta.env.DEV ? [{ id: 'systems', label: 'SYSTEMS' }] : []),
     { id: 'swarm', label: 'SWARM' },
+    { id: 'agents', label: 'AGENTS' },
     { id: 'swarm-validate', label: 'SWARM VALIDATE' },
 ];
 
@@ -68,7 +69,8 @@ export const NAV_LINKS = [
     { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
-    { path: '/agents', label: 'Agents', icon: SmartToyIcon, group: 'swarm' },
+    // Agents is its own top-level group (req #3005), not nested under SWARM.
+    { path: '/agents', label: 'Agents', icon: SmartToyIcon, group: 'agents' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
