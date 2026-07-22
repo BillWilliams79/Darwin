@@ -11,13 +11,12 @@ import { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AuthContext from '../Context/AuthContext';
 import {
@@ -28,6 +27,7 @@ import { byId, agentsByInstruction, isCommonInstruction } from './agentRegistryU
 const InstructionsPage = () => {
     const navigate = useNavigate();
     const { profile } = useContext(AuthContext);
+    const isMobile = useMediaQuery('(max-width:899px)');
     const creatorFk = profile?.userName;
 
     const { data: instructions, isLoading } = useInstructions(creatorFk);
@@ -52,15 +52,12 @@ const InstructionsPage = () => {
     }, [instructions, byInstruction]);
 
     if (isLoading || !instructions) {
-        return <Box sx={{ gridArea: 'content', p: 3 }}><CircularProgress /></Box>;
+        return <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}><CircularProgress /></Box>;
     }
 
     return (
-        <Box sx={{ gridArea: 'content', p: 3 }}>
-            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/agents')} sx={{ mb: 1 }}>
-                Agents
-            </Button>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>Instructions</Typography>
+        <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
+            <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ mb: 0.5 }}>Instructions</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {rows.length} binding instruction rows. Chips show every agent bound by each row —
                 editing a row changes the duty for all of them at their next boot.
