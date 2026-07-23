@@ -7,6 +7,7 @@ import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
+import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
@@ -34,6 +35,13 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Divider from '@mui/material/Divider';
+import Check from '@mui/icons-material/Check';
+import TuneIcon from '@mui/icons-material/Tune';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
@@ -75,6 +83,17 @@ const SwarmView = () => {
     const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
+    // Model/Effort column display options (req #3029) — surfaced as a Tune menu in
+    // the cards-view header ("title row").
+    const meShowOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
+    const meToggleShowOnAllCards = useModelEffortDisplayStore(s => s.toggleShowOnAllCards);
+    const meDisplayMode = useModelEffortDisplayStore(s => s.displayMode);
+    const meSetDisplayMode = useModelEffortDisplayStore(s => s.setDisplayMode);
+    const meWideAggregator = useModelEffortDisplayStore(s => s.wideAggregator);
+    const meToggleWideAggregator = useModelEffortDisplayStore(s => s.toggleWideAggregator);
+    const meColumnOrder = useModelEffortDisplayStore(s => s.columnOrder);
+    const meSetColumnOrder = useModelEffortDisplayStore(s => s.setColumnOrder);
+    const [meMenuAnchor, setMeMenuAnchor] = useState(null);
     // req #2850 — a Trends drill-down is active; in Table view the status-filter
     // chips are replaced by the drill pill (the chips don't apply while drilled).
     const drill = useRequirementDrillStore(s => s.drill);
@@ -312,6 +331,100 @@ const SwarmView = () => {
                                     <RocketLaunchIcon />
                                 </IconButton>
                             </Tooltip>
+                        )}
+                        {view === 'cards' && (
+                            <>
+                                <Tooltip title="Model / Effort display options">
+                                    <IconButton
+                                        size="small"
+                                        onClick={(e) => setMeMenuAnchor(e.currentTarget)}
+                                        color={meShowOnAllCards ? 'primary' : 'default'}
+                                        data-testid="model-effort-display-menu"
+                                        sx={{ flexShrink: 0 }}
+                                    >
+                                        <TuneIcon />
+                                    </IconButton>
+                                </Tooltip>
+                                <Menu
+                                    anchorEl={meMenuAnchor}
+                                    open={Boolean(meMenuAnchor)}
+                                    onClose={() => setMeMenuAnchor(null)}
+                                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                                >
+                                    <MenuItem
+                                        onClick={meToggleShowOnAllCards}
+                                        data-testid="model-effort-show-all-cards"
+                                    >
+                                        <ListItemIcon>
+                                            {meShowOnAllCards && <Check fontSize="small" />}
+                                        </ListItemIcon>
+                                        <ListItemText>Show Model &amp; Effort on all cards</ListItemText>
+                                    </MenuItem>
+                                    <Divider />
+                                    <ListItemText
+                                        sx={{ px: 2, py: 0.5, color: 'text.secondary' }}
+                                        primaryTypographyProps={{ variant: 'caption' }}
+                                    >
+                                        Display
+                                    </ListItemText>
+                                    {[
+                                        { mode: 'pill', label: 'Pill' },
+                                        { mode: 'compact', label: 'Compact' },
+                                    ].map(({ mode, label }) => (
+                                        <MenuItem
+                                            key={mode}
+                                            onClick={() => meSetDisplayMode(mode)}
+                                            data-testid={`model-effort-mode-${mode}`}
+                                        >
+                                            <ListItemIcon>
+                                                {meDisplayMode === mode && <Check fontSize="small" />}
+                                            </ListItemIcon>
+                                            <ListItemText>{label}</ListItemText>
+                                        </MenuItem>
+                                    ))}
+                                    <Divider />
+                                    <ListItemText
+                                        sx={{ px: 2, py: 0.5, color: 'text.secondary' }}
+                                        primaryTypographyProps={{ variant: 'caption' }}
+                                    >
+                                        Column order
+                                    </ListItemText>
+                                    <Box sx={{ px: 2, py: 0.5 }}>
+                                        <ToggleButtonGroup
+                                            value={meColumnOrder}
+                                            exclusive
+                                            size="small"
+                                            onChange={(e, v) => { if (v) meSetColumnOrder(v); }}
+                                            data-testid="model-effort-order"
+                                        >
+                                            {[
+                                                { value: 'standard',   label: 'Default',     tip: 'Req · Status · Autonomy · Model · Effort' },
+                                                { value: 'meFirst',     label: 'M/E First',   tip: 'Model · Effort · Req · Status · Autonomy' },
+                                                { value: 'meAfterReq',  label: 'M/E After #', tip: 'Req · Model · Effort · Status · Autonomy' },
+                                            ].map(({ value, label, tip }) => (
+                                                <ToggleButton
+                                                    key={value}
+                                                    value={value}
+                                                    data-testid={`model-effort-order-${value}`}
+                                                    sx={{ textTransform: 'none', px: 1 }}
+                                                >
+                                                    <Tooltip title={tip}><span>{label}</span></Tooltip>
+                                                </ToggleButton>
+                                            ))}
+                                        </ToggleButtonGroup>
+                                    </Box>
+                                    <MenuItem
+                                        onClick={meToggleWideAggregator}
+                                        data-testid="model-effort-wide-aggregator"
+                                    >
+                                        <ListItemIcon>
+                                            {meWideAggregator && <Check fontSize="small" />}
+                                        </ListItemIcon>
+                                        <ListItemText>Wide aggregator card</ListItemText>
+                                    </MenuItem>
+                                </Menu>
+                            </>
                         )}
                         <SettingsMenu
                             tooltipTitle="Manage Projects & Categories"
