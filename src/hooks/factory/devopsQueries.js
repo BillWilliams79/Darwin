@@ -256,3 +256,37 @@ export const agentInstructions = createEntityQueries({
         { field: 'instruction_fk', as: 'instruction', creatorScoped: false },
     ],
 });
+
+// ---------------------------------------------------------------------------
+// agent context telemetry (req #3031) — persisted ACTUAL-token captures behind
+// /agents/context. A run header + N per-agent rows (variable N per capture).
+//
+// Routes through the default `darwinUri` (dev/prod split, req #2683): dev reads
+// darwin_dev fixtures, prod reads darwin. Both databases are seeded by
+// scripts/agents/capture-telemetry-run.py so dev review sees the real baseline.
+// Both tables carry creator_fk (in Lambda-Rest CREATOR_FK_TABLES), so the row
+// list is fetched by run_fk and the Lambda scopes it to the authenticated user
+// — the `byRun` FK hook is therefore creatorScoped:false (run_fk is the filter).
+// ---------------------------------------------------------------------------
+
+export const agentTelemetryRuns = createEntityQueries({
+    entity: 'agent_telemetry_runs',
+    defaultFields:
+        'id,captured_at,label,agent_count,harness_version,source_note,' +
+        'creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'captured_at:desc',
+});
+
+export const agentTelemetryRows = createEntityQueries({
+    entity: 'agent_telemetry_rows',
+    defaultFields:
+        'id,run_fk,agent_name,role,session_kind,boot_time_ms,cc_base_tokens,' +
+        'claude_md_tokens,charter_stub_tokens,boot_payload_tokens,autoload_tokens,' +
+        'docs_loaded,docs_expected,start_work_context_tokens,footnote,sort_order,' +
+        'creator_fk',
+    fieldsInKey: true,
+    foreignKeys: [
+        { field: 'run_fk', as: 'run', creatorScoped: false },
+    ],
+});
