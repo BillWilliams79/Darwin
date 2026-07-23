@@ -9,6 +9,7 @@ import { categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
+import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 
 import CategoryCloseDialog from './CategoryCloseDialog';
 import CategoryDeleteDialog from './CategoryDeleteDialog';
@@ -22,6 +23,9 @@ import Box from '@mui/material/Box';
 const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
+    // req #3029 — when off, the aggregator card stays the same width as the other
+    // cards (the `aggregator-wide` class below gates the wide-viewport span-2).
+    const wideAggregator = useModelEffortDisplayStore(s => s.wideAggregator);
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -395,7 +399,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                  sx={{ p: 3 }}
             >
                 { categoriesArray &&
-                    <Box className="card swarm-card" ref={panelDrop}>
+                    <Box className={`card swarm-card${(showSwarmStartCard && wideAggregator) ? ' aggregator-wide' : ''}`} ref={panelDrop}>
                         {showSwarmStartCard && <SwarmStartCard />}
                         { categoriesArray.map((category, categoryIndex) => (
                             <CategoryCard {...{key: category.id,
