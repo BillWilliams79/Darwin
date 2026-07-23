@@ -140,13 +140,17 @@ const RequirementDetail = () => {
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
     const { data: allCategoriesData } = useAllCategories(profile?.userName, {
-        fields: 'id,category_name,sort_order',
+        fields: 'id,category_name,sort_order,closed',
         closed: 0,
     });
     // Req #3015 — match the card view's ordering (CategoryTabPanel) rather than
     // whatever order the DB happens to return (no ORDER BY on the /categories GET).
+    // The `closed: 0` query param already asks the server for open categories only;
+    // the `.filter` below re-asserts that client-side (defense in depth against a
+    // stale/shared query-cache entry serving closed rows) — reopening #3015 reported
+    // closed categories leaking into this list.
     const allCategories = useMemo(
-        () => allCategoriesData && [...allCategoriesData].sort((a, b) => {
+        () => allCategoriesData && [...allCategoriesData].filter(c => !c.closed).sort((a, b) => {
             const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
             const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
             if (ao !== bo) return ao - bo;
