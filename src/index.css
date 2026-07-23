@@ -121,11 +121,11 @@
 
 /* req #3029 — Model + Effort columns. When present, RequirementRow adds `me-cols`
    and sets the `--me-grid` custom property to the full grid-template (built in
-   modelEffortLayout.js, per display mode). These selectors carry one more class
-   than the base row templates above, so they outrank them regardless of source
-   order — the reason the template is applied here rather than via MUI `sx` (which
-   would generate only a single-class rule and lose to the base templates). No
-   media variant is needed: with higher specificity these win at every width. */
+   modelEffortLayout.js). These selectors carry one more class than the base row
+   templates above, so they outrank them regardless of source order — the reason
+   the template is applied here rather than via MUI `sx` (which would generate
+   only a single-class rule and lose to the base templates). No media variant is
+   needed: with higher specificity these win at every width. */
 .task.requirement-row.me-cols {
     grid-template-columns: var(--me-grid);
 }

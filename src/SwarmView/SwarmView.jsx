@@ -84,15 +84,12 @@ const SwarmView = () => {
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
     // Model/Effort column display options (req #3029) — surfaced as a Tune menu in
-    // the cards-view header ("title row").
+    // the cards-view header ("title row"). req #3043 trimmed this to the two
+    // remaining toggles (pill rendering + standard order are now unconditional).
     const meShowOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
     const meToggleShowOnAllCards = useModelEffortDisplayStore(s => s.toggleShowOnAllCards);
-    const meDisplayMode = useModelEffortDisplayStore(s => s.displayMode);
-    const meSetDisplayMode = useModelEffortDisplayStore(s => s.setDisplayMode);
     const meWideAggregator = useModelEffortDisplayStore(s => s.wideAggregator);
     const meToggleWideAggregator = useModelEffortDisplayStore(s => s.toggleWideAggregator);
-    const meColumnOrder = useModelEffortDisplayStore(s => s.columnOrder);
-    const meSetColumnOrder = useModelEffortDisplayStore(s => s.setColumnOrder);
     const [meMenuAnchor, setMeMenuAnchor] = useState(null);
     // req #2850 — a Trends drill-down is active; in Table view the status-filter
     // chips are replaced by the drill pill (the chips don't apply while drilled).
@@ -362,58 +359,6 @@ const SwarmView = () => {
                                         <ListItemText>Show Model &amp; Effort on all cards</ListItemText>
                                     </MenuItem>
                                     <Divider />
-                                    <ListItemText
-                                        sx={{ px: 2, py: 0.5, color: 'text.secondary' }}
-                                        primaryTypographyProps={{ variant: 'caption' }}
-                                    >
-                                        Display
-                                    </ListItemText>
-                                    {[
-                                        { mode: 'pill', label: 'Pill' },
-                                        { mode: 'compact', label: 'Compact' },
-                                    ].map(({ mode, label }) => (
-                                        <MenuItem
-                                            key={mode}
-                                            onClick={() => meSetDisplayMode(mode)}
-                                            data-testid={`model-effort-mode-${mode}`}
-                                        >
-                                            <ListItemIcon>
-                                                {meDisplayMode === mode && <Check fontSize="small" />}
-                                            </ListItemIcon>
-                                            <ListItemText>{label}</ListItemText>
-                                        </MenuItem>
-                                    ))}
-                                    <Divider />
-                                    <ListItemText
-                                        sx={{ px: 2, py: 0.5, color: 'text.secondary' }}
-                                        primaryTypographyProps={{ variant: 'caption' }}
-                                    >
-                                        Column order
-                                    </ListItemText>
-                                    <Box sx={{ px: 2, py: 0.5 }}>
-                                        <ToggleButtonGroup
-                                            value={meColumnOrder}
-                                            exclusive
-                                            size="small"
-                                            onChange={(e, v) => { if (v) meSetColumnOrder(v); }}
-                                            data-testid="model-effort-order"
-                                        >
-                                            {[
-                                                { value: 'standard',   label: 'Default',     tip: 'Req · Status · Autonomy · Model · Effort' },
-                                                { value: 'meFirst',     label: 'M/E First',   tip: 'Model · Effort · Req · Status · Autonomy' },
-                                                { value: 'meAfterReq',  label: 'M/E After #', tip: 'Req · Model · Effort · Status · Autonomy' },
-                                            ].map(({ value, label, tip }) => (
-                                                <ToggleButton
-                                                    key={value}
-                                                    value={value}
-                                                    data-testid={`model-effort-order-${value}`}
-                                                    sx={{ textTransform: 'none', px: 1 }}
-                                                >
-                                                    <Tooltip title={tip}><span>{label}</span></Tooltip>
-                                                </ToggleButton>
-                                            ))}
-                                        </ToggleButtonGroup>
-                                    </Box>
                                     <MenuItem
                                         onClick={meToggleWideAggregator}
                                         data-testid="model-effort-wide-aggregator"
