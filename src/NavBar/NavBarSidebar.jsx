@@ -114,7 +114,11 @@ const NavBarSidebar = () => {
     );
 
     const isActive = (path) => {
-        if (path === '/swarm') return location.pathname === '/swarm';
+        // Group-index links (/swarm, /agents) own sub-routes that share their
+        // prefix (/swarm/sessions, /agents/instructions, ...). Match them EXACTLY
+        // so a child route highlights only its own nav item, not the parent index
+        // too (req #3013 added /agents/instructions + /agents/documents).
+        if (path === '/swarm' || path === '/agents') return location.pathname === path;
         return location.pathname.startsWith(path);
     };
 
@@ -415,7 +419,8 @@ const NavBarSidebar = () => {
             {/* Profile dialog */}
             {profileDialog}
 
-            {/* Bottom navigation — all 5 primary links */}
+            {/* Bottom navigation — every enabled nav link (count varies with the
+                profile app toggles and the AGENTS group's Instructions/Documents). */}
             <Paper
                 sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1200 }}
                 elevation={3}
