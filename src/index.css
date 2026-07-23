@@ -78,6 +78,19 @@
     }
 }
 
+/* req #3029 — the aggregator (Swarm-Start) card carries two extra columns
+   (Model + Effort), so on wide viewports let it span two grid tracks and read
+   as slightly larger than the category cards while the rest reflow around it.
+   Gated on `.aggregator-wide` (a UI option): when the user turns the wide
+   aggregator off, the class is absent and the card stays one track — the same
+   width as every other card. Below this width it spans one track regardless, so
+   the grid still collapses to the ~3× layout and, on mobile, to a single column. */
+@media screen and (min-width: 1600px) {
+    .card.swarm-card.aggregator-wide > [data-testid="swarm-start-card"] {
+        grid-column: span 2;
+    }
+}
+
 .task {
     display: grid;
     grid-template-columns: auto auto 1fr auto;
@@ -104,6 +117,21 @@
     .task.requirement-row.aggregator-row {
         grid-template-columns: 24px 56px 28px 28px 1fr auto;
     }
+}
+
+/* req #3029 — Model + Effort columns. When present, RequirementRow adds `me-cols`
+   and sets the `--me-grid` custom property to the full grid-template (built in
+   modelEffortLayout.js, per display mode). These selectors carry one more class
+   than the base row templates above, so they outrank them regardless of source
+   order — the reason the template is applied here rather than via MUI `sx` (which
+   would generate only a single-class rule and lose to the base templates). No
+   media variant is needed: with higher specificity these win at every width. */
+.task.requirement-row.me-cols {
+    grid-template-columns: var(--me-grid);
+}
+
+.task.requirement-row.aggregator-row.me-cols {
+    grid-template-columns: var(--me-grid);
 }
 
 .app-navbar{
