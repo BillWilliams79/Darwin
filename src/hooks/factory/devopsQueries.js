@@ -198,9 +198,10 @@ export const machines = createEntityQueries({
 // agents registry (req #2997 / #2998) — the five tables behind /agents.
 //
 // Routes through the default `darwinUri` (dev/prod split, req #2683). NOT `ops`
-// tables: the registry is content the user manages, and the MCP daemon reads it
-// from production while the dev UI reads seeded darwin_dev rows. Both databases
-// are seeded by scripts/seed-agents-registry.py, so dev review sees real data.
+// tables: the registry is content the user manages via the /agents UI + MCP
+// tools, and the MCP daemon reads it from production while the dev UI reads
+// darwin_dev rows. The registry is present in both databases (the DB is the sole
+// source of truth — no git-hardcoded row source), so dev review sees real data.
 //
 // `agent_documents` and `agent_instructions` are JUNCTIONS with composite PKs
 // and NO `id` column — never request `fields=id` on them, and they take no
