@@ -139,10 +139,21 @@ const RequirementDetail = () => {
     const showError = useSnackBarStore(s => s.showError);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
-    const { data: allCategories } = useAllCategories(profile?.userName, {
-        fields: 'id,category_name',
+    const { data: allCategoriesData } = useAllCategories(profile?.userName, {
+        fields: 'id,category_name,sort_order',
         closed: 0,
     });
+    // Req #3015 — match the card view's ordering (CategoryTabPanel) rather than
+    // whatever order the DB happens to return (no ORDER BY on the /categories GET).
+    const allCategories = useMemo(
+        () => allCategoriesData && [...allCategoriesData].sort((a, b) => {
+            const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+            const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+            if (ao !== bo) return ao - bo;
+            return (a.category_name || '').localeCompare(b.category_name || '');
+        }),
+        [allCategoriesData]
+    );
 
     // Req #2978 — machine pin options. Machines are an OPEN set (rows in the
     // `machines` table), so the chip list is data-driven rather than a static

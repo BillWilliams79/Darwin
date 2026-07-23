@@ -22,8 +22,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TableRowsIcon from '@mui/icons-material/TableRows';
-import DescriptionIcon from '@mui/icons-material/Description';
-import RuleIcon from '@mui/icons-material/Rule';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import AuthContext from '../Context/AuthContext';
@@ -105,48 +103,33 @@ const AgentsPage = () => {
 
     if (isLoading || !agents) {
         return (
-            <Box sx={{ gridArea: 'content', p: 3 }}><CircularProgress /></Box>
+            <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}><CircularProgress /></Box>
         );
     }
 
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                <Typography variant={isMobile ? 'h6' : 'h5'}>Agents</Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                    <Chip
-                        icon={<RuleIcon />}
-                        label="Instructions"
-                        size="small"
-                        variant="outlined"
-                        clickable
-                        onClick={() => navigate('/agents/instructions')}
-                        data-testid="agents-nav-instructions"
-                    />
-                    <Chip
-                        icon={<DescriptionIcon />}
-                        label="Documents"
-                        size="small"
-                        variant="outlined"
-                        clickable
-                        onClick={() => navigate('/agents/documents')}
-                        data-testid="agents-nav-documents"
-                    />
-                    <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        value={view}
-                        onChange={(_e, v) => setView(v)}
-                        data-testid="agents-view-toggle"
-                    >
-                        <ToggleButton value="cards" aria-label="cards view">
-                            <ViewModuleIcon fontSize="small" />
-                        </ToggleButton>
-                        <ToggleButton value="table" aria-label="table view">
-                            <TableRowsIcon fontSize="small" />
-                        </ToggleButton>
-                    </ToggleButtonGroup>
-                </Stack>
+            {/* Canonical viewer header (req #3013): the view toggle is the stable
+                far-left anchor, the title follows with `flex: 1` — mirrors Requirements
+                and the other viewers. The Instructions/Documents links that used to sit
+                here moved to the AGENTS navbar group. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={view}
+                    onChange={(_e, v) => setView(v)}
+                    sx={{ flexShrink: 0 }}
+                    data-testid="agents-view-toggle"
+                >
+                    <ToggleButton value="cards" aria-label="cards view">
+                        <ViewModuleIcon fontSize="small" />
+                    </ToggleButton>
+                    <ToggleButton value="table" aria-label="table view">
+                        <TableRowsIcon fontSize="small" />
+                    </ToggleButton>
+                </ToggleButtonGroup>
+                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Agents</Typography>
             </Box>
 
             {rows.length === 0 ? (

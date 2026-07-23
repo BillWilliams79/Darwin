@@ -14,7 +14,6 @@ import { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
@@ -25,7 +24,7 @@ import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import AuthContext from '../Context/AuthContext';
@@ -40,6 +39,7 @@ import {
 const DocumentsPage = () => {
     const navigate = useNavigate();
     const { profile } = useContext(AuthContext);
+    const isMobile = useMediaQuery('(max-width:899px)');
     const creatorFk = profile?.userName;
 
     const { data: documents, isLoading } = useArchitectureDocuments(creatorFk);
@@ -67,15 +67,12 @@ const DocumentsPage = () => {
     const unowned = rows.filter(r => !r.owner).length;
 
     if (isLoading || !documents) {
-        return <Box sx={{ gridArea: 'content', p: 3 }}><CircularProgress /></Box>;
+        return <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}><CircularProgress /></Box>;
     }
 
     return (
-        <Box sx={{ gridArea: 'content', p: 3 }}>
-            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/agents')} sx={{ mb: 1 }}>
-                Agents
-            </Button>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>Architecture Documents</Typography>
+        <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
+            <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ mb: 0.5 }}>Architecture Documents</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {rows.length} registered documents
                 {unowned > 0

@@ -156,12 +156,12 @@ export function useAllCategories(creatorFk, { fields = 'id,project_fk', closed, 
     // Key on `fields` too: different callers request different column sets (e.g.
     // RequirementsTrendsView needs `closed`, CalendarFC does not). Without this,
     // a shorter-field response could be served from cache and silently drop a
-    // column the consumer relies on (req #2821). Invalidations target the
-    // `categoryKeys.all` prefix, so they still match these field-scoped keys.
+    // column the consumer relies on (req #2821). This must hold regardless of
+    // `closed` — keying on `{closed}` alone let same-`closed` callers with
+    // different `fields` collide and serve each other's narrower column set
+    // (req #3015).
     return useQuery({
-        queryKey: closed !== undefined
-            ? [...categoryKeys.all(creatorFk), { closed }]
-            : [...categoryKeys.all(creatorFk), { fields }],
+        queryKey: [...categoryKeys.all(creatorFk), { closed, fields }],
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
     });
