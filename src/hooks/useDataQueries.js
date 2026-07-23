@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -756,3 +756,11 @@ export const agentDocumentKeys    = agentDocuments.keys;
 
 export const useAgentInstructions = agentInstructions.useAll;
 export const agentInstructionKeys = agentInstructions.keys;
+
+// Req #3031 — agent context telemetry. The run list drives the /agents/context
+// run picker; the per-agent rows (fetched by run_fk) drive the table body.
+export const useAgentTelemetryRuns      = agentTelemetryRuns.useAll;
+export const useAgentTelemetryRun       = agentTelemetryRuns.useById;
+export const agentTelemetryRunKeys      = agentTelemetryRuns.keys;
+export const useAgentTelemetryRowsByRun = agentTelemetryRows.useByRun;
+export const agentTelemetryRowKeys      = agentTelemetryRows.keys;
