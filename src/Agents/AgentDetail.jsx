@@ -38,7 +38,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     byId, linksByAgent, instructionLinksByAgent, agentsByInstruction,
     isCommonInstruction, relationshipChipProps, relationshipLabel,
-    docTypeChipProps, documentHref, AUTOLOAD_RELATIONSHIPS,
+    docTypeChipProps, documentHref, isAutoload,
     agentModelChipProps, agentModelLabel,
 } from './agentRegistryUtils';
 
@@ -94,7 +94,7 @@ const AgentDetail = () => {
         [docLinks, agentId, docIndex]);
 
     const autoloadCount = myDocuments.filter(
-        d => AUTOLOAD_RELATIONSHIPS.has(d.link.relationship)).length;
+        d => isAutoload(d.link.relationship)).length;
 
     const saveOverview = async () => {
         const next = overview.trim();
@@ -226,7 +226,7 @@ const AgentDetail = () => {
                         <TableBody>
                             {myDocuments.map(({ link, row }) => {
                                 const href = documentHref(row);
-                                const autoload = AUTOLOAD_RELATIONSHIPS.has(link.relationship);
+                                const autoload = isAutoload(link.relationship);
                                 return (
                                     <TableRow key={row.id} data-testid={`agent-document-${row.id}`}>
                                         <TableCell>

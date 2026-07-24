@@ -6,35 +6,46 @@
 // single place that relationship logic lives, so /agents, /agents/:id,
 // /agents/instructions, and /agents/documents all agree.
 
-// Relationship precedence — the order the MCP boot payload uses, and therefore
-// the order the UI must present. `owned` and `groomed` are the autoload set: the
-// documents an agent reads IN FULL before starting a task.
+// Relationship roles (req #3012). `relationship` is now a MySQL SET, so a link
+// may carry several roles at once (e.g. "owned,autoload") and REST returns them
+// as a comma-joined string. These helpers parse that string. `autoload` is the
+// role marking a document the agent reads IN FULL at boot — stored, not derived.
 export const RELATIONSHIP_ORDER = [
-    'owned', 'groomed', 'design_language', 'guardian', 'referenced',
+    'owned', 'curated', 'autoload', 'referenced',
 ];
 
-export const AUTOLOAD_RELATIONSHIPS = new Set(['owned', 'groomed']);
+// Comma-joined SET string -> array of roles, in precedence order.
+export const parseRoles = (rel) => {
+    const present = new Set((rel || '').split(',').map(s => s.trim()).filter(Boolean));
+    return RELATIONSHIP_ORDER.filter(r => present.has(r));
+};
+
+export const hasRole = (rel, role) => parseRoles(rel).includes(role);
+export const isAutoload = (rel) => hasRole(rel, 'autoload');
+
+// The highest-precedence role present — drives single-chip styling and sorting.
+export const primaryRole = (rel) => parseRoles(rel)[0] || null;
 
 export const relationshipRank = (rel) => {
-    const i = RELATIONSHIP_ORDER.indexOf(rel);
+    const i = RELATIONSHIP_ORDER.indexOf(primaryRole(rel));
     return i === -1 ? RELATIONSHIP_ORDER.length : i;
 };
 
-// One chip style per relationship. `owned` is filled and primary because it is
-// the load-bearing one — at most one per document, enforced by the database.
+// Chip style keyed off the highest-precedence role present. `owned` is filled and
+// primary because it is the load-bearing one — at most one per document (DB).
 export const relationshipChipProps = (rel) => {
-    switch (rel) {
-        case 'owned':           return { color: 'primary',   variant: 'filled' };
-        case 'groomed':         return { color: 'success',   variant: 'filled' };
-        case 'design_language': return { color: 'secondary', variant: 'outlined' };
-        case 'guardian':        return { color: 'warning',   variant: 'outlined' };
-        case 'referenced':      return { color: 'default',   variant: 'outlined' };
-        default:                return { color: 'default',   variant: 'outlined' };
+    switch (primaryRole(rel)) {
+        case 'owned':      return { color: 'primary', variant: 'filled' };
+        case 'curated':    return { color: 'success', variant: 'filled' };
+        case 'autoload':   return { color: 'info',    variant: 'outlined' };
+        case 'referenced': return { color: 'default', variant: 'outlined' };
+        default:           return { color: 'default', variant: 'outlined' };
     }
 };
 
+// All roles a link carries, joined — e.g. "owned, autoload".
 export const relationshipLabel = (rel) =>
-    (rel || '').replace(/_/g, ' ') || '—';
+    parseRoles(rel).join(', ') || '—';
 
 /**
  * Model pin display for a registry agent.
@@ -163,6 +174,6 @@ export const agentCounts = (agentId, instrLinks, docLinks) => {
     return {
         instructions: (instrLinks.get(agentId) || []).length,
         documents: docs.length,
-        autoload: docs.filter(d => AUTOLOAD_RELATIONSHIPS.has(d.relationship)).length,
+        autoload: docs.filter(d => isAutoload(d.relationship)).length,
     };
 };
