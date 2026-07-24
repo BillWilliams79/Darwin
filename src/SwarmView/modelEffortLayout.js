@@ -2,24 +2,26 @@
 // simplified in req #3043 — the display-mode and column-order options were
 // removed, so this module now builds exactly one layout).
 //
-// Pill rendering governs FOUR value columns — Status, Autonomy, Model, Effort
-// — wherever the enhanced columns are shown (the aggregator always; category
-// cards when the user opts in), always in the standard order: Req# · Status ·
-// Autonomy · Model · Effort.
+// The enhanced columns add Model + Effort to the row wherever they are shown
+// (the aggregator always; category cards when the user opts in), always in the
+// standard order: Req# · Status · Autonomy · Model · Effort. All four of Status,
+// Autonomy, Model and Effort render as small ICONS (req #3046), NOT pills — so
+// every one keeps the same 28px icon track the base (no-Model/Effort) templates
+// use for Status/Autonomy.
 //
 // Each RequirementRow is its OWN CSS grid (`.task { display:grid }`), so column
 // tracks do NOT share sizing across rows automatically — vertical alignment
 // within a card holds only because every row uses the SAME template. That means
-// these tracks must be FIXED widths (never `auto`), otherwise a row with a wide
-// value ("Implementing" / "Ultracode") would misalign against a narrow one.
+// these tracks must be FIXED widths (never `auto`), otherwise a row would
+// misalign against another.
 //
-// Widths are sized to the widest label each column must hold:
-//   • Status  — "Implementing" (session) / "Swarm-Start" (requirement)
-//   • Autonomy — "Implemented"
-//   • Effort  — "Ultracode"
-//   • Model   — "Sonnet"
+// All four value columns are 28px icon tracks:
+//   • Status   — 28px icon (matches base template)
+//   • Autonomy — 28px icon (matches base template)
+//   • Model    — 28px icon (req #3046)
+//   • Effort   — 28px icon (req #3046)
 
-export const MODEL_EFFORT_COL_WIDTHS = { status: 116, autonomy: 112, model: 66, effort: 88 };
+export const MODEL_EFFORT_COL_WIDTHS = { status: 28, autonomy: 28, model: 28, effort: 28 };
 
 // Base (no mode columns) row templates — mirror the CSS in index.css so this
 // module is the single source of truth when the columns ARE injected.

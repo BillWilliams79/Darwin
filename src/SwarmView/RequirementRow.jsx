@@ -29,14 +29,12 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PendingIcon from '@mui/icons-material/Pending';
-import { coordinationIconColor, coordinationChipProps } from './coordinationChipStyles';
+import { coordinationIconColor } from './coordinationChipStyles';
 import SyncIcon from '@mui/icons-material/Sync';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
-import ModelEffortChip from './ModelEffortChip';
+import ModelEffortIcon from './ModelEffortIcon';
 import { modelEffortGridTemplate } from './modelEffortLayout';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
-import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
-import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -51,8 +49,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
 
     // Model + Effort column preferences (req #3029). The columns always render in
     // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
-    // too. Rendering is always the pill style in the standard column order
-    // (req #3043 removed the display-mode/column-order choices).
+    // too. Rendering is always a small colored icon in the standard column order
+    // (req #3043 removed the display-mode/column-order choices; req #3046 replaced
+    // the pill with an icon to match Status/Autonomy).
     const showModelEffortOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
 
     // Drag rules (req #2417):
@@ -319,76 +318,35 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         ? modelEffortGridTemplate({ isAggregatorRow })
         : undefined;
 
-    // req #3029 — the display mode actually applied to THIS row's Status /
-    // Autonomy / Model / Effort columns. The enhanced rows (aggregator, or
-    // category cards with the option on) always render pills (req #3043 removed
-    // the compact/text choice); every other row is pinned to 'compact', which
-    // reproduces today's icon look exactly, so plain category cards are
-    // visually unchanged.
-    const effectiveDisplayMode = showModelEffortColumns ? 'pill' : 'compact';
-
-    // Status label + chip color for the pill/text renderings — mirror the icon
-    // precedence in getStatusIcon()/getStatusTooltip(): terminal requirement
-    // status first, then the live session status, then the requirement's own
-    // status. Terminal statuses (met/deferred/wontfix) never carry a session.
-    const getStatusChipLabel = () => {
-        if (status === 'met')      return requirementStatusLabel('met');
-        if (status === 'deferred') return requirementStatusLabel('deferred');
-        if (status === 'wontfix')  return requirementStatusLabel('wontfix');
-        if (sessionStatus)         return swarmStatusLabel(sessionStatus);
-        return requirementStatusLabel(status);
-    };
-    const getStatusChipStyle = () => {
-        if (status === 'met')      return requirementStatusChipProps('met');
-        if (status === 'deferred') return requirementStatusChipProps('deferred');
-        if (status === 'wontfix')  return requirementStatusChipProps('wontfix');
-        if (sessionStatus)         return swarmStatusChipProps(sessionStatus);
-        return requirementStatusChipProps(status);
-    };
-    // Autonomy label for the pill — simple capitalization of the coordination type.
-    const coordChipLabel = coordType ? coordType.charAt(0).toUpperCase() + coordType.slice(1) : '';
-
-    // --- Status cell — icon (compact) / colored pill ----------------------------
-    // Compact preserves today's exact markup (clickable IconButton when the status
-    // is cyclable, bare tooltip'd icon otherwise). Pill keeps the same tooltip and
-    // the same `status-toggle-<id>` test id + click-to-cycle on cyclable rows.
+    // --- Status cell — small icon --------------------------------------------
+    // Status, Autonomy, Model and Effort all render as small icons, on every card
+    // including the aggregator (req #3046). Model/Effort are icons via
+    // ModelEffortIcon (a colored glyph, not a pill) — the #3029/#3043 pill
+    // rendering was the regression this req fixes. Clickable IconButton when the
+    // status is cyclable, bare tooltip'd icon otherwise; keeps the
+    // `status-toggle-<id>` test id.
     const renderStatusCell = () => {
         if (requirement.id === '') return null;
-        if (effectiveDisplayMode === 'compact') {
-            return canCycleStatus ? (
-                <Tooltip title={statusTooltip[status] || status} enterDelay={400} enterNextDelay={200}>
-                    <IconButton
-                        onClick={() => statusClick(requirementIndex, requirement.id)}
-                        data-testid={`status-toggle-${requirement.id}`}
-                        sx={{ maxWidth: 28, maxHeight: 28 }}
-                    >
-                        {getStatusIcon()}
-                    </IconButton>
-                </Tooltip>
-            ) : (
-                <Tooltip title={getStatusTooltip()} enterDelay={400} enterNextDelay={200}>
+        return canCycleStatus ? (
+            <Tooltip title={statusTooltip[status] || status} enterDelay={400} enterNextDelay={200}>
+                <IconButton
+                    onClick={() => statusClick(requirementIndex, requirement.id)}
+                    data-testid={`status-toggle-${requirement.id}`}
+                    sx={{ maxWidth: 28, maxHeight: 28 }}
+                >
                     {getStatusIcon()}
-                </Tooltip>
-            );
-        }
-        // pill — colored status chip, still click-to-cycle on cyclable rows.
-        const label = getStatusChipLabel();
-        const testId = canCycleStatus ? `status-toggle-${requirement.id}` : undefined;
-        const onClick = canCycleStatus ? () => statusClick(requirementIndex, requirement.id) : undefined;
-        const { sx: chipSx, ...chipRest } = getStatusChipStyle();
-        return (
+                </IconButton>
+            </Tooltip>
+        ) : (
             <Tooltip title={getStatusTooltip()} enterDelay={400} enterNextDelay={200}>
-                <Chip label={label} size="small" clickable={canCycleStatus} onClick={onClick}
-                      data-testid={testId} {...chipRest}
-                      sx={{ ...(chipSx || {}), maxWidth: '100%', textTransform: 'capitalize' }} />
+                {getStatusIcon()}
             </Tooltip>
         );
     };
 
-    // --- Autonomy cell — icon (compact) / colored pill --------------------------
-    // Visible only for swarm_ready + development; editable only for swarm_ready
-    // (unchanged from the icon version). Keeps the `coordination-toggle-<id>` test
-    // id across both modes.
+    // --- Autonomy cell — small icon ------------------------------------------
+    // Visible only for swarm_ready + development; editable only for swarm_ready.
+    // Keeps the `coordination-toggle-<id>` test id.
     const renderAutonomyCell = () => {
         if (requirement.id === '') return null;
         const showCoord = ['swarm_ready', 'development'].includes(status);
@@ -398,31 +356,18 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             ? (coordTooltip[coordType] || 'No autonomy — click to set')
             : 'Locked — not editable';
         const testId = `coordination-toggle-${requirement.id}`;
-        if (effectiveDisplayMode === 'compact') {
-            return (
-                <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
-                    <span>
-                        <IconButton
-                            onClick={() => coordinationClick(requirementIndex, requirement.id)}
-                            disabled={!isCoordEditable}
-                            data-testid={testId}
-                            sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
-                        >
-                            {getCoordinationIcon()}
-                        </IconButton>
-                    </span>
-                </Tooltip>
-            );
-        }
-        // pill — colored autonomy chip, editable only on swarm_ready.
-        const onClick = isCoordEditable ? () => coordinationClick(requirementIndex, requirement.id) : undefined;
-        const { sx: coordSx, ...coordRest } = coordinationChipProps(coordType);
         return (
             <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
-                <Chip label={coordChipLabel} size="small" clickable={isCoordEditable} onClick={onClick}
-                      data-testid={testId} {...coordRest}
-                      sx={{ ...(coordSx || {}), maxWidth: '100%', textTransform: 'capitalize',
-                            ...(!isCoordEditable && { opacity: 0.85 }) }} />
+                <span>
+                    <IconButton
+                        onClick={() => coordinationClick(requirementIndex, requirement.id)}
+                        disabled={!isCoordEditable}
+                        data-testid={testId}
+                        sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
+                    >
+                        {getCoordinationIcon()}
+                    </IconButton>
+                </span>
             </Tooltip>
         );
     };
@@ -456,11 +401,12 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     // grid stays aligned), or null when the card isn't showing them. They always
     // sit at the end of the value cells (standard order — req #3043 removed the
     // column-order choice); the grid template in modelEffortLayout.js matches.
+    // Rendered as small colored icons (req #3046), matching Status/Autonomy.
     const modelEffortCells = showModelEffortColumns ? (
         <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', px: '2px' }}>
                 {requirement.id !== '' && (
-                    <ModelEffortChip
+                    <ModelEffortIcon
                         kind="model"
                         value={requirement.ai_model}
                         data-testid={`model-cell-${requirement.id}`}
@@ -469,7 +415,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', px: '2px' }}>
                 {requirement.id !== '' && (
-                    <ModelEffortChip
+                    <ModelEffortIcon
                         kind="effort"
                         value={requirement.effort}
                         data-testid={`effort-cell-${requirement.id}`}
@@ -500,20 +446,19 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         </Box>
     );
 
-    // Status — icon (compact) / pill per display mode. Clickable cycle for
-    // authoring/approved/swarm_ready in every mode.
+    // Status — small icon. Clickable cycle for authoring/approved/swarm_ready.
     const statusCell = (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
-                   overflow: 'hidden', ...(effectiveDisplayMode !== 'compact' && { px: '2px' }) }}>
+                   overflow: 'hidden' }}>
             {renderStatusCell()}
         </Box>
     );
 
-    // Autonomy — icon (compact) / pill per display mode. Visible only for
-    // swarm_ready and development; editable only for swarm_ready.
+    // Autonomy — small icon. Visible only for swarm_ready and development;
+    // editable only for swarm_ready.
     const autonomyCell = (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
-                   overflow: 'hidden', ...(effectiveDisplayMode !== 'compact' && { px: '2px' }) }}>
+                   overflow: 'hidden' }}>
             {renderAutonomyCell()}
         </Box>
     );
