@@ -29,14 +29,12 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ForumIcon from '@mui/icons-material/Forum';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PendingIcon from '@mui/icons-material/Pending';
-import { coordinationIconColor, coordinationChipProps } from './coordinationChipStyles';
+import { coordinationIconColor } from './coordinationChipStyles';
 import SyncIcon from '@mui/icons-material/Sync';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import ModelEffortChip from './ModelEffortChip';
 import { modelEffortGridTemplate } from './modelEffortLayout';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
-import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
-import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -51,10 +49,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
 
     // Model + Effort column preferences (req #3029). The columns always render in
     // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
-    // too. `displayMode` chooses pill / text / compact rendering.
+    // too. Rendering is always the pill style in the standard column order
+    // (req #3043 removed the display-mode/column-order choices).
     const showModelEffortOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
-    const modelEffortDisplayMode = useModelEffortDisplayStore(s => s.displayMode);
-    const modelEffortColumnOrder = useModelEffortDisplayStore(s => s.columnOrder);
 
     // Drag rules (req #2417):
     //   - Drag source is enabled for every non-template row, regardless of
@@ -317,78 +314,38 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const showModelEffortColumns = isAggregatorRow || showModelEffortOnAllCards;
     const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}${showModelEffortColumns ? ' me-cols' : ''}`;
     const modelEffortGridColumns = showModelEffortColumns
-        ? modelEffortGridTemplate({ isAggregatorRow, displayMode: modelEffortDisplayMode, columnOrder: modelEffortColumnOrder })
+        ? modelEffortGridTemplate({ isAggregatorRow })
         : undefined;
 
-    // req #3029 — the display mode actually applied to THIS row's Status /
-    // Autonomy / Model / Effort columns. Only the enhanced rows (aggregator, or
-    // category cards with the option on) follow the user's pill/text/compact
-    // choice; every other row is pinned to 'compact', which reproduces today's
-    // icon look exactly, so plain category cards are visually unchanged.
-    const effectiveDisplayMode = showModelEffortColumns ? modelEffortDisplayMode : 'compact';
-
-    // Status label + chip color for the pill/text renderings — mirror the icon
-    // precedence in getStatusIcon()/getStatusTooltip(): terminal requirement
-    // status first, then the live session status, then the requirement's own
-    // status. Terminal statuses (met/deferred/wontfix) never carry a session.
-    const getStatusChipLabel = () => {
-        if (status === 'met')      return requirementStatusLabel('met');
-        if (status === 'deferred') return requirementStatusLabel('deferred');
-        if (status === 'wontfix')  return requirementStatusLabel('wontfix');
-        if (sessionStatus)         return swarmStatusLabel(sessionStatus);
-        return requirementStatusLabel(status);
-    };
-    const getStatusChipStyle = () => {
-        if (status === 'met')      return requirementStatusChipProps('met');
-        if (status === 'deferred') return requirementStatusChipProps('deferred');
-        if (status === 'wontfix')  return requirementStatusChipProps('wontfix');
-        if (sessionStatus)         return swarmStatusChipProps(sessionStatus);
-        return requirementStatusChipProps(status);
-    };
-    // Autonomy label for pill/text — simple capitalization of the coordination type.
-    const coordChipLabel = coordType ? coordType.charAt(0).toUpperCase() + coordType.slice(1) : '';
-
-    // --- Status cell — icon (compact) / colored pill / plain text --------------
-    // Compact preserves today's exact markup (clickable IconButton when the status
-    // is cyclable, bare tooltip'd icon otherwise). Pill/text keep the same tooltip
-    // and the same `status-toggle-<id>` test id + click-to-cycle on cyclable rows.
+    // --- Status cell — small icon --------------------------------------------
+    // Status and Autonomy always render as small icons, on every card including
+    // the aggregator (req #3046). The Model/Effort columns render as pills, but
+    // that pill rendering is scoped to those two columns (ModelEffortChip) — it
+    // must NOT drag Status/Autonomy into pills, which was the #3029/#3043
+    // regression this fixes. Clickable IconButton when the status is cyclable,
+    // bare tooltip'd icon otherwise; keeps the `status-toggle-<id>` test id.
     const renderStatusCell = () => {
         if (requirement.id === '') return null;
-        if (effectiveDisplayMode === 'compact') {
-            return canCycleStatus ? (
-                <Tooltip title={statusTooltip[status] || status} enterDelay={400} enterNextDelay={200}>
-                    <IconButton
-                        onClick={() => statusClick(requirementIndex, requirement.id)}
-                        data-testid={`status-toggle-${requirement.id}`}
-                        sx={{ maxWidth: 28, maxHeight: 28 }}
-                    >
-                        {getStatusIcon()}
-                    </IconButton>
-                </Tooltip>
-            ) : (
-                <Tooltip title={getStatusTooltip()} enterDelay={400} enterNextDelay={200}>
+        return canCycleStatus ? (
+            <Tooltip title={statusTooltip[status] || status} enterDelay={400} enterNextDelay={200}>
+                <IconButton
+                    onClick={() => statusClick(requirementIndex, requirement.id)}
+                    data-testid={`status-toggle-${requirement.id}`}
+                    sx={{ maxWidth: 28, maxHeight: 28 }}
+                >
                     {getStatusIcon()}
-                </Tooltip>
-            );
-        }
-        // pill — colored status chip, still click-to-cycle on cyclable rows.
-        const label = getStatusChipLabel();
-        const testId = canCycleStatus ? `status-toggle-${requirement.id}` : undefined;
-        const onClick = canCycleStatus ? () => statusClick(requirementIndex, requirement.id) : undefined;
-        const { sx: chipSx, ...chipRest } = getStatusChipStyle();
-        return (
+                </IconButton>
+            </Tooltip>
+        ) : (
             <Tooltip title={getStatusTooltip()} enterDelay={400} enterNextDelay={200}>
-                <Chip label={label} size="small" clickable={canCycleStatus} onClick={onClick}
-                      data-testid={testId} {...chipRest}
-                      sx={{ ...(chipSx || {}), maxWidth: '100%', textTransform: 'capitalize' }} />
+                {getStatusIcon()}
             </Tooltip>
         );
     };
 
-    // --- Autonomy cell — icon (compact) / colored pill / plain text ------------
-    // Visible only for swarm_ready + development; editable only for swarm_ready
-    // (unchanged from the icon version). Keeps the `coordination-toggle-<id>` test
-    // id across all three modes.
+    // --- Autonomy cell — small icon ------------------------------------------
+    // Visible only for swarm_ready + development; editable only for swarm_ready.
+    // Keeps the `coordination-toggle-<id>` test id.
     const renderAutonomyCell = () => {
         if (requirement.id === '') return null;
         const showCoord = ['swarm_ready', 'development'].includes(status);
@@ -398,31 +355,18 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             ? (coordTooltip[coordType] || 'No autonomy — click to set')
             : 'Locked — not editable';
         const testId = `coordination-toggle-${requirement.id}`;
-        if (effectiveDisplayMode === 'compact') {
-            return (
-                <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
-                    <span>
-                        <IconButton
-                            onClick={() => coordinationClick(requirementIndex, requirement.id)}
-                            disabled={!isCoordEditable}
-                            data-testid={testId}
-                            sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
-                        >
-                            {getCoordinationIcon()}
-                        </IconButton>
-                    </span>
-                </Tooltip>
-            );
-        }
-        // pill — colored autonomy chip, editable only on swarm_ready.
-        const onClick = isCoordEditable ? () => coordinationClick(requirementIndex, requirement.id) : undefined;
-        const { sx: coordSx, ...coordRest } = coordinationChipProps(coordType);
         return (
             <Tooltip title={tooltip} enterDelay={400} enterNextDelay={200}>
-                <Chip label={coordChipLabel} size="small" clickable={isCoordEditable} onClick={onClick}
-                      data-testid={testId} {...coordRest}
-                      sx={{ ...(coordSx || {}), maxWidth: '100%', textTransform: 'capitalize',
-                            ...(!isCoordEditable && { opacity: 0.85 }) }} />
+                <span>
+                    <IconButton
+                        onClick={() => coordinationClick(requirementIndex, requirement.id)}
+                        disabled={!isCoordEditable}
+                        data-testid={testId}
+                        sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
+                    >
+                        {getCoordinationIcon()}
+                    </IconButton>
+                </span>
             </Tooltip>
         );
     };
@@ -453,9 +397,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     }
 
     // The two Model/Effort cells (empty placeholders on the template row so the
-    // grid stays aligned), or null when the card isn't showing them. Their
-    // position among the value cells is set by columnOrder below; the grid
-    // template in modelEffortLayout.js orders the tracks to match.
+    // grid stays aligned), or null when the card isn't showing them. They always
+    // sit at the end of the value cells (standard order — req #3043 removed the
+    // column-order choice); the grid template in modelEffortLayout.js matches.
     const modelEffortCells = showModelEffortColumns ? (
         <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', px: '2px' }}>
@@ -463,7 +407,6 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     <ModelEffortChip
                         kind="model"
                         value={requirement.ai_model}
-                        mode={modelEffortDisplayMode}
                         data-testid={`model-cell-${requirement.id}`}
                     />
                 )}
@@ -473,7 +416,6 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     <ModelEffortChip
                         kind="effort"
                         value={requirement.effort}
-                        mode={modelEffortDisplayMode}
                         data-testid={`effort-cell-${requirement.id}`}
                     />
                 )}
@@ -502,35 +444,28 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         </Box>
     );
 
-    // Status — icon (compact) / pill per display mode. Clickable cycle for
-    // authoring/approved/swarm_ready in every mode.
+    // Status — small icon. Clickable cycle for authoring/approved/swarm_ready.
     const statusCell = (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
-                   overflow: 'hidden', ...(effectiveDisplayMode !== 'compact' && { px: '2px' }) }}>
+                   overflow: 'hidden' }}>
             {renderStatusCell()}
         </Box>
     );
 
-    // Autonomy — icon (compact) / pill per display mode. Visible only for
-    // swarm_ready and development; editable only for swarm_ready.
+    // Autonomy — small icon. Visible only for swarm_ready and development;
+    // editable only for swarm_ready.
     const autonomyCell = (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
-                   overflow: 'hidden', ...(effectiveDisplayMode !== 'compact' && { px: '2px' }) }}>
+                   overflow: 'hidden' }}>
             {renderAutonomyCell()}
         </Box>
     );
 
-    // Arrange the value cells per the column-order option (req #3029). When the
-    // card isn't showing Model/Effort, modelEffortCells is null and drops out, so
-    // every arrangement collapses to Req# · Status · Autonomy (the base layout).
-    let orderedValueCells;
-    if (modelEffortColumnOrder === 'meFirst') {
-        orderedValueCells = <>{modelEffortCells}{reqIdCell}{statusCell}{autonomyCell}</>;
-    } else if (modelEffortColumnOrder === 'meAfterReq') {
-        orderedValueCells = <>{reqIdCell}{modelEffortCells}{statusCell}{autonomyCell}</>;
-    } else { // 'standard'
-        orderedValueCells = <>{reqIdCell}{statusCell}{autonomyCell}{modelEffortCells}</>;
-    }
+    // Value cells in the standard order (req #3029; req #3043 removed the
+    // column-order choice, so this is the only arrangement now). When the card
+    // isn't showing Model/Effort, modelEffortCells is null and drops out,
+    // collapsing to Req# · Status · Autonomy.
+    const orderedValueCells = <>{reqIdCell}{statusCell}{autonomyCell}{modelEffortCells}</>;
 
     return (
         <Box className={rowClassName}
@@ -585,8 +520,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                 </Box>
             )}
 
-            {/* Value cells (Req#, Status, Autonomy, Model, Effort) — arranged per
-                the column-order option (req #3029). */}
+            {/* Value cells (Req#, Status, Autonomy, Model, Effort) — standard
+                order (req #3029). */}
             {orderedValueCells}
 
             {/* Title */}
