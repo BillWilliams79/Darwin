@@ -427,7 +427,7 @@ describe('computeSessionStats model split (req #2909)', () => {
     it('carries capitalized label + palette color per model', () => {
         const s = computeSessionStats([mkSession({ ai_model: 'haiku' })]);
         expect(s.modelAggregate).toEqual([
-            { model: 'haiku', label: 'Haiku', color: '#ffcc80', count: 1, secs: 0, tokens: 0 },
+            { model: 'haiku', label: 'Haiku', color: '#e57373', count: 1, secs: 0, tokens: 0 },
         ]);
     });
 });
@@ -470,7 +470,7 @@ describe('computeSessionStats effort split (req #2916)', () => {
     it('carries capitalized label + palette color per effort', () => {
         const s = computeSessionStats([mkSession({ effort: 'xhigh' })]);
         expect(s.effortAggregate).toEqual([
-            { effort: 'xhigh', label: 'XHigh', color: '#ff8a65', count: 1, secs: 0, tokens: 0 },
+            { effort: 'xhigh', label: 'XHigh', color: '#81c784', count: 1, secs: 0, tokens: 0 },
         ]);
     });
 });

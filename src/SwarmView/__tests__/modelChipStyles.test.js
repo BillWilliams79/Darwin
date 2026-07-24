@@ -7,14 +7,15 @@ import {
 } from '../modelChipStyles';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 
-// req #2909 — ai_model chip palette: haiku·sonnet·opus·fable, capability
-// progression amber → rose, distinct from the autonomy palette.
-describe('modelChipStyles (req #2909)', () => {
-    it('maps the four models to the capability-progression hues', () => {
-        expect(AI_MODEL_COLOR.haiku).toBe('#ffcc80');  // amber
-        expect(AI_MODEL_COLOR.sonnet).toBe('#80cbc4'); // teal
-        expect(AI_MODEL_COLOR.opus).toBe('#9fa8da');   // indigo
-        expect(AI_MODEL_COLOR.fable).toBe('#ef9a9a');  // rose
+// req #2909 — ai_model chip palette: haiku·sonnet·opus·fable. Recolored to a
+// red → green capability ramp in req #3044 (red = least capable, dark green =
+// frontier); still distinct from the autonomy palette.
+describe('modelChipStyles (req #2909, recolored #3044)', () => {
+    it('maps the four models to the red → green capability ramp', () => {
+        expect(AI_MODEL_COLOR.haiku).toBe('#e57373');  // red
+        expect(AI_MODEL_COLOR.sonnet).toBe('#ffd54f'); // amber
+        expect(AI_MODEL_COLOR.opus).toBe('#81c784');   // light green
+        expect(AI_MODEL_COLOR.fable).toBe('#388e3c');  // dark green
     });
 
     it('AI_MODELS lists all four in capability order', () => {
@@ -41,15 +42,15 @@ describe('modelChipStyles (req #2909)', () => {
         expect(aiModelLabel('gpt4')).toBe('Opus');
     });
 
-    it('aiModelChipProps yields a filled chip (pastel bg + black text) per model', () => {
-        expect(aiModelChipProps('haiku')).toEqual({ sx: { bgcolor: '#ffcc80', color: '#000' } });
-        expect(aiModelChipProps('sonnet')).toEqual({ sx: { bgcolor: '#80cbc4', color: '#000' } });
-        expect(aiModelChipProps('opus')).toEqual({ sx: { bgcolor: '#9fa8da', color: '#000' } });
-        expect(aiModelChipProps('fable')).toEqual({ sx: { bgcolor: '#ef9a9a', color: '#000' } });
+    it('aiModelChipProps yields a filled chip (bg + black text) per model', () => {
+        expect(aiModelChipProps('haiku')).toEqual({ sx: { bgcolor: '#e57373', color: '#000' } });
+        expect(aiModelChipProps('sonnet')).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
+        expect(aiModelChipProps('opus')).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
+        expect(aiModelChipProps('fable')).toEqual({ sx: { bgcolor: '#388e3c', color: '#000' } });
     });
 
     it('aiModelChipProps falls back to opus styling for null/unknown', () => {
-        expect(aiModelChipProps(null)).toEqual({ sx: { bgcolor: '#9fa8da', color: '#000' } });
-        expect(aiModelChipProps('bogus')).toEqual({ sx: { bgcolor: '#9fa8da', color: '#000' } });
+        expect(aiModelChipProps(null)).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
+        expect(aiModelChipProps('bogus')).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
     });
 });
