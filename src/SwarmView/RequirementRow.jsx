@@ -32,7 +32,7 @@ import PendingIcon from '@mui/icons-material/Pending';
 import { coordinationIconColor } from './coordinationChipStyles';
 import SyncIcon from '@mui/icons-material/Sync';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
-import ModelEffortChip from './ModelEffortChip';
+import ModelEffortIcon from './ModelEffortIcon';
 import { modelEffortGridTemplate } from './modelEffortLayout';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 
@@ -49,8 +49,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
 
     // Model + Effort column preferences (req #3029). The columns always render in
     // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
-    // too. Rendering is always the pill style in the standard column order
-    // (req #3043 removed the display-mode/column-order choices).
+    // too. Rendering is always a small colored icon in the standard column order
+    // (req #3043 removed the display-mode/column-order choices; req #3046 replaced
+    // the pill with an icon to match Status/Autonomy).
     const showModelEffortOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
 
     // Drag rules (req #2417):
@@ -318,12 +319,12 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         : undefined;
 
     // --- Status cell — small icon --------------------------------------------
-    // Status and Autonomy always render as small icons, on every card including
-    // the aggregator (req #3046). The Model/Effort columns render as pills, but
-    // that pill rendering is scoped to those two columns (ModelEffortChip) — it
-    // must NOT drag Status/Autonomy into pills, which was the #3029/#3043
-    // regression this fixes. Clickable IconButton when the status is cyclable,
-    // bare tooltip'd icon otherwise; keeps the `status-toggle-<id>` test id.
+    // Status, Autonomy, Model and Effort all render as small icons, on every card
+    // including the aggregator (req #3046). Model/Effort are icons via
+    // ModelEffortIcon (a colored glyph, not a pill) — the #3029/#3043 pill
+    // rendering was the regression this req fixes. Clickable IconButton when the
+    // status is cyclable, bare tooltip'd icon otherwise; keeps the
+    // `status-toggle-<id>` test id.
     const renderStatusCell = () => {
         if (requirement.id === '') return null;
         return canCycleStatus ? (
@@ -400,11 +401,12 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     // grid stays aligned), or null when the card isn't showing them. They always
     // sit at the end of the value cells (standard order — req #3043 removed the
     // column-order choice); the grid template in modelEffortLayout.js matches.
+    // Rendered as small colored icons (req #3046), matching Status/Autonomy.
     const modelEffortCells = showModelEffortColumns ? (
         <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', px: '2px' }}>
                 {requirement.id !== '' && (
-                    <ModelEffortChip
+                    <ModelEffortIcon
                         kind="model"
                         value={requirement.ai_model}
                         data-testid={`model-cell-${requirement.id}`}
@@ -413,7 +415,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', px: '2px' }}>
                 {requirement.id !== '' && (
-                    <ModelEffortChip
+                    <ModelEffortIcon
                         kind="effort"
                         value={requirement.effort}
                         data-testid={`effort-cell-${requirement.id}`}
