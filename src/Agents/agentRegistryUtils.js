@@ -6,6 +6,8 @@
 // single place that relationship logic lives, so /agents, /agents/:id,
 // /agents/instructions, and /agents/documents all agree.
 
+import { AI_MODEL_COLOR } from '../SwarmView/modelChipStyles';
+
 // Relationship precedence — the order the MCP boot payload uses, and therefore
 // the order the UI must present. `owned` and `groomed` are the autoload set: the
 // documents an agent reads IN FULL before starting a task.
@@ -44,13 +46,12 @@ export const relationshipLabel = (rel) =>
  * architect pin `opus[1m]` as a bare "Opus" and silently drop the 1M-context
  * suffix — the exact detail the frontmatter mirror exists to carry. Show the
  * stored value verbatim; only the COLOUR is borrowed from the base model.
+ *
+ * The colour map IS the base-model palette (single source of truth in
+ * modelChipStyles) so agent pins track the red→green ramp automatically and can
+ * never drift from it (req #3044).
  */
-export const AGENT_MODEL_COLOR = {
-    haiku:  '#ffcc80',
-    sonnet: '#80cbc4',
-    opus:   '#9fa8da',
-    fable:  '#ef9a9a',
-};
+export const AGENT_MODEL_COLOR = AI_MODEL_COLOR;
 
 export const agentModelLabel = (m) => m || '—';
 
