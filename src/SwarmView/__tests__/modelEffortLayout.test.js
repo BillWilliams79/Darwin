@@ -36,13 +36,14 @@ describe('modelEffortGridTemplate (req #3029 / #3043)', () => {
     });
 
     it('standard order: Req·Status·Autonomy·Model·Effort before Title (aggregator)', () => {
-        // color-bar · Req# · Status · Autonomy · Model · Effort · Title(1fr) · delete(auto)
+        // color-bar · Req# · Status(icon) · Autonomy(icon) · Model · Effort · Title(1fr) · delete(auto)
+        // req #3046 — Status/Autonomy are 28px icon tracks, not pill tracks.
         const t = tracks(modelEffortGridTemplate({ isAggregatorRow: true }));
-        expect(t).toEqual(['24px', '56px', '116px', '112px', '66px', '88px', '1fr', 'auto']);
+        expect(t).toEqual(['24px', '56px', '28px', '28px', '66px', '88px', '1fr', 'auto']);
     });
 
     it('standard order (category)', () => {
         const t = tracks(modelEffortGridTemplate({ isAggregatorRow: false }));
-        expect(t).toEqual(['56px', '116px', '112px', '66px', '88px', '1fr', 'auto']);
+        expect(t).toEqual(['56px', '28px', '28px', '66px', '88px', '1fr', 'auto']);
     });
 });

@@ -2,24 +2,26 @@
 // simplified in req #3043 — the display-mode and column-order options were
 // removed, so this module now builds exactly one layout).
 //
-// Pill rendering governs FOUR value columns — Status, Autonomy, Model, Effort
-// — wherever the enhanced columns are shown (the aggregator always; category
-// cards when the user opts in), always in the standard order: Req# · Status ·
-// Autonomy · Model · Effort.
+// The enhanced columns add Model + Effort (pills) to the row wherever they are
+// shown (the aggregator always; category cards when the user opts in), always in
+// the standard order: Req# · Status · Autonomy · Model · Effort. Status and
+// Autonomy render as small ICONS (req #3046), NOT pills — so they keep the same
+// 28px icon tracks the base (no-Model/Effort) templates use; only Model and
+// Effort need pill-sized tracks.
 //
 // Each RequirementRow is its OWN CSS grid (`.task { display:grid }`), so column
 // tracks do NOT share sizing across rows automatically — vertical alignment
 // within a card holds only because every row uses the SAME template. That means
 // these tracks must be FIXED widths (never `auto`), otherwise a row with a wide
-// value ("Implementing" / "Ultracode") would misalign against a narrow one.
+// value ("Ultracode") would misalign against a narrow one.
 //
 // Widths are sized to the widest label each column must hold:
-//   • Status  — "Implementing" (session) / "Swarm-Start" (requirement)
-//   • Autonomy — "Implemented"
+//   • Status  — 28px icon (matches base template)
+//   • Autonomy — 28px icon (matches base template)
 //   • Effort  — "Ultracode"
 //   • Model   — "Sonnet"
 
-export const MODEL_EFFORT_COL_WIDTHS = { status: 116, autonomy: 112, model: 66, effort: 88 };
+export const MODEL_EFFORT_COL_WIDTHS = { status: 28, autonomy: 28, model: 66, effort: 88 };
 
 // Base (no mode columns) row templates — mirror the CSS in index.css so this
 // module is the single source of truth when the columns ARE injected.
