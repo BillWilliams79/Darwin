@@ -95,7 +95,7 @@ const AgentsPage = () => {
             headerName: 'Autoload',
             width: 100,
             type: 'number',
-            description: 'Owned + groomed documents the agent reads in full at boot',
+            description: 'Documents tagged autoload — read in full at boot',
         },
         { field: 'file_name', headerName: 'Stub', width: 200 },
         { field: 'overview', headerName: 'Overview', flex: 1, minWidth: 260 },

@@ -33,7 +33,7 @@ import {
 } from '../hooks/useDataQueries';
 import {
     byId, linksByDocument, relationshipChipProps, relationshipLabel,
-    docTypeChipProps, documentHref,
+    docTypeChipProps, documentHref, hasRole,
 } from './agentRegistryUtils';
 
 const DocumentsPage = () => {
@@ -58,7 +58,7 @@ const DocumentsPage = () => {
                 return {
                     ...d,
                     links,
-                    owner: links.find(l => l.relationship === 'owned') || null,
+                    owner: links.find(l => hasRole(l.relationship, 'owned')) || null,
                 };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -94,7 +94,7 @@ const DocumentsPage = () => {
                     <TableBody>
                         {rows.map(doc => {
                             const href = documentHref(doc);
-                            const others = doc.links.filter(l => l.relationship !== 'owned');
+                            const others = doc.links.filter(l => !hasRole(l.relationship, 'owned'));
                             return (
                                 <TableRow key={doc.id} data-testid={`document-row-${doc.id}`}>
                                     <TableCell>

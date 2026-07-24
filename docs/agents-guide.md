@@ -4,7 +4,7 @@
 
 | Agent | Responsibility | Docs |
 |-------|---------------|:----:|
-| **darwin-architect** | Overall design authority, cross-domain synthesis, can groom any file | 4 |
+| **darwin-architect** | Overall design authority, cross-domain synthesis, can curate any file | 4 |
 | **code-reviewer** | Mental simulation code review, correctness verification, pre-merge quality gate | 0 |
 | **frontend-architect** | React frontend, MUI, DnD, auth UI, dev server, NavBar, Calendar, routes | 4 |
 | **applications-architect** | Maps ETL pipeline, Strava/Enphase integrations, recurring tasks feature | 4 |
@@ -163,14 +163,14 @@ This creates the learning feedback loop the system needs. When an agent works th
 
 The agent definition file stays lean (fast-loading, scannable identity and critical patterns). The topic files carry depth (full architecture history, detailed runbooks, edge cases). Together they give an agent both reliable quick-access context and the ability to go deep when needed — without polluting every session with everything.
 
-### The Grooming Responsibility
+### The Curation Responsibility
 
-Topic file grooming is a first-class responsibility, not an afterthought. When a session ends and new knowledge was generated:
+Topic file curating is a first-class responsibility, not an afterthought. When a session ends and new knowledge was generated:
 1. The owning agent (or the primary Claude session on the agent's behalf) updates the relevant topic file
 2. MEMORY.md one-liner is revised if the file's scope changed
 3. The agent definition is updated if a critical gotcha was discovered that should always be in context
 
-This is how an agent team gets smarter over time. Without active grooming, topic files drift stale, agents work from outdated knowledge, and the memory system becomes a liability instead of an asset.
+This is how an agent team gets smarter over time. Without active curating, topic files drift stale, agents work from outdated knowledge, and the memory system becomes a liability instead of an asset.
 
 ## The Relationship Between Agents and Skills
 
