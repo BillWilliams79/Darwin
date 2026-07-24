@@ -40,3 +40,9 @@ export const aiModelLabel = (m) =>
 export const aiModelChipProps = (m) => ({
     sx: { bgcolor: AI_MODEL_COLOR[m] || AI_MODEL_COLOR.opus, color: '#000' },
 });
+
+// Icon `color` for a model glyph — the ramp hex used as the glyph FILL (req
+// #3046, where Model joined Status/Autonomy as a small icon instead of a pill).
+// Parallel to coordinationIconColor. Null/unknown → opus color (the backfill
+// default), so the glyph is never unstyled.
+export const aiModelIconColor = (m) => AI_MODEL_COLOR[m] || AI_MODEL_COLOR.opus;

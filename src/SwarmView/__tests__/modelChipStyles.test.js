@@ -4,6 +4,7 @@ import {
     AI_MODELS,
     aiModelLabel,
     aiModelChipProps,
+    aiModelIconColor,
 } from '../modelChipStyles';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 
@@ -52,5 +53,18 @@ describe('modelChipStyles (req #2909, recolored #3044)', () => {
     it('aiModelChipProps falls back to opus styling for null/unknown', () => {
         expect(aiModelChipProps(null)).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
         expect(aiModelChipProps('bogus')).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
+    });
+
+    // req #3046 — Model renders as a small icon (glyph FILL = ramp hex).
+    it('aiModelIconColor returns the ramp hex per model', () => {
+        expect(aiModelIconColor('haiku')).toBe('#e57373');
+        expect(aiModelIconColor('sonnet')).toBe('#ffd54f');
+        expect(aiModelIconColor('opus')).toBe('#81c784');
+        expect(aiModelIconColor('fable')).toBe('#388e3c');
+    });
+
+    it('aiModelIconColor falls back to opus color for null/unknown', () => {
+        expect(aiModelIconColor(null)).toBe('#81c784');
+        expect(aiModelIconColor('bogus')).toBe('#81c784');
     });
 });

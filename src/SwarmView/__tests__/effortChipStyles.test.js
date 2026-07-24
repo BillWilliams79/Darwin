@@ -4,6 +4,7 @@ import {
     EFFORTS,
     effortLabel,
     effortChipProps,
+    effortIconColor,
 } from '../effortChipStyles';
 import { AI_MODEL_COLOR } from '../modelChipStyles';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
@@ -65,5 +66,19 @@ describe('effortChipStyles (req #2916, recolored #3044)', () => {
     it('effortChipProps falls back to high styling for null/unknown (NOT the xhigh default)', () => {
         expect(effortChipProps(null)).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
         expect(effortChipProps('bogus')).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
+    });
+
+    // req #3046 — Effort renders as a small icon (glyph FILL = ramp hex).
+    it('effortIconColor returns the ramp hex per effort', () => {
+        expect(effortIconColor('low')).toBe('#e57373');
+        expect(effortIconColor('medium')).toBe('#ffb74d');
+        expect(effortIconColor('high')).toBe('#ffd54f');
+        expect(effortIconColor('xhigh')).toBe('#81c784');
+        expect(effortIconColor('ultracode')).toBe('#388e3c');
+    });
+
+    it('effortIconColor falls back to high color for null/unknown (NOT the xhigh default)', () => {
+        expect(effortIconColor(null)).toBe('#ffd54f');
+        expect(effortIconColor('bogus')).toBe('#ffd54f');
     });
 });

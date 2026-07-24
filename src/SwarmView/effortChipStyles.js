@@ -54,3 +54,9 @@ export const effortLabel = (e) => EFFORT_LABEL[e] || 'High';
 export const effortChipProps = (e) => ({
     sx: { bgcolor: EFFORT_COLOR[e] || EFFORT_COLOR.high, color: '#000' },
 });
+
+// Icon `color` for an effort glyph — the ramp hex used as the glyph FILL (req
+// #3046, where Effort joined Status/Autonomy as a small icon instead of a pill).
+// Parallel to coordinationIconColor. Null/unknown → high color (the backfill
+// default), so the glyph is never unstyled.
+export const effortIconColor = (e) => EFFORT_COLOR[e] || EFFORT_COLOR.high;
