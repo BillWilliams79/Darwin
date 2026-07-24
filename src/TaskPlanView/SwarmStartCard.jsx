@@ -132,7 +132,9 @@ const SwarmStartCard = () => {
         profile?.userName,
         metWindow.startStr,
         metWindow.endStr,
-        { fields: 'id,title,requirement_status,coordination_type,category_fk,completed_at' },
+        // ai_model,effort included so the Met chip's rows can render the Model +
+        // Effort columns too (req #3029); the active-status query already carries them.
+        { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at' },
     );
 
     // The array that drives the card body for the currently selected chip.

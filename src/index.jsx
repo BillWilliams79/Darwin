@@ -36,6 +36,7 @@ import AgentsPage from './Agents/AgentsPage';
 import AgentDetail from './Agents/AgentDetail';
 import InstructionsPage from './Agents/InstructionsPage';
 import DocumentsPage from './Agents/DocumentsPage';
+import ContextPage from './Agents/ContextPage';
 import SetupWizard from './SetupWizard/SetupWizard';
 import RecurringPlanView from './RecurringTaskEdit/RecurringPlanView';
 import MapsPage from './Maps/MapsPage';
@@ -187,6 +188,9 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="agents/documents" element= {<AuthenticatedRoute>
                                                              <DocumentsPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="agents/context" element= {<AuthenticatedRoute>
+                                                             <ContextPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="agents/:id" element= {<AuthenticatedRoute>
                                                              <AgentDetail />
