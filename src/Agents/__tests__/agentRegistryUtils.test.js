@@ -1,15 +1,20 @@
 // Req #3049 — the pure helpers behind editable instructions.
 //
 // The load-order helpers carry the two invariants that make reordering safe:
-// a swap must never renumber (the live registry parks `common-documents` at
-// sort_order 100 so it always loads last), and it must never touch more than
-// two rows (a half-applied write must not be able to strip an agent's whole
-// instruction set).
+// a swap must never renumber (the live registry uses BANDED slots — per-agent
+// instructions at 1..N, the shared common-* rows together at 100..102), and a
+// failed write must never be able to strip an agent's whole instruction set,
+// which is why the write set stays as small as the move allows.
+//
+// The req #3053 model-pin suite below shares this file: both branches added an
+// `agentRegistryUtils.test.js` and they were merged rather than one replacing
+// the other.
 
 import { describe, it, expect } from 'vitest';
 import {
     nextInstructionSortOrder, planInstructionSwap, repairInstructionOrders,
     instructionNameTaken, restErrorMessage,
+    agentModelChipProps, agentModelLabel,
 } from '../agentRegistryUtils';
 
 const link = (instruction_fk, sort_order, agent_fk = 7) =>
@@ -48,9 +53,9 @@ describe('repairInstructionOrders', () => {
     });
 
     it('keeps a deliberate outlier instead of flattening to 1..N', () => {
-        // The real registry shape: a run of small slots, then common-documents
-        // parked at 100 so it always loads last. A NULL in the middle must not
-        // cost that intent.
+        // The real registry shape: per-agent slots in a low run, then the shared
+        // common-* band starting at 100. A NULL in the middle must not collapse
+        // the two bands into one.
         const links = [link(10, 1), link(11, null), link(12, 100)];
         expect(repairInstructionOrders(links).map(l => l.sort_order)).toEqual([1, 2, 100]);
     });
@@ -114,7 +119,7 @@ describe('planInstructionSwap', () => {
         expect(plan.writes.some(r => r.instruction_fk === 12)).toBe(false);
     });
 
-    it('preserves a deliberate always-last slot instead of renumbering it', () => {
+    it('preserves the high common band instead of renumbering it', () => {
         const seeded = [link(1, 1), link(2, 2), link(3, 100)];
         const plan = planInstructionSwap(seeded, 2, 1);
         expect(plan.writes.map(r => r.sort_order).sort((a, b) => a - b)).toEqual([2, 100]);
@@ -233,5 +238,43 @@ describe('restErrorMessage', () => {
     it('falls back when the thrown value has no message at all', () => {
         expect(restErrorMessage(new Error('boom'), 'fallback')).toBe('fallback');
         expect(restErrorMessage(undefined, 'fallback')).toBe('fallback');
+    });
+});
+
+// req #3053 — the Agents card's model pin chip used a hardcoded black text +
+// pastel fill regardless of theme.palette.mode. Against a white light-mode
+// card the pastel fill measures well under 3:1 (verified with dataviz's
+// validate_palette.js `contrast()`), reading as a washed-out, near-grey patch
+// even though the black text on it is independently legible. agentModelChipProps
+// now resolves its fill through modelChipStyles.js's mode-aware modelFillColor.
+
+const lightTheme = { palette: { mode: 'light' } };
+const darkTheme = { palette: { mode: 'dark' } };
+
+describe('agentModelChipProps (req #3053)', () => {
+    it('extracts the base model from the frontmatter-style pin ("opus[1m]" -> opus)', () => {
+        expect(agentModelChipProps('opus[1m]').sx(darkTheme)).toEqual({ bgcolor: '#81c784', color: '#000' });
+    });
+
+    it('keeps the original ramp unchanged in dark mode (already clears the dark card)', () => {
+        expect(agentModelChipProps('haiku').sx(darkTheme)).toEqual({ bgcolor: '#e57373', color: '#000' });
+        expect(agentModelChipProps('opus[1m]').sx(darkTheme)).toEqual({ bgcolor: '#81c784', color: '#000' });
+        expect(agentModelChipProps('fable[1m]').sx(darkTheme)).toEqual({ bgcolor: '#388e3c', color: '#000' });
+    });
+
+    it('darkens the pastel rungs (not fable) in light mode so the fill clears 3:1 on white', () => {
+        expect(agentModelChipProps('haiku').sx(lightTheme)).toEqual({ bgcolor: 'rgb(217, 109, 109)', color: '#000' });
+        expect(agentModelChipProps('opus[1m]').sx(lightTheme)).toEqual({ bgcolor: 'rgb(99, 153, 101)', color: '#000' });
+        expect(agentModelChipProps('fable[1m]').sx(lightTheme)).toEqual({ bgcolor: '#388e3c', color: '#000' });
+    });
+
+    it('falls back to opus styling for null/unknown, per mode', () => {
+        expect(agentModelChipProps(null).sx(darkTheme)).toEqual({ bgcolor: '#81c784', color: '#000' });
+        expect(agentModelChipProps(null).sx(lightTheme)).toEqual({ bgcolor: 'rgb(99, 153, 101)', color: '#000' });
+    });
+
+    it('agentModelLabel shows the stored value verbatim (keeps the [1m] suffix)', () => {
+        expect(agentModelLabel('opus[1m]')).toBe('opus[1m]');
+        expect(agentModelLabel(null)).toBe('—');
     });
 });

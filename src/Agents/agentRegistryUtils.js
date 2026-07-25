@@ -6,7 +6,7 @@
 // single place that relationship logic lives, so /agents, /agents/:id,
 // /agents/instructions, and /agents/documents all agree.
 
-import { AI_MODEL_COLOR } from '../SwarmView/modelChipStyles';
+import { AI_MODEL_COLOR, modelFillColor } from '../SwarmView/modelChipStyles';
 
 // Relationship roles (req #3012). `relationship` is now a MySQL SET, so a link
 // may carry several roles at once (e.g. "owned,autoload") and REST returns them
@@ -60,7 +60,10 @@ export const relationshipLabel = (rel) =>
  *
  * The colour map IS the base-model palette (single source of truth in
  * modelChipStyles) so agent pins track the red→green ramp automatically and can
- * never drift from it (req #3044).
+ * never drift from it (req #3044). Exported as the raw (dark-mode-equivalent)
+ * hex for any external reader that wants it; the chip itself resolves its
+ * actual fill through `modelFillColor`, which additionally accounts for
+ * `theme.palette.mode` (req #3053) — see that function's doc comment.
  */
 export const AGENT_MODEL_COLOR = AI_MODEL_COLOR;
 
@@ -68,7 +71,10 @@ export const agentModelLabel = (m) => m || '—';
 
 export const agentModelChipProps = (m) => {
     const base = (m || '').split('[')[0];        // 'opus[1m]' -> 'opus'
-    return { sx: { bgcolor: AGENT_MODEL_COLOR[base] || AGENT_MODEL_COLOR.opus, color: '#000' } };
+    // req #3053: mode-aware fill — see modelFillColor's doc comment. The
+    // light-mode pastel step reads as washed-out/grey on a white card even
+    // though the black text on it is independently legible.
+    return { sx: (theme) => ({ bgcolor: modelFillColor(base, theme.palette.mode), color: '#000' }) };
 };
 
 export const docTypeChipProps = (t) =>

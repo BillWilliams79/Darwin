@@ -629,12 +629,13 @@ const RequirementDetail = () => {
                 </Tooltip>
             </Box>
 
-            {/* Autonomy — editable during authoring/approved/swarm_ready, full opacity only on swarm_ready, faded+disabled otherwise.
+            {/* Autonomy — editable during authoring/approved/swarm_ready, full opacity whenever editable, faded+disabled otherwise (req #3054).
+                Fade tracks EDITABILITY, not swarm_ready alone: fading it during authoring/approved
+                misrepresented a fully-editable control as disabled (same fix as AI Settings/Machine pin, req #3008).
                 New-mode (req #2424): kept in layout but invisible so Category/Description below don't shift when the requirement is saved. */}
             {(() => {
-                const isReady = currentStatus === 'swarm_ready';
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
-                const isFaded = !isReady;
+                const isFaded = !isEditable;
 
                 return (
                     <Box sx={{

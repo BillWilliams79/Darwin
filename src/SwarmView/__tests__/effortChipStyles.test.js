@@ -4,10 +4,14 @@ import {
     EFFORTS,
     effortLabel,
     effortChipProps,
+    effortFillColor,
     effortIconColor,
 } from '../effortChipStyles';
 import { AI_MODEL_COLOR } from '../modelChipStyles';
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
+
+const lightTheme = { palette: { mode: 'light' } };
+const darkTheme = { palette: { mode: 'dark' } };
 
 // req #2916 — effort chip palette: low·medium·high·xhigh·ultracode. Recolored to
 // a red → green intensity ramp in req #3044 (red = least effort, dark green =
@@ -55,17 +59,37 @@ describe('effortChipStyles (req #2916, recolored #3044)', () => {
         expect(effortLabel('max')).toBe('High');
     });
 
-    it('effortChipProps yields a filled chip (bg + black text) per effort', () => {
-        expect(effortChipProps('low')).toEqual({ sx: { bgcolor: '#e57373', color: '#000' } });
-        expect(effortChipProps('medium')).toEqual({ sx: { bgcolor: '#ffb74d', color: '#000' } });
-        expect(effortChipProps('high')).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
-        expect(effortChipProps('xhigh')).toEqual({ sx: { bgcolor: '#81c784', color: '#000' } });
-        expect(effortChipProps('ultracode')).toEqual({ sx: { bgcolor: '#388e3c', color: '#000' } });
+    // req #3053 — dark mode keeps the original ramp verbatim (already clears
+    // 3.6–10.5:1 against the dark card surface).
+    it('effortChipProps yields the original ramp + black text in dark mode', () => {
+        expect(effortChipProps('low').sx(darkTheme)).toEqual({ bgcolor: '#e57373', color: '#000' });
+        expect(effortChipProps('medium').sx(darkTheme)).toEqual({ bgcolor: '#ffb74d', color: '#000' });
+        expect(effortChipProps('high').sx(darkTheme)).toEqual({ bgcolor: '#ffd54f', color: '#000' });
+        expect(effortChipProps('xhigh').sx(darkTheme)).toEqual({ bgcolor: '#81c784', color: '#000' });
+        expect(effortChipProps('ultracode').sx(darkTheme)).toEqual({ bgcolor: '#388e3c', color: '#000' });
+    });
+
+    // req #3053 — light mode darkens the four pastel rungs so the fill clears
+    // 3:1 against a white card instead of reading as a washed-out grey patch.
+    // Ultracode is untouched: it already sits at the dark green-700 step.
+    it('effortChipProps darkens the pastel rungs (not ultracode) in light mode', () => {
+        expect(effortChipProps('low').sx(lightTheme)).toEqual({ bgcolor: 'rgb(217, 109, 109)', color: '#000' });
+        expect(effortChipProps('medium').sx(lightTheme)).toEqual({ bgcolor: 'rgb(183, 131, 55)', color: '#000' });
+        expect(effortChipProps('high').sx(lightTheme)).toEqual({ bgcolor: 'rgb(165, 138, 51)', color: '#000' });
+        expect(effortChipProps('xhigh').sx(lightTheme)).toEqual({ bgcolor: 'rgb(99, 153, 101)', color: '#000' });
+        expect(effortChipProps('ultracode').sx(lightTheme)).toEqual({ bgcolor: '#388e3c', color: '#000' });
     });
 
     it('effortChipProps falls back to high styling for null/unknown (NOT the xhigh default)', () => {
-        expect(effortChipProps(null)).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
-        expect(effortChipProps('bogus')).toEqual({ sx: { bgcolor: '#ffd54f', color: '#000' } });
+        expect(effortChipProps(null).sx(darkTheme)).toEqual({ bgcolor: '#ffd54f', color: '#000' });
+        expect(effortChipProps('bogus').sx(darkTheme)).toEqual({ bgcolor: '#ffd54f', color: '#000' });
+        expect(effortChipProps(null).sx(lightTheme)).toEqual({ bgcolor: 'rgb(165, 138, 51)', color: '#000' });
+    });
+
+    it('effortFillColor resolves per mode directly (no theme object required)', () => {
+        expect(effortFillColor('xhigh', 'dark')).toBe('#81c784');
+        expect(effortFillColor('xhigh', 'light')).toBe('rgb(99, 153, 101)');
+        expect(effortFillColor('ultracode', 'light')).toBe('#388e3c');
     });
 
     // req #3046 — Effort renders as a small icon (glyph FILL = ramp hex).
