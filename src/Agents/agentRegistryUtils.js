@@ -167,13 +167,17 @@ export const isCommonInstruction = (instructionId, byInstruction, threshold = 2)
 // ---------------------------------------------------------------------------
 // Editing helpers (req #3049).
 //
-// TWO `sort_order` COLUMNS EXIST AND ONLY ONE DRIVES BOOT.
+// ONE `sort_order` COLUMN NOW, AND IT DRIVES BOOT.
 //   agent_instructions.sort_order — the per-(agent, instruction) LOAD ORDER the
-//       boot payload uses. This is the one an agent actually feels.
-//   instructions.sort_order       — a CATALOG hint that orders the browse list
-//       and nothing else.
-// The helpers below operate exclusively on the JUNCTION column. Never sync the
-// two; presenting them as one control is the likeliest defect in this area.
+//       boot payload uses. This is the one an agent actually feels, and the only
+//       one left.
+// There used to be a second, `instructions.sort_order`, a CATALOG hint that
+// ordered the browse list and nothing else. Keeping the two straight was
+// documented here as the likeliest defect in this area — so req #3063 measured
+// it (identical on all 78 live rows, and driving nothing once the sort menu
+// shipped) and migration 072 dropped it. The helpers below have always operated
+// exclusively on the JUNCTION column; now there is nothing else to confuse them
+// with.
 // ---------------------------------------------------------------------------
 
 /**
@@ -279,6 +283,73 @@ export const instructionNameTaken = (name, instructions = [], selfId = null) => 
     if (!candidate) return false;
     return instructions.some(
         i => i.id !== selfId && (i.name || '').trim().toLowerCase() === candidate);
+};
+
+// ---------------------------------------------------------------------------
+// Field validation for edit-in-place instruction rows (req #3063).
+//
+// These moved out of InstructionEditDialog when the dialog died. A modal could
+// afford to gate one Save button on a combined `invalid` boolean; an in-place
+// field commits on blur, alone, with no button to disable — so each field needs
+// its own verdict, and that verdict has to be a pure function the tests can pin.
+//
+// EVERY limit here exists because the RDS sql_mode is NOT strict: an over-long
+// value is silently TRUNCATED and an out-of-range SMALLINT is silently CLAMPED,
+// rather than rejected. For text an agent loads verbatim at boot that is a
+// correctness failure, not a cosmetic one, so the client is the only guard.
+// ---------------------------------------------------------------------------
+
+// `instructions.name` is VARCHAR(256) with a UNIQUE key.
+export const INSTRUCTION_NAME_MAX = 256;
+
+// `instructions.content` is TEXT: 65,535 BYTES (not characters).
+export const INSTRUCTION_CONTENT_MAX_BYTES = 65535;
+
+// Long prose belongs in an architecture document. A HINT, never a block — the
+// registry's own guidance, not a schema limit.
+export const INSTRUCTION_CONTENT_HINT_LENGTH = 1500;
+
+/** Encoded byte length — what MySQL actually measures a TEXT column against. */
+export const contentByteLength = (content) =>
+    new TextEncoder().encode(content || '').length;
+
+/**
+ * Verdict for a pending `name`. Returns an error string, or null when the value
+ * may be written.
+ *
+ * An EMPTY name is not an error here: `name` is NOT NULL, so an in-place field
+ * treats empty as "abandon the edit" and reverts to the stored value, exactly as
+ * AgentDetail's overview field does. Reporting it as an error would leave a red
+ * field the user cannot clear without retyping what was already there.
+ */
+export const instructionNameError = (name, instructions = [], selfId = null) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    if (trimmed.length > INSTRUCTION_NAME_MAX) {
+        return `Too long: ${trimmed.length} of ${INSTRUCTION_NAME_MAX} characters. `
+            + 'The database would truncate it silently.';
+    }
+    if (instructionNameTaken(trimmed, instructions, selfId)) {
+        return `An instruction named "${trimmed}" already exists (it may be closed).`;
+    }
+    return null;
+};
+
+/**
+ * Verdict for a pending `content`. Error string, or null when writable.
+ *
+ * Empty is not an error, for the same reason as `name` above — `content` is NOT
+ * NULL and an emptied field reverts.
+ */
+export const instructionContentError = (content) => {
+    if (!(content || '').trim()) return null;
+    const bytes = contentByteLength(content);
+    if (bytes > INSTRUCTION_CONTENT_MAX_BYTES) {
+        return `Too long: ${bytes.toLocaleString()} bytes of a `
+            + `${INSTRUCTION_CONTENT_MAX_BYTES.toLocaleString()}-byte limit. `
+            + 'The database would truncate it silently.';
+    }
+    return null;
 };
 
 /**

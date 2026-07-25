@@ -62,9 +62,10 @@ const isNotFound = (err) => err?.httpStatus?.httpStatus === 404;
 // ----- instructions -----
 
 export async function createInstruction(darwinUri, idToken,
-    { name, content, sort_order = null, closed = 0, creator_fk }) {
+    { name, content, closed = 0, creator_fk }) {
+    // No sort_order — migration 072 dropped the catalog-order column.
     const r = await call_rest_api(`${darwinUri}/instructions`, 'POST',
-        { name, content, sort_order, closed, creator_fk }, idToken);
+        { name, content, closed, creator_fk }, idToken);
     return assertOk(r, 'createInstruction');
 }
 
@@ -175,31 +176,15 @@ export async function setAgentInstructionOrder(darwinUri, idToken, rows, origina
     }
 }
 
-/**
- * Apply a membership diff for one instruction: bind it to every agent in `next`
- * that is not already in `prev`, and unbind it from every agent in `prev` that
- * is not in `next`.
- *
- * Lives here, called by BOTH /agents/instructions and /agents/:id, because two
- * copies of a diff drift — and a drifted diff silently binds or unbinds the
- * wrong agents.
- *
- * `sortOrderFor(agentId)` supplies the load-order slot for a NEW binding; the
- * caller owns that policy (today: land at the end of that agent's order).
- */
-export async function syncInstructionAgents(darwinUri, idToken, {
-    instructionId, prevAgentIds = [], nextAgentIds = [], sortOrderFor = () => null,
-}) {
-    const prev = new Set(prevAgentIds);
-    const next = new Set(nextAgentIds);
-
-    for (const agentId of next) {
-        if (prev.has(agentId)) continue;
-        await linkAgentInstruction(darwinUri, idToken, agentId, instructionId,
-            sortOrderFor(agentId));
-    }
-    for (const agentId of prev) {
-        if (next.has(agentId)) continue;
-        await unlinkAgentInstruction(darwinUri, idToken, agentId, instructionId);
-    }
-}
+// REMOVED in req #3063: `syncInstructionAgents`, the membership set-diff.
+//
+// It existed because InstructionEditDialog committed a SET of checkboxes, so
+// somebody had to work out which links that implied adding and removing. Editing
+// membership through the chips means one interaction is one link or one unlink,
+// and the primitives above are already exactly that.
+//
+// Deleted rather than left in place: the diff read as a single atomic save and
+// never was — it was a loop of independent Lambda calls under autocommit, so a
+// half-applied membership change was always reachable and the caller could only
+// resync and hope. A dead export whose doc comment claims two callers it no
+// longer has is worse than no export.

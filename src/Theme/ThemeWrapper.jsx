@@ -157,7 +157,14 @@ const ThemeWrapper = ({ children }) => {
                 },
                 MuiChip: {
                     styleOverrides: {
-                        colorPrimary: {
+                        // FILLED primary only (req #3063). This near-black label is
+                        // correct on the light-blue #90caf9 fill, but `colorPrimary`
+                        // also matches OUTLINED primary chips, whose background is
+                        // the dark card — so every one of them was rendering black
+                        // text on a dark surface and was effectively unreadable.
+                        // `filledPrimary` scopes it to the case it was written for
+                        // and lets outlined chips keep primary.main, which is light.
+                        filledPrimary: {
                             color: '#141210',
                         },
                     },

@@ -7,9 +7,15 @@
 //
 // Req #3049 made the instructions section editable. This page owns the
 // RELATIONSHIP — which instructions bind this agent and in what order — because
-// an agent's list is a single ordered thing. It does not own instruction CONTENT:
-// the pencil opens the same dialog /agents/instructions uses, so the blast-radius
-// warning travels with the edit.
+// an agent's list is a single ordered thing. It does not own instruction CONTENT.
+//
+// Req #3063 sharpened that boundary. The pencil used to open the shared edit
+// dialog so the blast-radius warning travelled with the edit; that dialog is
+// gone, and content is now edited in place on the registry page itself. So the
+// pencil DRILLS THROUGH to the row on /agents/instructions instead — the
+// interlinking grammar of req #2494, and the thing that keeps exactly one editor
+// for instruction content. Editing it from here would put a second editor on a
+// surface that cannot show who else loads the text.
 
 import '../index.css';
 import { useContext, useEffect, useMemo, useState } from 'react';
@@ -52,15 +58,13 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     byId, linksByAgent, instructionLinksByAgent, agentsByInstruction,
     isCommonInstruction, relationshipChipProps, relationshipLabel,
-    docTypeChipProps, documentHref, isAutoload, hasRole,
+    docTypeChipProps, documentHref, isAutoload,
     agentModelChipProps, agentModelLabel,
     nextInstructionSortOrder, planInstructionSwap, restErrorMessage,
 } from './agentRegistryUtils';
 import {
-    updateInstruction, linkAgentInstruction, unlinkAgentInstruction,
-    setAgentInstructionOrder, syncInstructionAgents,
+    linkAgentInstruction, unlinkAgentInstruction, setAgentInstructionOrder,
 } from './actions/instructionsApi';
-import InstructionEditDialog from './InstructionEditDialog';
 
 const AgentDetail = () => {
     const { id } = useParams();
@@ -123,10 +127,6 @@ const AgentDetail = () => {
             .sort((a, b) => a.name.localeCompare(b.name));
     }, [allInstructions, myLinks]);
 
-    const ownerAgentIds = useMemo(() => [...new Set(
-        (agentDocs || []).filter(l => hasRole(l.relationship, 'owned'))
-            .map(l => l.agent_fk))], [agentDocs]);
-
     const myDocuments = useMemo(
         () => (docLinks.get(agentId) || [])
             .map(l => ({ link: l, row: docIndex.get(l.document_fk) }))
@@ -154,9 +154,6 @@ const AgentDetail = () => {
 
     const [addSelection, setAddSelection] = useState(null);
     const [instrBusy, setInstrBusy] = useState(false);
-    const [editOpen, setEditOpen] = useState(false);
-    const [editTarget, setEditTarget] = useState(null);
-    const [editError, setEditError] = useState(null);
 
     /**
      * AWAITED on purpose. Returning before the refetch settles would re-enable the
@@ -230,31 +227,6 @@ const AgentDetail = () => {
             await invalidateInstructions();
         } catch (err) {
             await reportInstructionError(err, 'Could not bind the instruction');
-        } finally {
-            setInstrBusy(false);
-        }
-    };
-
-    const saveInstruction = async (values, linkedAgentIds) => {
-        if (!editTarget) return;
-        setInstrBusy(true);
-        setEditError(null);
-        try {
-            await updateInstruction(darwinUri, idToken, editTarget.id, values);
-            await syncInstructionAgents(darwinUri, idToken, {
-                instructionId: editTarget.id,
-                prevAgentIds: byInstruction.get(editTarget.id) || [],
-                nextAgentIds: linkedAgentIds,
-                sortOrderFor: (aid) => nextInstructionSortOrder(aid, instrLinks),
-            });
-            await invalidateInstructions();
-            setEditOpen(false);
-        } catch (err) {
-            // Resync so a retry diffs against what is actually stored — the
-            // membership loop is a sequence of independent writes and may have
-            // applied some of them.
-            await invalidateInstructions();
-            setEditError(restErrorMessage(err, 'Could not save the instruction.'));
         } finally {
             setInstrBusy(false);
         }
@@ -373,18 +345,17 @@ const AgentDetail = () => {
                                                     </IconButton>
                                                 </span>
                                             </Tooltip>
-                                            <Tooltip title="Edit instruction">
-                                                <span>
-                                                    <IconButton size="small" disabled={instrBusy}
-                                                                onClick={() => {
-                                                                    setEditError(null);
-                                                                    setEditTarget(row);
-                                                                    setEditOpen(true);
-                                                                }}
-                                                                data-testid={`agent-instruction-edit-${row.id}`}>
-                                                        <EditIcon fontSize="small" />
-                                                    </IconButton>
-                                                </span>
+                                            {/* No <span> wrapper: this button is
+                                                never disabled now, and the wrapper
+                                                only ever existed so a Tooltip could
+                                                attach to a disabled one. */}
+                                            <Tooltip title="Edit this instruction on the registry, where every agent that loads it is visible">
+                                                <IconButton size="small"
+                                                            onClick={() => navigate(
+                                                                `/agents/instructions#instruction-${row.id}`)}
+                                                            data-testid={`agent-instruction-edit-${row.id}`}>
+                                                    <EditIcon fontSize="small" />
+                                                </IconButton>
                                             </Tooltip>
                                             <Tooltip title="Unbind from this agent (the instruction itself survives)">
                                                 <span>
@@ -497,18 +468,6 @@ const AgentDetail = () => {
                 )}
             </Box>
 
-            <InstructionEditDialog
-                open={editOpen}
-                onClose={() => setEditOpen(false)}
-                onSave={saveInstruction}
-                initial={editTarget}
-                allInstructions={allInstructions || []}
-                agents={agents || []}
-                boundAgentIds={editTarget ? (byInstruction.get(editTarget.id) || []) : []}
-                ownerAgentIds={ownerAgentIds}
-                saving={instrBusy}
-                error={editError}
-            />
         </Box>
     );
 };
