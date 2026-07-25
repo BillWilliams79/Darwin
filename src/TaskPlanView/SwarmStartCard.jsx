@@ -22,8 +22,10 @@ import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 
-// Chip statuses shown on this card. Mirrors the requirements page filter chips minus 'deferred'
-// (retired from the aggregator per req #2584). 'met' is special-cased: it shows only
+// Chip statuses shown on this card. Mirrors the requirements page filter chips minus
+// 'deferred' and 'wontfix' — both terminal/historical states outside this card's
+// "active work" scope ('deferred' retired from the aggregator per req #2584;
+// 'wontfix' was never added, same reasoning). 'met' is special-cased: it shows only
 // the trailing-24h Met list — recent completions, not the full Met history.
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
 const MET_TRAILING_HOURS = 24;

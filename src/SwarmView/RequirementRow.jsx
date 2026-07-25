@@ -345,13 +345,15 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     };
 
     // --- Autonomy cell — small icon ------------------------------------------
-    // Visible only for swarm_ready + development; editable only for swarm_ready.
-    // Keeps the `coordination-toggle-<id>` test id.
+    // Always visible, for every status — including authoring/approved and the
+    // terminal met/wontfix/deferred — so every card shows which autonomy mode
+    // a requirement is set to or shipped under (req #3056). Editable window
+    // matches RequirementDetail's coordination_type editor (req #3054):
+    // authoring/approved/swarm_ready; locked everywhere else. Keeps the
+    // `coordination-toggle-<id>` test id.
     const renderAutonomyCell = () => {
         if (requirement.id === '') return null;
-        const showCoord = ['swarm_ready', 'development'].includes(status);
-        if (!showCoord) return null;
-        const isCoordEditable = status === 'swarm_ready';
+        const isCoordEditable = ['authoring', 'approved', 'swarm_ready'].includes(status);
         const tooltip = isCoordEditable
             ? (coordTooltip[coordType] || 'No autonomy — click to set')
             : 'Locked — not editable';
@@ -454,8 +456,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         </Box>
     );
 
-    // Autonomy — small icon. Visible only for swarm_ready and development;
-    // editable only for swarm_ready.
+    // Autonomy — small icon, always visible; editable only for swarm_ready
+    // (req #3056).
     const autonomyCell = (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
                    overflow: 'hidden' }}>
