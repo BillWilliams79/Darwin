@@ -78,19 +78,6 @@
     }
 }
 
-/* req #3029 — the aggregator (Swarm-Start) card carries two extra columns
-   (Model + Effort), so on wide viewports let it span two grid tracks and read
-   as slightly larger than the category cards while the rest reflow around it.
-   Gated on `.aggregator-wide` (a UI option): when the user turns the wide
-   aggregator off, the class is absent and the card stays one track — the same
-   width as every other card. Below this width it spans one track regardless, so
-   the grid still collapses to the ~3× layout and, on mobile, to a single column. */
-@media screen and (min-width: 1600px) {
-    .card.swarm-card.aggregator-wide > [data-testid="swarm-start-card"] {
-        grid-column: span 2;
-    }
-}
-
 .task {
     display: grid;
     grid-template-columns: auto auto 1fr auto;

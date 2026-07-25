@@ -34,9 +34,9 @@ const getStatusIcon = (status) => {
     return <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />;
 };
 
-// Mirror RequirementRow getCoordinationIcon — visible only for swarm_ready/development.
-const getCoordinationIcon = (status, coordType) => {
-    if (!['swarm_ready', 'development'].includes(status)) return null;
+// Mirror RequirementRow getCoordinationIcon — always visible (locked in this
+// preview, since nothing here is editable), for every status (req #3056).
+const getCoordinationIcon = (coordType) => {
     // Autonomy-progression colors — pink → purple → blue → green (req #2866).
     if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: coordinationIconColor('discuss') }} />;
     if (coordType === 'planned')     return <DescriptionIcon sx={{ fontSize: 18, color: coordinationIconColor('planned') }} />;
@@ -81,7 +81,7 @@ const RequirementDeleteDialog = ({ deleteDialogOpen, setDeleteDialogOpen, setDel
                             {getStatusIcon(status)}
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28 }}>
-                            {getCoordinationIcon(status, coordType)}
+                            {getCoordinationIcon(coordType)}
                         </Box>
                         <Box sx={{
                             flex: 1,

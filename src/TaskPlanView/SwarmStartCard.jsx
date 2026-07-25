@@ -22,8 +22,10 @@ import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 
-// Chip statuses shown on this card. Mirrors the requirements page filter chips minus 'deferred'
-// (retired from the aggregator per req #2584). 'met' is special-cased: it shows only
+// Chip statuses shown on this card. Mirrors the requirements page filter chips minus
+// 'deferred' and 'wontfix' — both terminal/historical states outside this card's
+// "active work" scope ('deferred' retired from the aggregator per req #2584;
+// 'wontfix' was never added, same reasoning). 'met' is special-cased: it shows only
 // the trailing-24h Met list — recent completions, not the full Met history.
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
 const MET_TRAILING_HOURS = 24;
@@ -411,9 +413,13 @@ const SwarmStartCard = () => {
         <Card raised={true}
               data-testid="swarm-start-card"
               sx={{ border: '2px solid transparent' }}>
-            <CardContent>
+            {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
+                it (-15% left, -33% right) widens the requirement display area. The
+                Title column is the row's only `1fr` grid track, so the reclaimed
+                space flows straight into it with no other layout change. */}
+            <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
                 <Box className="card-header"
-                     sx={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                     sx={{ marginBottom: 2, minHeight: '44px', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                      data-testid="swarm-start-card-status-filter">
                     <Stack direction="row" spacing={1.75} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
