@@ -721,8 +721,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                   border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
                   borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
               }}>
-            <CardContent>
-                <Box className="card-header" sx={{marginBottom: 2}}>
+            {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
+                it (-15% left, -33% right) widens the requirement display area. The
+                Title column is the row's only `1fr` grid track, so the reclaimed
+                space flows straight into it with no other layout change. */}
+            <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
+                <Box className="card-header" sx={{marginBottom: 2, minHeight: '44px'}}>
                     <TextField
                                 variant="standard"
                                 value={category.category_name || ''}

@@ -411,9 +411,13 @@ const SwarmStartCard = () => {
         <Card raised={true}
               data-testid="swarm-start-card"
               sx={{ border: '2px solid transparent' }}>
-            <CardContent>
+            {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
+                it (-15% left, -33% right) widens the requirement display area. The
+                Title column is the row's only `1fr` grid track, so the reclaimed
+                space flows straight into it with no other layout change. */}
+            <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
                 <Box className="card-header"
-                     sx={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                     sx={{ marginBottom: 2, minHeight: '44px', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                      data-testid="swarm-start-card-status-filter">
                     <Stack direction="row" spacing={1.75} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
