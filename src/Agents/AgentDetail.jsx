@@ -4,19 +4,28 @@
 // identity, BINDING instructions in load order, and documents in relationship
 // precedence order with the autoload subset called out. Identity fields are
 // inline-editable (short by design); long content lives in the linked documents.
+//
+// Req #3049 made the instructions section editable. This page owns the
+// RELATIONSHIP — which instructions bind this agent and in what order — because
+// an agent's list is a single ordered thing. It does not own instruction CONTENT:
+// the pencil opens the same dialog /agents/instructions uses, so the blast-radius
+// warning travels with the edit.
 
 import '../index.css';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import Table from '@mui/material/Table';
@@ -25,6 +34,10 @@ import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import EditIcon from '@mui/icons-material/Edit';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import AppContext from '../Context/AppContext';
@@ -33,14 +46,21 @@ import call_rest_api from '../RestApi/RestApi';
 import {
     useAgents, useInstructions, useArchitectureDocuments,
     useAgentDocuments, useAgentInstructions, agentKeys,
+    instructionKeys, agentInstructionKeys,
 } from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     byId, linksByAgent, instructionLinksByAgent, agentsByInstruction,
     isCommonInstruction, relationshipChipProps, relationshipLabel,
-    docTypeChipProps, documentHref, isAutoload,
+    docTypeChipProps, documentHref, isAutoload, hasRole,
     agentModelChipProps, agentModelLabel,
+    nextInstructionSortOrder, planInstructionSwap, restErrorMessage,
 } from './agentRegistryUtils';
+import {
+    updateInstruction, linkAgentInstruction, unlinkAgentInstruction,
+    setAgentInstructionOrder, syncInstructionAgents,
+} from './actions/instructionsApi';
+import InstructionEditDialog from './InstructionEditDialog';
 
 const AgentDetail = () => {
     const { id } = useParams();
@@ -81,11 +101,31 @@ const AgentDetail = () => {
     const byInstruction = useMemo(
         () => agentsByInstruction(agentInstrs || []), [agentInstrs]);
 
-    const myInstructions = useMemo(
+    // Only OPEN instructions render: closed rows drop out of the agent's real boot
+    // payload, so listing them here would misrepresent what the agent loads. The
+    // count of hidden ones is surfaced instead, so "where did it go?" has an answer.
+    const myLinks = useMemo(
         () => (instrLinks.get(agentId) || [])
             .map(l => ({ link: l, row: instrIndex.get(l.instruction_fk) }))
-            .filter(x => x.row && !x.row.closed),
+            .filter(x => x.row),
         [instrLinks, agentId, instrIndex]);
+
+    const myInstructions = useMemo(
+        () => myLinks.filter(x => !x.row.closed), [myLinks]);
+
+    const closedLinkedCount = myLinks.length - myInstructions.length;
+
+    // Instructions this agent could still bind — open, and not already linked.
+    const linkableInstructions = useMemo(() => {
+        const bound = new Set(myLinks.map(x => x.row.id));
+        return (allInstructions || [])
+            .filter(i => !i.closed && !bound.has(i.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [allInstructions, myLinks]);
+
+    const ownerAgentIds = useMemo(() => [...new Set(
+        (agentDocs || []).filter(l => hasRole(l.relationship, 'owned'))
+            .map(l => l.agent_fk))], [agentDocs]);
 
     const myDocuments = useMemo(
         () => (docLinks.get(agentId) || [])
@@ -107,6 +147,116 @@ const AgentDetail = () => {
         } catch (err) {
             showError(err, 'Failed to update agent overview');
             setOverview(agent.overview || '');
+        }
+    };
+
+    // ---------- instruction relationship editing (req #3049) ----------
+
+    const [addSelection, setAddSelection] = useState(null);
+    const [instrBusy, setInstrBusy] = useState(false);
+    const [editOpen, setEditOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState(null);
+    const [editError, setEditError] = useState(null);
+
+    /**
+     * AWAITED on purpose. Returning before the refetch settles would re-enable the
+     * arrows while the list still renders the PRE-change order, and the next click
+     * would plan its swap from stale `sort_order` values — producing duplicate
+     * slots and moving a different row than the one under the cursor.
+     */
+    const invalidateInstructions = () => Promise.all([
+        queryClient.invalidateQueries({ queryKey: instructionKeys.all(creatorFk) }),
+        queryClient.invalidateQueries({ queryKey: agentInstructionKeys.all(creatorFk) }),
+    ]);
+
+    // Resync BEFORE surfacing the error: a display failure must never be able to
+    // skip the refetch, because the write may be half-applied.
+    const reportInstructionError = async (err, fallback) => {
+        await invalidateInstructions();
+        showError(err, restErrorMessage(err, fallback));
+    };
+
+    /**
+     * Move a bound instruction up or down the agent's load order.
+     *
+     * A SWAP, never a renumber. Closed links keep their stored slots and are not
+     * rewritten, so their values are passed as `reserved` to stop a repair pass
+     * colliding with them.
+     */
+    const moveInstruction = async (fromIdx, toIdx) => {
+        const links = myInstructions.map(x => x.link);
+        const reserved = myLinks
+            .filter(x => x.row.closed)
+            .map(x => x.link.sort_order);
+        const plan = planInstructionSwap(links, fromIdx, toIdx, reserved);
+        if (!plan) return;
+        setInstrBusy(true);
+        try {
+            await setAgentInstructionOrder(darwinUri, idToken, plan.writes, plan.originals);
+            await invalidateInstructions();
+        } catch (err) {
+            await reportInstructionError(err, 'Could not change the load order');
+        } finally {
+            setInstrBusy(false);
+        }
+    };
+
+    const unlinkInstruction = async (instruction) => {
+        // Unbinding changes what this agent loads at boot and there is no undo, so
+        // it gets a confirmation like every other destructive action here.
+        if (!window.confirm(
+            `Unbind "${instruction.name}" from ${agent?.name || 'this agent'}?\n\n` +
+            'The agent stops loading it at its next boot. The instruction row itself survives.')) {
+            return;
+        }
+        setInstrBusy(true);
+        try {
+            await unlinkAgentInstruction(darwinUri, idToken, agentId, instruction.id);
+            await invalidateInstructions();
+        } catch (err) {
+            await reportInstructionError(err, 'Could not unlink the instruction');
+        } finally {
+            setInstrBusy(false);
+        }
+    };
+
+    const addInstruction = async () => {
+        if (!addSelection) return;
+        setInstrBusy(true);
+        try {
+            await linkAgentInstruction(darwinUri, idToken, agentId, addSelection.id,
+                nextInstructionSortOrder(agentId, instrLinks));
+            setAddSelection(null);
+            await invalidateInstructions();
+        } catch (err) {
+            await reportInstructionError(err, 'Could not bind the instruction');
+        } finally {
+            setInstrBusy(false);
+        }
+    };
+
+    const saveInstruction = async (values, linkedAgentIds) => {
+        if (!editTarget) return;
+        setInstrBusy(true);
+        setEditError(null);
+        try {
+            await updateInstruction(darwinUri, idToken, editTarget.id, values);
+            await syncInstructionAgents(darwinUri, idToken, {
+                instructionId: editTarget.id,
+                prevAgentIds: byInstruction.get(editTarget.id) || [],
+                nextAgentIds: linkedAgentIds,
+                sortOrderFor: (aid) => nextInstructionSortOrder(aid, instrLinks),
+            });
+            await invalidateInstructions();
+            setEditOpen(false);
+        } catch (err) {
+            // Resync so a retry diffs against what is actually stored — the
+            // membership loop is a sequence of independent writes and may have
+            // applied some of them.
+            await invalidateInstructions();
+            setEditError(restErrorMessage(err, 'Could not save the instruction.'));
+        } finally {
+            setInstrBusy(false);
         }
     };
 
@@ -167,11 +317,20 @@ const AgentDetail = () => {
                     </Typography>
                 </Typography>
 
+                {closedLinkedCount > 0 && (
+                    <Typography variant="caption" color="text.secondary"
+                                sx={{ display: 'block', mb: 1 }}
+                                data-testid="agent-instructions-closed-note">
+                        {closedLinkedCount} linked instruction{closedLinkedCount === 1 ? ' is' : 's are'} closed
+                        and not loaded at boot.
+                    </Typography>
+                )}
+
                 {myInstructions.length === 0 ? (
-                    <Typography color="text.secondary" sx={{ mb: 3 }}>No instructions linked.</Typography>
+                    <Typography color="text.secondary" sx={{ mb: 1 }}>No instructions linked.</Typography>
                 ) : (
-                    <Stack spacing={1} sx={{ mb: 3 }}>
-                        {myInstructions.map(({ link, row }) => {
+                    <Stack spacing={1} sx={{ mb: 1 }}>
+                        {myInstructions.map(({ link, row }, idx) => {
                             const refs = byInstruction.get(row.id) || [];
                             const common = isCommonInstruction(row.id, byInstruction);
                             return (
@@ -188,9 +347,55 @@ const AgentDetail = () => {
                                                   clickable
                                                   data-testid={`agent-instruction-common-${row.id}`} />
                                         )}
-                                        <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                                            #{link.sort_order ?? '—'}
-                                        </Typography>
+                                        <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <Tooltip title="Load order — position in this agent's boot payload">
+                                                <Typography variant="caption" color="text.secondary"
+                                                            data-testid={`agent-instruction-order-${row.id}`}>
+                                                    #{link.sort_order ?? '—'}
+                                                </Typography>
+                                            </Tooltip>
+                                            <Tooltip title="Load earlier">
+                                                <span>
+                                                    <IconButton size="small" disabled={idx === 0 || instrBusy}
+                                                                onClick={() => moveInstruction(idx, idx - 1)}
+                                                                data-testid={`agent-instruction-up-${row.id}`}>
+                                                        <ArrowUpwardIcon fontSize="small" />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
+                                            <Tooltip title="Load later">
+                                                <span>
+                                                    <IconButton size="small"
+                                                                disabled={idx === myInstructions.length - 1 || instrBusy}
+                                                                onClick={() => moveInstruction(idx, idx + 1)}
+                                                                data-testid={`agent-instruction-down-${row.id}`}>
+                                                        <ArrowDownwardIcon fontSize="small" />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
+                                            <Tooltip title="Edit instruction">
+                                                <span>
+                                                    <IconButton size="small" disabled={instrBusy}
+                                                                onClick={() => {
+                                                                    setEditError(null);
+                                                                    setEditTarget(row);
+                                                                    setEditOpen(true);
+                                                                }}
+                                                                data-testid={`agent-instruction-edit-${row.id}`}>
+                                                        <EditIcon fontSize="small" />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
+                                            <Tooltip title="Unbind from this agent (the instruction itself survives)">
+                                                <span>
+                                                    <IconButton size="small" disabled={instrBusy}
+                                                                onClick={() => unlinkInstruction(row)}
+                                                                data-testid={`agent-instruction-unlink-${row.id}`}>
+                                                        <LinkOffIcon fontSize="small" />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
+                                        </Box>
                                     </Box>
                                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                                         {row.content}
@@ -200,6 +405,29 @@ const AgentDetail = () => {
                         })}
                     </Stack>
                 )}
+
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 3, flexWrap: 'wrap' }}>
+                    <Autocomplete
+                        size="small"
+                        sx={{ minWidth: 320 }}
+                        options={linkableInstructions}
+                        getOptionLabel={(o) => o.name || ''}
+                        value={addSelection}
+                        onChange={(_e, v) => setAddSelection(v)}
+                        isOptionEqualToValue={(o, v) => o.id === v.id}
+                        disabled={instrBusy}
+                        renderInput={(params) => (
+                            <TextField {...params} label="Bind an instruction"
+                                       inputProps={{ ...params.inputProps,
+                                                     'data-testid': 'agent-instruction-add' }} />
+                        )}
+                    />
+                    <Button variant="outlined" size="small" onClick={addInstruction}
+                            disabled={!addSelection || instrBusy}
+                            data-testid="agent-instruction-add-btn">
+                        Bind
+                    </Button>
+                </Box>
             </Box>
 
             {/* ---------- documents ---------- */}
@@ -268,6 +496,19 @@ const AgentDetail = () => {
                     </Table>
                 )}
             </Box>
+
+            <InstructionEditDialog
+                open={editOpen}
+                onClose={() => setEditOpen(false)}
+                onSave={saveInstruction}
+                initial={editTarget}
+                allInstructions={allInstructions || []}
+                agents={agents || []}
+                boundAgentIds={editTarget ? (byInstruction.get(editTarget.id) || []) : []}
+                ownerAgentIds={ownerAgentIds}
+                saving={instrBusy}
+                error={editError}
+            />
         </Box>
     );
 };

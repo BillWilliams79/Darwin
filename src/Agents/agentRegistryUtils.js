@@ -158,6 +158,149 @@ export const agentsByInstruction = (agentInstructions = []) => {
 export const isCommonInstruction = (instructionId, byInstruction, threshold = 2) =>
     (byInstruction.get(instructionId)?.length || 0) >= threshold;
 
+// ---------------------------------------------------------------------------
+// Editing helpers (req #3049).
+//
+// TWO `sort_order` COLUMNS EXIST AND ONLY ONE DRIVES BOOT.
+//   agent_instructions.sort_order — the per-(agent, instruction) LOAD ORDER the
+//       boot payload uses. This is the one an agent actually feels.
+//   instructions.sort_order       — a CATALOG hint that orders the browse list
+//       and nothing else.
+// The helpers below operate exclusively on the JUNCTION column. Never sync the
+// two; presenting them as one control is the likeliest defect in this area.
+// ---------------------------------------------------------------------------
+
+/**
+ * Next free load-order slot for an agent — max(sort_order) + 1, 1-indexed.
+ * Used when binding a new instruction so it lands at the end of the agent's
+ * load order rather than colliding with an existing slot.
+ */
+export const nextInstructionSortOrder = (agentId, instrLinks) => {
+    const links = instrLinks.get(agentId) || [];
+    const orders = links.map(l => l.sort_order).filter(o => Number.isFinite(o));
+    return orders.length ? Math.max(...orders) + 1 : 1;
+};
+
+/**
+ * Repair a link list's `sort_order` values IN PLACE-PRESERVING fashion.
+ *
+ * A stored value is KEPT whenever it can be: it must be a finite number, strictly
+ * greater than the previous kept/assigned value, and not claimed by a link
+ * outside this list. Anything else (NULL, or a value that would duplicate or go
+ * backwards) gets the next free slot.
+ *
+ * This is deliberately NOT a 1..N renumber. The live registry uses BANDED slots:
+ * per-agent instructions occupy 1..N, and the shared "common-*" rows sit together
+ * at 100, 101, 102 on every architect. Renumbering would collapse both bands into
+ * one undifferentiated run, permanently destroying the separation and the gap
+ * that keeps it extensible. Keeping good values means a single NULL in the middle
+ * repairs to 1, 2, 100 rather than 1, 2, 3.
+ *
+ * `reserved` carries sort_order values held by links the caller is NOT
+ * rewriting — in practice an agent's CLOSED links, which stay in the table and
+ * would otherwise collide with a repaired value.
+ */
+export const repairInstructionOrders = (links = [], reserved = []) => {
+    const taken = new Set(reserved.filter(o => Number.isFinite(o)));
+    // Starts below zero so a deliberate 0 or negative slot is KEPT rather than
+    // silently rewritten; the assignment path still floors new slots at 1.
+    let last = -Infinity;
+    return links.map(l => {
+        const current = l.sort_order;
+        if (Number.isFinite(current) && current > last && !taken.has(current)) {
+            last = current;
+            return l;
+        }
+        let next = Math.max(last, 0) + 1;
+        while (taken.has(next)) next += 1;
+        last = next;
+        return { ...l, sort_order: next };
+    });
+};
+
+/**
+ * Plan a load-order move as a SWAP of two rows' sort_order values.
+ *
+ * Why a swap and not a renumber: see repairInstructionOrders. A swap preserves
+ * the value SET, so the banded slots survive every reorder, and it bounds the
+ * blast radius — the write set is the two moved rows plus only those rows a
+ * repair genuinely had to touch, never the whole list by default.
+ *
+ * `links` must be the agent's links already in display order (the order
+ * `instructionLinksByAgent` produces: sort_order asc, NULLs last).
+ *
+ * Returns { writes, originals } — the rows whose stored value actually changes,
+ * and the same rows at their PRE-change value for rollback. Returns null when
+ * the move is out of bounds or would change nothing.
+ */
+export const planInstructionSwap = (links = [], fromIdx, toIdx, reserved = []) => {
+    if (fromIdx === toIdx) return null;
+    if (fromIdx < 0 || toIdx < 0) return null;
+    if (fromIdx >= links.length || toIdx >= links.length) return null;
+
+    const repaired = repairInstructionOrders(links, reserved);
+    const fromOrder = repaired[fromIdx].sort_order;
+    const toOrder = repaired[toIdx].sort_order;
+
+    const final = repaired.map((l, i) => {
+        if (i === fromIdx) return { ...l, sort_order: toOrder };
+        if (i === toIdx) return { ...l, sort_order: fromOrder };
+        return l;
+    });
+
+    const writes = [];
+    const originals = [];
+    final.forEach((l, i) => {
+        if (l.sort_order === links[i].sort_order) return;   // untouched — don't write it
+        writes.push(l);
+        originals.push(links[i]);
+    });
+
+    return writes.length ? { writes, originals } : null;
+};
+
+/**
+ * Is this instruction name already taken?
+ *
+ * `instructions.name` carries a UNIQUE key that does NOT exclude closed rows, so
+ * the check must run against the UNFILTERED catalog — colliding with an
+ * invisible closed row is the confusing failure this prevents. Compared
+ * case-insensitively on the trimmed value: MySQL's default collation is
+ * case-insensitive, so "Foo" and "foo" collide in the database too.
+ */
+export const instructionNameTaken = (name, instructions = [], selfId = null) => {
+    const candidate = (name || '').trim().toLowerCase();
+    if (!candidate) return false;
+    return instructions.some(
+        i => i.id !== selfId && (i.name || '').trim().toLowerCase() === candidate);
+};
+
+/**
+ * Turn a thrown call_rest_api rejection into something a human can act on.
+ *
+ * Lambda-Rest has no 409: a constraint violation arrives as HTTP 500 whose body
+ * is the raw pymysql message (`"HTTP PUT SQL FAILED: 1062 Duplicate entry ..."`).
+ * Matching on the message is the only way to tell "you picked a taken name" from
+ * "the database is broken" — mapping IntegrityError to a real status code is
+ * filed as its own requirement.
+ */
+export const restErrorMessage = (err, fallback) => {
+    const msg = typeof err?.httpStatus?.httpMessage === 'string'
+        ? err.httpStatus.httpMessage
+        : '';
+
+    if (/Duplicate entry .* for key '.*uq_instructions_name'/i.test(msg)) {
+        return 'That instruction name is already in use (the existing row may be closed).';
+    }
+    if (/Duplicate entry .* for key '.*agent_instructions\.PRIMARY'/i.test(msg)) {
+        return 'That instruction is already bound to this agent.';
+    }
+    if (/foreign key constraint fails/i.test(msg)) {
+        return 'The agent or instruction no longer exists — reload the page and retry.';
+    }
+    return fallback;
+};
+
 /** Build an id→row lookup for any entity list. */
 export const byId = (rows = []) => {
     const m = new Map();
