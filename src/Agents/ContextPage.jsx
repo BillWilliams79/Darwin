@@ -16,6 +16,7 @@
 
 import '../index.css';
 import { Fragment, useContext, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -23,12 +24,20 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
+import DeleteIcon from '@mui/icons-material/Delete';
 
+import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { useAgentTelemetryRuns, useAgentTelemetryRowsByRun } from '../hooks/useDataQueries';
+import {
+    useAgentTelemetryRuns, useAgentTelemetryRowsByRun, agentTelemetryRunKeys,
+} from '../hooks/useDataQueries';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { deleteAgentTelemetryRun } from './actions/contextApi';
 import { NA as NA_TEXT, sortRows, assignMarkers, computeCells } from './contextRenderUtils';
 
 // The 9 fixed column definitions — verbatim from the artifact glossary. The
@@ -93,15 +102,19 @@ const TABLE_CSS = `
 const NA = <span className="fn">n/a</span>;
 
 const ContextPage = () => {
-    const { profile } = useContext(AuthContext);
+    const { profile, idToken } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
     const theme = useTheme();
     const isMobile = useMediaQuery('(max-width:899px)');
     const creatorFk = profile?.userName;
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
 
     const { data: runs, isLoading: runsLoading } = useAgentTelemetryRuns(creatorFk);
 
     // Runs arrive newest-first (captured_at:desc); default to the newest capture.
     const [selectedId, setSelectedId] = useState(null);
+    const [deleting, setDeleting] = useState(false);
     const runsSorted = useMemo(() => runs || [], [runs]);
     const activeRunId = selectedId ?? runsSorted[0]?.id ?? null;
     const activeRun = useMemo(
@@ -110,15 +123,34 @@ const ContextPage = () => {
 
     const { data: rows, isLoading: rowsLoading } = useAgentTelemetryRowsByRun(activeRunId);
 
-    const rendered = useMemo(() => {
-        const list = sortRows(rows);
-        return { list, markerByText: assignMarkers(list) };
-    }, [rows]);
-
     const dateLabel = (r) => {
         const d = r.captured_at ? String(r.captured_at).slice(0, 10) : '';
         return d ? `${r.label} — ${d}` : r.label;
     };
+
+    const handleDelete = async () => {
+        if (!activeRun) return;
+        const targetId = activeRun.id;
+        if (!window.confirm(`Delete capture "${dateLabel(activeRun)}"? This cannot be undone.`)) return;
+        setDeleting(true);
+        try {
+            await deleteAgentTelemetryRun(darwinUri, idToken, targetId);
+            // Only clear an explicit selection that still points at the row we just
+            // deleted — if the user picked a different capture while this delete was
+            // in flight, that pick must survive, not get silently overwritten.
+            setSelectedId(prev => (prev === targetId ? null : prev));
+            await queryClient.invalidateQueries({ queryKey: agentTelemetryRunKeys.all(creatorFk) });
+        } catch (err) {
+            showError(err, 'Could not delete the capture');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const rendered = useMemo(() => {
+        const list = sortRows(rows);
+        return { list, markerByText: assignMarkers(list) };
+    }, [rows]);
 
     if (runsLoading) {
         return <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}><CircularProgress /></Box>;
@@ -151,6 +183,20 @@ const ContextPage = () => {
                             ))}
                         </Select>
                     </FormControl>
+                )}
+                {activeRun && (
+                    <Tooltip title="Delete this capture">
+                        <span>
+                            <IconButton
+                                size="small"
+                                onClick={handleDelete}
+                                disabled={deleting}
+                                data-testid="agent-context-delete-btn"
+                            >
+                                <DeleteIcon fontSize="small" />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
                 )}
             </Box>
 
