@@ -19,7 +19,7 @@ vi.mock('../../RestApi/RestApi', () => ({ default: vi.fn() }));
 import call_rest_api from '../../RestApi/RestApi';
 import {
     linkAgentInstruction, linkAgentInstructions,
-    unlinkAgentInstruction, setAgentInstructionOrder, syncInstructionAgents,
+    unlinkAgentInstruction, setAgentInstructionOrder,
     createInstruction, updateInstruction, deleteInstruction,
 } from '../actions/instructionsApi';
 
@@ -218,57 +218,13 @@ describe('setAgentInstructionOrder — the non-atomic reorder', () => {
     });
 });
 
-describe('syncInstructionAgents — the shared membership diff', () => {
-    // Lives in ONE place and is called by both /agents/instructions and
-    // /agents/:id. Two copies of this diff would drift, and a drifted diff binds
-    // or unbinds the wrong agents silently.
-
-    it('binds only the additions and unbinds only the removals', async () => {
-        await syncInstructionAgents(URI, TOKEN, {
-            instructionId: 42,
-            prevAgentIds: [1, 2, 3],
-            nextAgentIds: [2, 3, 4],
-            sortOrderFor: () => 7,
-        });
-
-        const posts = calls().filter(c => c.method === 'POST');
-        const deletes = calls().filter(c => c.method === 'DELETE');
-        expect(posts).toHaveLength(1);
-        expect(posts[0].body).toEqual([{ agent_fk: 4, instruction_fk: 42, sort_order: 7 }]);
-        expect(deletes).toHaveLength(1);
-        expect(deletes[0].body).toEqual({ agent_fk: 1, instruction_fk: 42 });
-    });
-
-    it('is a no-op when the membership is unchanged', async () => {
-        await syncInstructionAgents(URI, TOKEN, {
-            instructionId: 42, prevAgentIds: [1, 2], nextAgentIds: [2, 1],
-        });
-        expect(call_rest_api).not.toHaveBeenCalled();
-    });
-
-    it('asks for a per-agent load-order slot rather than reusing one', async () => {
-        const sortOrderFor = vi.fn((agentId) => agentId * 10);
-        await syncInstructionAgents(URI, TOKEN, {
-            instructionId: 42, prevAgentIds: [], nextAgentIds: [1, 2], sortOrderFor,
-        });
-        expect(sortOrderFor.mock.calls.map(([a]) => a)).toEqual([1, 2]);
-        const posted = calls().filter(c => c.method === 'POST')
-            .flatMap(c => c.body);
-        expect(posted).toEqual([
-            { agent_fk: 1, instruction_fk: 42, sort_order: 10 },
-            { agent_fk: 2, instruction_fk: 42, sort_order: 20 },
-        ]);
-    });
-
-    it('preserves a binding to an agent the caller never listed', async () => {
-        // The dialog lists OPEN agents only, but seeds its selection from every
-        // stored binding — so a closed agent's link must survive a save untouched.
-        await syncInstructionAgents(URI, TOKEN, {
-            instructionId: 42, prevAgentIds: [9], nextAgentIds: [9],
-        });
-        expect(call_rest_api).not.toHaveBeenCalled();
-    });
-});
+// The `syncInstructionAgents` suite was removed with the function in req #3063.
+// Membership is now edited one chip at a time, so a bind IS `linkAgentInstruction`
+// and an unbind IS `unlinkAgentInstruction` — both covered above, including the
+// array-body requirement and the 404-tolerant delete. There is no longer a set
+// diff to test, and the thing its tests were really guarding (a loop of
+// independent writes presented to the user as one atomic save) no longer exists to
+// be guarded.
 
 describe('instruction row mutations', () => {
     it('PUT sends an array — rest_put.py requires one even for a single row', async () => {
@@ -278,13 +234,26 @@ describe('instruction row mutations', () => {
         });
     });
 
+    it('PUT carries ONLY the column it was given (req #3063 one-PUT-per-field)', async () => {
+        // Each ghost field commits alone. If the payload ever grew to the whole
+        // row, a rejected name would take an edited body down with it and a stale
+        // sibling field would silently overwrite a concurrent change.
+        await updateInstruction(URI, TOKEN, 42, { name: 'renamed' });
+        expect(calls()[0].body).toEqual([{ id: 42, name: 'renamed' }]);
+        expect(Object.keys(calls()[0].body[0])).toEqual(['id', 'name']);
+    });
+
+
     it('POST sends a single object — `instructions` HAS an id column', async () => {
         await createInstruction(URI, TOKEN,
             { name: 'n', content: 'c', creator_fk: 'sub' });
         const [c] = calls();
         expect(c.method).toBe('POST');
         expect(Array.isArray(c.body)).toBe(false);
-        expect(c.body).toMatchObject({ name: 'n', content: 'c', sort_order: null, closed: 0 });
+        expect(c.body).toMatchObject({ name: 'n', content: 'c', closed: 0 });
+        // Migration 072 dropped instructions.sort_order — sending it would now be
+        // an unknown column.
+        expect(c.body).not.toHaveProperty('sort_order');
     });
 
     it('DELETE targets the row by id', async () => {
@@ -292,5 +261,39 @@ describe('instruction row mutations', () => {
         expect(calls()[0]).toEqual({
             table: 'instructions', method: 'DELETE', body: { id: 42 },
         });
+    });
+});
+
+describe('bind-all uses one bulk INSERT, not a loop (req #3063)', () => {
+    // The bind-all pill binds every remaining agent behind one click. A loop of
+    // single binds would be eleven sequential Lambda invocations AND would
+    // reintroduce the half-applied-set failure the one-chip-one-write rule exists
+    // to avoid. One array body is one multi-value INSERT: it lands or it doesn't.
+    it('sends every link in a single array-body POST', async () => {
+        await linkAgentInstructions(URI, TOKEN, [
+            { agent_fk: 1, instruction_fk: 42, sort_order: 4 },
+            { agent_fk: 2, instruction_fk: 42, sort_order: 7 },
+            { agent_fk: 3, instruction_fk: 42, sort_order: 101 },
+        ]);
+
+        expect(call_rest_api).toHaveBeenCalledOnce();
+        const [c] = calls();
+        expect(c.method).toBe('POST');
+        expect(Array.isArray(c.body)).toBe(true);
+        expect(c.body).toHaveLength(3);
+    });
+
+    it('gives each agent its OWN slot rather than reusing one', async () => {
+        // Slots are computed from one snapshot, which is safe only because every
+        // row targets a different agent_fk — no two rows compete for one agent's
+        // next slot. If this ever collapsed to a shared value, two instructions
+        // would load at the same position for that agent, in arbitrary order.
+        await linkAgentInstructions(URI, TOKEN, [
+            { agent_fk: 1, instruction_fk: 42, sort_order: 4 },
+            { agent_fk: 2, instruction_fk: 42, sort_order: 7 },
+        ]);
+        const slots = calls()[0].body.map(r => r.sort_order);
+        expect(new Set(calls()[0].body.map(r => r.agent_fk)).size).toBe(2);
+        expect(slots).toEqual([4, 7]);
     });
 });

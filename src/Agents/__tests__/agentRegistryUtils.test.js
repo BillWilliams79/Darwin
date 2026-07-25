@@ -15,6 +15,8 @@ import {
     nextInstructionSortOrder, planInstructionSwap, repairInstructionOrders,
     instructionNameTaken, restErrorMessage,
     agentModelChipProps, agentModelLabel,
+    instructionNameError, instructionContentError, contentByteLength,
+    INSTRUCTION_NAME_MAX, INSTRUCTION_CONTENT_MAX_BYTES,
 } from '../agentRegistryUtils';
 
 const link = (instruction_fk, sort_order, agent_fk = 7) =>
@@ -183,12 +185,12 @@ describe('planInstructionSwap', () => {
 
 describe('instructionNameTaken', () => {
     const catalog = [
-        { id: 1, name: 'common-documents', closed: 0 },
+        { id: 1, name: 'Synthetic fixture title', closed: 0 },
         { id: 2, name: 'Retired-Rule', closed: 1 },
     ];
 
     it('detects a collision', () => {
-        expect(instructionNameTaken('common-documents', catalog)).toBe(true);
+        expect(instructionNameTaken('Synthetic fixture title', catalog)).toBe(true);
     });
 
     it('collides against a CLOSED row — the unique key does not exclude them', () => {
@@ -196,11 +198,11 @@ describe('instructionNameTaken', () => {
     });
 
     it('is case- and whitespace-insensitive, matching MySQL collation', () => {
-        expect(instructionNameTaken('  COMMON-Documents ', catalog)).toBe(true);
+        expect(instructionNameTaken('  SYNTHETIC Fixture TITLE ', catalog)).toBe(true);
     });
 
     it('does not collide a row with itself', () => {
-        expect(instructionNameTaken('common-documents', catalog, 1)).toBe(false);
+        expect(instructionNameTaken('Synthetic fixture title', catalog, 1)).toBe(false);
     });
 
     it('treats an empty name as not taken (the required-field check owns that)', () => {
@@ -278,3 +280,92 @@ describe('agentModelChipProps (req #3053)', () => {
         expect(agentModelLabel(null)).toBe('—');
     });
 });
+
+// ---------------------------------------------------------------------------
+// Req #3063 — the per-field verdicts behind edit-in-place.
+//
+// A modal could gate one Save button on a combined boolean. An in-place field
+// commits on blur with no button to disable, so each field decides alone — and
+// the decision has to be pinned here, because the only thing standing between a
+// bad value and a SILENTLY TRUNCATED (non-strict sql_mode) instruction that an
+// agent then loads verbatim at boot is this verdict.
+//
+// The shared rule across all three: EMPTY IS NOT AN ERROR. `name` and `content`
+// are NOT NULL, so GhostTextField treats an emptied required field as "abandon
+// the edit" and reverts. Reporting empty as an error would leave a red field the
+// user cannot clear without retyping what was already stored.
+// ---------------------------------------------------------------------------
+
+describe('instructionNameError (req #3063)', () => {
+    const catalog = [
+        { id: 1, name: 'common-no-fabrication' },
+        { id: 2, name: 'Retired-Rule', closed: 1 },
+    ];
+
+    it('passes a free name', () => {
+        expect(instructionNameError('frontend-owns-src', catalog, null)).toBeNull();
+    });
+
+    it('passes empty — an emptied required field reverts, it does not error', () => {
+        expect(instructionNameError('', catalog, null)).toBeNull();
+        expect(instructionNameError('   ', catalog, null)).toBeNull();
+    });
+
+    it('flags a collision with an OPEN row', () => {
+        expect(instructionNameError('common-no-fabrication', catalog, null))
+            .toMatch(/already exists/);
+    });
+
+    it('flags a collision with a CLOSED row — the UNIQUE key does not exclude them', () => {
+        // The confusing failure this prevents: colliding with a row that is not
+        // even visible in the list.
+        expect(instructionNameError('retired-rule', catalog, null))
+            .toMatch(/already exists/);
+    });
+
+    it('does not flag the row being edited against itself', () => {
+        expect(instructionNameError('common-no-fabrication', catalog, 1)).toBeNull();
+    });
+
+    it('flags a name past the VARCHAR(256) limit rather than letting it truncate', () => {
+        const err = instructionNameError('x'.repeat(INSTRUCTION_NAME_MAX + 1), [], null);
+        expect(err).toMatch(/Too long/);
+    });
+
+    it('accepts a name exactly at the limit', () => {
+        expect(instructionNameError('x'.repeat(INSTRUCTION_NAME_MAX), [], null)).toBeNull();
+    });
+
+    it('measures the TRIMMED value against the limit', () => {
+        expect(instructionNameError(`  ${'x'.repeat(INSTRUCTION_NAME_MAX)}  `, [], null))
+            .toBeNull();
+    });
+});
+
+describe('instructionContentError (req #3063)', () => {
+    it('passes ordinary prose', () => {
+        expect(instructionContentError('Never fabricate a root cause.')).toBeNull();
+    });
+
+    it('passes empty — the field reverts rather than writing an empty NOT NULL column', () => {
+        expect(instructionContentError('')).toBeNull();
+    });
+
+    it('measures BYTES, not characters — TEXT is a byte limit', () => {
+        // Every char here is 4 bytes, so the string is a quarter of the limit in
+        // length but exactly at it in bytes. Measuring `.length` would let four
+        // times the allowed content through, and MySQL would cut it mid-sentence.
+        const emoji = '🙂';
+        expect(contentByteLength(emoji)).toBe(4);
+        const atLimit = emoji.repeat(INSTRUCTION_CONTENT_MAX_BYTES / 4);
+        expect(atLimit.length).toBeLessThan(INSTRUCTION_CONTENT_MAX_BYTES);
+        expect(instructionContentError(atLimit)).toBeNull();
+        expect(instructionContentError(atLimit + emoji)).toMatch(/Too long/);
+    });
+
+    it('reports the actual byte count so the overage is actionable', () => {
+        expect(instructionContentError('x'.repeat(INSTRUCTION_CONTENT_MAX_BYTES + 5)))
+            .toContain((INSTRUCTION_CONTENT_MAX_BYTES + 5).toLocaleString());
+    });
+});
+

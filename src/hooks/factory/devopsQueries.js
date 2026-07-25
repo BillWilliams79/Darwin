@@ -221,9 +221,12 @@ export const agents = createEntityQueries({
 
 export const instructions = createEntityQueries({
     entity: 'instructions',
-    defaultFields: 'id,name,content,closed,sort_order,creator_fk,create_ts,update_ts',
+    // No sort_order: the catalog-order column was dropped in migration 072. The
+    // browse order is chosen in the UI (Agent Count / Name / Last updated) and
+    // applied client-side, so the server sort just needs to be deterministic.
+    defaultFields: 'id,name,content,closed,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
-    defaultSort: 'sort_order:asc',
+    defaultSort: 'name:asc',
 });
 
 export const architectureDocuments = createEntityQueries({
