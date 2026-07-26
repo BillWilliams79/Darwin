@@ -291,6 +291,7 @@ export const agentTelemetryRuns = createEntityQueries({
     entity: 'agent_telemetry_runs',
     defaultFields:
         'id,captured_at,label,agent_count,harness_version,source_note,' +
+        'ai_model,effort,machine_fk,' +
         'creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'captured_at:desc',
