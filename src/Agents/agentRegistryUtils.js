@@ -372,6 +372,18 @@ export const restErrorMessage = (err, fallback) => {
     if (/Duplicate entry .* for key '.*agent_instructions\.PRIMARY'/i.test(msg)) {
         return 'That instruction is already bound to this agent.';
     }
+    // req #3075, migration 073: UNIQUE (agent_fk, sort_order). Matched SEPARATELY
+    // from the PRIMARY case above even though both are 1062 on the same table —
+    // "already bound" and "that load position is taken" are different problems
+    // with different fixes, and collapsing them would send the reader to the
+    // wrong one. Reachable from two paths: binding a new instruction at a slot
+    // another already holds, and a reorder whose re-POST lands on a slot it did
+    // not first vacate.
+    if (/Duplicate entry .* for key '.*uq_agent_instructions_slot'/i.test(msg)) {
+        return 'Another instruction already holds that load-order slot for this '
+            + 'agent. Reload the page and retry — the list may have moved since '
+            + 'it was drawn.';
+    }
     if (/foreign key constraint fails/i.test(msg)) {
         return 'The agent or instruction no longer exists — reload the page and retry.';
     }
