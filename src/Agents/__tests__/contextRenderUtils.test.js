@@ -3,7 +3,10 @@
 // a regression guard against the published visual-acceptance spec.
 
 import { describe, it, expect } from 'vitest';
-import { fmt, NA, sortRows, assignMarkers, computeCells } from '../contextRenderUtils';
+import {
+    fmt, NA, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
+    assignMarkers, computeCells,
+} from '../contextRenderUtils';
 
 const architect = (over) => ({
     id: 1, agent_name: 'AWS', role: 'architect', session_kind: 'subagent',
@@ -42,27 +45,79 @@ describe('fmt', () => {
     });
 });
 
-describe('sortRows', () => {
-    it('orders by sort_order, NULLs last, then id', () => {
-        const out = sortRows([
-            { id: 3, sort_order: null }, { id: 1, sort_order: 99 },
-            { id: 2, sort_order: 1 },
-        ]);
-        expect(out.map(r => r.id)).toEqual([2, 1, 3]);
+describe('sortByColumn', () => {
+    it('defaults to agent name ascending, with PrimaryAI pinned first', () => {
+        const out = sortByColumn(
+            [primary, reviewer, architect()], DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR);
+        expect(out.map(r => r.agent_name)).toEqual(['Darwin PrimaryAI', 'AWS', 'Code Reviewer']);
+    });
+    it('pins PrimaryAI first ascending and last descending — reversing with direction', () => {
+        const asc = sortByColumn([architect(), reviewer, primary], 'agent_name', 'asc');
+        const desc = sortByColumn([architect(), reviewer, primary], 'agent_name', 'desc');
+        expect(asc.map(r => r.agent_name)).toEqual(['Darwin PrimaryAI', 'AWS', 'Code Reviewer']);
+        expect(desc.map(r => r.agent_name)).toEqual(['Code Reviewer', 'AWS', 'Darwin PrimaryAI']);
+    });
+    it('sorts non-pinned rows alphabetically, not by input order', () => {
+        // Input order is Code Reviewer, then PrimaryAI, then AWS — the opposite of
+        // both the pin and the alphabet, so a comparator bug that just preserved
+        // input order for non-pinned rows would produce the wrong result here.
+        const out = sortByColumn([reviewer, primary, architect()], 'agent_name', 'asc');
+        expect(out.map(r => r.agent_name)).toEqual(['Darwin PrimaryAI', 'AWS', 'Code Reviewer']);
+    });
+    it('sorts a numeric column ascending', () => {
+        const out = sortByColumn(
+            [architect(), reviewer, primary], 'boot_time_ms', 'asc');
+        expect(out.map(r => r.id)).toEqual([12, 1, 13]); // 358, 388, null
+    });
+    it('flips to descending on the same column', () => {
+        const out = sortByColumn(
+            [architect(), reviewer, primary], 'boot_time_ms', 'desc');
+        expect(out.map(r => r.id)).toEqual([1, 12, 13]); // 388, 358, null-still-last
+    });
+    it('keeps NULLs last in both directions', () => {
+        const asc = sortByColumn([architect(), primary], 'boot_time_ms', 'asc');
+        const desc = sortByColumn([architect(), primary], 'boot_time_ms', 'desc');
+        expect(asc.map(r => r.id)).toEqual([1, 13]);
+        expect(desc.map(r => r.id)).toEqual([1, 13]);
+    });
+    it('breaks ties by id, direction-independent', () => {
+        const rows = [{ id: 2, boot_time_ms: 5 }, { id: 1, boot_time_ms: 5 }];
+        expect(sortByColumn(rows, 'boot_time_ms', 'asc').map(r => r.id)).toEqual([1, 2]);
+        expect(sortByColumn(rows, 'boot_time_ms', 'desc').map(r => r.id)).toEqual([1, 2]);
     });
     it('does not mutate input', () => {
-        const input = [{ id: 2, sort_order: 2 }, { id: 1, sort_order: 1 }];
-        sortRows(input);
+        const input = [{ id: 2, agent_name: 'B' }, { id: 1, agent_name: 'A' }];
+        sortByColumn(input, 'agent_name', 'desc');
         expect(input.map(r => r.id)).toEqual([2, 1]);
+    });
+    it('falls back to the default column (agent name, pin included) for an unknown field', () => {
+        const out = sortByColumn([architect(), primary], 'not_a_real_column', 'asc');
+        expect(out.map(r => r.agent_name)).toEqual(['Darwin PrimaryAI', 'AWS']);
+    });
+});
+
+describe('naturalSortDir', () => {
+    it('defaults a numeric column to descending', () => {
+        expect(naturalSortDir('boot_time_ms')).toBe('desc');
+        expect(naturalSortDir('start_work_context_tokens')).toBe('desc');
+    });
+    it('defaults the string column to ascending', () => {
+        expect(naturalSortDir('agent_name')).toBe('asc');
+    });
+    it('falls back to the default column for an unknown field', () => {
+        expect(naturalSortDir('not_a_real_column')).toBe(naturalSortDir(DEFAULT_SORT_FIELD));
     });
 });
 
 describe('assignMarkers', () => {
     it('assigns * then † to distinct footnotes in row order', () => {
-        const list = sortRows([architect(), reviewer, primary]);
+        // Row order is now PrimaryAI (pinned first), architect, reviewer — see
+        // the sortByColumn describe block — so PrimaryAI's footnote is the
+        // first DISTINCT one encountered and gets '*'; reviewer's is second.
+        const list = sortByColumn([architect(), reviewer, primary], DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR);
         const m = assignMarkers(list);
-        expect(m.get(reviewer.footnote)).toBe('*');
-        expect(m.get(primary.footnote)).toBe('†');
+        expect(m.get(primary.footnote)).toBe('*');
+        expect(m.get(reviewer.footnote)).toBe('†');
         expect(m.size).toBe(2);
     });
     it('ignores rows with no footnote', () => {
@@ -82,37 +137,59 @@ describe('computeCells — architect (all present)', () => {
         expect(c.bootPayload).toBe('4,973');
         expect(c.autoload).toBe('6,768');
         expect(c.docs).toBe('4 / 4');
+        expect(c.docsIncomplete).toBe(false);
         expect(c.swc).toBe('38,996');
         expect(c.isPrimary).toBe(false);
     });
 });
 
 describe('computeCells — reviewer (bundled stub)', () => {
-    const list = sortRows([architect(), reviewer, primary]);
+    const list = sortByColumn([architect(), reviewer, primary], DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR);
     const m = assignMarkers(list);
     const c = computeCells(reviewer, m);
     it('marks CC base and renders the stub cell as the footnote marker', () => {
         expect(c.ccBase).toBe('6,230');
-        expect(c.ccBaseMarker).toBe('*');
-        expect(c.stub).toEqual({ kind: 'marker', text: '*' });
+        expect(c.ccBaseMarker).toBe('†');
+        expect(c.stub).toEqual({ kind: 'marker', text: '†' });
         expect(c.docs).toBe('0 / 1');
+        expect(c.docsIncomplete).toBe(true);
         expect(c.swc).toBe('19,651');
     });
 });
 
 describe('computeCells — primary (no boot/autoload phase)', () => {
-    const list = sortRows([architect(), reviewer, primary]);
+    const list = sortByColumn([architect(), reviewer, primary], DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR);
     const m = assignMarkers(list);
     const c = computeCells(primary, m);
-    it('renders n/a for the phases that do not apply, dagger on CC base', () => {
+    it('renders n/a for the phases that do not apply, star on CC base', () => {
         expect(c.isPrimary).toBe(true);
         expect(c.bootMs).toBe(NA);
         expect(c.ccBase).toBe('24,526');
-        expect(c.ccBaseMarker).toBe('†');
+        expect(c.ccBaseMarker).toBe('*');
         expect(c.stub).toEqual({ kind: 'na', text: NA });
         expect(c.bootPayload).toBe(NA);
         expect(c.autoload).toBe(NA);
         expect(c.docs).toBe(NA);
+        expect(c.docsIncomplete).toBe(false);
         expect(c.swc).toBe('34,559');
+    });
+});
+
+describe('computeCells — docsIncomplete edge cases', () => {
+    const m = new Map();
+    it('0/0 is not incomplete — nothing was owed', () => {
+        const c = computeCells(architect({ docs_loaded: 0, docs_expected: 0 }), m);
+        expect(c.docs).toBe('0 / 0');
+        expect(c.docsIncomplete).toBe(false);
+    });
+    it('a null docs_loaded with a known docs_expected renders n/a, not incomplete', () => {
+        const c = computeCells(architect({ docs_loaded: null, docs_expected: 5 }), m);
+        expect(c.docs).toBe(NA);
+        expect(c.docsIncomplete).toBe(false);
+    });
+    it('a known docs_loaded with a null docs_expected renders n/a, not incomplete', () => {
+        const c = computeCells(architect({ docs_loaded: 3, docs_expected: null }), m);
+        expect(c.docs).toBe(NA);
+        expect(c.docsIncomplete).toBe(false);
     });
 });
