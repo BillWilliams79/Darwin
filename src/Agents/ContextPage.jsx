@@ -33,6 +33,15 @@
 // into Claude Code) — those cells render "n/a" or a footnote marker, matching
 // the artifact. The Docs cell renders in red when one or more architecture
 // documents failed to load for that agent.
+//
+// Docs Loaded drill-down (req #3096): when at least one document was loaded,
+// the cell is click-to-expand — a chevron toggles an inline detail <tr> right
+// below the agent's row, listing that run's per-document actual-token
+// breakdown (AgentDocsDetail). Deliberately NOT an MUI DataGrid (this page
+// already bypasses that convention to reproduce the artifact byte-for-byte,
+// see above) — the detail row reuses the same hand-rolled table CSS system
+// instead. Data is fetched lazily, only once a row is actually expanded
+// (useAgentTelemetryRowDocsByRow), never eagerly for every row on page load.
 
 import '../index.css';
 import { Fragment, useContext, useEffect, useMemo, useState } from 'react';
@@ -74,13 +83,14 @@ import AuthContext from '../Context/AuthContext';
 import GhostTextField from '../Components/GhostField/GhostTextField';
 import { formatDateTime } from '../utils/dateFormat';
 import {
-    useAgentTelemetryRuns, useAgentTelemetryRowsByRun, agentTelemetryRunKeys,
+    useAgentTelemetryRuns, useAgentTelemetryRowsByRun, useAgentTelemetryRowDocsByRow,
+    agentTelemetryRunKeys,
 } from '../hooks/useDataQueries';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { deleteAgentTelemetryRun, updateAgentTelemetryRun } from './actions/contextApi';
 import {
-    NA as NA_TEXT, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
+    NA as NA_TEXT, fmt, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
     assignMarkers, computeCells, runDateLabel,
 } from './contextRenderUtils';
 import ContextDeleteDialog from './ContextDeleteDialog';
@@ -135,14 +145,59 @@ const TABLE_CSS = `
 .atc-root th.agent, .atc-root td.agent { text-align:left; position:sticky; left:0; background:var(--panel); font-weight:600; white-space:nowrap; box-shadow:1px 0 0 var(--line); }
 .atc-root thead th.agent { background:var(--head); }
 .atc-root tbody td { padding:8px 13px; border-bottom:1px solid var(--line); color:var(--ink); }
-.atc-root tbody tr:nth-of-type(even) td { background:var(--zebra); }
-.atc-root tbody tr:nth-of-type(even) td.agent { background:var(--zebra); }
+.atc-root tbody tr.even-row td { background:var(--zebra); }
+.atc-root tbody tr.even-row td.agent { background:var(--zebra); }
 .atc-root tbody tr:hover td, .atc-root tbody tr:hover td.agent { background:var(--accent-soft); }
 .atc-root .swc { font-weight:700; color:var(--accent); }
 .atc-root tr.primary td.agent { color:var(--accent); }
 .atc-root .fn { color:var(--muted); font-family:inherit; }
 .atc-root .docs-warn { color:var(--danger); font-weight:700; }
+.atc-root td.docs-clickable { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+.atc-root td.docs-clickable:hover { color:var(--accent); }
+.atc-root tr.doc-detail td { background:var(--zebra); padding:4px 13px 12px 13px; }
+.atc-root .doc-detail-table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:2px; }
+.atc-root .doc-detail-table td { padding:3px 10px; border:none; color:var(--muted); }
+.atc-root .doc-detail-table td.doc-path { font-family:var(--mono); color:var(--ink); }
+.atc-root .doc-detail-table td.doc-tokens { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--ink); }
 `;
+
+// req #3096 — the per-document breakdown for one agent row's Docs Loaded cell.
+// Only ever mounted while its row is expanded (see `expandedDocRows` below), so
+// the fetch is lazy by construction — no `enabled` gate needed, the query simply
+// does not exist in the tree until the user asks for it.
+const AgentDocsDetail = ({ rowId }) => {
+    const { data: docs, isLoading } = useAgentTelemetryRowDocsByRow(rowId);
+    const sorted = useMemo(() => {
+        return [...(docs || [])].sort((a, b) => {
+            const as = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+            const bs = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+            return (as - bs) || (a.id - b.id);
+        });
+    }, [docs]);
+    return (
+        <tr className="doc-detail" data-testid={`agent-context-docs-detail-${rowId}`}>
+            <td className="agent" />
+            <td colSpan={8}>
+                {isLoading ? (
+                    <CircularProgress size={14} />
+                ) : sorted.length === 0 ? (
+                    <span className="fn">No per-document breakdown captured for this run.</span>
+                ) : (
+                    <table className="doc-detail-table" data-testid={`agent-context-docs-grid-${rowId}`}>
+                        <tbody>
+                            {sorted.map((d) => (
+                                <tr key={d.id} data-testid={`agent-context-docs-detail-item-${rowId}-${d.id}`}>
+                                    <td className="doc-path">{d.doc_path}</td>
+                                    <td className="doc-tokens">{fmt(d.actual_tokens)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </td>
+        </tr>
+    );
+};
 
 const ContextPage = () => {
     const { profile, idToken } = useContext(AuthContext);
@@ -167,6 +222,14 @@ const ContextPage = () => {
     const [captureAnchor, setCaptureAnchor] = useState(null);
     const [sortField, setSortField] = useState(DEFAULT_SORT_FIELD);
     const [sortDir, setSortDir] = useState(DEFAULT_SORT_DIR);
+    // req #3096 — which agent rows currently show their per-document breakdown.
+    // Multiple rows may be expanded at once (comparing agents is a natural use).
+    const [expandedDocRows, setExpandedDocRows] = useState(() => new Set());
+    const toggleDocsExpanded = (rowId) => setExpandedDocRows((prev) => {
+        const next = new Set(prev);
+        if (next.has(rowId)) next.delete(rowId); else next.add(rowId);
+        return next;
+    });
     const runsSorted = useMemo(() => runs || [], [runs]);
     // Self-healing: if `selectedId` points at a run that no longer exists in
     // `runsSorted` (e.g. deleted from another tab/session — a background
@@ -590,38 +653,63 @@ const ContextPage = () => {
                                 {rowsLoading ? (
                                     <tr><td className="agent"><CircularProgress size={16} /></td>
                                         <td colSpan={8} /></tr>
-                                ) : rendered.list.map((r) => {
+                                ) : rendered.list.map((r, idx) => {
                                     const c = computeCells(r, rendered.markerByText);
                                     // A cell string that equals the n/a sentinel renders muted.
                                     const cell = (text) => (text === NA_TEXT
                                         ? <span className="fn">n/a</span> : text);
+                                    const isExpanded = expandedDocRows.has(r.id);
+                                    // req #3096: zebra striping is keyed off this JS index, not
+                                    // CSS `nth-of-type`, because the optional detail <tr> below
+                                    // is a real sibling in the same <tbody> — nth-of-type counts
+                                    // it as an element, so expanding any row would shift every
+                                    // later row's parity and visibly reshuffle stripes on a
+                                    // read-only inspection action.
+                                    const rowClasses = [
+                                        c.isPrimary ? 'primary' : null,
+                                        idx % 2 === 1 ? 'even-row' : null,
+                                    ].filter(Boolean).join(' ') || undefined;
                                     return (
-                                        <tr key={r.id} className={c.isPrimary ? 'primary' : undefined}
-                                            data-testid={`agent-context-row-${r.id}`}>
-                                            <td className="agent">{r.agent_name}</td>
-                                            <td className="num">{cell(c.bootMs)}</td>
-                                            <td className="num">
-                                                {cell(c.ccBase)}
-                                                {c.ccBaseMarker && <span className="fn">{c.ccBaseMarker}</span>}
-                                            </td>
-                                            <td className="num">{cell(c.claudeMd)}</td>
-                                            <td className="num">
-                                                {c.stub.kind === 'value'
-                                                    ? c.stub.text
-                                                    : (
-                                                        <span className="fn">
-                                                            {c.stub.kind === 'marker'
-                                                                ? <>Not Captured{c.stub.text}</> : 'n/a'}
-                                                        </span>
+                                        <Fragment key={r.id}>
+                                            <tr className={rowClasses}
+                                                data-testid={`agent-context-row-${r.id}`}>
+                                                <td className="agent">{r.agent_name}</td>
+                                                <td className="num">{cell(c.bootMs)}</td>
+                                                <td className="num">
+                                                    {cell(c.ccBase)}
+                                                    {c.ccBaseMarker && <span className="fn">{c.ccBaseMarker}</span>}
+                                                </td>
+                                                <td className="num">{cell(c.claudeMd)}</td>
+                                                <td className="num">
+                                                    {c.stub.kind === 'value'
+                                                        ? c.stub.text
+                                                        : (
+                                                            <span className="fn">
+                                                                {c.stub.kind === 'marker'
+                                                                    ? <>Not Captured{c.stub.text}</> : 'n/a'}
+                                                            </span>
+                                                        )}
+                                                </td>
+                                                <td className="num">{cell(c.bootPayload)}</td>
+                                                <td className="num">{cell(c.autoload)}</td>
+                                                <td className={`mid${c.docsIncomplete ? ' docs-warn' : ''}${c.docsClickable ? ' docs-clickable' : ''}`}
+                                                    onClick={c.docsClickable ? () => toggleDocsExpanded(r.id) : undefined}
+                                                    data-testid={`agent-context-docs-cell-${r.id}`}>
+                                                    {cell(c.docs)}
+                                                    {c.docsClickable && (
+                                                        <ArrowDropDownIcon
+                                                            fontSize="small"
+                                                            sx={{
+                                                                verticalAlign: 'middle', ml: '-2px',
+                                                                transform: isExpanded ? 'rotate(180deg)' : 'none',
+                                                            }}
+                                                        />
                                                     )}
-                                            </td>
-                                            <td className="num">{cell(c.bootPayload)}</td>
-                                            <td className="num">{cell(c.autoload)}</td>
-                                            <td className={`mid${c.docsIncomplete ? ' docs-warn' : ''}`}>
-                                                {cell(c.docs)}
-                                            </td>
-                                            <td className="num swc">{c.swc}</td>
-                                        </tr>
+                                                </td>
+                                                <td className="num swc">{c.swc}</td>
+                                            </tr>
+                                            {isExpanded && <AgentDocsDetail rowId={r.id} />}
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>
