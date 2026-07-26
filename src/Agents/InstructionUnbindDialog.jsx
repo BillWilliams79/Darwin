@@ -7,6 +7,19 @@
 // away from InstructionDeleteDialog, whose own header explains at length why a
 // real dialog beats `window.confirm` for exactly this class of action.
 //
+// ONE DIALOG, BOTH DIRECTIONS (req #3071). InstructionsPage unbinds by clicking an
+// agent chip on an instruction row; AgentDetail unbinds by clicking the link-off
+// icon on an instruction card. Those are the SAME DELETE of the SAME
+// `agent_instructions` row, approached from either end of it, and #3063 left them
+// inconsistent only because the agent-side one did not exist yet.
+//
+// So the copy here is deliberately DIRECTION-NEUTRAL — it names the agent, names
+// the instruction, and states the slot consequence, none of which depends on which
+// page you arrived from. Two components would have meant two places to keep that
+// wording true; the agent-side `window.confirm` this replaced had already drifted
+// (it never mentioned the slot at all). The caller supplies both halves of the
+// pair, so neither page is privileged.
+//
 // PARENT-OWNS-STATE, the house pattern (see the `frontend-*` template-row
 // instruction, and TaskDeleteDialog / RecurringDeleteDialog): this component holds
 // NO action logic. It sets `confirmed = true` and closes; `useConfirmDialog`'s

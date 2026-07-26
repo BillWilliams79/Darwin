@@ -564,41 +564,50 @@ describe('planOwnerTransfer', () => {
 });
 
 // ---------------------------------------------------------------------------
-// restErrorMessage — Lambda-Rest has no 409, so the pymysql text is the only
-// signal distinguishing "you picked a taken name" from "the database is broken".
+// restErrorMessage — the document keys.
+//
+// Lambda-Rest answers a constraint violation with HTTP 409 and a structured
+// `{ error, errno, constraint, table, message }` body (req #3059, landed on
+// origin/master while this branch was in flight — this block was rewritten
+// against that contract during the merge; it originally regexed pymysql prose
+// off a synthetic HTTP 500, which no longer reflects what the API returns).
+// `conflict()` mirrors the shared helper in agentRegistryUtils.test.js.
 // ---------------------------------------------------------------------------
 
 describe('restErrorMessage — the document keys (req #3051)', () => {
-    const thrown = (httpMessage) => ({ httpStatus: { httpStatus: 500, httpMessage } });
+    const conflict = (errno, constraint, table) => ({
+        httpStatus: {
+            httpStatus: 409,
+            httpMessage: `HTTP PUT SQL FAILED: ${errno} ...`,
+            httpDetail: { error: 'CONFLICT', errno, constraint, table,
+                message: `HTTP PUT SQL FAILED: ${errno} ...` },
+        },
+    });
 
     it('maps a duplicate document name and mentions the closed-row trap', () => {
-        const err = thrown("HTTP POST failed: 1062 Duplicate entry 'Agents Registry' "
-            + "for key 'architecture_documents.uq_architecture_documents_name'");
+        const err = conflict(1062, 'uq_architecture_documents_name', 'architecture_documents');
         expect(restErrorMessage(err, 'fallback')).toMatch(/already exists/);
         expect(restErrorMessage(err, 'fallback')).toMatch(/may be closed/);
     });
 
     it('maps a second ownership claim to advice, not to a raw constraint name', () => {
-        const err = thrown("HTTP POST bulk failed: 1062 Duplicate entry '42' "
-            + "for key 'agent_documents.uq_agent_documents_owner'");
+        const err = conflict(1062, 'uq_agent_documents_owner', 'agent_documents');
         expect(restErrorMessage(err, 'fallback')).toMatch(/already owns this document/);
     });
 
     it('maps a duplicate document link', () => {
-        const err = thrown("HTTP POST bulk failed: 1062 Duplicate entry '6-31' "
-            + "for key 'agent_documents.PRIMARY'");
+        const err = conflict(1062, 'PRIMARY', 'agent_documents');
         expect(restErrorMessage(err, 'fallback')).toMatch(/already linked to this agent/);
     });
 
-    // THE COLLISION THIS PINS: agent_instructions.PRIMARY and
-    // agent_documents.PRIMARY both end in `.PRIMARY`, so an unqualified pattern
-    // would report the wrong entity — telling a user about an instruction when a
+    // THE COLLISION THIS PINS: `constraint` arrives UNQUALIFIED — every table has
+    // a `PRIMARY` — so agent_instructions.PRIMARY and agent_documents.PRIMARY are
+    // indistinguishable without also reading `table`. Without that check this
+    // would report the wrong entity: telling a user about an instruction when a
     // document link failed, or the reverse.
     it('does not confuse the two junctions\' PRIMARY keys', () => {
-        const docErr = thrown("HTTP POST bulk failed: 1062 Duplicate entry '6-31' "
-            + "for key 'agent_documents.PRIMARY'");
-        const instrErr = thrown("HTTP POST bulk failed: 1062 Duplicate entry '10-6' "
-            + "for key 'agent_instructions.PRIMARY'");
+        const docErr = conflict(1062, 'PRIMARY', 'agent_documents');
+        const instrErr = conflict(1062, 'PRIMARY', 'agent_instructions');
 
         expect(restErrorMessage(docErr, 'fallback')).toMatch(/document/);
         expect(restErrorMessage(docErr, 'fallback')).not.toMatch(/instruction/);
@@ -606,29 +615,43 @@ describe('restErrorMessage — the document keys (req #3051)', () => {
         expect(restErrorMessage(instrErr, 'fallback')).not.toMatch(/document/);
     });
 
-    it('matches regardless of the table qualifier, so darwin and darwin_dev both work', () => {
-        // The `.*` prefix on every pattern is what makes this true; hardcoding a
-        // table name would silently stop matching in the other database.
-        const bare = thrown("HTTP PUT SQL FAILED: 1062 Duplicate entry 'x' "
-            + "for key 'uq_architecture_documents_name'");
-        expect(restErrorMessage(bare, 'fallback')).toMatch(/already exists/);
-    });
-
     it('still maps the instruction keys it mapped before', () => {
-        expect(restErrorMessage(thrown(
-            "HTTP PUT SQL FAILED: 1062 Duplicate entry 'x' for key 'instructions.uq_instructions_name'",
-        ), 'fallback')).toMatch(/already in use/);
+        expect(restErrorMessage(
+            conflict(1062, 'uq_instructions_name', 'instructions'), 'fallback'))
+            .toMatch(/already in use/);
     });
 
     it('mentions documents in the foreign-key message now that this page can hit it', () => {
-        const err = thrown('HTTP POST bulk failed: 1452 Cannot add or update a child row: '
-            + 'a foreign key constraint fails');
-        expect(restErrorMessage(err, 'fallback')).toMatch(/document/);
+        expect(restErrorMessage(conflict(1452, 'agent_documents_ibfk_1', 'agent_documents'),
+            'fallback')).toMatch(/document/);
+        expect(restErrorMessage(conflict(1451, 'agent_documents_ibfk_2', 'agent_documents'),
+            'fallback')).toMatch(/document/);
     });
 
-    it('falls back for anything unrecognised', () => {
-        expect(restErrorMessage(thrown('HTTP PUT SQL FAILED: 2013 Lost connection'), 'fb'))
-            .toBe('fb');
+    it('falls back for a 409 carrying an errno it has no wording for', () => {
+        expect(restErrorMessage(conflict(1062, 'uq_something_else', 'architecture_documents'),
+            'fb')).toBe('fb');
+    });
+
+    it('falls back for a 500 — the database really is broken, not merely conflicted', () => {
+        // The whole point of the 409/500 split: a 500 must never render "that
+        // name is taken", however duplicate-shaped its message looks.
+        expect(restErrorMessage({ httpStatus: {
+            httpStatus: 500,
+            httpMessage: "HTTP PUT SQL FAILED: 1062 Duplicate entry 'x' for key "
+                + "'architecture_documents.uq_architecture_documents_name'",
+            httpDetail: null,
+        } }, 'fb')).toBe('fb');
+    });
+
+    it('falls back on a 409 with no detail object rather than throwing', () => {
+        expect(restErrorMessage(
+            { httpStatus: { httpStatus: 409, httpMessage: 'CONFLICT', httpDetail: null } },
+            'fb')).toBe('fb');
+    });
+
+    it('falls back when the thrown value has no status at all', () => {
+        expect(restErrorMessage(new Error('boom'), 'fb')).toBe('fb');
         expect(restErrorMessage(undefined, 'fb')).toBe('fb');
     });
 });

@@ -733,43 +733,58 @@ export const planOwnerTransfer = ({
 /**
  * Turn a thrown call_rest_api rejection into something a human can act on.
  *
- * Lambda-Rest has no 409: a constraint violation arrives as HTTP 500 whose body
- * is the raw pymysql message (`"HTTP PUT SQL FAILED: 1062 Duplicate entry ..."`).
- * Matching on the message is the only way to tell "you picked a taken name" from
- * "the database is broken" — mapping IntegrityError to a real status code is
- * filed as its own requirement.
+ * Lambda-Rest answers a constraint violation with HTTP 409 and a structured body
+ * (req #3059): `{ error, errno, constraint, table, message }`. call_rest_api
+ * parks that object on `err.httpStatus.httpDetail`, so the constraint that
+ * actually failed is a field read rather than a regex against pymysql prose —
+ * which could not reliably tell "you picked a taken name" from "the database is
+ * broken" (the reason this function originally had to guess from message text,
+ * before #3059 gave every table a real status code).
  *
- * EVERY key pattern keeps its `.*` table prefix rather than hardcoding one. That
- * is what makes the same regex match against `darwin` and `darwin_dev`, whose
- * messages carry different table qualifiers. And every `PRIMARY` pattern MUST be
- * table-qualified: `agent_instructions.PRIMARY` and `agent_documents.PRIMARY`
- * both end in `.PRIMARY`, so a bare match would report the wrong entity.
+ * Anything that is NOT a 409 falls through to `fallback` on purpose: a 500 means
+ * the database is genuinely unhappy and "that name is taken" would be a lie.
+ *
+ * `constraint` arrives UNQUALIFIED (`PRIMARY`, not `agent_instructions.PRIMARY`),
+ * so every junction check pairs it with `table` — every table has a `PRIMARY`,
+ * and `agent_instructions.PRIMARY` / `agent_documents.PRIMARY` would otherwise be
+ * indistinguishable the way their old regex forms had to be qualified to avoid.
  */
 export const restErrorMessage = (err, fallback) => {
-    const msg = typeof err?.httpStatus?.httpMessage === 'string'
-        ? err.httpStatus.httpMessage
-        : '';
+    if (err?.httpStatus?.httpStatus !== 409) return fallback;
+    const { errno, constraint, table } = err.httpStatus.httpDetail || {};
 
-    if (/Duplicate entry .* for key '.*uq_instructions_name'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_instructions_name') {
         return 'That instruction name is already in use (the existing row may be closed).';
     }
-    if (/Duplicate entry .* for key '.*agent_instructions\.PRIMARY'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_instructions') {
         return 'That instruction is already bound to this agent.';
     }
+    // req #3075, migration 073: UNIQUE (agent_fk, sort_order). Matched SEPARATELY
+    // from the PRIMARY case above even though both are 1062 on the same table —
+    // "already bound" and "that load position is taken" are different problems
+    // with different fixes, and collapsing them would send the reader to the
+    // wrong one. Reachable from two paths: binding a new instruction at a slot
+    // another already holds, and a reorder whose re-POST lands on a slot it did
+    // not first vacate.
+    if (errno === 1062 && constraint === 'uq_agent_instructions_slot') {
+        return 'Another instruction already holds that load-order slot for this '
+            + 'agent. Reload the page and retry — the list may have moved since '
+            + 'it was drawn.';
+    }
     // req #3051 — the documents registry's three keys.
-    if (/Duplicate entry .* for key '.*uq_architecture_documents_name'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_architecture_documents_name') {
         return 'A document with that name already exists (the existing row may be closed).';
     }
     // The unique key is over the VIRTUAL `owned_document_fk`, so this fires only
     // on a SECOND ownership claim — never on an ordinary link.
-    if (/Duplicate entry .* for key '.*uq_agent_documents_owner'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_agent_documents_owner') {
         return 'Another agent already owns this document — at most one owner per document. '
             + 'Use "curated" for a second architect, or hand ownership over from the current owner.';
     }
-    if (/Duplicate entry .* for key '.*agent_documents\.PRIMARY'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_documents') {
         return 'That document is already linked to this agent.';
     }
-    if (/foreign key constraint fails/i.test(msg)) {
+    if (errno === 1451 || errno === 1452) {
         return 'The agent, instruction or document no longer exists — reload the page and retry.';
     }
     return fallback;
