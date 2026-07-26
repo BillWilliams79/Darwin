@@ -257,11 +257,15 @@ describe('restErrorMessage', () => {
         expect(restErrorMessage(slotTaken, 'fallback')).not.toMatch(/already bound/);
     });
 
-    it('does not claim "already bound" for a PRIMARY collision on another table', () => {
+    it('does not confuse a PRIMARY collision on agent_documents with the agent_instructions one', () => {
         // `constraint` arrives unqualified, and every table has a PRIMARY — the
-        // table check is the only thing making that pair identifying.
-        expect(restErrorMessage(conflict(1062, 'PRIMARY', 'agent_documents'), 'fallback'))
-            .toBe('fallback');
+        // table check is what keeps this from reporting "already bound"
+        // (agent_instructions) for what is actually an agent_documents collision.
+        // agent_documents.PRIMARY has its own mapping (req #3051, "already
+        // linked"), not a bare fallback — the two junctions are both real cases.
+        const message = restErrorMessage(conflict(1062, 'PRIMARY', 'agent_documents'), 'fallback');
+        expect(message).not.toMatch(/already bound/);
+        expect(message).toMatch(/already linked/);
     });
 
     it('maps both foreign key errnos', () => {

@@ -473,9 +473,19 @@ const AgentDetail = () => {
                                                   {...docTypeChipProps(row.doc_type)} />
                                         </TableCell>
                                         <TableCell>
+                                            {/* Drills through to the ROW, not just
+                                                the page (req #3051, the reverse of
+                                                the instruction pencil above).
+                                                /agents/documents is now the one
+                                                editor for a document's registry
+                                                fields and its relationships, so the
+                                                chip has to land on the card that
+                                                owns this link rather than at the
+                                                top of a 69-card grid. */}
                                             <Chip label={relationshipLabel(link.relationship)} size="small"
                                                   {...relationshipChipProps(link.relationship)}
-                                                  onClick={() => navigate('/agents/documents')}
+                                                  onClick={() => navigate(
+                                                      `/agents/documents#document-${row.id}`)}
                                                   clickable />
                                         </TableCell>
                                         <TableCell sx={{ maxWidth: 380 }}>
