@@ -11,10 +11,21 @@
 // name and content are labelled bordered fields that commit on blur,
 // membership is edited by the agent chips themselves
 // (InstructionAgentChips), and a new row is created through the house template-row
-// pattern instead of a button. Cards survive all of this on purpose: `content` is
-// prose, and a DataGrid would either truncate it into uselessness or need auto row
-// height. The card is the only view that shows the text and its blast radius
-// together, which is the read this page exists for.
+// pattern instead of a button.
+//
+// Req #3067 added the Table view and, in doing so, retired an argument this comment
+// used to make. It said a DataGrid "would either truncate `content` into uselessness
+// or need auto row height", and that was a false dichotomy: a FIXED row height
+// containing an internally-scrollable four-line field is the third option, and it is
+// what InstructionsTableView ships. What survives is the softer and truer claim —
+// the CARD is where long prose is composed, because four lines is enough to read an
+// instruction and not enough to write one. The Table is for scanning the catalog and
+// correcting fields. Both views write the same rows through the same component.
+//
+// The two views share ONE of everything that can disagree: one `fieldErrors` map,
+// one serialized membership queue, one set of graduated close/delete handlers, one
+// GhostTextField. That is deliberate and it is the whole point of #3067 — see
+// memory/darwin-viewer-pages.md.
 //
 // The fields started as ghost fields — plain text until hovered — and were
 // converted to labelled outlined ones during manual UI review. What survived that
@@ -43,31 +54,19 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
-import IconButton from '@mui/material/IconButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import ListSubheader from '@mui/material/ListSubheader';
-import Divider from '@mui/material/Divider';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import CloseIcon from '@mui/icons-material/Close';
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import SettingsIcon from '@mui/icons-material/Settings';
-import UnarchiveIcon from '@mui/icons-material/Unarchive';
+import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import GhostTextField from '../Components/GhostField/GhostTextField';
+import ViewerHeader from '../Components/ViewerHeader/ViewerHeader';
+import { normalizeView } from '../Components/ViewerHeader/normalizeView';
 import {
     useInstructions, useAgents, useAgentInstructions,
     instructionKeys, agentInstructionKeys,
@@ -90,7 +89,17 @@ import {
 } from './instructionSort';
 import InstructionAgentChips from './InstructionAgentChips';
 import InstructionDeleteDialog from './InstructionDeleteDialog';
+import InstructionRowMenu from './InstructionRowMenu';
 import InstructionUnbindDialog from './InstructionUnbindDialog';
+import InstructionsTableView from './InstructionsTableView';
+
+// The page's views, in toggle order. A module constant rather than an inline array:
+// `normalizeView` is called with it on every render and a fresh array each time
+// would defeat any future memoization of the header.
+const VIEWS = [
+    { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
+    { value: 'table', label: 'Table view', icon: TableChartIcon },
+];
 
 // CardContent adds a 24px bottom pad to its last child on top of its own 16px.
 // Pinning both to the old Paper's `p: 2` keeps the card interiors identical to the
@@ -105,6 +114,9 @@ const InstructionsPage = () => {
     const showError = useSnackBarStore(s => s.showError);
     const isMobile = useMediaQuery('(max-width:899px)');
     const creatorFk = profile?.userName;
+    // Only the Table view renders dates, but it is read here so the page stays the
+    // single place profile is consumed.
+    const timezone = profile?.timezone;
 
     const { data: instructions, isLoading } = useInstructions(creatorFk);
     const { data: agents } = useAgents(creatorFk);
@@ -125,22 +137,23 @@ const InstructionsPage = () => {
 
     const [showClosed, setShowClosed] = useState(false);
     const [view, setView] = useViewPreference('darwin-instructions-view', 'cards');
-    // Only Cards is built; the Table view is req #3067. Kept after the Table button
-    // was removed, because a 'table' value can still be sitting in this browser's
-    // storage from before — an unmatched ToggleButtonGroup value selects nothing and
-    // the toggle would render with no active state.
-    const activeView = view === 'table' ? 'cards' : view;
+    // The page-level normalization. `ViewerHeader` normalizes internally too, but
+    // the CONDITIONAL RENDER below has to branch on the same value or the header
+    // would show one view selected while the body rendered another. Req #3063's
+    // hand-rolled `view === 'table' ? 'cards' : view` line is gone: with a real
+    // Table button that mapping is actively wrong — it would pin the page to Cards
+    // forever — and every browser still holding 'table' in storage from before the
+    // button was pulled now gets the view it originally asked for.
+    const activeView = normalizeView(view, VIEWS);
 
     const [sortMode, setSortMode] = useState(readStoredSort);
     const [sortDesc, setSortDesc] = useState(
         () => SORT_MODES.find(m => m.value === readStoredSort())?.defaultDesc ?? true);
-    const [sortAnchor, setSortAnchor] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
-    // Per-card options menu. Stores the ROW ID plus the anchor element, never the
-    // row object: a refetch can land while the menu is open (every agent-chip click
-    // invalidates this query), and a snapshotted row would make the graduated-close
-    // decision below from a stale `refs.length`. The handlers read the live row.
-    const [menuAnchor, setMenuAnchor] = useState(null);
+    // The per-row options menu owns its own anchor (InstructionRowMenu). It used to
+    // live here as `{ id, el }`, which nothing cleared when a ROW disappeared on its
+    // own — in the table that happens with no user gesture at all, and the menu
+    // remounted open against a detached element. Anchor state belongs inside the row.
     // WHY the dialog was opened. `deleteTarget` alone cannot say, and a dialog
     // titled "Delete …" opened from a menu item labelled Close is a lie.
     const [dialogIntent, setDialogIntent] = useState('delete');
@@ -212,11 +225,15 @@ const InstructionsPage = () => {
     // CategoryCard's shipped idiom: picking the ACTIVE mode flips its direction and
     // keeps the menu open so the arrow change is visible; picking a new mode adopts
     // that mode's natural direction and closes.
-    const chooseSort = (value, defaultDesc) => {
+    //
+    // `close` is handed in by ViewerHeader rather than owned here. The component
+    // cannot infer which of its menu items should dismiss the menu, so it delegates
+    // — and this is exactly the item that must NOT dismiss on one of its two paths.
+    const chooseSort = (value, defaultDesc, close) => {
         if (sortMode === value) { setSortDesc(d => !d); return; }
         setSortMode(value);
         setSortDesc(defaultDesc);
-        setSortAnchor(null);
+        close?.();
     };
 
     const agentIndex = useMemo(() => byId(agents || []), [agents]);
@@ -424,6 +441,12 @@ const InstructionsPage = () => {
         defaultInfo: {},
     });
 
+    // Both views raise the unbind through here, so the slot the dialog warns about
+    // is captured the same way in each. `slot` rides on the agent object because
+    // that is the shape InstructionUnbindDialog already reads.
+    const requestUnbind = (row, agent, slot) =>
+        unbindConfirm.openDialog({ row, agent: { ...agent, slot } });
+
     /** The junction slot an agent currently loads this row at. */
     const slotOf = (rowId) => (agentId) => (instrLinks.get(agentId) || [])
         .find(l => l.instruction_fk === rowId)?.sort_order;
@@ -500,8 +523,6 @@ const InstructionsPage = () => {
         }
     };
 
-    const closeMenu = () => setMenuAnchor(null);
-
     /**
      * CLOSE IS GRADUATED ON BLAST RADIUS.
      *
@@ -514,7 +535,6 @@ const InstructionsPage = () => {
      * does. The trailing ellipsis on the menu label is what tells the two apart.
      */
     const menuCloseInstruction = (row) => {
-        closeMenu();
         if (row.refs.length === 0) { setClosedFlag(row, 1); return; }
         setDialogIntent('close');
         setDeleteTarget(row);
@@ -524,12 +544,11 @@ const InstructionsPage = () => {
     // disclose and no dialog — the worst case is an agent loading an instruction it
     // used to load. Closed rows are only visible with the Closed filter on, so the
     // user is already in a deliberate mode when they can reach this.
-    const menuReopenInstruction = (row) => { closeMenu(); setClosedFlag(row, 0); };
+    const menuReopenInstruction = (row) => setClosedFlag(row, 0);
 
     // Delete ALWAYS goes through the dialog. `agent_instructions` CASCADEs on both
     // FKs; the chip list and the typed-name challenge are the only guardrail.
     const menuDeleteInstruction = (row) => {
-        closeMenu();
         setDialogIntent('delete');
         setDeleteTarget(row);
     };
@@ -574,41 +593,18 @@ const InstructionsPage = () => {
 
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
-            {/* Canonical viewer header (req #3013, memory/view-switchable-pages.md).
-                Reading order is fixed for every viewer:
-                  [view toggle] [title, flex:1] [filters] [settings]
-                The toggle is the far-left anchor so the title starts at the same x
-                on every viewer page; the title's `flex: 1` IS the spacer — do not
-                add a second flexGrow Box. Filters sit beside the title because they
-                change WHAT is listed; the settings gear is pinned right because
-                that is where SwarmView puts settings. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
-                {/* Cards only. The frontend-architect's V1 ruling was that a
-                    not-yet-built view should render as a DISABLED ToggleButton so the
-                    group holds its final width and the title's x-position matches the
-                    other viewers; the user removed that button, so this group has one
-                    child until req #3067 adds the Table view back. Keeping the group
-                    (rather than dropping it for a bare title) is what preserves the
-                    anchor in the meantime. */}
-                <ToggleButtonGroup
-                    size="small"
-                    exclusive
-                    value={activeView}
-                    onChange={(_e, v) => setView(v)}
-                    sx={{ flexShrink: 0 }}
-                    data-testid="instructions-view-toggle"
-                >
-                    <Tooltip title="Cards view">
-                        <ToggleButton value="cards" aria-label="cards view"
-                                      data-testid="view-toggle-cards">
-                            <ViewModuleIcon fontSize="small" />
-                        </ToggleButton>
-                    </Tooltip>
-                </ToggleButtonGroup>
-
-                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>Instructions</Typography>
-
-                {hasClosed && (
+            {/* The canonical viewer header, now a shared component
+                (Components/ViewerHeader, req #3067). The reading order it enforces —
+                [toggle][title flex:1][filters][settings][actions] — used to be three
+                hand-rolled copies across /agents, /agents/instructions and
+                /agents/documents, which is precisely how they drifted. */}
+            <ViewerHeader
+                title="Instructions"
+                views={VIEWS}
+                view={activeView}
+                onViewChange={setView}
+                testIdPrefix="instructions"
+                filters={hasClosed && (
                     <Tooltip title={showClosed ? 'Hide closed instructions' : 'Show closed instructions'}>
                         <Chip
                             label="Closed"
@@ -621,59 +617,79 @@ const InstructionsPage = () => {
                         />
                     </Tooltip>
                 )}
-
-                <Tooltip title="Sort & display settings">
-                    <IconButton size="small" onClick={(e) => setSortAnchor(e.currentTarget)}
-                                sx={{ flexShrink: 0 }}
-                                data-testid="instructions-settings-button">
-                        <SettingsIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
-                <Menu
-                    anchorEl={sortAnchor}
-                    open={!!sortAnchor}
-                    onClose={() => setSortAnchor(null)}
-                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                    slotProps={{ list: { 'data-testid': 'instructions-sort-menu' } }}
-                >
-                    <ListSubheader disableSticky sx={{ lineHeight: '32px' }}>Sort by</ListSubheader>
-                    {SORT_MODES.map(({ value, label, icon: Icon, defaultDesc }) => {
-                        const active = sortMode === value;
-                        return (
-                            <MenuItem key={value} selected={active}
-                                      onClick={() => chooseSort(value, defaultDesc)}
-                                      data-testid={`instructions-sort-${value}`}>
-                                <ListItemIcon><Icon fontSize="small" /></ListItemIcon>
-                                <ListItemText>{label}</ListItemText>
-                                {/* The arrow is the only affordance telling the user
-                                    that re-picking the active mode reverses it —
-                                    without it the second click looks broken. */}
-                                {active && (sortDesc
-                                    ? <ArrowDownwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />
-                                    : <ArrowUpwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />)}
-                            </MenuItem>
-                        );
-                    })}
-                </Menu>
-            </Box>
-
-            {/* Accounting only. The prose that used to live here explained the
-                interaction, which the cards now demonstrate on their own. */}
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
-                        data-testid="instructions-accounting">
-                {[
+                // THE GEAR IS CARDS-ONLY. The Table view sorts through its own column
+                // headers — that is what a DataGrid header is for, and a grid whose
+                // headers do nothing reads as broken. Offering both at once would be
+                // two sort UIs on one page that can disagree with each other. The
+                // grid is SEEDED from this mode when it mounts (see
+                // `gridSortFromMode`), so switching views is continuous rather than a
+                // jump.
+                settingsItems={activeView === 'cards' ? [{
+                    id: 'sort',
+                    heading: 'Sort by',
+                    items: SORT_MODES.map(({ value, label, icon: Icon, defaultDesc }) => ({
+                        id: value,
+                        label,
+                        icon: <Icon fontSize="small" />,
+                        selected: sortMode === value,
+                        // The arrow is the only affordance telling the user that
+                        // re-picking the active mode reverses it — without it the
+                        // second click looks broken.
+                        trailing: sortMode === value
+                            ? (sortDesc
+                                ? <ArrowDownwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />
+                                : <ArrowUpwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />)
+                            : null,
+                        onClick: (close) => chooseSort(value, defaultDesc, close),
+                    })),
+                }] : undefined}
+                // Accounting only. The prose that used to live here explained the
+                // interaction, which the views now demonstrate on their own.
+                accounting={[
                     `${openCount} instruction${openCount === 1 ? '' : 's'}`,
                     unboundCount > 0 && `${unboundCount} not bound`,
                     closedCount > 0 && `${closedCount} closed`,
                 ].filter(Boolean).join(' · ')}
-            </Typography>
+            />
 
-            {/* Card grid, matching the /agents index. `alignItems: start` so a card
-                with long content grows on its own instead of stretching every card
-                in its row to match — the content is prose of wildly varying length,
-                which is why this page is cards and not a DataGrid in the first
-                place. One column on small screens keeps the cards readable. */}
+            {activeView === 'table' ? (
+                <InstructionsTableView
+                    rows={rows}
+                    instructions={instructions}
+                    fieldErrors={fieldErrors}
+                    agentIndex={agentIndex}
+                    openAgents={openAgents}
+                    slotOf={slotOf}
+                    membershipBusyIds={membershipBusyIds}
+                    timezone={timezone}
+                    sortMode={sortMode}
+                    sortDesc={sortDesc}
+                    commitField={commitField}
+                    noteFieldError={noteFieldError}
+                    onBind={bindAgent}
+                    onBindAll={bindAllAgents}
+                    onRequestUnbind={requestUnbind}
+                    onOpenAgent={(agentId) => navigate(`/agents/${agentId}#instructions`)}
+                    onCloseInstruction={menuCloseInstruction}
+                    onReopen={menuReopenInstruction}
+                    onDelete={menuDeleteInstruction}
+                    draftName={draftName}
+                    setDraftName={setDraftName}
+                    draftContent={draftContent}
+                    setDraftContent={setDraftContent}
+                    creating={creating}
+                    onMaybeCreate={maybeCreate}
+                    templateNameRef={templateNameRef}
+                    renameNotice={renameNotice}
+                    onDismissRenameNotice={() => setRenameNotice(null)}
+                />
+            ) : (
+            /* Card grid, matching the /agents index. `alignItems: start` so a card
+               with long content grows on its own instead of stretching every card in
+               its row to match. Cards remain the place to COMPOSE long prose: the
+               Table view fits four lines per row and scrolls the rest inside the
+               cell, which is right for scanning and correcting but not for writing.
+               One column on small screens keeps the cards readable. */
             <Box
                 data-testid="instructions-registry"
                 sx={{
@@ -798,55 +814,15 @@ const InstructionsPage = () => {
                                     }}
                                     testId={`instruction-name-input-${row.id}`}
                                 />
-                                <Tooltip title="Instruction options">
-                                    <IconButton
-                                        size="small"
-                                        onClick={(e) => setMenuAnchor({ id: row.id, el: e.currentTarget })}
-                                        sx={{ maxWidth: '25px', maxHeight: '25px' }}
-                                        data-testid={`instruction-card-menu-${row.id}`}
-                                    >
-                                        <MoreVertIcon fontSize="small" />
-                                    </IconButton>
-                                </Tooltip>
-                                <Menu
-                                    anchorEl={menuAnchor?.el}
-                                    open={menuAnchor?.id === row.id}
-                                    onClose={closeMenu}
-                                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                                    slotProps={{ list: { 'data-testid': `instruction-card-menu-popup-${row.id}` } }}
-                                >
-                                    {row.closed ? (
-                                        <MenuItem onClick={() => menuReopenInstruction(row)}
-                                                  data-testid={`instruction-menu-reopen-${row.id}`}>
-                                            <ListItemIcon><UnarchiveIcon fontSize="small" /></ListItemIcon>
-                                            <ListItemText>Reopen instruction</ListItemText>
-                                        </MenuItem>
-                                    ) : (
-                                        <MenuItem onClick={() => menuCloseInstruction(row)}
-                                                  data-testid={`instruction-menu-close-${row.id}`}>
-                                            <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
-                                            {/* Ellipsis = opens the dialog, because
-                                                this row is bound and the agents it
-                                                would unload from must be shown. No
-                                                ellipsis = closes immediately. */}
-                                            <ListItemText>
-                                                {row.refs.length === 0
-                                                    ? 'Close instruction'
-                                                    : 'Close instruction…'}
-                                            </ListItemText>
-                                        </MenuItem>
-                                    )}
-                                    <Divider />
-                                    <MenuItem onClick={() => menuDeleteInstruction(row)}
-                                              sx={{ color: 'error.main' }}
-                                              data-testid={`instruction-menu-delete-${row.id}`}>
-                                        <ListItemIcon>
-                                            <DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} />
-                                        </ListItemIcon>
-                                        <ListItemText>Delete permanently…</ListItemText>
-                                    </MenuItem>
-                                </Menu>
+                                {/* The same component the table's actions column
+                                    renders, so the two views cannot drift on the
+                                    graduated-close affordance or on their testids. */}
+                                <InstructionRowMenu
+                                    row={row}
+                                    onCloseInstruction={menuCloseInstruction}
+                                    onReopen={menuReopenInstruction}
+                                    onDelete={menuDeleteInstruction}
+                                />
                             </Box>
 
                             {/* mb: 2 — the pills need visible air between them and the
@@ -926,8 +902,7 @@ const InstructionsPage = () => {
                                 slotOf={slotOf(row.id)}
                                 onBind={(agentId) => bindAgent(row, agentId)}
                                 onBindAll={(agentsToBind) => bindAllAgents(row, agentsToBind)}
-                                onRequestUnbind={(agent, slot) => unbindConfirm.openDialog(
-                                    { row, agent: { ...agent, slot } })}
+                                onRequestUnbind={(agent, slot) => requestUnbind(row, agent, slot)}
                                 onOpenAgent={(agentId) => navigate(`/agents/${agentId}#instructions`)}
                                 busy={membershipBusy}
                                 testIdPrefix={`instruction-${row.id}`}
@@ -969,7 +944,6 @@ const InstructionsPage = () => {
                             onCommit={maybeCreate}
                             inputProps={{ maxLength: INSTRUCTION_NAME_MAX }}
                             inputRef={templateNameRef}
-                            sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                             testId="instruction-name-input-template"
                         />
                         {creating && <CircularProgress size={14} sx={{ mt: 1.5 }} />}
@@ -992,6 +966,7 @@ const InstructionsPage = () => {
                   </CardContent>
                 </Card>
             </Box>
+            )}
 
             <InstructionUnbindDialog
                 open={unbindConfirm.dialogOpen}

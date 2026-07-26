@@ -16,11 +16,28 @@
 // the dependency explicit and stops one failure cascading into a dozen.
 //
 // Beyond that, each test owns its own seeded rows and is individually runnable
-// under `--grep`. There is exactly ONE ordering constraint, and it is worth
-// knowing before reordering anything: AGENT-01 asserts that agent a1 holds
-// exactly the slots {1,2,100}, and AGENT-04's bind-all later binds `c-bind` to
-// every open agent — a1 included, at slot 101. AGENT-01 must therefore stay
-// ahead of AGENT-04.
+// under `--grep`. There are exactly THREE ordering constraints, all worth knowing
+// before reordering anything:
+//   1. AGENT-01 asserts that agent a1 holds exactly the slots {1,2,100}, and
+//      AGENT-04's bind-all later binds `c-bind` to every open agent — a1 included,
+//      at slot 101. AGENT-01 must stay ahead of AGENT-04.
+//   2. AGENT-12 asserts `j-table-edit` still carries its seeded name; AGENT-13
+//      renames it. 12 before 13.
+//   3. AGENT-16 binds `k-table-bind` to a3, and AGENT-17 needs it BOUND to reach
+//      the dialog branch of the graduated close. 16 before 17.
+//
+// TABLE VIEW — AGENT-12..20 (req #3067). The table is not a second feature, it is
+// the SAME edit-in-place implementation in a second presentation, and these tests
+// are written to assert exactly that: they reuse the card tests' per-field
+// data-testids and distinguish the views by SCOPING to `instructions-datagrid`
+// versus `instructions-registry` (see `viewRoot`). A per-view testid scheme would
+// have made the central claim untestable. AGENT-13 deliberately mirrors AGENT-02
+// assertion for assertion.
+//
+// PORTALS ARE THE EXCEPTION TO THE SCOPING. MUI renders `Menu`, `Popover` and every
+// dialog outside the grid, so the roster palette, the per-row options menu and the
+// delete/unbind dialogs are page-scoped even in table tests. Scoping one of those
+// to `viewRoot` produces a locator failure that reads like a feature failure.
 //
 // WHY THE WRITES ARE INSPECTED, NOT INFERRED. Two of this page's contracts are
 // invisible in the DOM: "one PUT per field" (a rejected name must not be able to
@@ -215,6 +232,49 @@ async function gotoRegistry(page: Page): Promise<void> {
   await expect(page.getByTestId('instructions-registry')).toBeVisible({ timeout: 30000 });
 }
 
+/**
+ * THE VIEW PREFERENCE IS PER-TAB, and that is what makes it settable at all.
+ *
+ * `useViewPreference` reads sessionStorage first and falls back to localStorage, so
+ * seeding BOTH before the app mounts is what pins the view deterministically. Doing
+ * it by clicking the toggle instead would work, but every table test would then
+ * begin with a click that could fail for an unrelated reason and report itself as a
+ * table bug.
+ *
+ * `addInitScript` runs before any page script on EVERY navigation in this context,
+ * which matters because several of these tests reload.
+ */
+async function useView(page: Page, view: 'cards' | 'table'): Promise<void> {
+  await page.addInitScript((v) => {
+    try {
+      sessionStorage.setItem('darwin-instructions-view', v);
+      localStorage.setItem('darwin-instructions-view', v);
+    } catch { /* private mode */ }
+  }, view);
+}
+
+async function gotoTable(page: Page): Promise<void> {
+  await useView(page, 'table');
+  await page.goto('/agents/instructions');
+  await expect(page.getByTestId('instructions-datagrid')).toBeVisible({ timeout: 30000 });
+}
+
+/**
+ * The root a field assertion should be scoped to.
+ *
+ * Req #3067's thesis is that Cards and Table are ONE implementation, so both views
+ * carry the SAME per-field testids (`instruction-name-input-<id>` and friends).
+ * That is deliberate — a per-view id would make it structurally impossible to
+ * assert the two views commit identically — and it means a test says which view it
+ * is in by scoping, not by using a different name.
+ *
+ * ONE EXCEPTION, and it bites: MUI `Menu` and `Popover` render through a PORTAL, so
+ * the roster palette, the per-row options menu and every dialog live OUTSIDE this
+ * root. Those stay page-scoped. Documented in memory/darwin-viewer-pages.md.
+ */
+const viewRoot = (page: Page, view: 'cards' | 'table') =>
+  page.getByTestId(view === 'table' ? 'instructions-datagrid' : 'instructions-registry');
+
 async function openCardMenu(page: Page, rowId: number): Promise<void> {
   await page.getByTestId(`instruction-card-menu-${rowId}`).click();
   await expect(page.getByTestId(`instruction-card-menu-popup-${rowId}`)).toBeVisible();
@@ -286,6 +346,9 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
       'b-edit', 'c-bind', 'd-unbind',
       'e-close-unbound', 'f-close-bound',
       'g-del-guard', 'h-del-hard',
+      // Owned by the table-view tests (AGENT-12+) so they cannot disturb the
+      // fixtures AGENT-01..11 assert against.
+      'j-table-edit', 'k-table-bind',
     ];
     for (const suffix of suffixes) {
       const name = nm(suffix);
@@ -860,5 +923,362 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
       openRows.map(r => ({ id: r.id, name: r.name })));
     await expect.poll(async () => (await cardOrder(page)).filter(id => mine.has(id)),
       { timeout: 20000 }).toEqual(expectedOrder);
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-12 — the Table view exists, and it is the SAME data.
+  //
+  // Also pins the two header fixes req #3067 folded in: the Table button is real
+  // (not disabled), and the `activeView` normalization line that used to pin a
+  // stored 'table' back to Cards is gone. A page that still carried that line
+  // would render Cards here and every later table test would fail on a missing
+  // grid rather than on the thing it was testing.
+  // -------------------------------------------------------------------------
+  test('AGENT-12: the Cards | Table toggle switches views and honours a stored preference', async ({ page }) => {
+    const rowId = instrIds['j-table-edit'];
+
+    await gotoRegistry(page);
+    await expect(page.getByTestId('view-toggle-cards')).toHaveAttribute('aria-pressed', 'true');
+    const tableButton = page.getByTestId('view-toggle-table');
+    await expect(tableButton).toBeVisible();
+    // The button #3063 never shipped. If it were rendered disabled, the click
+    // below would silently do nothing and the failure would point at the grid.
+    await expect(tableButton).toBeEnabled();
+
+    await tableButton.click();
+    await expect(page.getByTestId('instructions-datagrid')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('instructions-registry')).toHaveCount(0);
+    await expect(page.getByTestId('view-toggle-table')).toHaveAttribute('aria-pressed', 'true');
+
+    // Same rows, same values — the views share one query, not two.
+    await expect(viewRoot(page, 'table').getByTestId(`instruction-name-input-${rowId}`))
+      .toHaveValue(nm('j-table-edit'));
+
+    // THE STORED PREFERENCE SURVIVES A RELOAD. This is the assertion that would
+    // have caught the retired normalization line: with it in place the page comes
+    // back as Cards no matter what was stored.
+    await page.reload();
+    await expect(page.getByTestId('instructions-datagrid')).toBeVisible({ timeout: 30000 });
+
+    // ...and back again, so the toggle is not one-way.
+    await page.getByTestId('view-toggle-cards').click();
+    await expect(page.getByTestId('instructions-registry')).toBeVisible({ timeout: 20000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-13 — EDIT IN PLACE IN THE TABLE, one PUT per field.
+  //
+  // The load-bearing requirement of #3067. This is AGENT-02 run against the other
+  // view, deliberately asserting the same contract with the same testids: that is
+  // what "one implementation, two presentations" has to mean to be worth claiming.
+  // -------------------------------------------------------------------------
+  test('AGENT-13: table cells commit on blur, one PUT per field, and survive a reload', async ({ page }) => {
+    const rowId = instrIds['j-table-edit'];
+    const newName = `${nm('j-table-edit')}-renamed`;
+    const newContent = 'Rewritten from the TABLE view — only the content column may move.';
+
+    const writes = captureWrites(page);
+    await gotoTable(page);
+    const root = viewRoot(page, 'table');
+
+    // --- name ---
+    const nameField = root.getByTestId(`instruction-name-input-${rowId}`);
+    await expect(nameField).toHaveValue(nm('j-table-edit'));
+    await nameField.fill(newName);
+    await nameField.blur();
+
+    await expect.poll(() => writesTo(writes, 'PUT', 'instructions').length,
+      { timeout: 20000 }).toBe(1);
+
+    const namePut = writesTo(writes, 'PUT', 'instructions')[0].body as Array<Record<string, unknown>>;
+    expect(namePut).toHaveLength(1);
+    // The contract as a KEY SET: a name edit carries nothing else, so a rejected
+    // name cannot take an edited body down with it.
+    expect(Object.keys(namePut[0]).sort()).toEqual(['id', 'name']);
+    expect(Number(namePut[0].id)).toBe(rowId);
+    expect(namePut[0].name).toBe(newName);
+
+    await expectStored(rowId, 'name', newName, idToken);
+    expect((await fetchInstruction(rowId, idToken)).content).toBe(SEED_CONTENT);
+    // Re-read AFTER the round trips: `expect.poll(...).toBe(1)` stops the moment it
+    // sees 1, so on its own it asserts "reached one PUT", not "issued exactly one".
+    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(1);
+
+    // --- content ---
+    const contentField = root.getByTestId(`instruction-content-input-${rowId}`);
+    await contentField.fill(newContent);
+    await contentField.blur();
+
+    await expect.poll(() => writesTo(writes, 'PUT', 'instructions').length,
+      { timeout: 20000 }).toBe(2);
+    const contentPut = writesTo(writes, 'PUT', 'instructions')[1].body as Array<Record<string, unknown>>;
+    expect(Object.keys(contentPut[0]).sort()).toEqual(['content', 'id']);
+    expect(contentPut[0].content).toBe(newContent);
+
+    await expectStored(rowId, 'content', newContent, idToken);
+    expect((await fetchInstruction(rowId, idToken)).name).toBe(newName);
+    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(2);
+
+    // THE CROSS-VIEW ASSERTION. The edits were made in the Table and are read back
+    // in the Cards view through the SAME testids — which is only possible because
+    // both views render one component against one query.
+    await useView(page, 'cards');
+    await gotoRegistry(page);
+    const cards = viewRoot(page, 'cards');
+    await expect(cards.getByTestId(`instruction-name-input-${rowId}`)).toHaveValue(newName);
+    await expect(cards.getByTestId(`instruction-content-input-${rowId}`)).toHaveValue(newContent);
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-14 — a blocked value in the TABLE writes nothing and says so.
+  //
+  // The card shows an `unsaved` chip. A fixed-height grid row has nowhere to put
+  // the field's own caption, so the verdict is HOISTED to a row marker instead —
+  // and if that hoist were dropped, a blocked value would look exactly like a
+  // saved one. There is no Save button to be left disabled.
+  // -------------------------------------------------------------------------
+  test('AGENT-14: a duplicate name in a table cell is refused, kept on screen and marked', async ({ page }) => {
+    const rowId = instrIds['k-table-bind'];
+    const taken = (await fetchInstruction(instrIds['a-order-1'], idToken)).name;
+    const original = (await fetchInstruction(rowId, idToken)).name;
+
+    const writes = captureWrites(page);
+    await gotoTable(page);
+    const root = viewRoot(page, 'table');
+
+    const nameField = root.getByTestId(`instruction-name-input-${rowId}`);
+    await nameField.fill(taken);
+    await nameField.blur();
+
+    await expect(page.getByTestId(`instruction-unsaved-${rowId}`)).toBeVisible();
+    await expect(nameField).toHaveValue(taken);          // the dirty text survives
+
+    // Read the row back FIRST — that round trip is what gives a PUT time to have
+    // appeared, so "no write" is a real negative rather than a race we won.
+    expect((await fetchInstruction(rowId, idToken)).name).toBe(original);
+    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(0);
+
+    // Escape abandons: marker and text both go.
+    await nameField.click();
+    await nameField.press('Escape');
+    await expect(page.getByTestId(`instruction-unsaved-${rowId}`)).toHaveCount(0);
+    await expect(nameField).toHaveValue(original);
+    await settle(idToken);
+    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-15 — SPACE can be typed into a table cell.
+  //
+  // Looks absurd; is the single most likely defect in this view. DataGrid
+  // classifies the space character as a NAVIGATION key and answers it with
+  // `goToCell()` + `preventDefault()`, with no check for whether the event came
+  // from a text input. Without GhostCell's keydown `stopPropagation`, a space is
+  // simply not insertable — and every other test here would still pass, because
+  // `fill()` sets the value directly and never presses a key.
+  //
+  // So this test types with the KEYBOARD on purpose. `fill()` would not detect it.
+  // -------------------------------------------------------------------------
+  test('AGENT-15: typing a space into a table cell inserts a space, it does not move the grid', async ({ page }) => {
+    const rowId = instrIds['k-table-bind'];
+    const typed = 'two words';
+
+    await gotoTable(page);
+    const contentField = viewRoot(page, 'table').getByTestId(`instruction-content-input-${rowId}`);
+
+    await contentField.click();
+    await contentField.fill('');
+    await contentField.pressSequentially(typed, { delay: 20 });
+    // If the grid had swallowed the space this would read 'twowords'.
+    await expect(contentField).toHaveValue(typed);
+
+    await contentField.blur();
+    await expectStored(rowId, 'content', typed, idToken);
+
+    // Arrow keys move the caret, not the grid focus. If they reached the grid the
+    // field would blur — and a blur COMMITS, so the edit below would be written
+    // half-typed. Asserting the field still holds focus is asserting that did not
+    // happen.
+    await contentField.click();
+    await contentField.press('ArrowLeft');
+    await contentField.press('ArrowRight');
+    await expect(contentField).toBeFocused();
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-16 — membership from a table row, through the popover palette.
+  //
+  // The compact variant moves the roster into a Popover because twelve ghost
+  // chips do not fit in a grid row. Everything behavioural must be unchanged:
+  // one chip is one write, and the chip drills through to the agent.
+  //
+  // NOTE the scoping. The palette is a PORTAL, so its chips are page-scoped while
+  // the row's own chips are grid-scoped. Getting this wrong is a locator error
+  // that reads like a feature failure.
+  // -------------------------------------------------------------------------
+  test('AGENT-16: the table row binds one agent at max+1 and drills through', async ({ page }) => {
+    const rowId = instrIds['k-table-bind'];
+
+    const before = await fetchLinksForAgent(agentIds.a3, idToken);
+    const expectedSlot = Math.max(0, ...before
+      .map(l => l.sort_order)
+      .filter((o): o is number => Number.isFinite(o as number))) + 1;
+
+    await gotoTable(page);
+    const root = viewRoot(page, 'table');
+
+    // Resting row: chips visible, palette closed.
+    await expect(root.getByTestId(`instruction-${rowId}-agent-add`)).toBeVisible();
+    await expect(page.getByTestId(`instruction-${rowId}-bind-${agentIds.a3}`)).toHaveCount(0);
+
+    await root.getByTestId(`instruction-${rowId}-agent-add`).click();
+    // The palette is a Popover — page-scoped, NOT inside `instructions-datagrid`.
+    await expect(page.getByTestId(`instruction-${rowId}-agent-palette`)).toBeVisible();
+    await page.getByTestId(`instruction-${rowId}-bind-${agentIds.a3}`).click();
+
+    // Ghost chip becomes a solid chip, back inside the row.
+    await expect(root.getByTestId(`instruction-${rowId}-agent-${agentIds.a3}`))
+      .toBeVisible({ timeout: 20000 });
+
+    const links = await fetchLinksForInstruction(rowId, idToken);
+    const bound = links.find(l => l.agent_fk === agentIds.a3);
+    expect(bound).toBeTruthy();
+    expect(bound!.sort_order).toBe(expectedSlot);
+
+    // The agent-count column is the sortable form of the same fact, and it is what
+    // makes blast radius legible at a glance in the table.
+    await expect(root.getByTestId(`instruction-agent-count-${rowId}`))
+      .toHaveText(String(links.length));
+
+    // Drill-through survives the variant.
+    await root.getByTestId(`instruction-${rowId}-agent-${agentIds.a3}`).click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${agentIds.a3}`), { timeout: 20000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-17 — the closed checkbox is gated on blast radius, not a write path.
+  //
+  // THE MOST IMPORTANT TEST IN THE TABLE SET. A checkbox wired straight to
+  // `closed` would pass any "the row closed" assertion while putting the silent
+  // unloading of every bound agent's boot payload one stray click from every row.
+  // The two branches are asserted separately because they must do genuinely
+  // different things.
+  // -------------------------------------------------------------------------
+  test('AGENT-17: the closed cell dialogs a BOUND row and writes nothing until confirmed', async ({ page }) => {
+    const rowId = instrIds['k-table-bind'];
+    const linksBefore = await fetchLinksForInstruction(rowId, idToken);
+    expect(linksBefore.length).toBeGreaterThan(0);   // bound by AGENT-16
+
+    const writes = captureWrites(page);
+    await gotoTable(page);
+
+    await viewRoot(page, 'table').getByTestId(`instruction-closed-toggle-${rowId}`).click();
+
+    const dialog = page.getByTestId('instruction-delete-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(nm('agent-a3'));      // the blast radius, named
+
+    // Cancelling really cancels — and NOTHING was written on the way in.
+    await settle(idToken);
+    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(0);
+    expect((await fetchInstruction(rowId, idToken)).closed).toBe(0);
+
+    await page.getByTestId('instruction-delete-close-btn').click();
+    await expect.poll(async () => (await fetchInstruction(rowId, idToken)).closed,
+      { timeout: 20000 }).toBe(1);
+    // CLOSING IS NOT DELETING: every binding survives.
+    expect(await fetchLinksForInstruction(rowId, idToken))
+      .toHaveLength(linksBefore.length);
+  });
+
+  test('AGENT-18: the closed cell closes an UNBOUND row immediately, and reopens it', async ({ page }) => {
+    const rowId = instrIds['j-table-edit'];
+    expect(await fetchLinksForInstruction(rowId, idToken)).toHaveLength(0);
+
+    await gotoTable(page);
+    const root = viewRoot(page, 'table');
+
+    await root.getByTestId(`instruction-closed-toggle-${rowId}`).click();
+    // Two-sided proof that no dialog was involved: nothing rendered, AND the row
+    // closed anyway — a dialog would have parked the write behind a button.
+    await expect(page.getByTestId('instruction-delete-dialog')).toHaveCount(0);
+    await expect.poll(async () => (await fetchInstruction(rowId, idToken)).closed,
+      { timeout: 20000 }).toBe(1);
+
+    // Reopen restores a duty rather than removing one, so it has no dialog either.
+    await page.getByTestId('instructions-show-closed').click();
+    await root.getByTestId(`instruction-closed-toggle-${rowId}`).click();
+    await expect(page.getByTestId('instruction-delete-dialog')).toHaveCount(0);
+    await expect.poll(async () => (await fetchInstruction(rowId, idToken)).closed,
+      { timeout: 20000 }).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-19 — row creation from the table.
+  //
+  // The template renders BELOW the grid rather than as a grid row: a blank name
+  // sorts wherever a blank name sorts, and the MIT DataGrid has no pinned rows to
+  // stop it scattering. It is still the last thing in the list and still fills in
+  // place, and it reuses the card view's state and testids.
+  // -------------------------------------------------------------------------
+  test('AGENT-19: the table template creates on the second field and then empties itself', async ({ page }) => {
+    const name = nm('l-table-template');
+    const content = 'Created through the TABLE view template row.';
+
+    const writes = captureWrites(page);
+    await gotoTable(page);
+
+    const nameField = page.getByTestId('instruction-name-input-template');
+    const contentField = page.getByTestId('instruction-content-input-template');
+    await expect(nameField).toBeVisible();
+
+    // First field alone is NOT a create — both columns are NOT NULL. `settle`
+    // first, or a POST would have had no chance to reach the listener and this
+    // would pass vacuously.
+    await nameField.fill(name);
+    await nameField.blur();
+    await settle(idToken);
+    expect(writesTo(writes, 'POST', 'instructions')).toHaveLength(0);
+
+    await contentField.fill(content);
+    await contentField.blur();
+
+    await expect.poll(async () => (await fetchMyInstructions(idToken))
+      .some(r => r.name === name), { timeout: 20000 }).toBe(true);
+    expect(writesTo(writes, 'POST', 'instructions')).toHaveLength(1);
+
+    const created = (await fetchMyInstructions(idToken)).find(r => r.name === name);
+    createdInstructionIds.push(created!.id);
+
+    // The new row appears in the grid, unbound, with its content intact.
+    await expect(viewRoot(page, 'table')
+      .getByTestId(`instruction-content-input-${created!.id}`))
+      .toHaveValue(content, { timeout: 20000 });
+    expect(await fetchLinksForInstruction(created!.id, idToken)).toHaveLength(0);
+
+    // THE REGRESSION: both template fields come back blank, so the next row
+    // inherits nothing.
+    await expect(nameField).toHaveValue('');
+    await expect(contentField).toHaveValue('');
+  });
+
+  // -------------------------------------------------------------------------
+  // AGENT-20 — the header adapts to the view.
+  //
+  // The gear is Cards-only: the grid's own column headers are the Table view's
+  // sort authority, and offering both at once is two sort UIs on one page that
+  // can disagree. The accounting line belongs to neither view and stays.
+  // -------------------------------------------------------------------------
+  test('AGENT-20: the sort gear is Cards-only and the accounting line survives both views', async ({ page }) => {
+    await gotoRegistry(page);
+    await expect(page.getByTestId('instructions-settings-button')).toBeVisible();
+    const cardsAccounting = await page.getByTestId('instructions-accounting').textContent();
+
+    await page.getByTestId('view-toggle-table').click();
+    await expect(page.getByTestId('instructions-datagrid')).toBeVisible({ timeout: 20000 });
+
+    await expect(page.getByTestId('instructions-settings-button')).toHaveCount(0);
+    // Counted over the WHOLE catalog, so it cannot differ between views.
+    await expect(page.getByTestId('instructions-accounting')).toHaveText(cardsAccounting!);
   });
 });

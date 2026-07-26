@@ -84,12 +84,9 @@ import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import ListSubheader from '@mui/material/ListSubheader';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -100,7 +97,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import SettingsIcon from '@mui/icons-material/Settings';
 import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
@@ -113,6 +109,8 @@ import {
 } from '../hooks/useDataQueries';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useViewPreference } from '../hooks/useViewPreference';
+import ViewerHeader from '../Components/ViewerHeader/ViewerHeader';
+import { normalizeView } from '../Components/ViewerHeader/normalizeView';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     byId, linksByAgent, linksByDocument, documentOwnerLink,
@@ -147,6 +145,15 @@ const CARD_CONTENT_SX = { p: 2, '&:last-child': { pb: 2 } };
 // `commitLocation`.
 class LocationNeedsConfirmation extends Error {}
 
+// One entry, deliberately. `ViewerHeader` always renders the ToggleButtonGroup even
+// at length 1, and that is what preserves the far-left anchor and the title's
+// x-position against the other viewers until a Table view for this page ships. It
+// is NOT a placeholder for a disabled button — see the standing exception in
+// memory/darwin-viewer-pages.md.
+const VIEWS = [
+    { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
+];
+
 const DocumentsPage = () => {
     const navigate = useNavigate();
     const { profile, idToken } = useContext(AuthContext);
@@ -176,16 +183,17 @@ const DocumentsPage = () => {
     const [showClosed, setShowClosed] = useState(false);
     const [showUnownedOnly, setShowUnownedOnly] = useState(false);
     const [view, setView] = useViewPreference('darwin-documents-view', 'cards');
-    // Cards is the only view built; Table is a later requirement. A 'table' value
-    // can still be sitting in this browser's storage, and an unmatched
-    // ToggleButtonGroup value selects nothing — the toggle would render with no
-    // active state. Same normalization InstructionsPage carries.
-    const activeView = view === 'table' ? 'cards' : view;
+    // Cards is the only view built here; a Table view for this page is a later
+    // requirement. The normalization is no longer hand-rolled — `normalizeView` is
+    // the generic form, and it does the same job for the same reason: a 'table'
+    // value can still be sitting in this browser's storage, and an unmatched
+    // ToggleButtonGroup value selects nothing, so the toggle would render with no
+    // active state at all.
+    const activeView = normalizeView(view, VIEWS);
 
     const [sortMode, setSortMode] = useState(readStoredSort);
     const [sortDesc, setSortDesc] = useState(
         () => SORT_MODES.find(m => m.value === readStoredSort())?.defaultDesc ?? false);
-    const [sortAnchor, setSortAnchor] = useState(null);
 
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [dialogIntent, setDialogIntent] = useState('delete');
@@ -261,11 +269,13 @@ const DocumentsPage = () => {
     // CategoryCard's shipped idiom: picking the ACTIVE mode flips its direction
     // and keeps the menu open so the arrow change is visible; picking a new mode
     // adopts that mode's natural direction and closes.
-    const chooseSort = (value, defaultDesc) => {
+    const chooseSort = (value, defaultDesc, close) => {
         if (sortMode === value) { setSortDesc(d => !d); return; }
         setSortMode(value);
         setSortDesc(defaultDesc);
-        setSortAnchor(null);
+        // `close` is handed in by ViewerHeader, which owns the menu anchor. It is
+        // deliberately not called on the direction-flip path above.
+        close?.();
     };
 
     const agentIndex = useMemo(() => byId(agents || []), [agents]);
@@ -900,121 +910,78 @@ const DocumentsPage = () => {
 
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
-            {/* Canonical viewer header (req #3013, memory/view-switchable-pages.md).
-                Reading order is fixed for every viewer:
-                  [view toggle] [title, flex:1] [filters] [settings]
-                The toggle is the far-left anchor so the title starts at the same x
-                on every viewer page; the title's `flex: 1` IS the spacer — do not
-                add a second flexGrow Box. Filters sit beside the title because
-                they change WHAT is listed; the settings gear is pinned right. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
-                {/* Cards only, and the group is kept at length 1 rather than
-                    dropped for a bare title — that is what preserves the far-left
-                    anchor and the title's x-position until a Table view ships.
-                    Following InstructionsPage's documented standing exception to
-                    V1: the user removed the disabled placeholder button there
-                    because a control you cannot act on reads as broken rather than
-                    as forthcoming. */}
-                <ToggleButtonGroup
-                    size="small"
-                    exclusive
-                    value={activeView}
-                    onChange={(_e, v) => setView(v)}
-                    sx={{ flexShrink: 0 }}
-                    data-testid="documents-view-toggle"
-                >
-                    <Tooltip title="Cards view">
-                        <ToggleButton value="cards" aria-label="cards view"
-                                      data-testid="view-toggle-cards">
-                            <ViewModuleIcon fontSize="small" />
-                        </ToggleButton>
-                    </Tooltip>
-                </ToggleButtonGroup>
-
-                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>
-                    Architecture Documents
-                </Typography>
-
-                {/* The highest-value filter on this page: it isolates exactly the
-                    drift the registry was built to catch. Rendered only when there
-                    is drift to isolate. */}
-                {hasUnowned && (
-                    <Tooltip title={showUnownedOnly
-                        ? 'Show every document'
-                        : 'Show only documents with no owner'}>
-                        <Chip
-                            label="Unowned"
-                            size="small"
-                            color={showUnownedOnly ? 'error' : 'default'}
-                            variant={showUnownedOnly ? 'filled' : 'outlined'}
-                            onClick={() => setShowUnownedOnly(v => !v)}
-                            sx={{ cursor: 'pointer', flexShrink: 0 }}
-                            data-testid="documents-show-unowned"
-                        />
-                    </Tooltip>
-                )}
-
-                {hasClosed && (
-                    <Tooltip title={showClosed ? 'Hide closed documents' : 'Show closed documents'}>
-                        <Chip
-                            label="Closed"
-                            size="small"
-                            color={showClosed ? 'primary' : 'default'}
-                            variant={showClosed ? 'filled' : 'outlined'}
-                            onClick={() => setShowClosed(v => !v)}
-                            sx={{ cursor: 'pointer', flexShrink: 0 }}
-                            data-testid="documents-show-closed"
-                        />
-                    </Tooltip>
-                )}
-
-                <Tooltip title="Sort & display settings">
-                    <IconButton size="small" onClick={(e) => setSortAnchor(e.currentTarget)}
-                                sx={{ flexShrink: 0 }}
-                                data-testid="documents-settings-button">
-                        <SettingsIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
-                <Menu
-                    anchorEl={sortAnchor}
-                    open={!!sortAnchor}
-                    onClose={() => setSortAnchor(null)}
-                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                    slotProps={{ list: { 'data-testid': 'documents-sort-menu' } }}
-                >
-                    <ListSubheader disableSticky sx={{ lineHeight: '32px' }}>Sort by</ListSubheader>
-                    {SORT_MODES.map(({ value, label, icon: Icon, defaultDesc }) => {
-                        const active = sortMode === value;
-                        return (
-                            <MenuItem key={value} selected={active}
-                                      onClick={() => chooseSort(value, defaultDesc)}
-                                      data-testid={`documents-sort-${value}`}>
-                                <ListItemIcon><Icon fontSize="small" /></ListItemIcon>
-                                <ListItemText>{label}</ListItemText>
-                                {/* The arrow is the only affordance telling the user
-                                    that re-picking the active mode reverses it —
-                                    without it the second click looks broken. */}
-                                {active && (sortDesc
-                                    ? <ArrowDownwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />
-                                    : <ArrowUpwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />)}
-                            </MenuItem>
-                        );
-                    })}
-                </Menu>
-            </Box>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
-                        data-testid="documents-accounting">
-                {[
-                    `${openRows.length} registered document${openRows.length === 1 ? '' : 's'}`,
-                    unownedCount > 0
-                        ? `${unownedCount} with no owner`
-                        : 'every one has exactly one owner',
-                    closedCount > 0 && `${closedCount} closed`,
-                ].filter(Boolean).join(' · ')}
-                . At most one owner per document is enforced by the database.
-            </Typography>
+            {/* The canonical viewer header, now the shared component
+                (Components/ViewerHeader, req #3067). This page was the third
+                hand-rolled copy of it. */}
+            <ViewerHeader
+                title="Architecture Documents"
+                views={VIEWS}
+                view={activeView}
+                onViewChange={setView}
+                testIdPrefix="documents"
+                filters={<>
+                    {/* The highest-value filter on this page: it isolates exactly
+                        the drift the registry was built to catch. Rendered only when
+                        there is drift to isolate. */}
+                    {hasUnowned && (
+                        <Tooltip title={showUnownedOnly
+                            ? 'Show every document'
+                            : 'Show only documents with no owner'}>
+                            <Chip
+                                label="Unowned"
+                                size="small"
+                                color={showUnownedOnly ? 'error' : 'default'}
+                                variant={showUnownedOnly ? 'filled' : 'outlined'}
+                                onClick={() => setShowUnownedOnly(v => !v)}
+                                sx={{ cursor: 'pointer', flexShrink: 0 }}
+                                data-testid="documents-show-unowned"
+                            />
+                        </Tooltip>
+                    )}
+                    {hasClosed && (
+                        <Tooltip title={showClosed ? 'Hide closed documents' : 'Show closed documents'}>
+                            <Chip
+                                label="Closed"
+                                size="small"
+                                color={showClosed ? 'primary' : 'default'}
+                                variant={showClosed ? 'filled' : 'outlined'}
+                                onClick={() => setShowClosed(v => !v)}
+                                sx={{ cursor: 'pointer', flexShrink: 0 }}
+                                data-testid="documents-show-closed"
+                            />
+                        </Tooltip>
+                    )}
+                </>}
+                settingsItems={[{
+                    id: 'sort',
+                    heading: 'Sort by',
+                    items: SORT_MODES.map(({ value, label, icon: Icon, defaultDesc }) => ({
+                        id: value,
+                        label,
+                        icon: <Icon fontSize="small" />,
+                        selected: sortMode === value,
+                        // The arrow is the only affordance telling the user that
+                        // re-picking the active mode reverses it — without it the
+                        // second click looks broken.
+                        trailing: sortMode === value
+                            ? (sortDesc
+                                ? <ArrowDownwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />
+                                : <ArrowUpwardIcon fontSize="small" sx={{ ml: 2, opacity: 0.7 }} />)
+                            : null,
+                        onClick: (close) => chooseSort(value, defaultDesc, close),
+                    })),
+                }]}
+                accounting={<>
+                    {[
+                        `${openRows.length} registered document${openRows.length === 1 ? '' : 's'}`,
+                        unownedCount > 0
+                            ? `${unownedCount} with no owner`
+                            : 'every one has exactly one owner',
+                        closedCount > 0 && `${closedCount} closed`,
+                    ].filter(Boolean).join(' · ')}
+                    . At most one owner per document is enforced by the database.
+                </>}
+            />
 
             <Box
                 data-testid="documents-registry"
