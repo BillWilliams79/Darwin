@@ -12,7 +12,12 @@
 //
 // REST status handling:
 // - POST on content tables returns 200 + the inserted row
-// - POST on junction tables returns 201 without body (no LAST_INSERT_ID possible)
+// - POST on junction tables returns 201 without body — rest_post.py reads the new
+//   row back with `WHERE id=<LAST_INSERT_ID()>`, which an id-less table cannot
+//   answer, so it skips the read-back. This was NOT true until req #3057: the
+//   read-back raised MySQL 1054 and the gateway returned 500 for a row that had
+//   already committed, so every link/add/reorder below threw on success. Anything
+//   here that needs the stored row must GET it by composite key.
 // - PUT returns 204 on success
 // - DELETE returns 200 on success, 404 if no rows matched
 
@@ -72,7 +77,8 @@ export async function deleteTestCase(darwinUri, idToken, id) {
 export async function linkFeatureTestCase(darwinUri, idToken, feature_fk, test_case_fk) {
     const r = await call_rest_api(`${darwinUri}/feature_test_cases`, 'POST',
         { feature_fk, test_case_fk }, idToken);
-    // Junction tables return 201 without body (no id column to read back).
+    // 201 with an empty body — no id column to read back (req #3057). The
+    // returned data is '' by design; callers use it only as a success signal.
     return assertOk(r, 'linkFeatureTestCase');
 }
 

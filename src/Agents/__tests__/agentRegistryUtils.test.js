@@ -239,6 +239,24 @@ describe('restErrorMessage', () => {
             .toMatch(/already bound/);
     });
 
+    it('maps a duplicate load-order slot (req #3075)', () => {
+        expect(restErrorMessage(
+            conflict(1062, 'uq_agent_instructions_slot', 'agent_instructions'),
+            'fallback')).toMatch(/load-order slot/);
+    });
+
+    it('tells the two agent_instructions 1062s apart', () => {
+        // Same table, same error code, different problems and different fixes:
+        // "you already bound this instruction" vs "that load position is taken".
+        // Collapsing them would send the reader to the wrong remedy.
+        const alreadyBound = conflict(1062, 'PRIMARY', 'agent_instructions');
+        const slotTaken = conflict(1062, 'uq_agent_instructions_slot', 'agent_instructions');
+        expect(restErrorMessage(alreadyBound, 'fallback'))
+            .not.toBe(restErrorMessage(slotTaken, 'fallback'));
+        expect(restErrorMessage(alreadyBound, 'fallback')).not.toMatch(/load-order slot/);
+        expect(restErrorMessage(slotTaken, 'fallback')).not.toMatch(/already bound/);
+    });
+
     it('does not claim "already bound" for a PRIMARY collision on another table', () => {
         // `constraint` arrives unqualified, and every table has a PRIMARY — the
         // table check is the only thing making that pair identifying.
