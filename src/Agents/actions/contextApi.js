@@ -25,3 +25,9 @@ export async function deleteAgentTelemetryRun(darwinUri, idToken, id) {
         { id }, idToken);
     return assertOk(r, 'deleteAgentTelemetryRun');
 }
+
+export async function updateAgentTelemetryRun(darwinUri, idToken, id, fields) {
+    const r = await call_rest_api(`${darwinUri}/agent_telemetry_runs`, 'PUT',
+        [{ id, ...fields }], idToken);
+    return assertOk(r, 'updateAgentTelemetryRun');
+}

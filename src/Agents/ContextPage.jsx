@@ -1,57 +1,105 @@
-// /agents/context — Agent Context: Actual Tokens (req #3031).
+// /agents/context — Agentic Telemetry (req #3031, renamed + polished req #3065).
 //
 // Renders the published visual-acceptance artifact
-// (660a8b6b-b215-4b7a-b5a4-91c31e82460d) VERBATIM from stored telemetry: the
-// multi-row grouped header [Boot time | Initial context: CC base / CLAUDE.md /
-// Charter stub | Loaded per-agent: Boot payload / Autoload / Docs | Start Work
-// Context], zebra rows, a sticky Agent column, the teal Start-Work-Context
-// emphasis, and the glossary block. A run picker selects which capture to show;
-// variable agent counts render as-is (nothing assumes a fixed roster).
+// (660a8b6b-b215-4b7a-b5a4-91c31e82460d) from stored telemetry: the multi-row
+// grouped header [Boot time | FIXED OVERHEAD: Claude Code / CLAUDE.md / Agent
+// File | Loaded per-agent: Agent MCP Payload / Architecture Docs / Docs Loaded |
+// Agent Init Context], zebra rows, a sticky Agent column, and the teal Agent-
+// Init-Context emphasis. Column labels are display-only relabels (req #3065)
+// of the underlying field names, which are unchanged — see `SORT_COLUMNS` in
+// contextRenderUtils.js for the field <-> label mapping. The capture picker
+// is the first element of the render window, above the Description box,
+// which is above the table (req #3065) — separate from the header row above
+// it (view toggle / title / glossary), which is width-capped to align with
+// the table's right edge. Variable agent counts render as-is (nothing
+// assumes a fixed roster). The glossary lives behind a header button rather
+// than inline — it is reference material, not part of the artifact
+// reproduction, so it does not need the bespoke CSS. Rename and Delete for
+// the active capture live inside the picker's own Menu (req #3065 follow-up),
+// mirroring BuildVisualizer's BuildPatternMenu — list with a checkmark on the
+// active row, a Divider, then Rename… / Delete. No "New…" row: captures are
+// produced only by the telemetry-capture skill, never from this page.
+//
+// The 9 leaf column headers are click-to-sort: one field is active at a
+// time, defaulting to Agent name ascending. Clicking the active column flips
+// its direction; clicking a different one replaces it, starting at that
+// column's natural direction — descending for numeric columns (largest
+// first), ascending for the one string column. See `sortByColumn` /
+// `naturalSortDir` in contextRenderUtils.js.
 //
 // All values are ACTUAL tokens (real tokenizer via transcript usage deltas),
 // except Boot time (ms). Columns are NULL where a phase does not apply
 // (PrimaryAI has no boot/autoload; the Code Reviewer bundles its charter stub
-// into CC base) — those cells render "n/a" or a footnote marker, matching the
-// artifact.
+// into Claude Code) — those cells render "n/a" or a footnote marker, matching
+// the artifact. The Docs cell renders in red when one or more architecture
+// documents failed to load for that agent.
 
 import '../index.css';
-import { Fragment, useContext, useMemo, useState } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
+import Menu from '@mui/material/Menu';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
+import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import DeleteIcon from '@mui/icons-material/Delete';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import CheckIcon from '@mui/icons-material/Check';
+import DescriptionIcon from '@mui/icons-material/Description';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
+import GhostTextField from '../Components/GhostField/GhostTextField';
+import { formatDateTime } from '../utils/dateFormat';
 import {
     useAgentTelemetryRuns, useAgentTelemetryRowsByRun, agentTelemetryRunKeys,
 } from '../hooks/useDataQueries';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { deleteAgentTelemetryRun } from './actions/contextApi';
-import { NA as NA_TEXT, sortRows, assignMarkers, computeCells } from './contextRenderUtils';
+import { deleteAgentTelemetryRun, updateAgentTelemetryRun } from './actions/contextApi';
+import {
+    NA as NA_TEXT, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
+    assignMarkers, computeCells, runDateLabel,
+} from './contextRenderUtils';
+import ContextDeleteDialog from './ContextDeleteDialog';
 
-// The 9 fixed column definitions — verbatim from the artifact glossary. The
-// per-row footnote definitions (*, †, …) are appended dynamically per run.
+// The fixed glossary entries — one per numeric/n/a column header below (req
+// #3065 relabel keeps these terms in sync), plus "Units" (a global note, not
+// tied to one column) and "Boot time" (its own column but not a token count).
+// "Agent" has no entry — it's a name, self-explanatory. The per-row footnote
+// definitions (*, †, …) are appended dynamically per run.
 const GLOSSARY = [
     ['Units', <>All values are <strong>actual tokens</strong> (real tokenizer, from transcript usage deltas), except <strong>Boot time</strong> which is milliseconds.</>],
     ['Boot time', <>Latency of the <code>darwin://agents/&lt;Name&gt;</code> boot call, measured <strong>sequentially</strong> (one boot at a time; parallel launch inflates it ~2&times;).</>],
-    ['CC base', <>The Claude Code system prompt: harness instructions + tool schemas + skills listing + MCP listing. Equals Initial context minus CLAUDE.md and the charter stub.</>],
+    ['Claude Code', <>The Claude Code system prompt: harness instructions + tool schemas + skills listing + MCP listing. Equals Initial context minus CLAUDE.md and the charter stub.</>],
     ['CLAUDE.md', <>The project instruction file, loaded into every session.</>],
-    ['Charter stub', <>The agent's <code>.claude/agents/*.md</code> file, loaded as its system prompt.</>],
-    ['Boot payload', <>Context added by the boot call — identity row, binding instructions, and document pointers (not document contents).</>],
-    ['Autoload', <>Context added by reading the agent's autoload documents in full.</>],
-    ['Docs', <>Autoload documents loaded / expected.</>],
-    ['Start Work Context', <>Total context once loaded and ready to work — the <code>/context</code> figure.</>],
+    ['Agent File', <>The agent's <code>.claude/agents/*.md</code> file, loaded as its system prompt.</>],
+    ['Agent MCP Payload', <>Context added by the boot call — identity row, binding instructions, and document pointers (not document contents).</>],
+    ['Architecture Docs', <>Context added by reading the agent's autoload architecture documents in full.</>],
+    ['Docs Loaded', <>Autoload documents loaded / expected. Red when one or more failed to load.</>],
+    ['Agent Init Context', <>Total context once loaded and ready to work — the <code>/context</code> figure.</>],
 ];
 
 function cssVars(mode) {
@@ -62,11 +110,13 @@ function cssVars(mode) {
             '--panel': '#151a22', '--ink': '#e7ebf1', '--muted': '#8b94a3',
             '--line': '#232b36', '--line-strong': '#333d4b', '--head': '#1a212b',
             '--accent': '#2dd4bf', '--accent-soft': '#2dd4bf1f', '--zebra': '#121821',
+            '--danger': '#ef5350',
         }
         : {
             '--panel': '#ffffff', '--ink': '#171c26', '--muted': '#5c6675',
             '--line': '#e3e8ee', '--line-strong': '#cdd5df', '--head': '#eef2f6',
             '--accent': '#0f766e', '--accent-soft': '#0f766e14', '--zebra': '#fafbfc',
+            '--danger': '#c62828',
         };
 }
 
@@ -75,8 +125,9 @@ const TABLE_CSS = `
 .atc-root { --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 .atc-scroll { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
 .atc-root table { border-collapse:collapse; width:100%; font-size:13.5px; }
-.atc-root caption { caption-side:top; text-align:left; padding:14px 16px 12px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
 .atc-root thead th { background:var(--head); color:var(--ink); font-weight:600; padding:9px 13px; border-bottom:1px solid var(--line-strong); white-space:nowrap; }
+.atc-root th.sortable { cursor:pointer; user-select:none; }
+.atc-root th.sortable:hover { background:var(--accent-soft); }
 .atc-root thead tr:first-of-type th { font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); }
 .atc-root .grp { text-align:center; border-left:1px solid var(--line); border-right:1px solid var(--line); }
 .atc-root th.num, .atc-root td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
@@ -88,18 +139,10 @@ const TABLE_CSS = `
 .atc-root tbody tr:nth-of-type(even) td.agent { background:var(--zebra); }
 .atc-root tbody tr:hover td, .atc-root tbody tr:hover td.agent { background:var(--accent-soft); }
 .atc-root .swc { font-weight:700; color:var(--accent); }
-.atc-root tr.primary td { border-top:2px solid var(--line-strong); }
 .atc-root tr.primary td.agent { color:var(--accent); }
 .atc-root .fn { color:var(--muted); font-family:inherit; }
-.atc-root dl { margin:0; display:grid; grid-template-columns:minmax(140px,180px) 1fr; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.atc-root dt { background:var(--panel); padding:10px 14px; font-weight:600; font-size:13px; color:var(--ink); }
-.atc-root dd { background:var(--panel); padding:10px 14px; margin:0; color:var(--muted); font-size:13px; }
-.atc-root dt code, .atc-root dd code { font-family:var(--mono); font-size:.9em; color:var(--ink); }
-.atc-root .gloss-h2 { font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:0 0 14px; font-weight:600; }
-@media (max-width:560px){ .atc-root dl{ grid-template-columns:1fr; } .atc-root dt{ padding-bottom:2px; } .atc-root dd{ padding-top:2px; } }
+.atc-root .docs-warn { color:var(--danger); font-weight:700; }
 `;
-
-const NA = <span className="fn">n/a</span>;
 
 const ContextPage = () => {
     const { profile, idToken } = useContext(AuthContext);
@@ -115,23 +158,44 @@ const ContextPage = () => {
     // Runs arrive newest-first (captured_at:desc); default to the newest capture.
     const [selectedId, setSelectedId] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const [savingNote, setSavingNote] = useState(false);
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [renameTargetId, setRenameTargetId] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+    const [renaming, setRenaming] = useState(false);
+    const [glossaryOpen, setGlossaryOpen] = useState(false);
+    const [captureAnchor, setCaptureAnchor] = useState(null);
+    const [sortField, setSortField] = useState(DEFAULT_SORT_FIELD);
+    const [sortDir, setSortDir] = useState(DEFAULT_SORT_DIR);
     const runsSorted = useMemo(() => runs || [], [runs]);
-    const activeRunId = selectedId ?? runsSorted[0]?.id ?? null;
-    const activeRun = useMemo(
-        () => runsSorted.find(r => r.id === activeRunId) || null,
-        [runsSorted, activeRunId]);
+    // Self-healing: if `selectedId` points at a run that no longer exists in
+    // `runsSorted` (e.g. deleted from another tab/session — a background
+    // refetch can land that change here at any time via TanStack Query's
+    // refetchOnWindowFocus/staleTime), fall back to the newest capture rather
+    // than resolving to nothing. Without this, `activeRun` stays permanently
+    // null even though `runsSorted` is non-empty, and every unguarded read of
+    // it below (this page has several) becomes a crash waiting for a stale
+    // selection.
+    const activeRun = useMemo(() => {
+        const bySelection = selectedId != null
+            ? runsSorted.find(r => r.id === selectedId) : null;
+        return bySelection || runsSorted[0] || null;
+    }, [runsSorted, selectedId]);
+    const activeRunId = activeRun?.id ?? null;
 
     const { data: rows, isLoading: rowsLoading } = useAgentTelemetryRowsByRun(activeRunId);
 
-    const dateLabel = (r) => {
-        const d = r.captured_at ? String(r.captured_at).slice(0, 10) : '';
-        return d ? `${r.label} — ${d}` : r.label;
-    };
+    // The Menu's own onClose doesn't fire when the LIST it's showing disappears
+    // out from under it (e.g. a background refetch reflects a deletion made in
+    // another tab) — only when the user clicks away or hits Escape. Without
+    // this, the trigger Button goes `disabled` but the popup can stay open,
+    // anchored to a button that no longer accepts clicks, showing zero rows.
+    useEffect(() => {
+        if (runsSorted.length === 0) setCaptureAnchor(null);
+    }, [runsSorted.length]);
 
-    const handleDelete = async () => {
-        if (!activeRun) return;
-        const targetId = activeRun.id;
-        if (!window.confirm(`Delete capture "${dateLabel(activeRun)}"? This cannot be undone.`)) return;
+    const performDelete = async (run) => {
+        const targetId = run.id;
         setDeleting(true);
         try {
             await deleteAgentTelemetryRun(darwinUri, idToken, targetId);
@@ -147,10 +211,110 @@ const ContextPage = () => {
         }
     };
 
+    // GhostTextField's commit contract: RETHROW on failure so the field reverts
+    // — it must never keep showing text the database rejected. `text` already
+    // arrives trimmed (the field's `normalize` prop), so a whitespace-only
+    // edit reverts to null rather than persisting as a "description" that
+    // looks blank.
+    //
+    // Ordinary click-to-switch-capture is already safe without help from the
+    // field's `key`: clicking a Menu item blurs the still-focused field FIRST
+    // (standard DOM focus-change-precedes-click ordering), so this handler
+    // fires and closes over the OLD activeRun.id before React ever processes
+    // the click. The `key={activeRun.id}` on the field guards a narrower,
+    // click-free case instead: a background refetch (refetchOnWindowFocus /
+    // staleTime) swapping `activeRun` out from under a FOCUSED, DIRTY field.
+    // There, remounting is what stops this handler from later firing closed
+    // over the NEW run's id with the OLD run's edited text — the cost is that
+    // the unsaved edit is silently discarded rather than committed to the
+    // wrong record. No confirmation or warning is shown for that; there is no
+    // existing "field identity changes while dirty" pattern in Darwin to
+    // reuse instead, and this case is rare enough that no-write beats
+    // wrong-record-write without one.
+    const commitSourceNote = async (text) => {
+        // Blocks the delete button for this same window (see its `disabled`
+        // prop below) — an in-flight PUT racing a DELETE on the same run
+        // could otherwise land after the row is gone and silently no-op
+        // rather than error, with no way for this page to notice.
+        setSavingNote(true);
+        try {
+            await updateAgentTelemetryRun(darwinUri, idToken, activeRun.id,
+                { source_note: text || null });
+            await queryClient.invalidateQueries({ queryKey: agentTelemetryRunKeys.all(creatorFk) });
+        } catch (err) {
+            showError(err, 'Could not save the description');
+            throw err;
+        } finally {
+            setSavingNote(false);
+        }
+    };
+
+    // Rename Capture — single-field dialog, same shape as BuildPatternMenu's
+    // "Rename project" (BuildVisualizer/BuildPatternMenu.jsx): open seeds the
+    // field from the current value, confirm trims and PUTs, Enter submits.
+    //
+    // `renameTargetId` snapshots which run the dialog was opened for, mirroring
+    // useConfirmDialog's `infoObject` capture for Delete below. Without it,
+    // confirmRename reading `activeRun.id` live would write to whatever run
+    // happens to be active at CONFIRM time, not OPEN time — a background
+    // refetch or a picker click while the dialog sits open could swap
+    // `activeRun` out from under it and rename the wrong capture.
+    const openRename = () => {
+        if (!activeRun) return;
+        setRenameTargetId(activeRun.id);
+        setRenameValue(activeRun.label);
+        setRenameOpen(true);
+    };
+
+    const confirmRename = async () => {
+        const label = renameValue.trim();
+        if (!label || renameTargetId == null) return;
+        // Unlike commitSourceNote's `savingNote`, this doesn't need to also
+        // guard the Delete button: the Rename Dialog is modal for `renaming`'s
+        // entire lifetime, so Delete is already unreachable behind it.
+        setRenaming(true);
+        try {
+            await updateAgentTelemetryRun(darwinUri, idToken, renameTargetId, { label });
+            await queryClient.invalidateQueries({ queryKey: agentTelemetryRunKeys.all(creatorFk) });
+            setRenameOpen(false);
+        } catch (err) {
+            showError(err, 'Could not rename the capture');
+        } finally {
+            setRenaming(false);
+        }
+    };
+
+    // House confirm-dialog pattern (see ContextDeleteDialog.jsx / TaskDeleteDialog):
+    // the dialog only sets `confirmed`, the effect-driven callback here performs
+    // the actual write. Replaces a window.confirm, which had no mini-preview and
+    // no Playwright affordance.
+    const captureDelete = useConfirmDialog({
+        onConfirm: (run) => { if (run?.id) performDelete(run); },
+    });
+
+    // Single active sort key at a time. Clicking the already-active column
+    // flips its direction; clicking a different one replaces it, starting at
+    // that column's natural direction — descending (largest first) for a
+    // numeric column, ascending (A→Z) for the one string column.
+    const handleSort = (field) => {
+        if (sortField === field) {
+            setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortField(field);
+            setSortDir(naturalSortDir(field));
+        }
+    };
+
+    const sortArrow = (field) => (sortField === field
+        ? (sortDir === 'asc'
+            ? <ArrowUpwardIcon sx={{ fontSize: 13, verticalAlign: 'middle', ml: '3px' }} />
+            : <ArrowDownwardIcon sx={{ fontSize: 13, verticalAlign: 'middle', ml: '3px' }} />)
+        : null);
+
     const rendered = useMemo(() => {
-        const list = sortRows(rows);
+        const list = sortByColumn(rows, sortField, sortDir);
         return { list, markerByText: assignMarkers(list) };
-    }, [rows]);
+    }, [rows, sortField, sortDir]);
 
     if (runsLoading) {
         return <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}><CircularProgress /></Box>;
@@ -162,74 +326,264 @@ const ContextPage = () => {
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }} data-testid="agent-context-page">
             <style>{TABLE_CSS}</style>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>
-                    Agent Context — Actual Tokens
-                </Typography>
-                {runsSorted.length > 0 && (
-                    <FormControl size="small" sx={{ minWidth: 260 }}>
-                        <InputLabel id="atc-run-label">Capture</InputLabel>
-                        <Select
-                            labelId="atc-run-label"
-                            label="Capture"
-                            value={activeRunId ?? ''}
-                            onChange={(e) => setSelectedId(e.target.value)}
-                            data-testid="agent-context-run-picker"
-                        >
-                            {runsSorted.map(r => (
-                                <MenuItem key={r.id} value={r.id} data-testid={`agent-context-run-option-${r.id}`}>
-                                    {dateLabel(r)}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                )}
-                {activeRun && (
-                    <Tooltip title="Delete this capture">
-                        <span>
-                            <IconButton
-                                size="small"
-                                onClick={handleDelete}
-                                disabled={deleting}
-                                data-testid="agent-context-delete-btn"
-                            >
-                                <DeleteIcon fontSize="small" />
-                            </IconButton>
-                        </span>
+            {/* maxWidth matches the atc-root Box below so the trailing icons here
+                right-align with the telemetry table's actual right edge, not the
+                full (possibly much wider) page — req #3065. mb matches the
+                atc-root Box's own flex `gap` (34px) so the gap above the capture
+                picker equals the gap below it (picker -> Description). */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: '34px', flexWrap: 'wrap', gap: 2, maxWidth: 1120 }}>
+                <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value="table"
+                    onChange={() => {}}
+                    sx={{ flexShrink: 0 }}
+                    data-testid="agent-context-view-toggle"
+                >
+                    <Tooltip title="Table view">
+                        <ToggleButton value="table" aria-label="table view" data-testid="view-toggle-table">
+                            <TableChartIcon fontSize="small" />
+                        </ToggleButton>
                     </Tooltip>
-                )}
+                </ToggleButtonGroup>
+
+                <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ flex: 1 }}>
+                    Agentic Telemetry
+                </Typography>
+
+                <Tooltip title="Glossary — column definitions">
+                    <IconButton
+                        size="small"
+                        onClick={() => setGlossaryOpen(true)}
+                        sx={{ flexShrink: 0 }}
+                        data-testid="agent-context-glossary-btn"
+                    >
+                        <MenuBookIcon fontSize="small" />
+                    </IconButton>
+                </Tooltip>
+
             </Box>
 
             {runsSorted.length === 0 ? (
-                <Typography color="text.secondary" sx={{ p: 2 }}>
+                <Typography color="text.secondary" sx={{ p: 2 }} data-testid="agent-context-empty">
                     No telemetry captures recorded yet.
                 </Typography>
             ) : (
                 <Box className="atc-root" sx={{ ...vars, display: 'flex', flexDirection: 'column', gap: '34px', maxWidth: 1120 }}>
-                    {activeRun?.source_note && (
-                        <Typography variant="body2" color="text.secondary" data-testid="agent-context-source-note">
-                            {activeRun.source_note}
-                        </Typography>
-                    )}
+                    {/* Capture control is the first element of the render window
+                        (req #3065) — above the Description, which is itself above
+                        the table. A Button rather than a <Select> so the dropdown
+                        trigger icon sits on the LEFT of the label instead of MUI's
+                        default right-hand arrow; the popup Menu's MenuItems are
+                        left-justified text by default.
+                        Menu shape mirrors BuildVisualizer's BuildPatternMenu (req
+                        #3065 follow-up): capture list with a checkmark on the
+                        active row, then a Divider, then Rename… / Delete — folding
+                        the two per-capture actions into this one surface instead
+                        of separate header icons. No "New…" row: new captures are
+                        skill-produced (agent-telemetry-run capture pipeline), never
+                        created from this page. */}
+                    <Box>
+                        <Tooltip title="Select a capture">
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={(e) => setCaptureAnchor(e.currentTarget)}
+                                startIcon={<ArrowDropDownIcon />}
+                                sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                                data-testid="agent-context-run-picker"
+                            >
+                                {activeRun ? runDateLabel(activeRun) : 'Select a capture'}
+                            </Button>
+                        </Tooltip>
+                        <Menu
+                            anchorEl={captureAnchor}
+                            open={!!captureAnchor}
+                            onClose={() => setCaptureAnchor(null)}
+                            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                            slotProps={{ paper: { sx: { minWidth: 280, maxWidth: 360 } } }}
+                            data-testid="agent-context-run-menu"
+                        >
+                            <ListSubheader
+                                disableSticky
+                                sx={{
+                                    bgcolor: 'transparent',
+                                    lineHeight: 1.5,
+                                    py: 0.5,
+                                    fontSize: '0.7rem',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.5,
+                                }}
+                            >
+                                Captures
+                            </ListSubheader>
+                            {runsSorted.map(r => {
+                                const isActive = r.id === activeRunId;
+                                return (
+                                    <MenuItem key={r.id} selected={isActive}
+                                              onClick={() => { setSelectedId(r.id); setCaptureAnchor(null); }}
+                                              data-testid={`agent-context-run-option-${r.id}`}>
+                                        <ListItemIcon>
+                                            {isActive
+                                                ? <CheckIcon fontSize="small" />
+                                                : <DescriptionIcon fontSize="small" sx={{ opacity: 0.55 }} />}
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={runDateLabel(r)}
+                                            primaryTypographyProps={{
+                                                noWrap: true,
+                                                sx: isActive ? { fontWeight: 600 } : undefined,
+                                            }}
+                                        />
+                                    </MenuItem>
+                                );
+                            })}
+
+                            <Divider />
+
+                            {/* Blocked while a delete or a source_note save is
+                                in flight — same guard the old standalone icon
+                                buttons carried, moved here unchanged. Neither
+                                state has a modal covering this trigger (the
+                                delete-confirm Dialog closes itself the instant
+                                it's confirmed, before the DELETE resolves; the
+                                source_note autosave never had a dialog at all),
+                                so this disabled check is still the only thing
+                                stopping a rename/delete from racing an in-flight
+                                write on the same run. (A THIRD in-flight state,
+                                `renaming`, needs no entry here — its Dialog stays
+                                modal for the PUT's entire duration, which already
+                                blocks reopening this Menu at all.) */}
+                            <MenuItem
+                                onClick={() => { setCaptureAnchor(null); openRename(); }}
+                                disabled={!activeRun || deleting || savingNote}
+                                data-testid="agent-context-rename-menuitem"
+                            >
+                                <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Rename…" />
+                            </MenuItem>
+                            <MenuItem
+                                onClick={() => { setCaptureAnchor(null); captureDelete.openDialog(activeRun); }}
+                                disabled={!activeRun || deleting || savingNote}
+                                sx={{ color: activeRun ? 'error.main' : undefined }}
+                                data-testid="agent-context-delete-menuitem"
+                            >
+                                <ListItemIcon>
+                                    <DeleteOutlineIcon
+                                        fontSize="small"
+                                        sx={{ color: activeRun ? 'error.main' : undefined }}
+                                    />
+                                </ListItemIcon>
+                                <ListItemText primary="Delete" />
+                            </MenuItem>
+                        </Menu>
+                    </Box>
+
+                    {/* Capture provenance actually stored today (req #3065
+                        follow-up), between the picker and the Description —
+                        same labeled-field shape as a requirement's Created /
+                        Started / Completed fields (RequirementDetail.jsx):
+                        bold subtitle2 label, body2 value below. Machine,
+                        model, and effort are NOT captured anywhere in the
+                        telemetry pipeline yet — see req #3098. No `activeRun
+                        &&` guard: this branch only renders once runsSorted is
+                        non-empty, and activeRun's self-healing derivation
+                        above already guarantees it's non-null there — same
+                        guarantee the Description field below relies on. */}
+                    <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <Box>
+                            <Typography variant="subtitle2" color="text.secondary"
+                                        sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                Captured
+                            </Typography>
+                            <Typography variant="body2" data-testid="agent-context-captured-at">
+                                {activeRun.captured_at
+                                    ? formatDateTime(activeRun.captured_at, profile?.timezone) : '—'}
+                            </Typography>
+                        </Box>
+                        {activeRun.harness_version && (
+                            <Box>
+                                <Typography variant="subtitle2" color="text.secondary"
+                                            sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                    Harness Version
+                                </Typography>
+                                <Typography variant="body2" data-testid="agent-context-harness-version">
+                                    {activeRun.harness_version}
+                                </Typography>
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* House edit-in-place field (GhostTextField's "outlined" mode —
+                        same commit contract as InstructionsPage's fields): saves
+                        source_note on blur, one PUT, reverts on a rejected write.
+                        Always rendered (not gated on source_note being non-empty)
+                        so a capture with no description yet can have one typed in;
+                        the placeholder carries that invitation when it's blank. */}
+                    <GhostTextField
+                        key={activeRun.id}
+                        value={activeRun.source_note}
+                        outlined
+                        label="Description"
+                        fullWidth
+                        multiline
+                        placeholder="No description yet — click to add one."
+                        normalize={(text) => text.trim()}
+                        onCommit={commitSourceNote}
+                        testId="agent-context-source-note-input"
+                    />
 
                     <div className="atc-scroll">
-                        <table data-testid="agent-context-table">
-                            <caption>Agent context — actual tokens</caption>
+                        {/* No <caption> (dropped req #3065 — the page title above already
+                            names it); aria-label keeps the table self-describing for
+                            screen readers navigating table-by-table. */}
+                        <table data-testid="agent-context-table" aria-label="Agentic Telemetry">
                             <thead>
                                 <tr>
-                                    <th className="agent" rowSpan={2}>Agent</th>
-                                    <th className="num" rowSpan={2}>Boot time<br />(ms)</th>
-                                    <th className="grp" colSpan={3}>Initial context — fixed overhead</th>
+                                    <th className="agent sortable" rowSpan={2}
+                                        onClick={() => handleSort('agent_name')}
+                                        data-testid="agent-context-sort-agent_name">
+                                        Agent{sortArrow('agent_name')}
+                                    </th>
+                                    <th className="num sortable" rowSpan={2}
+                                        onClick={() => handleSort('boot_time_ms')}
+                                        data-testid="agent-context-sort-boot_time_ms">
+                                        Boot time<br />(ms){sortArrow('boot_time_ms')}
+                                    </th>
+                                    <th className="grp" colSpan={3}>FIXED OVERHEAD</th>
                                     <th className="grp" colSpan={3}>Loaded per-agent</th>
-                                    <th className="num" rowSpan={2}>Start Work<br />Context</th>
+                                    <th className="num sortable" rowSpan={2}
+                                        onClick={() => handleSort('start_work_context_tokens')}
+                                        data-testid="agent-context-sort-start_work_context_tokens">
+                                        Agent Init<br />Context{sortArrow('start_work_context_tokens')}
+                                    </th>
                                 </tr>
                                 <tr>
-                                    <th className="num">CC base</th>
-                                    <th className="num">CLAUDE.md</th>
-                                    <th className="num">Charter stub</th>
-                                    <th className="num">Boot payload</th>
-                                    <th className="num">Autoload</th>
-                                    <th className="mid">Docs</th>
+                                    <th className="num sortable" onClick={() => handleSort('cc_base_tokens')}
+                                        data-testid="agent-context-sort-cc_base_tokens">
+                                        Claude Code{sortArrow('cc_base_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('claude_md_tokens')}
+                                        data-testid="agent-context-sort-claude_md_tokens">
+                                        CLAUDE.md{sortArrow('claude_md_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('charter_stub_tokens')}
+                                        data-testid="agent-context-sort-charter_stub_tokens">
+                                        Agent File{sortArrow('charter_stub_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('boot_payload_tokens')}
+                                        data-testid="agent-context-sort-boot_payload_tokens">
+                                        Agent MCP Payload{sortArrow('boot_payload_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('autoload_tokens')}
+                                        data-testid="agent-context-sort-autoload_tokens">
+                                        Architecture Docs{sortArrow('autoload_tokens')}
+                                    </th>
+                                    <th className="mid sortable" onClick={() => handleSort('docs_loaded')}
+                                        data-testid="agent-context-sort-docs_loaded">
+                                        Docs Loaded{sortArrow('docs_loaded')}
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -254,11 +608,18 @@ const ContextPage = () => {
                                             <td className="num">
                                                 {c.stub.kind === 'value'
                                                     ? c.stub.text
-                                                    : <span className="fn">{c.stub.kind === 'marker' ? c.stub.text : 'n/a'}</span>}
+                                                    : (
+                                                        <span className="fn">
+                                                            {c.stub.kind === 'marker'
+                                                                ? <>Not Captured{c.stub.text}</> : 'n/a'}
+                                                        </span>
+                                                    )}
                                             </td>
                                             <td className="num">{cell(c.bootPayload)}</td>
                                             <td className="num">{cell(c.autoload)}</td>
-                                            <td className="mid">{cell(c.docs)}</td>
+                                            <td className={`mid${c.docsIncomplete ? ' docs-warn' : ''}`}>
+                                                {cell(c.docs)}
+                                            </td>
                                             <td className="num swc">{c.swc}</td>
                                         </tr>
                                     );
@@ -266,24 +627,92 @@ const ContextPage = () => {
                             </tbody>
                         </table>
                     </div>
-
-                    <section>
-                        <h2 className="gloss-h2">Glossary</h2>
-                        <dl data-testid="agent-context-glossary">
-                            {GLOSSARY.map(([term, def]) => (
-                                <Fragment key={term}>
-                                    <dt>{term}</dt><dd>{def}</dd>
-                                </Fragment>
-                            ))}
-                            {[...rendered.markerByText.entries()].map(([text, mark]) => (
-                                <Fragment key={mark}>
-                                    <dt>{mark}</dt><dd>{text}</dd>
-                                </Fragment>
-                            ))}
-                        </dl>
-                    </section>
                 </Box>
             )}
+
+            <Dialog
+                open={glossaryOpen}
+                onClose={() => setGlossaryOpen(false)}
+                maxWidth="sm"
+                fullWidth
+                data-testid="agent-context-glossary-dialog"
+            >
+                <DialogTitle id="agent-context-glossary-title">Glossary</DialogTitle>
+                <DialogContent dividers data-testid="agent-context-glossary">
+                    <Box sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', sm: 'minmax(140px, 180px) 1fr' },
+                        gap: 1.5,
+                    }}>
+                        {GLOSSARY.map(([term, def]) => (
+                            <Fragment key={term}>
+                                <Typography variant="subtitle2">{term}</Typography>
+                                <Typography variant="body2" color="text.secondary">{def}</Typography>
+                            </Fragment>
+                        ))}
+                        {[...rendered.markerByText.entries()].map(([text, mark]) => (
+                            <Fragment key={mark}>
+                                <Typography variant="subtitle2">{mark}</Typography>
+                                <Typography variant="body2" color="text.secondary">{text}</Typography>
+                            </Fragment>
+                        ))}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setGlossaryOpen(false)} variant="outlined" autoFocus>
+                        Close
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={renameOpen}
+                onClose={() => setRenameOpen(false)}
+                data-testid="agent-context-rename-dialog"
+            >
+                <DialogTitle>Rename Capture</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        margin="dense"
+                        label="Capture name"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && renameValue.trim()) confirmRename(); }}
+                        inputProps={{ maxLength: 256, 'data-testid': 'agent-context-rename-input' }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setRenameOpen(false)} variant="outlined">
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={confirmRename}
+                        variant="outlined"
+                        disabled={!renameValue.trim() || renaming}
+                        data-testid="agent-context-rename-confirm"
+                    >
+                        Rename
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <ContextDeleteDialog
+                deleteDialogOpen={captureDelete.dialogOpen}
+                setDeleteDialogOpen={captureDelete.setDialogOpen}
+                setDeleteId={captureDelete.setInfoObject}
+                setDeleteConfirmed={captureDelete.setConfirmed}
+                run={captureDelete.infoObject}
+                // `rendered.list` tracks activeRun's rows, not the run frozen in the
+                // dialog at open-time — if the runs list reorders while the dialog is
+                // open (a background refetch promotes a newer capture to "active"),
+                // those two can drift apart. Only show the count when they still
+                // agree; a stale-but-plausible number is worse than none right before
+                // an irreversible delete.
+                agentCount={(!rowsLoading && activeRun?.id === captureDelete.infoObject?.id)
+                    ? rendered.list.length : null}
+            />
         </Box>
     );
 };

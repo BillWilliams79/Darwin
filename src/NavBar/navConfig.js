@@ -79,8 +79,9 @@ export const NAV_LINKS = [
     { path: '/agents', label: 'Agents', icon: SmartToyIcon, group: 'agents' },
     { path: '/agents/instructions', label: 'Instructions', icon: RuleIcon, group: 'agents' },
     { path: '/agents/documents', label: 'Documents', icon: DescriptionIcon, group: 'agents' },
-    // Req #3031 — Context: persisted actual-token telemetry of the agents pattern.
-    { path: '/agents/context', label: 'Context', icon: DataUsageIcon, group: 'agents' },
+    // Req #3031 — persisted actual-token telemetry of the agents pattern;
+    // labelled "Telemetry" (renamed from "Context" req #3065).
+    { path: '/agents/context', label: 'Telemetry', icon: DataUsageIcon, group: 'agents' },
     { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
