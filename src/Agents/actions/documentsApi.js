@@ -238,29 +238,48 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
         const deleted = step.prev
             ? await unlinkAgentDocument(darwinUri, idToken, step.agent_fk, step.document_fk)
             : false;
+
+        // RECORDED BEFORE THE INSERT IS ATTEMPTED, and that ordering is the whole
+        // point. A relink is DELETE-then-INSERT; if the INSERT fails, the DELETE
+        // has ALREADY committed (autocommit, separate Lambda invocation) and is
+        // precisely what has to be undone. Pushing after the insert — the obvious
+        // way to write this — means the one step that most needs a rollback is the
+        // only step the rollback never sees, and the link is silently gone.
+        //
+        // `deleted` records what ACTUALLY happened rather than what was intended:
+        // a `prev` that turned out to be already absent (404) must never be
+        // resurrected, because recreating a row that did not exist is its own
+        // corruption.
+        const record = { ...step, deleted, attemptedWrite: false };
+        applied.push(record);
+
         if (step.next) {
+            // Flagged BEFORE the await for the same reason: the write may commit
+            // and the response still fail (a flake after the INSERT landed), and
+            // the rollback has to assume it might be there.
+            record.attemptedWrite = true;
             await linkAgentDocument(darwinUri, idToken, {
                 ...step.next,
                 agent_fk: step.agent_fk,
                 document_fk: step.document_fk,
             });
         }
-        // Record what we ACTUALLY did, not what we intended: a `prev` that turned
-        // out to be already absent must not be resurrected by the rollback.
-        applied.push({ ...step, deleted });
     };
 
     const rollback = async () => {
         const lost = [];
         for (const step of [...applied].reverse()) {
             try {
-                // Remove whatever this step wrote, then put back whatever it
-                // genuinely removed. Both halves are conditional so a create-only
-                // step is undone by a delete and nothing else.
-                if (step.next) {
+                // Remove whatever this step may have written. Unconditionally
+                // attempted whenever a write was STARTED, not only when it was
+                // observed to succeed — `unlinkAgentDocument` tolerates a 404, so
+                // trying costs nothing, while skipping it would leave a committed
+                // row behind whenever a response was lost after the INSERT landed.
+                if (step.attemptedWrite) {
                     await unlinkAgentDocument(darwinUri, idToken,
                         step.agent_fk, step.document_fk);
                 }
+                // Then put back whatever it genuinely removed.
                 if (step.deleted && step.prev) {
                     await linkAgentDocument(darwinUri, idToken, {
                         ...step.prev,
@@ -269,8 +288,10 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
                     });
                 }
             } catch {
-                // Keep unwinding the rest — a second failure must not strand
-                // steps that could still be undone.
+                // Keep unwinding the rest — a second failure must not strand steps
+                // that could still be undone. Only a step that had a row to
+                // restore counts as LOST; one that merely failed to have its own
+                // write cleaned up has not cost the user anything they had.
                 if (step.deleted && step.prev) lost.push(step);
             }
         }

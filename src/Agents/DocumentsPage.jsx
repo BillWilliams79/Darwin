@@ -1036,6 +1036,12 @@ const DocumentsPage = () => {
                     const ownerAgent = row.owner ? agentIndex.get(row.owner.agent_fk) : null;
                     const linkedIds = new Set(row.links.map(l => l.agent_fk));
                     const ownerAlert = ownerAlerts[row.id];
+                    // Computed ONCE per row: it drives both the location field's
+                    // standing caption and the decision to route that field's
+                    // commit through the confirmation dialog, and calling it from
+                    // inside a `hint` callback would re-walk the links on every
+                    // keystroke.
+                    const readers = autoloadReaders(row);
 
                     return (
                         <Card key={row.id} variant="outlined"
@@ -1331,8 +1337,12 @@ const DocumentsPage = () => {
                                     placeholder="memory/example.md"
                                     normalize={(text) => text.trim()}
                                     validate={documentLocationError}
-                                    hint={() => (autoloadReaders(row).length
-                                        ? `${autoloadReaders(row).length} agent${autoloadReaders(row).length === 1 ? '' : 's'} read this file in full at boot — a wrong path fails silently.`
+                                    // A STANDING caption, not an on-focus one: the
+                                    // fact that agents execute this path is true
+                                    // whether or not anyone is editing it, and it
+                                    // is the reason the commit is gated.
+                                    hint={() => (readers.length
+                                        ? `${readers.length} agent${readers.length === 1 ? '' : 's'} read this file in full at boot — a wrong path fails silently.`
                                         : null)}
                                     onCommit={commitLocation(row)}
                                     onErrorChange={noteFieldError(row.id, 'location')}
