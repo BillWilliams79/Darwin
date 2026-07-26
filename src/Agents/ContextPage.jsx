@@ -59,6 +59,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
+import Chip from '@mui/material/Chip';
 import CheckIcon from '@mui/icons-material/Check';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
@@ -75,10 +76,13 @@ import GhostTextField from '../Components/GhostField/GhostTextField';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     useAgentTelemetryRuns, useAgentTelemetryRowsByRun, agentTelemetryRunKeys,
+    useMachines,
 } from '../hooks/useDataQueries';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { deleteAgentTelemetryRun, updateAgentTelemetryRun } from './actions/contextApi';
+import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 import {
     NA as NA_TEXT, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
     assignMarkers, computeCells, runDateLabel,
@@ -154,6 +158,9 @@ const ContextPage = () => {
     const showError = useSnackBarStore(s => s.showError);
 
     const { data: runs, isLoading: runsLoading } = useAgentTelemetryRuns(creatorFk);
+    // req #3098 — resolve a run's machine_fk to a friendly name, same pattern
+    // as SwarmSessionDetail.jsx.
+    const { data: machinesData = [] } = useMachines(creatorFk);
 
     // Runs arrive newest-first (captured_at:desc); default to the newest capture.
     const [selectedId, setSelectedId] = useState(null);
@@ -182,6 +189,13 @@ const ContextPage = () => {
         return bySelection || runsSorted[0] || null;
     }, [runsSorted, selectedId]);
     const activeRunId = activeRun?.id ?? null;
+    // req #3098 — machine_fk -> friendly name; NULL for pre-#3098 captures and
+    // any capture whose machine resolution failed at store time.
+    const machineName = useMemo(() => {
+        if (!activeRun || activeRun.machine_fk == null) return null;
+        const m = machinesData.find(x => x.id === activeRun.machine_fk);
+        return m ? m.title : null;
+    }, [machinesData, activeRun]);
 
     const { data: rows, isLoading: rowsLoading } = useAgentTelemetryRowsByRun(activeRunId);
 
@@ -481,17 +495,22 @@ const ContextPage = () => {
                     </Box>
 
                     {/* Capture provenance actually stored today (req #3065
-                        follow-up), between the picker and the Description —
-                        same labeled-field shape as a requirement's Created /
+                        follow-up; machine/model/effort added req #3098),
+                        between the picker and the Description — same
+                        labeled-field shape as a requirement's Created /
                         Started / Completed fields (RequirementDetail.jsx):
-                        bold subtitle2 label, body2 value below. Machine,
-                        model, and effort are NOT captured anywhere in the
-                        telemetry pipeline yet — see req #3098. No `activeRun
-                        &&` guard: this branch only renders once runsSorted is
-                        non-empty, and activeRun's self-healing derivation
-                        above already guarantees it's non-null there — same
-                        guarantee the Description field below relies on. */}
-                    <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        bold subtitle2 label, body2 value below. No
+                        `activeRun &&` guard: this branch only renders once
+                        runsSorted is non-empty, and activeRun's self-healing
+                        derivation above already guarantees it's non-null
+                        there — same guarantee the Description field below
+                        relies on. Model/Effort render as the same Chip
+                        components SwarmSessionDetail.jsx uses, unguarded
+                        (NOT NULL going forward); Machine only renders when
+                        machine_fk is set (NULL for pre-#3098 captures and
+                        any capture whose machine resolution failed at store
+                        time). */}
+                    <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                         <Box>
                             <Typography variant="subtitle2" color="text.secondary"
                                         sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
@@ -513,6 +532,37 @@ const ContextPage = () => {
                                 </Typography>
                             </Box>
                         )}
+                        {activeRun.machine_fk != null && (
+                            <Box>
+                                <Typography variant="subtitle2" color="text.secondary"
+                                            sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                    Machine
+                                </Typography>
+                                <Typography variant="body2" data-testid="agent-context-machine">
+                                    {machineName || `#${activeRun.machine_fk}`}
+                                </Typography>
+                            </Box>
+                        )}
+                        <Box>
+                            <Typography variant="subtitle2" color="text.secondary"
+                                        sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                Model
+                            </Typography>
+                            <Chip label={aiModelLabel(activeRun.ai_model)}
+                                  size="small"
+                                  {...aiModelChipProps(activeRun.ai_model)}
+                                  data-testid="agent-context-ai-model" />
+                        </Box>
+                        <Box>
+                            <Typography variant="subtitle2" color="text.secondary"
+                                        sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                Effort
+                            </Typography>
+                            <Chip label={effortLabel(activeRun.effort)}
+                                  size="small"
+                                  {...effortChipProps(activeRun.effort)}
+                                  data-testid="agent-context-effort" />
+                        </Box>
                     </Box>
 
                     {/* House edit-in-place field (GhostTextField's "outlined" mode —
