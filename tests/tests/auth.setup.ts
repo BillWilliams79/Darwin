@@ -60,9 +60,10 @@ setup('authenticate', async ({ page }) => {
 
   // Clean up stale E2E data from prior interrupted runs
   const cleanup = await cleanupStaleData(tokens.idToken);
-  const total = cleanup.domains + cleanup.projects + cleanup.categories + cleanup.requirements + cleanup.sessions;
+  const total = cleanup.domains + cleanup.projects + cleanup.categories + cleanup.requirements
+    + cleanup.sessions + cleanup.agents + cleanup.instructions;
   if (total > 0) {
-    console.log(`Pre-test cleanup: ${cleanup.requirements} requirements, ${cleanup.categories} categories, ${cleanup.projects} projects, ${cleanup.domains} domains, ${cleanup.sessions} sessions deleted`);
+    console.log(`Pre-test cleanup: ${cleanup.requirements} requirements, ${cleanup.categories} categories, ${cleanup.projects} projects, ${cleanup.domains} domains, ${cleanup.sessions} sessions, ${cleanup.agents} agents, ${cleanup.instructions} instructions deleted`);
   }
 
   // Verify authentication works by loading a protected route
