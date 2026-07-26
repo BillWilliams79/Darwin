@@ -227,6 +227,23 @@ describe('restErrorMessage', () => {
         expect(restErrorMessage(err, 'fallback')).toMatch(/already bound/);
     });
 
+    it('maps a duplicate load-order slot (req #3075)', () => {
+        const err = thrown("HTTP POST bulk failed: 1062 Duplicate entry '5-1' for key 'agent_instructions.uq_agent_instructions_slot'");
+        expect(restErrorMessage(err, 'fallback')).toMatch(/load-order slot/);
+    });
+
+    it('tells the two agent_instructions 1062s apart', () => {
+        // Same table, same error code, different problems and different fixes:
+        // "you already bound this instruction" vs "that load position is taken".
+        // Collapsing them would send the reader to the wrong remedy.
+        const alreadyBound = thrown("1062 Duplicate entry '10-6' for key 'agent_instructions.PRIMARY'");
+        const slotTaken = thrown("1062 Duplicate entry '10-1' for key 'agent_instructions.uq_agent_instructions_slot'");
+        expect(restErrorMessage(alreadyBound, 'fallback'))
+            .not.toBe(restErrorMessage(slotTaken, 'fallback'));
+        expect(restErrorMessage(alreadyBound, 'fallback')).not.toMatch(/load-order slot/);
+        expect(restErrorMessage(slotTaken, 'fallback')).not.toMatch(/already bound/);
+    });
+
     it('maps a foreign key failure', () => {
         const err = thrown('HTTP POST bulk failed: 1452 Cannot add or update a child row: a foreign key constraint fails');
         expect(restErrorMessage(err, 'fallback')).toMatch(/no longer exists/);
