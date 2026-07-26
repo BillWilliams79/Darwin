@@ -234,7 +234,21 @@ export const architectureDocuments = createEntityQueries({
     defaultFields:
         'id,name,doc_type,location,url,closed,sort_order,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
-    defaultSort: 'sort_order:asc',
+    // `name:asc`, not `sort_order:asc` (req #3051). This was the LAST consumer of
+    // `architecture_documents.sort_order`, and that column is incoherent: thirteen
+    // rows share the value 1, one is NULL, and nothing reads it — the agent boot
+    // payload orders by relationship rank then the JUNCTION's `sort_order`, and
+    // /agents/documents has always discarded it by re-sorting client-side. Since
+    // that page now ships an explicit browse-sort control (documentSort.js), the
+    // server sort only needs to be deterministic, and `name` is UNIQUE so it is
+    // total. Retiring the last reader here is what makes the follow-on migration
+    // that drops the column a one-line change — deliberately the same sequence
+    // req #3063 ran before migration 072 dropped `instructions.sort_order`.
+    //
+    // `sort_order` stays in `defaultFields` on purpose: the column still exists,
+    // and a projection that omitted it would make the eventual drop invisible to
+    // anything reading these rows.
+    defaultSort: 'name:asc',
 });
 
 export const agentDocuments = createEntityQueries({
