@@ -355,21 +355,26 @@ export const instructionContentError = (content) => {
 /**
  * Turn a thrown call_rest_api rejection into something a human can act on.
  *
- * Lambda-Rest has no 409: a constraint violation arrives as HTTP 500 whose body
- * is the raw pymysql message (`"HTTP PUT SQL FAILED: 1062 Duplicate entry ..."`).
- * Matching on the message is the only way to tell "you picked a taken name" from
- * "the database is broken" — mapping IntegrityError to a real status code is
- * filed as its own requirement.
+ * Lambda-Rest answers a constraint violation with HTTP 409 and a structured body
+ * (req #3059): `{ error, errno, constraint, table, message }`. call_rest_api
+ * parks that object on `err.httpStatus.httpDetail`, so the constraint that
+ * actually failed is a field read — this used to regex the raw pymysql prose,
+ * which could not tell a taken name from a broken database.
+ *
+ * Anything that is NOT a 409 falls through to `fallback` on purpose: a 500 means
+ * the database is genuinely unhappy and "that name is taken" would be a lie.
+ *
+ * `constraint` arrives unqualified (`PRIMARY`, not `agent_instructions.PRIMARY`),
+ * so the junction check pairs it with `table` — every table has a PRIMARY.
  */
 export const restErrorMessage = (err, fallback) => {
-    const msg = typeof err?.httpStatus?.httpMessage === 'string'
-        ? err.httpStatus.httpMessage
-        : '';
+    if (err?.httpStatus?.httpStatus !== 409) return fallback;
+    const { errno, constraint, table } = err.httpStatus.httpDetail || {};
 
-    if (/Duplicate entry .* for key '.*uq_instructions_name'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_instructions_name') {
         return 'That instruction name is already in use (the existing row may be closed).';
     }
-    if (/Duplicate entry .* for key '.*agent_instructions\.PRIMARY'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_instructions') {
         return 'That instruction is already bound to this agent.';
     }
     // req #3075, migration 073: UNIQUE (agent_fk, sort_order). Matched SEPARATELY
@@ -379,12 +384,12 @@ export const restErrorMessage = (err, fallback) => {
     // wrong one. Reachable from two paths: binding a new instruction at a slot
     // another already holds, and a reorder whose re-POST lands on a slot it did
     // not first vacate.
-    if (/Duplicate entry .* for key '.*uq_agent_instructions_slot'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_agent_instructions_slot') {
         return 'Another instruction already holds that load-order slot for this '
             + 'agent. Reload the page and retry — the list may have moved since '
             + 'it was drawn.';
     }
-    if (/foreign key constraint fails/i.test(msg)) {
+    if (errno === 1451 || errno === 1452) {
         return 'The agent or instruction no longer exists — reload the page and retry.';
     }
     return fallback;
