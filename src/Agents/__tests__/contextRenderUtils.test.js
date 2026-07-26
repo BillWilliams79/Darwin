@@ -138,6 +138,7 @@ describe('computeCells — architect (all present)', () => {
         expect(c.autoload).toBe('6,768');
         expect(c.docs).toBe('4 / 4');
         expect(c.docsIncomplete).toBe(false);
+        expect(c.docsClickable).toBe(true);
         expect(c.swc).toBe('38,996');
         expect(c.isPrimary).toBe(false);
     });
@@ -153,6 +154,7 @@ describe('computeCells — reviewer (bundled stub)', () => {
         expect(c.stub).toEqual({ kind: 'marker', text: '†' });
         expect(c.docs).toBe('0 / 1');
         expect(c.docsIncomplete).toBe(true);
+        expect(c.docsClickable).toBe(false);
         expect(c.swc).toBe('19,651');
     });
 });
@@ -171,6 +173,7 @@ describe('computeCells — primary (no boot/autoload phase)', () => {
         expect(c.autoload).toBe(NA);
         expect(c.docs).toBe(NA);
         expect(c.docsIncomplete).toBe(false);
+        expect(c.docsClickable).toBe(false);
         expect(c.swc).toBe('34,559');
     });
 });
@@ -191,5 +194,22 @@ describe('computeCells — docsIncomplete edge cases', () => {
         const c = computeCells(architect({ docs_loaded: 3, docs_expected: null }), m);
         expect(c.docs).toBe(NA);
         expect(c.docsIncomplete).toBe(false);
+    });
+});
+
+describe('computeCells — docsClickable edge cases (req #3096)', () => {
+    const m = new Map();
+    it('0 docs_loaded is inert — nothing to drill into', () => {
+        const c = computeCells(architect({ docs_loaded: 0, docs_expected: 0 }), m);
+        expect(c.docsClickable).toBe(false);
+    });
+    it('null docs_loaded (n/a, e.g. PrimaryAI) is inert', () => {
+        const c = computeCells(architect({ docs_loaded: null, docs_expected: null }), m);
+        expect(c.docsClickable).toBe(false);
+    });
+    it('at least one doc loaded is clickable, even if incomplete vs. expected', () => {
+        const c = computeCells(architect({ docs_loaded: 1, docs_expected: 4 }), m);
+        expect(c.docsIncomplete).toBe(true);
+        expect(c.docsClickable).toBe(true);
     });
 });
