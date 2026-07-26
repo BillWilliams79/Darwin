@@ -85,6 +85,16 @@ const GhostTextField = ({
     // Fires whenever the verdict changes. A blocked value has no Save button to
     // leave disabled, so the CARD has to be able to say "this is not saved".
     onErrorChange,
+    // Suppress the inline error/hint caption THIS COMPONENT renders — display only.
+    //
+    // For a DataGrid cell (req #3067), where the row height is fixed and a caption
+    // would either overflow the row or steal a line from the value. Nothing about
+    // WHEN it writes changes, the field still turns red, and `onErrorChange` still
+    // fires — which is the point: the verdict is not suppressed, it is HOISTED. The
+    // table surfaces it as a row-level marker plus a tooltip, because the V-rule
+    // that a blocked value must be visible without hovering holds in every view;
+    // only the place the message can fit differs.
+    hideMessage = false,
     // Render as a conventional bordered field with a notched label instead of as
     // plain text. Everything about WHEN it writes is unchanged.
     outlined = false,
@@ -319,7 +329,7 @@ const GhostTextField = ({
                 // The message the ghost mode renders itself belongs in the
                 // field's own helper slot here, where MUI already reserves and
                 // colours it.
-                helperText={error || advisory || undefined}
+                helperText={hideMessage ? undefined : (error || advisory || undefined)}
                 inputProps={{ ...inputProps, 'data-testid': testId }}
                 sx={sx}
             />
@@ -379,7 +389,7 @@ const GhostTextField = ({
                     },
                 })}
             />
-            {(error || advisory) && (
+            {!hideMessage && (error || advisory) && (
                 <Typography
                     variant="caption"
                     color={error ? 'error' : 'text.secondary'}
