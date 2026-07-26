@@ -54,7 +54,9 @@ import {
     useAgentDocuments, useAgentInstructions, agentKeys,
     instructionKeys, agentInstructionKeys,
 } from '../hooks/useDataQueries';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+import InstructionUnbindDialog from './InstructionUnbindDialog';
 import {
     byId, linksByAgent, instructionLinksByAgent, agentsByInstruction,
     isCommonInstruction, relationshipChipProps, relationshipLabel,
@@ -198,14 +200,12 @@ const AgentDetail = () => {
         }
     };
 
+    /**
+     * Unbinding changes what this agent loads at boot and there is no undo, so it
+     * is confirmed — but this function no longer asks. It is the WRITE half only;
+     * `unbindConfirm` below decides whether it runs.
+     */
     const unlinkInstruction = async (instruction) => {
-        // Unbinding changes what this agent loads at boot and there is no undo, so
-        // it gets a confirmation like every other destructive action here.
-        if (!window.confirm(
-            `Unbind "${instruction.name}" from ${agent?.name || 'this agent'}?\n\n` +
-            'The agent stops loading it at its next boot. The instruction row itself survives.')) {
-            return;
-        }
         setInstrBusy(true);
         try {
             await unlinkAgentInstruction(darwinUri, idToken, agentId, instruction.id);
@@ -216,6 +216,22 @@ const AgentDetail = () => {
             setInstrBusy(false);
         }
     };
+
+    /**
+     * Unbind confirmation, in the house parent-owns-state shape (req #3071): the
+     * dialog only sets `confirmed`, and this effect-driven callback performs the
+     * write. Replaces a `window.confirm` — the last one on this page, and the same
+     * action the instructions page already confirmed properly since #3063.
+     *
+     * Deliberately the SAME component as the instructions page uses. It is one
+     * junction row approached from the other end, so a second dialog would only be
+     * a second copy of the same three facts to keep true. The `window.confirm` this
+     * replaces is evidence of exactly that: it had never picked up the slot warning.
+     */
+    const unbindConfirm = useConfirmDialog({
+        onConfirm: ({ row }) => { if (row) unlinkInstruction(row); },
+        defaultInfo: {},
+    });
 
     const addInstruction = async () => {
         if (!addSelection) return;
@@ -359,8 +375,15 @@ const AgentDetail = () => {
                                             </Tooltip>
                                             <Tooltip title="Unbind from this agent (the instruction itself survives)">
                                                 <span>
+                                                    {/* The junction slot is folded into the
+                                                        agent the dialog is handed, because THIS
+                                                        row's link is the only place it is known
+                                                        — and it is the one consequence the card
+                                                        cannot show: a rebind appends at max+1
+                                                        rather than restoring #{link.sort_order}. */}
                                                     <IconButton size="small" disabled={instrBusy}
-                                                                onClick={() => unlinkInstruction(row)}
+                                                                onClick={() => unbindConfirm.openDialog(
+                                                                    { row, agent: { ...agent, slot: link.sort_order } })}
                                                                 data-testid={`agent-instruction-unlink-${row.id}`}>
                                                         <LinkOffIcon fontSize="small" />
                                                     </IconButton>
@@ -450,9 +473,19 @@ const AgentDetail = () => {
                                                   {...docTypeChipProps(row.doc_type)} />
                                         </TableCell>
                                         <TableCell>
+                                            {/* Drills through to the ROW, not just
+                                                the page (req #3051, the reverse of
+                                                the instruction pencil above).
+                                                /agents/documents is now the one
+                                                editor for a document's registry
+                                                fields and its relationships, so the
+                                                chip has to land on the card that
+                                                owns this link rather than at the
+                                                top of a 69-card grid. */}
                                             <Chip label={relationshipLabel(link.relationship)} size="small"
                                                   {...relationshipChipProps(link.relationship)}
-                                                  onClick={() => navigate('/agents/documents')}
+                                                  onClick={() => navigate(
+                                                      `/agents/documents#document-${row.id}`)}
                                                   clickable />
                                         </TableCell>
                                         <TableCell sx={{ maxWidth: 380 }}>
@@ -467,6 +500,14 @@ const AgentDetail = () => {
                     </Table>
                 )}
             </Box>
+
+            <InstructionUnbindDialog
+                open={unbindConfirm.dialogOpen}
+                setOpen={unbindConfirm.setDialogOpen}
+                setConfirmed={unbindConfirm.setConfirmed}
+                instruction={unbindConfirm.infoObject?.row}
+                agent={unbindConfirm.infoObject?.agent}
+            />
 
         </Box>
     );

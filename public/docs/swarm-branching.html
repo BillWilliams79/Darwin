@@ -156,12 +156,12 @@
     <p class="eyebrow">Darwin · Swarm System</p>
     <h1>Swarm Branching</h1>
     <p class="lede">When <span class="mono">/swarm-start</span> launches a session, it builds that session
-    a private universe: one feature branch replicated across every affected repo, checked out as real git
-    worktrees under one directory. This page states exactly what branches, what deliberately doesn't,
-    and where the seams are.</p>
+    a private universe: one feature branch replicated across every affected repo, each checked out as an
+    <strong>independent clone</strong> under one directory. This page states exactly what branches, what
+    deliberately doesn't, and where the seams are.</p>
 
-    <div class="tuple" role="img" aria-label="Branching identity: worktree directory, feature branch, draft PR per repo">
-      <div class="seg"><div class="big">wt-&lt;req&gt;-&lt;task&gt;/</div><div class="k">Worktree root</div><div class="d">One directory = one session</div></div>
+    <div class="tuple" role="img" aria-label="Branching identity: session directory, feature branch, draft PR per repo">
+      <div class="seg"><div class="big">sessions/&lt;req&gt;-&lt;task&gt;/</div><div class="k">Session root</div><div class="d">One directory = one session</div></div>
       <div class="seg"><div class="big">feature/&lt;req&gt;-&lt;task&gt;</div><div class="k">Branch</div><div class="d">Same name in every affected repo</div></div>
       <div class="seg"><div class="big">draft PR</div><div class="k">Per repo</div><div class="d">Opened at checkout, from birth</div></div>
     </div>
@@ -171,7 +171,7 @@
   <section>
     <div class="sec-head"><span class="sec-num">01</span><h2>How a session branches</h2></div>
     <p class="sub">All git state changes route through one skill — <span class="mono">/hygiene</span> —
-      invoked once per affected repo. DarwinAI-Config is always first and becomes the worktree root.</p>
+      invoked once per affected repo. DarwinAI-Config is always first and becomes the session root.</p>
 
     <figure>
       <div class="figbox">
@@ -200,7 +200,7 @@
           <text class="d" x="265" y="126" text-anchor="middle">push — origin is fresh</text>
 
           <rect class="st" x="380" y="75" width="150" height="60" rx="10"/>
-          <text class="t" x="455" y="96" text-anchor="middle">worktree add</text>
+          <text class="t" x="455" y="96" text-anchor="middle">provision clone</text>
           <text class="m" x="455" y="113" text-anchor="middle">-b feature/&lt;req&gt;-&lt;task&gt;</text>
           <text class="d" x="455" y="127" text-anchor="middle">real checkout, no symlinks</text>
 
@@ -230,28 +230,30 @@
     <div class="callout"><span class="lbl">Mid-session growth</span>
       The affected-repo list is a launch-time declaration, not a cage. A worker that discovers it needs
       another repo invokes <span class="mono">/hygiene checkout &lt;repo&gt;</span> — the repo joins the
-      session as a real worktree on the same feature branch, with its own draft PR. Hand-rolled
-      <span class="mono">git worktree add</span> is banned; improvised sequences have corrupted repos.</div>
+      session as an independent clone on the same feature branch, with its own draft PR. Hand-rolled
+      <span class="mono">git clone</span> / <span class="mono">git worktree add</span> is banned; improvised sequences have corrupted repos.</div>
   </section>
 
   <!-- 2 · Worktree anatomy -->
   <section>
-    <div class="sec-head"><span class="sec-num">02</span><h2>Worktree anatomy — real checkouts, no symlinks</h2></div>
-    <p class="sub">The anti-fragile layout (req&nbsp;#2232). Every repo present is a genuine git worktree;
+    <div class="sec-head"><span class="sec-num">02</span><h2>Session anatomy — independent clones, no symlinks</h2></div>
+    <p class="sub">Anti-fragile since req&nbsp;#2232, fully independent since req&nbsp;#3077. Every repo present
+      is a complete private git repository, provisioned <span class="mono">mirror → clone → branch</span>;
       repos not in the session are simply absent.</p>
     <div class="cols">
       <div class="card">
-        <h3>Inside <span class="mono">wt-&lt;req&gt;-&lt;task&gt;/</span></h3>
+        <h3>Inside <span class="mono">sessions/&lt;req&gt;-&lt;task&gt;/</span></h3>
         <ul class="tight">
-          <li><strong>Root = DarwinAI-Config worktree</strong> — CLAUDE.md, SWARM.md, <span class="mono">memory/</span>, <span class="mono">scripts/</span>, all checked out on the feature branch.</li>
-          <li><span class="mono">Darwin/</span>, <span class="mono">Lambda-*/</span>, <span class="mono">DarwinSQL/</span> — real sub-repo worktrees, <em>only if affected</em>.</li>
-          <li><span class="mono">.swarm-manifest.json</span> — gitignored session state: IDs, branch, PRs, coordination type.</li>
+          <li><strong>Root = DarwinAI-Config clone</strong> — CLAUDE.md, SWARM.md, <span class="mono">memory/</span>, <span class="mono">scripts/</span>, all checked out on the feature branch.</li>
+          <li><span class="mono">Darwin/</span>, <span class="mono">Lambda-*/</span>, <span class="mono">DarwinSQL/</span> — independent sub-repo clones, <em>only if affected</em>.</li>
+          <li><span class="mono">.swarm-manifest.json</span> — gitignored session state: IDs, branch, PRs, coordination type, provisioning mode.</li>
+          <li><strong>Own <span class="mono">.git/</span>, one writer.</strong> Objects are hardlinked from a per-machine bare mirror, so provisioning costs seconds and almost no marginal disk for history — but nothing is shared. <span class="mono">rm -rf</span> on this directory is safe <em>and complete</em>.</li>
         </ul>
       </div>
       <div class="card">
         <h3>Guard rails</h3>
         <ul class="tight">
-          <li><strong>Write isolation</strong> — a PreToolUse hook blocks edits outside the worktree (plus <span class="mono">/tmp</span> and auto-memory paths).</li>
+          <li><strong>Write isolation</strong> — a PreToolUse hook blocks edits outside the session directory (plus <span class="mono">/tmp</span> and auto-memory paths), and <span class="mono">git_op()</span> refuses any git <em>mutation</em> aimed at a repo outside it.</li>
           <li><strong>No worker writes main</strong> — every change flows through the feature branch and its PR; the only direct-to-main path is the primary's closeout skill.</li>
           <li><strong>Never touch <span class="mono">.git/</span> internals</strong> — lock-file trouble stops the session and surfaces to the user (2026-04-14 corruption incident rule).</li>
         </ul>
@@ -267,13 +269,13 @@
       <thead><tr><th>Thing</th><th class="mid">Branched?</th><th>How it travels</th></tr></thead>
       <tbody>
         <tr><td>Every repo in <span class="mono">affectedRepos</span></td><td class="mid yes">✓</td><td>Same <span class="mono">feature/&lt;req&gt;-&lt;task&gt;</span> branch in each; one PR per repo ties the multi-repo change together</td></tr>
-        <tr><td>Tracked memory (<span class="mono">memory/*.md</span>)</td><td class="mid yes">✓</td><td>Ordinary files in the DarwinAI-Config worktree — knowledge edits ride the same PR as code</td></tr>
+        <tr><td>Tracked memory (<span class="mono">memory/*.md</span>)</td><td class="mid yes">✓</td><td>Ordinary files in the DarwinAI-Config clone — knowledge edits ride the same PR as code</td></tr>
         <tr><td>Skills, scripts, agents (<span class="mono">.claude/</span>, <span class="mono">scripts/</span>)</td><td class="mid yes">✓</td><td>Part of the config checkout — a session can safely evolve the machinery it runs on</td></tr>
-        <tr><td>Unaffected sub-repos</td><td class="mid no">·</td><td>Absent from the worktree entirely; join later via <span class="mono">/hygiene checkout</span> if needed</td></tr>
+        <tr><td>Unaffected sub-repos</td><td class="mid no">·</td><td>Absent from the session entirely; join later via <span class="mono">/hygiene checkout</span> if needed</td></tr>
         <tr><td>Database (RDS: requirements, sessions, app data)</td><td class="mid no">·</td><td><strong>Shared and live</strong> — all sessions read/write the same MySQL; schema DDL is gated by migration files + snapshots, not branches</td></tr>
         <tr><td>Per-session artifacts (<span class="mono">PLAN.md</span>, <span class="mono">SWARM_SESSION.md</span>, manifest)</td><td class="mid no">·</td><td>Gitignored; authoritative copies land in the MCP session record and the forensics archive at close-out</td></tr>
         <tr><td>User layer (<span class="mono">~/.claude</span> settings, dotfiles) + auto-memory</td><td class="mid no">·</td><td>Machine-level, outside the session; synced by <span class="mono">darcfg</span> at primary session boundaries</td></tr>
-        <tr><td><span class="mono">node_modules/</span>, dev servers, terminals</td><td class="mid no">·</td><td>Rebuilt/launched per session (~287&nbsp;MB and one <span class="mono">npm install</span> per Darwin worktree)</td></tr>
+        <tr><td><span class="mono">node_modules/</span>, dev servers, terminals</td><td class="mid no">·</td><td>Rebuilt/launched per session (~287&nbsp;MB and one <span class="mono">npm install</span> per Darwin session, plus ~80&nbsp;MB of git)</td></tr>
       </tbody>
     </table>
     </div>
@@ -338,9 +340,9 @@
       <thead><tr><th>Exit</th><th>Branch fate</th><th>What survives</th></tr></thead>
       <tbody>
         <tr><td><span class="mono">/swarm-complete</span></td><td>Merged into the default branch per repo (<span class="mono">/hygiene merge</span>: freshen from origin, push, PR ready, merge), then deploy runs <strong>after</strong> the merge under a lock — every deploy is a superset of prior deploys</td><td>Everything — plus archived transcript, notes, git-ops log</td></tr>
-        <tr><td><span class="mono">/swarm-pause</span></td><td>Committed, pushed, PR tagged <span class="mono">[PAUSED]</span>; local worktree removed</td><td>Branch + PR on GitHub; Darwin session row is the source of truth for resuming</td></tr>
+        <tr><td><span class="mono">/swarm-pause</span></td><td>Committed, pushed, PR tagged <span class="mono">[PAUSED]</span>; local session directory removed</td><td>Branch + PR on GitHub; Darwin session row is the source of truth for resuming</td></tr>
         <tr><td><span class="mono">/swarm-undo</span></td><td>PR closed unmerged; remote + local branches deleted</td><td>A <span class="mono">swarm_undos</span> audit row (reason, snapshot) that outlives the session record</td></tr>
-        <tr><td><span class="mono">/swarm-resume</span> / <span class="mono">/swarm-restart</span></td><td>Not an exit — rebuilds worktrees from the paused branch, or relaunches a killed terminal for a still-live worktree</td><td>—</td></tr>
+        <tr><td><span class="mono">/swarm-resume</span> / <span class="mono">/swarm-restart</span></td><td>Not an exit — re-provisions from the mirror and checks out the paused branch (the same code path as start), or relaunches a killed terminal for a still-live session</td><td>—</td></tr>
       </tbody>
     </table>
     </div>
@@ -357,7 +359,7 @@
           <li><strong>Everything is a PR.</strong> Every session leaves a reviewable, revertable GitHub trail from its first minute — including memory and skill changes.</li>
           <li><strong>Merge-only, commit-only.</strong> No rebase anywhere in the machinery; every state change is a commit, and conflicts resolve in-band by the session that owns the work.</li>
           <li><strong>One branch name across repos</strong> ties a multi-repo change into one findable unit — resume rebuilds the whole session from GitHub alone.</li>
-          <li><strong>Anti-fragile layout.</strong> Real worktrees, zero symlinks: a corrupted or deleted session directory cannot reach the primary clones.</li>
+          <li><strong>Independent substrate.</strong> Independent clones, zero symlinks, zero shared <span class="mono">.git/</span>: a corrupted or deleted session directory cannot reach any other environment, and there is nothing left to reconcile afterwards.</li>
         </ul>
       </div>
       <div class="card">
@@ -386,7 +388,9 @@
     is re-groomed.</p>
     <p style="margin-top:10px">Design language: <span class="kbd">memory/html-doc-design.md</span> — the deep-navy blueprint
     shared with the Build Visualizer <span class="mono">midnight</span> theme and the NVLink topology views.
-    &nbsp;·&nbsp; req&nbsp;#2982 · req&nbsp;#2232 · req&nbsp;#2348 · req&nbsp;#2386</p>
+    Clone provisioning became the default for every new session on <strong style="color:var(--body)">2026-07-26</strong>
+    (the B5a cutover, req&nbsp;#3087); sessions started before it keep running on the legacy worktree substrate.
+    &nbsp;·&nbsp; req&nbsp;#2982 · req&nbsp;#2232 · req&nbsp;#2348 · req&nbsp;#2386 · req&nbsp;#3077 · req&nbsp;#3087</p>
   </footer>
 
 </div>

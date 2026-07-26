@@ -13,15 +13,19 @@
 // - `agent_instructions` has a composite PK and NO `id` column. Two consequences:
 //     * PUT is impossible (rest_put.py requires `id`) — a load-order change is a
 //       DELETE + re-POST, never an update.
-//     * A SINGLE-OBJECT POST COMMITS THE ROW AND THEN RETURNS 500. rest_post.py
-//       re-reads the new row with `WHERE id = ...`, which raises 1054 on a table
-//       with no id column — after the INSERT has already committed (autocommit).
-//       Every junction insert here therefore sends an ARRAY body, which routes to
-//       _rest_post_bulk: no read-back, returns 201 {"inserted": N}.
+//     * Every junction insert here sends an ARRAY body, routing to
+//       _rest_post_bulk: one multi-value INSERT, no read-back, 201
+//       {"inserted": N}. That started as a workaround — a single-object POST
+//       used to commit the row and then return 500, because rest_post.py's
+//       `WHERE id = ...` read-back raised 1054 on an id-less table after the
+//       INSERT had already committed. Req #3057 fixed that (single-object POST
+//       now returns 201 with no body), so the array body is no longer forced.
+//       It stays because it is still one round trip for N links instead of N.
 //
-// - Lambda-Rest emits no 409. A duplicate name or link is an HTTP 500 whose body
-//   carries the pymysql message; agentRegistryUtils.restErrorMessage maps the
-//   known ones to human text.
+// - A duplicate name or link is an HTTP 409 (req #3059) carrying a structured
+//   `{error, errno, constraint, table, message}` body. call_rest_api splits it:
+//   `httpStatus.httpDetail` holds the object (agentRegistryUtils.restErrorMessage
+//   reads it), `httpStatus.httpMessage` stays the string assertOk interpolates.
 //
 // - call_rest_api THROWS on any status outside 200/201/204 — including 404. A
 //   DELETE that matched nothing throws, so the 404-tolerant paths catch it

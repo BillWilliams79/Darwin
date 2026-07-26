@@ -214,32 +214,92 @@ describe('instructionNameTaken', () => {
     });
 });
 
+// req #3059 — Lambda-Rest now answers a constraint violation with 409 and a
+// structured body, so this reads fields instead of regexing pymysql prose.
+// call_rest_api splits the response: the object lands on `httpDetail`,
+// `httpMessage` stays the string the rest of the codebase interpolates.
 describe('restErrorMessage', () => {
-    const thrown = (httpMessage) => ({ httpStatus: { httpStatus: 500, httpMessage } });
+    const conflict = (errno, constraint, table = 'instructions') => ({
+        httpStatus: {
+            httpStatus: 409,
+            httpMessage: `HTTP PUT SQL FAILED: ${errno} ...`,
+            httpDetail: { error: 'CONFLICT', errno, constraint, table,
+                message: `HTTP PUT SQL FAILED: ${errno} ...` },
+        },
+    });
 
     it('maps a duplicate instruction name', () => {
-        const err = thrown("HTTP PUT SQL FAILED: 1062 Duplicate entry 'x' for key 'instructions.uq_instructions_name'");
-        expect(restErrorMessage(err, 'fallback')).toMatch(/already in use/);
+        expect(restErrorMessage(conflict(1062, 'uq_instructions_name'), 'fallback'))
+            .toMatch(/already in use/);
     });
 
     it('maps a duplicate agent link', () => {
-        const err = thrown("HTTP POST bulk failed: 1062 Duplicate entry '10-6' for key 'agent_instructions.PRIMARY'");
-        expect(restErrorMessage(err, 'fallback')).toMatch(/already bound/);
+        expect(restErrorMessage(
+            conflict(1062, 'PRIMARY', 'agent_instructions'), 'fallback'))
+            .toMatch(/already bound/);
     });
 
-    it('maps a foreign key failure', () => {
-        const err = thrown('HTTP POST bulk failed: 1452 Cannot add or update a child row: a foreign key constraint fails');
-        expect(restErrorMessage(err, 'fallback')).toMatch(/no longer exists/);
+    it('maps a duplicate load-order slot (req #3075)', () => {
+        expect(restErrorMessage(
+            conflict(1062, 'uq_agent_instructions_slot', 'agent_instructions'),
+            'fallback')).toMatch(/load-order slot/);
     });
 
-    it('falls back for an unrecognised error', () => {
-        expect(restErrorMessage(thrown('HTTP PUT SQL FAILED: 2013 Lost connection'), 'fallback'))
+    it('tells the two agent_instructions 1062s apart', () => {
+        // Same table, same error code, different problems and different fixes:
+        // "you already bound this instruction" vs "that load position is taken".
+        // Collapsing them would send the reader to the wrong remedy.
+        const alreadyBound = conflict(1062, 'PRIMARY', 'agent_instructions');
+        const slotTaken = conflict(1062, 'uq_agent_instructions_slot', 'agent_instructions');
+        expect(restErrorMessage(alreadyBound, 'fallback'))
+            .not.toBe(restErrorMessage(slotTaken, 'fallback'));
+        expect(restErrorMessage(alreadyBound, 'fallback')).not.toMatch(/load-order slot/);
+        expect(restErrorMessage(slotTaken, 'fallback')).not.toMatch(/already bound/);
+    });
+
+    it('does not confuse a PRIMARY collision on agent_documents with the agent_instructions one', () => {
+        // `constraint` arrives unqualified, and every table has a PRIMARY — the
+        // table check is what keeps this from reporting "already bound"
+        // (agent_instructions) for what is actually an agent_documents collision.
+        // agent_documents.PRIMARY has its own mapping (req #3051, "already
+        // linked"), not a bare fallback — the two junctions are both real cases.
+        const message = restErrorMessage(conflict(1062, 'PRIMARY', 'agent_documents'), 'fallback');
+        expect(message).not.toMatch(/already bound/);
+        expect(message).toMatch(/already linked/);
+    });
+
+    it('maps both foreign key errnos', () => {
+        expect(restErrorMessage(conflict(1452, 'agent_instructions_ibfk_1'), 'fallback'))
+            .toMatch(/no longer exists/);
+        expect(restErrorMessage(conflict(1451, 'agent_instructions_ibfk_2'), 'fallback'))
+            .toMatch(/no longer exists/);
+    });
+
+    it('falls back for a 409 carrying an errno it has no wording for', () => {
+        expect(restErrorMessage(conflict(1062, 'uq_something_else'), 'fallback'))
             .toBe('fallback');
     });
 
-    it('falls back when the thrown value has no message at all', () => {
+    it('falls back for a 500 — the database really is broken', () => {
+        // The whole point of the 409: a 500 must NEVER render "that name is
+        // taken", however duplicate-shaped its message looks.
+        expect(restErrorMessage({ httpStatus: {
+            httpStatus: 500,
+            httpMessage: "HTTP PUT SQL FAILED: 1062 Duplicate entry 'x' for key "
+                + "'instructions.uq_instructions_name'",
+            httpDetail: null,
+        } }, 'fallback')).toBe('fallback');
+    });
+
+    it('falls back when the thrown value has no status at all', () => {
         expect(restErrorMessage(new Error('boom'), 'fallback')).toBe('fallback');
         expect(restErrorMessage(undefined, 'fallback')).toBe('fallback');
+    });
+
+    it('falls back on a 409 with no detail object rather than throwing', () => {
+        expect(restErrorMessage(
+            { httpStatus: { httpStatus: 409, httpMessage: 'CONFLICT', httpDetail: null } },
+            'fallback')).toBe('fallback');
     });
 });
 

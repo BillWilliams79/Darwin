@@ -25,6 +25,27 @@ export const parseRoles = (rel) => {
 export const hasRole = (rel, role) => parseRoles(rel).includes(role);
 export const isAutoload = (rel) => hasRole(rel, 'autoload');
 
+/**
+ * The INVERSE of `parseRoles`: roles -> the exact string the database stores.
+ *
+ * Deliberately named as `parseRoles`' pair and defined next to it, because the
+ * one thing that must never happen on this junction is a round trip through
+ * `relationshipLabel`. That helper joins with `", "` for DISPLAY; the space makes
+ * `" autoload"` a member no SET recognises, and under the non-strict sql_mode
+ * this database runs, an unrecognised member does not raise — the WHOLE
+ * assignment stores as `''`. The link then carries no roles at all: not owned,
+ * not autoloaded, rendered as an unremarkable dash. A document silently loses its
+ * owner and an agent silently stops reading a file it was told to read in full.
+ *
+ * So: bare comma, no space, unknown members dropped, output in precedence order
+ * so two links with the same roles always store byte-identical strings.
+ */
+export const serializeRoles = (roles = []) => {
+    const list = Array.isArray(roles) ? roles : parseRoles(roles);
+    const present = new Set(list.map(r => (r || '').trim()));
+    return RELATIONSHIP_ORDER.filter(r => present.has(r)).join(',');
+};
+
 // The highest-precedence role present — drives single-chip styling and sorting.
 export const primaryRole = (rel) => parseRoles(rel)[0] || null;
 
@@ -89,9 +110,38 @@ export const docTypeChipProps = (t) =>
  * actually wants. Falling back to a constructed blob URL keeps a hand-inserted
  * row (one created through the MCP tool without a url) clickable rather than
  * dead.
+ *
+ * THE SCHEME IS CHECKED HERE, AT THE RENDER BOUNDARY, and not only in
+ * `documentUrlError` on the way in (req #3051). Two reasons the input validator
+ * is not sufficient on its own:
+ *
+ *   1. This UI is not the only writer. `update_architecture_document` in the MCP
+ *      daemon accepts `url` with no scheme validation at all, and rows predate
+ *      both. A value already in the database has never been past
+ *      `documentUrlError`.
+ *   2. Rendering is where the harm happens. Every consumer feeds this result
+ *      straight into an anchor `href` — DocumentsPage's open-link button and
+ *      AgentDetail's document link — and React does NOT sanitize a
+ *      `javascript:` URL, it only warns in development. So a stored one would be
+ *      a script that runs on click, for every viewer, in production.
+ *
+ * A rejected scheme FALLS THROUGH to the constructed blob URL rather than
+ * returning null: the row still links somewhere true, and the document does not
+ * silently lose its only affordance because one column is malformed.
  */
+const SAFE_HREF_SCHEME = /^(https?:)?\/\//i;
+
+const isSafeHref = (url) => {
+    const trimmed = (url || '').trim();
+    if (!trimmed) return false;
+    // A value carrying no scheme at all is a relative path: same-origin, inert.
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+    if (!scheme) return true;
+    return SAFE_HREF_SCHEME.test(trimmed) || /^https?:$/i.test(scheme[1] + ':');
+};
+
 export const documentHref = (doc) => {
-    if (doc?.url) return doc.url;
+    if (doc?.url && isSafeHref(doc.url)) return doc.url;
     if (!doc?.location) return null;
     return `https://github.com/BillWilliams79/DarwinAI-Config/blob/main/${doc.location}`;
 };
@@ -352,28 +402,390 @@ export const instructionContentError = (content) => {
     return null;
 };
 
+// ---------------------------------------------------------------------------
+// Field validation for edit-in-place DOCUMENT rows (req #3051).
+//
+// Same contract as the instruction validators above — a pure function per field
+// returning an error string or null — and the same reason for existing: the RDS
+// sql_mode is NOT strict, so the database silently TRUNCATES an over-long value
+// and silently CLAMPS an out-of-range integer instead of rejecting it. The client
+// is the only guard.
+//
+// TWO WAYS THIS DIFFERS FROM THE INSTRUCTION SIDE, both verified against
+// DarwinSQL/schema.sql rather than assumed:
+//
+//   1. EVERY editable document column is a VARCHAR, not a TEXT. MySQL measures a
+//      VARCHAR in CHARACTERS and a TEXT in BYTES — so `contentByteLength` (right
+//      for instructions.content) is the WRONG measure here, and so is JS
+//      `String.length`, which counts UTF-16 code units and reads an emoji as 2
+//      where MySQL counts 1. Rejecting a legal name is as much a defect as
+//      accepting an illegal one. See `charLength`.
+//
+//   2. `doc_type` LOOKS like an enum and is not: the column is VARCHAR(16) with a
+//      default, and VALID_DOC_TYPES is enforced only inside the MCP daemon
+//      (darwin-mcp/services/agents.py). A browser POST of "mrkdown" is accepted,
+//      stored, and then renders as an ordinary chip — nothing anywhere catches it.
+//      That is why the UI offers a fixed choice rather than a free-text field, and
+//      why this validator exists behind it.
+// ---------------------------------------------------------------------------
+
+// VARCHAR widths, from DarwinSQL/schema.sql.
+export const DOCUMENT_NAME_MAX = 256;       // NOT NULL, UNIQUE
+export const DOCUMENT_LOCATION_MAX = 512;   // nullable
+export const DOCUMENT_URL_MAX = 1024;       // nullable
+export const DOCUMENT_NOTES_MAX = 512;      // agent_documents.notes, nullable
+
+/** The only three values the registry recognises (MCP `VALID_DOC_TYPES`). */
+export const DOC_TYPES = ['markdown', 'html', 'text'];
+
+/**
+ * Length as MySQL counts it for a utf8mb4 VARCHAR: CODE POINTS.
+ *
+ * `'x'.length` counts UTF-16 code units, so any astral character (an emoji, and
+ * plenty of CJK extensions) counts double and a legal value would be rejected.
+ * Spreading the string iterates code points, which is what utf8mb4 stores one
+ * character per.
+ */
+export const charLength = (text) => [...(text || '')].length;
+
+/**
+ * Is this document name already taken?
+ *
+ * `architecture_documents.name` carries UNIQUE `uq_architecture_documents_name`,
+ * and — exactly like the instruction key — it does NOT exclude closed rows. The
+ * check must therefore run against the UNFILTERED catalog: the page hides closed
+ * rows by default, so colliding with one is a rejection the user cannot see the
+ * cause of. Compared case-insensitively on the trimmed value, matching the
+ * server's default utf8mb4 collation.
+ */
+export const documentNameTaken = (name, documents = [], selfId = null) => {
+    const candidate = (name || '').trim().toLowerCase();
+    if (!candidate) return false;
+    return documents.some(
+        d => d.id !== selfId && (d.name || '').trim().toLowerCase() === candidate);
+};
+
+/**
+ * Verdict for a pending document `name`.
+ *
+ * Empty is NOT an error, for the same reason as `instructionNameError`: the
+ * column is NOT NULL, so an in-place field treats empty as "abandon the edit" and
+ * reverts. Reporting it would leave a red field the user can only clear by
+ * retyping what was already there.
+ */
+export const documentNameError = (name, documents = [], selfId = null) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const len = charLength(trimmed);
+    if (len > DOCUMENT_NAME_MAX) {
+        return `Too long: ${len} of ${DOCUMENT_NAME_MAX} characters. `
+            + 'The database would truncate it silently.';
+    }
+    if (documentNameTaken(trimmed, documents, selfId)) {
+        return `A document named "${trimmed}" already exists (it may be closed).`;
+    }
+    return null;
+};
+
+/**
+ * Verdict for `location` — the repo-relative path of the file this row registers.
+ *
+ * THIS IS THE MOST DANGEROUS FIELD ON THE PAGE, which is the opposite of how it
+ * looks. `name` is UNIQUE and reads like a key, but nothing in production
+ * resolves a document by name (`get_architecture_document_by_name` exists and has
+ * no caller outside the MCP test suite). `location` reads like a caption and is
+ * live, executed data: instruction #83 orders all 12 agents to read every
+ * `autoload` document "from its `location` in full, byte 1 to byte n" before
+ * starting work. The executor is an LLM, not a function, so nothing type-checks
+ * it — a wrong path means the agent boots without knowledge it was told to have
+ * and reports itself green. The only detector is the context-telemetry harness,
+ * and that walks `autoload_documents` only.
+ *
+ * The client cannot verify a path exists — the browser has no filesystem. So
+ * validation here is limited to shapes that are definitely wrong, and the real
+ * guard is the confirmation the page requires before writing this field on a
+ * document any agent autoloads.
+ *
+ * Empty is not an error: the column is nullable, and a row with only a `url` is
+ * legal (`documentHref` prefers `url` anyway).
+ */
+export const documentLocationError = (location) => {
+    const trimmed = (location || '').trim();
+    if (!trimmed) return null;
+    const len = charLength(trimmed);
+    if (len > DOCUMENT_LOCATION_MAX) {
+        return `Too long: ${len} of ${DOCUMENT_LOCATION_MAX} characters. `
+            + 'The database would truncate it silently.';
+    }
+    // `documentHref` interpolates this straight into a GitHub blob URL when `url`
+    // is absent, and every one of the 69 live rows is repo-relative.
+    if (trimmed.startsWith('/')) {
+        return 'Repo-relative path, with no leading slash (e.g. "memory/foo.md").';
+    }
+    if (trimmed.includes('..')) {
+        return 'A path segment of ".." cannot be resolved from the repo root.';
+    }
+    if (/\s/.test(trimmed)) {
+        return 'A path with whitespace in it will not resolve — check for a stray space.';
+    }
+    return null;
+};
+
+/**
+ * Verdict for `url`.
+ *
+ * Length is the boring half. The SCHEME check is the real one: `documentHref`
+ * returns `doc.url` verbatim and the page renders it straight into an anchor
+ * `href`. While the column was read-only that was inert — the only writer was a
+ * seed script. Making the field editable turns it into a stored-href sink, so a
+ * `javascript:` (or `data:`) value would be a script that runs on click, stored
+ * in the database, for every viewer. Restricting the scheme to http/https is the
+ * cheapest correct guard and costs nothing real: every one of the 69 live rows is
+ * an https GitHub-blob or site URL.
+ *
+ * A path with no scheme is allowed through — `documentHref` prefers `url` when
+ * present, and a relative href is same-origin and harmless.
+ */
+export const documentUrlError = (url) => {
+    const trimmed = (url || '').trim();
+    if (!trimmed) return null;
+    const len = charLength(trimmed);
+    if (len > DOCUMENT_URL_MAX) {
+        return `Too long: ${len} of ${DOCUMENT_URL_MAX} characters. `
+            + 'The database would truncate it silently.';
+    }
+    // Only a value that actually carries a scheme is scheme-checked; anything
+    // else is a relative path. The pattern matches the RFC 3986 shape rather than
+    // hunting for "javascript:" so a novel scheme is refused by default.
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+    if (scheme && !/^https?$/i.test(scheme[1])) {
+        return `Only http and https links are allowed here (this is "${scheme[1]}:"). `
+            + 'The registry renders this value straight into a link.';
+    }
+    return null;
+};
+
+/** Verdict for a link's `notes` — free prose about why an agent holds a role. */
+export const documentNotesError = (notes) => {
+    const len = charLength(notes || '');
+    if (len > DOCUMENT_NOTES_MAX) {
+        return `Too long: ${len} of ${DOCUMENT_NOTES_MAX} characters. `
+            + 'The database would truncate it silently.';
+    }
+    return null;
+};
+
+/** Verdict for `doc_type`. The column is free text; this is the only guard. */
+export const docTypeError = (docType) => (
+    DOC_TYPES.includes(docType)
+        ? null
+        : `Unknown document type "${docType}". Must be one of: ${DOC_TYPES.join(', ')}.`);
+
+/**
+ * Verdict for a pending role set. Error string, or null when writable.
+ *
+ * An EMPTY set is an error here rather than a revert, and that is deliberate —
+ * the opposite call from the text fields above. `relationship` is NOT NULL, but
+ * `''` is a perfectly legal value for a NOT NULL SET column, so the database
+ * would accept it and the link would simply stop meaning anything. There is no
+ * stored value to fall back to either: the roles ARE the link.
+ */
+export const relationshipSetError = (roles = []) => {
+    const list = Array.isArray(roles) ? roles : parseRoles(roles);
+    const unknown = list.filter(r => !RELATIONSHIP_ORDER.includes((r || '').trim()));
+    if (unknown.length) {
+        return `Unknown relationship${unknown.length === 1 ? '' : 's'}: `
+            + `${unknown.join(', ')}. Must be one of: ${RELATIONSHIP_ORDER.join(', ')}.`;
+    }
+    if (!serializeRoles(list)) {
+        return 'A link must carry at least one role — remove the link instead.';
+    }
+    // Instruction #83 makes an `owned` or `curated` document outrank a
+    // `referenced` one. A link carrying both ends of that comparison makes the
+    // precedence rule refer to itself, so it is a hard block rather than a hint.
+    if (list.includes('owned') && list.includes('referenced')) {
+        return 'A link cannot be both owned and referenced — owning already outranks referencing.';
+    }
+    return null;
+};
+
+/**
+ * Advisory for a role set — never blocks. Owning a document already carries the
+ * duty to keep it accurate (instruction #83), so `curated` on top of `owned`
+ * states the same thing twice rather than contradicting it.
+ */
+export const relationshipSetHint = (roles = []) => {
+    const list = Array.isArray(roles) ? roles : parseRoles(roles);
+    if (list.includes('owned') && list.includes('curated')) {
+        return 'Redundant: owning a document already carries the duty to keep it accurate.';
+    }
+    return null;
+};
+
+/**
+ * Which agent currently holds `owned` on this document, if any.
+ * Returns the junction link, not the agent row.
+ */
+export const documentOwnerLink = (links = []) =>
+    links.find(l => hasRole(l.relationship, 'owned')) || null;
+
+/**
+ * Next free slot in an agent's per-agent DOCUMENT order — max + 1, 1-indexed.
+ *
+ * Peer to `nextInstructionSortOrder`. `agent_documents.sort_order` is a tiebreak
+ * WITHIN a relationship rank (`list_documents_for_agent` orders by rank, then
+ * this, then name), so it matters less than the instruction one — but a new link
+ * landing on NULL still sorts last regardless of its role, which is wrong for a
+ * document an agent just took ownership of.
+ */
+export const nextDocumentSortOrder = (agentId, docLinks) => {
+    const links = docLinks.get(agentId) || [];
+    const orders = links.map(l => l.sort_order).filter(o => Number.isFinite(o));
+    return orders.length ? Math.max(...orders) + 1 : 1;
+};
+
+/**
+ * Plan the writes that move `owned` on one document from one agent to another.
+ *
+ * PURE — it issues nothing. That is the point: ownership transfer is the one
+ * multi-write action on this page, the dialog has to describe the exact writes
+ * before the user authorizes them, and the whole thing has to be testable without
+ * a network.
+ *
+ * THE ORDER IS FORCED, NOT CHOSEN. `uq_agent_documents_owner` is a UNIQUE key
+ * over a VIRTUAL column that equals `document_fk` exactly when the SET contains
+ * `owned`. So the incoming claim is rejected while the incumbent still holds it:
+ * release must come first, and the window in which the document is unowned is
+ * structural. Only its LENGTH and its RECOVERABILITY are in our control — hence
+ * `prev` on every step, which is what `applyLinkPlan` rolls back with.
+ *
+ * The incumbent KEEPS its other roles. An `owned,autoload` owner handing over
+ * ownership becomes plain `autoload` — it very likely still reads the file at
+ * boot, and silently dropping that would be a second change nobody asked for.
+ * When `owned` was its ONLY role there is no link left to demote to, so
+ * `keepOutgoing` decides between removing the link and parking it at
+ * `referenced`. Parking is the default the dialog offers, because the link's
+ * `notes` die with it and 87 of the 100 live links carry one.
+ *
+ * @param documentId   the document being transferred
+ * @param fromLink     the incumbent owner's link, or null when unowned
+ * @param toLink       the incoming owner's existing link, or null
+ * @param toAgentId    the incoming owner, or null to RELEASE without a successor
+ * @param keepOutgoing when the outgoing link would be left roleless, park it at
+ *                     `referenced` instead of deleting it
+ * @returns ordered steps of `{ agent_fk, document_fk, prev, next }`
+ */
+export const planOwnerTransfer = ({
+    documentId, fromLink = null, toLink = null, toAgentId = null, keepOutgoing = true,
+}) => {
+    const steps = [];
+
+    if (fromLink) {
+        const remaining = parseRoles(fromLink.relationship).filter(r => r !== 'owned');
+        const nextRoles = remaining.length
+            ? serializeRoles(remaining)
+            : (keepOutgoing ? 'referenced' : '');
+        steps.push({
+            agent_fk: fromLink.agent_fk,
+            document_fk: documentId,
+            prev: fromLink,
+            // EVERY column of the row is carried forward. There is no PUT on this
+            // table, so a "role change" is a DELETE and a fresh INSERT — and an
+            // INSERT that omits `notes` or `sort_order` does not leave them alone,
+            // it writes NULL over them. That is the quietest way to lose data on
+            // this page.
+            next: nextRoles
+                ? { ...fromLink, relationship: nextRoles }
+                : null,
+        });
+    }
+
+    if (toAgentId != null) {
+        // `owned` SUPERSEDES `referenced`; it does not stack with it. Instruction
+        // #83 makes an owned document outrank a referenced one, so a link carrying
+        // both makes that precedence rule refer to itself — which is exactly why
+        // `relationshipSetError` blocks the combination. A blind union would
+        // therefore have produced a set this codebase itself rejects: claiming
+        // ownership of a document you currently merely reference (the single
+        // commonest transfer target, since all 32 non-owner links are plain
+        // `referenced`) would build an invalid plan. Drop `referenced` on the way
+        // in. `autoload` and `curated` are orthogonal to ownership and are kept.
+        const merged = serializeRoles([
+            ...parseRoles(toLink?.relationship).filter(r => r !== 'referenced'),
+            'owned',
+        ]);
+        steps.push({
+            agent_fk: toAgentId,
+            document_fk: documentId,
+            prev: toLink,
+            next: {
+                ...(toLink || {}),
+                agent_fk: toAgentId,
+                document_fk: documentId,
+                relationship: merged,
+            },
+        });
+    }
+
+    return steps;
+};
+
 /**
  * Turn a thrown call_rest_api rejection into something a human can act on.
  *
- * Lambda-Rest has no 409: a constraint violation arrives as HTTP 500 whose body
- * is the raw pymysql message (`"HTTP PUT SQL FAILED: 1062 Duplicate entry ..."`).
- * Matching on the message is the only way to tell "you picked a taken name" from
- * "the database is broken" — mapping IntegrityError to a real status code is
- * filed as its own requirement.
+ * Lambda-Rest answers a constraint violation with HTTP 409 and a structured body
+ * (req #3059): `{ error, errno, constraint, table, message }`. call_rest_api
+ * parks that object on `err.httpStatus.httpDetail`, so the constraint that
+ * actually failed is a field read rather than a regex against pymysql prose —
+ * which could not reliably tell "you picked a taken name" from "the database is
+ * broken" (the reason this function originally had to guess from message text,
+ * before #3059 gave every table a real status code).
+ *
+ * Anything that is NOT a 409 falls through to `fallback` on purpose: a 500 means
+ * the database is genuinely unhappy and "that name is taken" would be a lie.
+ *
+ * `constraint` arrives UNQUALIFIED (`PRIMARY`, not `agent_instructions.PRIMARY`),
+ * so every junction check pairs it with `table` — every table has a `PRIMARY`,
+ * and `agent_instructions.PRIMARY` / `agent_documents.PRIMARY` would otherwise be
+ * indistinguishable the way their old regex forms had to be qualified to avoid.
  */
 export const restErrorMessage = (err, fallback) => {
-    const msg = typeof err?.httpStatus?.httpMessage === 'string'
-        ? err.httpStatus.httpMessage
-        : '';
+    if (err?.httpStatus?.httpStatus !== 409) return fallback;
+    const { errno, constraint, table } = err.httpStatus.httpDetail || {};
 
-    if (/Duplicate entry .* for key '.*uq_instructions_name'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'uq_instructions_name') {
         return 'That instruction name is already in use (the existing row may be closed).';
     }
-    if (/Duplicate entry .* for key '.*agent_instructions\.PRIMARY'/i.test(msg)) {
+    if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_instructions') {
         return 'That instruction is already bound to this agent.';
     }
-    if (/foreign key constraint fails/i.test(msg)) {
-        return 'The agent or instruction no longer exists — reload the page and retry.';
+    // req #3075, migration 073: UNIQUE (agent_fk, sort_order). Matched SEPARATELY
+    // from the PRIMARY case above even though both are 1062 on the same table —
+    // "already bound" and "that load position is taken" are different problems
+    // with different fixes, and collapsing them would send the reader to the
+    // wrong one. Reachable from two paths: binding a new instruction at a slot
+    // another already holds, and a reorder whose re-POST lands on a slot it did
+    // not first vacate.
+    if (errno === 1062 && constraint === 'uq_agent_instructions_slot') {
+        return 'Another instruction already holds that load-order slot for this '
+            + 'agent. Reload the page and retry — the list may have moved since '
+            + 'it was drawn.';
+    }
+    // req #3051 — the documents registry's three keys.
+    if (errno === 1062 && constraint === 'uq_architecture_documents_name') {
+        return 'A document with that name already exists (the existing row may be closed).';
+    }
+    // The unique key is over the VIRTUAL `owned_document_fk`, so this fires only
+    // on a SECOND ownership claim — never on an ordinary link.
+    if (errno === 1062 && constraint === 'uq_agent_documents_owner') {
+        return 'Another agent already owns this document — at most one owner per document. '
+            + 'Use "curated" for a second architect, or hand ownership over from the current owner.';
+    }
+    if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_documents') {
+        return 'That document is already linked to this agent.';
+    }
+    if (errno === 1451 || errno === 1452) {
+        return 'The agent, instruction or document no longer exists — reload the page and retry.';
     }
     return fallback;
 };
