@@ -5,8 +5,8 @@
 // survive inside a DataGrid cell. DataGrid edit mode is NOT involved: no column
 // using this sets `editable`, so the grid's own editing state machine never starts.
 //
-// WHY THE KEYDOWN STOP IS THE LOAD-BEARING PART. The Maps precedent
-// (MapRuns/GhostCellEditors.jsx) stops `onClick` only, and that is not enough.
+// WHY THE KEYDOWN STOP IS THE LOAD-BEARING PART. Stopping `onClick` alone — which
+// is all MapRuns/GhostCellEditors.jsx did until req #3073 — is not enough.
 // Verified against the installed @mui/x-data-grid@8.27.3:
 //
 //   * `components/cell/GridCell.js` publishes `cellKeyDown` from the cell's own
@@ -37,6 +37,16 @@
 // its document handler on mouseup and `cellMouseDown` records `lastClickedCell`, and
 // the grid keeps the FOCUSED cell rendered even when it falls outside the render
 // context. Stopping those would forfeit that protection to prevent nothing.
+//
+// AN OPEN DIVERGENCE, recorded rather than silently resolved. Req #3073 landed the
+// same fix on the Maps editors within hours of this file, independently, and chose
+// an ALLOWLIST (`EDITOR_KEYS`: arrows, Home, End, Enter, Escape, Space) over this
+// blanket stop — on the grounds that stopping wholesale also takes out PageUp/PageDown
+// paging and the grid's Tab tracking, which an editor has no use for. That is the
+// better-considered position on keys; this file's full-cell flex sizing is the
+// better-considered position on layout. The two wrappers should converge, but that
+// touches two live pages and is not a drive-by edit. See
+// memory/darwin-viewer-pages.md § 7.
 
 import Box from '@mui/material/Box';
 
