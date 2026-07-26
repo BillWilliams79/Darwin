@@ -17,7 +17,7 @@ import {
     documentNameTaken, documentNameError, documentLocationError,
     documentUrlError, documentNotesError, docTypeError,
     documentOwnerLink, nextDocumentSortOrder, planOwnerTransfer,
-    charLength, restErrorMessage, relationshipLabel,
+    charLength, restErrorMessage, relationshipLabel, documentHref,
     DOCUMENT_NAME_MAX, DOCUMENT_LOCATION_MAX, DOCUMENT_URL_MAX, DOCUMENT_NOTES_MAX,
 } from '../agentRegistryUtils';
 
@@ -262,6 +262,56 @@ describe('documentUrlError guards a stored-href sink', () => {
     it('rejects over the column width', () => {
         expect(documentUrlError(`https://x.test/${'a'.repeat(DOCUMENT_URL_MAX)}`))
             .toMatch(/Too long/);
+    });
+});
+
+describe('documentHref refuses a dangerous scheme AT THE RENDER BOUNDARY', () => {
+    // documentUrlError guards this UI's writes, but it is not the only writer:
+    // the MCP daemon's update_architecture_document accepts `url` with no scheme
+    // check, and rows predate both. Rendering is where the harm happens — every
+    // consumer feeds this into an anchor href, and React does not sanitize a
+    // javascript: URL, it only warns in development.
+    const BLOB = 'https://github.com/BillWilliams79/DarwinAI-Config/blob/main/memory/a.md';
+
+    it('falls back to the blob URL for javascript:, rather than returning it', () => {
+        expect(documentHref({ url: 'javascript:alert(1)', location: 'memory/a.md' })).toBe(BLOB);
+    });
+
+    it('falls back for data: and file: too', () => {
+        expect(documentHref({ url: 'data:text/html,<script>', location: 'memory/a.md' })).toBe(BLOB);
+        expect(documentHref({ url: 'file:///etc/passwd', location: 'memory/a.md' })).toBe(BLOB);
+    });
+
+    it('is not fooled by case or leading whitespace', () => {
+        expect(documentHref({ url: '  JaVaScRiPt:alert(1)', location: 'memory/a.md' })).toBe(BLOB);
+    });
+
+    it('FALLS THROUGH rather than going dead — one bad column must not remove the link', () => {
+        // Returning null would silently strip the page's most-used affordance.
+        expect(documentHref({ url: 'javascript:alert(1)', location: 'memory/a.md' }))
+            .not.toBeNull();
+    });
+
+    it('returns null only when there is genuinely nowhere to go', () => {
+        expect(documentHref({ url: 'javascript:alert(1)', location: null })).toBeNull();
+        expect(documentHref({})).toBeNull();
+        expect(documentHref(null)).toBeNull();
+    });
+
+    it('still honours a legitimate stored url', () => {
+        expect(documentHref({ url: 'https://example.test/a', location: 'memory/a.md' }))
+            .toBe('https://example.test/a');
+        expect(documentHref({ url: 'http://example.test/a', location: 'memory/a.md' }))
+            .toBe('http://example.test/a');
+    });
+
+    it('allows a protocol-relative and a root-relative url', () => {
+        expect(documentHref({ url: '//example.test/a' })).toBe('//example.test/a');
+        expect(documentHref({ url: '/docs/a.html' })).toBe('/docs/a.html');
+    });
+
+    it('constructs the blob URL from location when url is absent', () => {
+        expect(documentHref({ location: 'memory/a.md' })).toBe(BLOB);
     });
 });
 

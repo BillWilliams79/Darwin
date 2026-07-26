@@ -110,9 +110,38 @@ export const docTypeChipProps = (t) =>
  * actually wants. Falling back to a constructed blob URL keeps a hand-inserted
  * row (one created through the MCP tool without a url) clickable rather than
  * dead.
+ *
+ * THE SCHEME IS CHECKED HERE, AT THE RENDER BOUNDARY, and not only in
+ * `documentUrlError` on the way in (req #3051). Two reasons the input validator
+ * is not sufficient on its own:
+ *
+ *   1. This UI is not the only writer. `update_architecture_document` in the MCP
+ *      daemon accepts `url` with no scheme validation at all, and rows predate
+ *      both. A value already in the database has never been past
+ *      `documentUrlError`.
+ *   2. Rendering is where the harm happens. Every consumer feeds this result
+ *      straight into an anchor `href` — DocumentsPage's open-link button and
+ *      AgentDetail's document link — and React does NOT sanitize a
+ *      `javascript:` URL, it only warns in development. So a stored one would be
+ *      a script that runs on click, for every viewer, in production.
+ *
+ * A rejected scheme FALLS THROUGH to the constructed blob URL rather than
+ * returning null: the row still links somewhere true, and the document does not
+ * silently lose its only affordance because one column is malformed.
  */
+const SAFE_HREF_SCHEME = /^(https?:)?\/\//i;
+
+const isSafeHref = (url) => {
+    const trimmed = (url || '').trim();
+    if (!trimmed) return false;
+    // A value carrying no scheme at all is a relative path: same-origin, inert.
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+    if (!scheme) return true;
+    return SAFE_HREF_SCHEME.test(trimmed) || /^https?:$/i.test(scheme[1] + ':');
+};
+
 export const documentHref = (doc) => {
-    if (doc?.url) return doc.url;
+    if (doc?.url && isSafeHref(doc.url)) return doc.url;
     if (!doc?.location) return null;
     return `https://github.com/BillWilliams79/DarwinAI-Config/blob/main/${doc.location}`;
 };
