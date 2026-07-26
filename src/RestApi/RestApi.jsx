@@ -33,9 +33,13 @@ const call_rest_api = async (url, method, body, idToken) => {
     } catch (error) {
         const errorReturn = {
             data: {},
+            // httpDetail carried here too, even though a transport failure can
+            // never be a 409. A second httpStatus shape is exactly the drift
+            // that caused req #3049's TypeError-inside-a-catch.
             httpStatus: { httpMethod: fetchInit.method,
                                httpStatus: 503,
-                               httpMessage: 'SERVICE UNAVAILABLE',},
+                               httpMessage: 'SERVICE UNAVAILABLE',
+                               httpDetail: null,},
         };
         return errorReturn;
     };
@@ -59,6 +63,7 @@ const call_rest_api = async (url, method, body, idToken) => {
     var httpStatus = {httpMethod: fetchInit.method,
                       httpStatus: response.status,
                       httpMessage: '',
+                      httpDetail: null,
     };
 
     // Generate httpMessage based on HTTP status
@@ -71,7 +76,19 @@ const call_rest_api = async (url, method, body, idToken) => {
     } else {
         // there is some form of error, in which case the data returned
         // is actually the error message, unpleasant overload for now
-        httpStatus.httpMessage = data;
+        //
+        // A 409 CONFLICT body is a structured object (Lambda-Rest req #3059):
+        // {error, errno, constraint, table, message}. Every other error status
+        // sends a bare JSON string, and half a dozen callers interpolate
+        // httpMessage straight into text — so httpMessage STAYS a string and the
+        // object goes on httpDetail. agentRegistryUtils.restErrorMessage is the
+        // one consumer that wants the fields.
+        if (data && typeof data === 'object') {
+            httpStatus.httpDetail = data;
+            httpStatus.httpMessage = data.message || JSON.stringify(data);
+        } else {
+            httpStatus.httpMessage = data;
+        }
         data = null;
         // eslint-disable-next-line  no-throw-literal
         throw {data, httpStatus}

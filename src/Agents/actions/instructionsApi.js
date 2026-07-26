@@ -19,9 +19,10 @@
 //       Every junction insert here therefore sends an ARRAY body, which routes to
 //       _rest_post_bulk: no read-back, returns 201 {"inserted": N}.
 //
-// - Lambda-Rest emits no 409. A duplicate name or link is an HTTP 500 whose body
-//   carries the pymysql message; agentRegistryUtils.restErrorMessage maps the
-//   known ones to human text.
+// - A duplicate name or link is an HTTP 409 (req #3059) carrying a structured
+//   `{error, errno, constraint, table, message}` body. call_rest_api splits it:
+//   `httpStatus.httpDetail` holds the object (agentRegistryUtils.restErrorMessage
+//   reads it), `httpStatus.httpMessage` stays the string assertOk interpolates.
 //
 // - call_rest_api THROWS on any status outside 200/201/204 — including 404. A
 //   DELETE that matched nothing throws, so the 404-tolerant paths catch it
