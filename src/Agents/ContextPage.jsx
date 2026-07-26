@@ -36,9 +36,11 @@ import AuthContext from '../Context/AuthContext';
 import {
     useAgentTelemetryRuns, useAgentTelemetryRowsByRun, agentTelemetryRunKeys,
 } from '../hooks/useDataQueries';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { deleteAgentTelemetryRun } from './actions/contextApi';
 import { NA as NA_TEXT, sortRows, assignMarkers, computeCells } from './contextRenderUtils';
+import TelemetryRunDeleteDialog from './TelemetryRunDeleteDialog';
 
 // The 9 fixed column definitions — verbatim from the artifact glossary. The
 // per-row footnote definitions (*, †, …) are appended dynamically per run.
@@ -128,10 +130,15 @@ const ContextPage = () => {
         return d ? `${r.label} — ${d}` : r.label;
     };
 
-    const handleDelete = async () => {
-        if (!activeRun) return;
-        const targetId = activeRun.id;
-        if (!window.confirm(`Delete capture "${dateLabel(activeRun)}"? This cannot be undone.`)) return;
+    /**
+     * The WRITE half only — it no longer asks. `deleteConfirm` below decides
+     * whether it runs (req #3071, replacing a `window.confirm`).
+     *
+     * Takes the id rather than reading `activeRun`, because by the time this fires
+     * the user may have changed the picker: the row to delete is the one the dialog
+     * was opened on, not whichever one is selected when the confirm lands.
+     */
+    const performDelete = async (targetId) => {
         setDeleting(true);
         try {
             await deleteAgentTelemetryRun(darwinUri, idToken, targetId);
@@ -146,6 +153,17 @@ const ContextPage = () => {
             setDeleting(false);
         }
     };
+
+    /**
+     * Delete confirmation, in the house parent-owns-state shape: the dialog only
+     * sets `confirmed`, and this effect-driven callback performs the write. The
+     * `window.confirm` it replaces was unthemed, could not show the capture's size,
+     * and would have HUNG the first Playwright spec written against this route.
+     */
+    const deleteConfirm = useConfirmDialog({
+        onConfirm: ({ run }) => { if (run) performDelete(run.id); },
+        defaultInfo: {},
+    });
 
     const rendered = useMemo(() => {
         const list = sortRows(rows);
@@ -187,9 +205,24 @@ const ContextPage = () => {
                 {activeRun && (
                     <Tooltip title="Delete this capture">
                         <span>
+                            {/* The dialog is handed the capture's SIZE as well as the
+                                capture, and both are snapshotted here because both
+                                describe THIS run — they must not follow the picker if
+                                the selection moves while the dialog is open. `rows` is
+                                the active run's rows and the dialog only ever opens on
+                                the active run, so the count actually loaded and
+                                rendered below is the honest one; the stored
+                                `agent_count` covers the frames before it lands.
+                                How many captures REMAIN is a fact about the list, not
+                                about this run, so it is passed live at render instead. */}
                             <IconButton
                                 size="small"
-                                onClick={handleDelete}
+                                onClick={() => deleteConfirm.openDialog({
+                                    run: activeRun,
+                                    rowCount: (!rowsLoading && Array.isArray(rows))
+                                        ? rows.length
+                                        : activeRun.agent_count,
+                                })}
                                 disabled={deleting}
                                 data-testid="agent-context-delete-btn"
                             >
@@ -284,6 +317,21 @@ const ContextPage = () => {
                     </section>
                 </Box>
             )}
+
+            {/* Rendered OUTSIDE the runs-exist branch on purpose: deleting the last
+                capture empties `runsSorted` in the same commit, and a dialog mounted
+                inside that branch would be torn out mid-close.
+                `remainingCount` is clamped for the same reason — the list empties the
+                moment the delete lands, and "-1 remaining" is a nonsense value to hand
+                across a prop boundary even though only `=== 0` reads it today. */}
+            <TelemetryRunDeleteDialog
+                open={deleteConfirm.dialogOpen}
+                setOpen={deleteConfirm.setDialogOpen}
+                setConfirmed={deleteConfirm.setConfirmed}
+                run={deleteConfirm.infoObject?.run}
+                rowCount={deleteConfirm.infoObject?.rowCount}
+                remainingCount={Math.max(0, runsSorted.length - 1)}
+            />
         </Box>
     );
 };
