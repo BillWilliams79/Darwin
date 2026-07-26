@@ -3,10 +3,14 @@
 // agentRegistryUtils.test.js covers the PURE planning helpers. This file covers
 // the part that actually talks to the network, where the risk lives:
 //
-//   * `agent_instructions` has no `id` column, so a SINGLE-OBJECT POST commits
-//     the row and THEN returns 500 (rest_post.py re-reads `WHERE id = ...`).
-//     Every insert must therefore use an array body. Locked in Lambda-Rest by
-//     tests/test_agent_instructions.py; locked on the client side here.
+//   * `agent_instructions` has no `id` column, so every insert uses an ARRAY
+//     body — one multi-value INSERT for N links instead of N round trips. It
+//     began as a workaround: a single-object POST used to commit the row and
+//     THEN return 500, because rest_post.py re-read it with `WHERE id = ...`.
+//     Req #3057 fixed that (it now returns 201 with no body), so the array
+//     body is a choice rather than a necessity — but it is still the right
+//     choice, and it is what the assertions below lock. Lambda-Rest side:
+//     tests/test_agent_instructions.py.
 //   * A load-order change is DELETE + re-POST across two non-atomic Lambda
 //     invocations under autocommit. The restore-on-failure path is the only
 //     thing standing between a failed write and an agent booting without its
