@@ -84,9 +84,19 @@ export async function apiDelete(table: string, id: number | string, idToken: str
   });
 }
 
+/**
+ * The prefix every name this suite creates carries.
+ *
+ * ONE definition, because `cleanupStaleData`'s registry steps reclaim rows by
+ * matching it — a second hard-coded copy that drifted would silently stop those
+ * sweeps finding anything. `uniqueName` below and any spec that builds its own
+ * stamped names must both derive from this.
+ */
+export const E2E_NAME_PREFIX = 'e2e-';
+
 /** Generate a unique name with e2e prefix for test data. */
 export function uniqueName(prefix: string): string {
-  return `e2e-${Date.now()}-${prefix}`;
+  return `${E2E_NAME_PREFIX}${Date.now()}-${prefix}`;
 }
 
 /**
@@ -190,6 +200,7 @@ export async function clickCategorySortMode(page: Page, categoryId: string, mode
  *
  * Deletes in FK-safe order (req #2750):
  *   requirement_sessions → swarm_sessions → requirements → categories → projects → domains
+ *   → agents → instructions (req #3060)
  *
  * Earlier this function deleted ONLY projects, assuming CASCADE would clear
  * categories → requirements. It can't: requirements.category_fk is ON DELETE
@@ -201,11 +212,11 @@ export async function clickCategorySortMode(page: Page, categoryId: string, mode
  *
  * Called once at the start of each test run from auth.setup.ts.
  */
-export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; categories: number; requirements: number; sessions: number }> {
+export async function cleanupStaleData(idToken: string): Promise<{ domains: number; projects: number; categories: number; requirements: number; sessions: number; agents: number; instructions: number }> {
   const sub = process.env.E2E_TEST_COGNITO_SUB;
-  if (!sub) return { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0 };
+  if (!sub) return { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0, agents: 0, instructions: 0 };
 
-  const summary = { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0 };
+  const summary = { domains: 0, projects: 0, categories: 0, requirements: 0, sessions: 0, agents: 0, instructions: 0 };
 
   // Helper: fetch all ids for a table scoped to this creator, then delete each.
   const deleteAllForCreator = async (table: string): Promise<number> => {
@@ -218,6 +229,45 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
         try { await apiDelete(table, row.id, idToken); } catch { /* best-effort */ }
       }
       return rows.length;
+    } catch { /* best-effort */ return 0; }
+  };
+
+  /**
+   * Delete only the rows this suite created, identified by the `e2e-` name prefix.
+   *
+   * DELIBERATELY NOT `deleteAllForCreator` (req #3060). `agents` and `instructions`
+   * are the agent REGISTRY — a shared catalog, not per-test scratch data like
+   * domains or projects — and during the req #2997 bootstrap the ENTIRE registry
+   * was seeded onto a test profile by a creator fallback that guessed the oldest
+   * profile (memory/agents-registry.md). A blanket delete scoped only by
+   * `creator_fk` would silently destroy a real registry the first time that class
+   * of mistake recurs, and `instructions` rows are prose nothing else holds a copy
+   * of. The prefix still clears every row this suite can produce, because every one
+   * of them is named through `uniqueName()`.
+   *
+   * The count returned is rows that are VERIFIABLY GONE, not rows attempted.
+   * `apiDelete` swallows its response, so counting attempts would let a blocked
+   * delete print "N deleted" while the rows survive — which is the precise shape
+   * of the req #2750 defect this whole function was rewritten to fix.
+   */
+  const deleteE2ENamedForCreator = async (table: string): Promise<number> => {
+    const prefixed = async (): Promise<Array<{ id: number | string; name?: string }>> => {
+      const rows = await apiCall(
+        `${table}?creator_fk=${sub}&fields=id,name`, 'GET', '', idToken,
+      ) as Array<{ id: number | string; name?: string }>;
+      // An empty result set comes back as a 404 whose body is the string
+      // "NOT FOUND" — not an array, and not an error worth reporting.
+      if (!Array.isArray(rows)) return [];
+      return rows.filter(r => (r.name || '').startsWith(E2E_NAME_PREFIX));
+    };
+
+    try {
+      const before = await prefixed();
+      if (!before.length) return 0;
+      for (const row of before) {
+        try { await apiDelete(table, row.id, idToken); } catch { /* best-effort */ }
+      }
+      return before.length - (await prefixed()).length;
     } catch { /* best-effort */ return 0; }
   };
 
@@ -253,6 +303,17 @@ export async function cleanupStaleData(idToken: string): Promise<{ domains: numb
 
   // 5. domains (CASCADE handles areas → tasks).
   summary.domains = await deleteAllForCreator('domains');
+
+  // 6. agents, then instructions (req #3060). `agent_instructions` CASCADEs on
+  //    BOTH foreign keys, so the junction needs no step of its own and the order
+  //    of these two is free — agents first only because an agent is the thing a
+  //    stranded junction row would otherwise be attached to.
+  //
+  //    Both names carry a UNIQUE key that does NOT exclude closed rows, so without
+  //    this step an interrupted run leaves rows that a later run can collide with
+  //    and never clears.
+  summary.agents = await deleteE2ENamedForCreator('agents');
+  summary.instructions = await deleteE2ENamedForCreator('instructions');
 
   return summary;
 }
