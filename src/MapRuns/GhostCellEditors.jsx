@@ -1,71 +1,130 @@
 import React, { useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
-import InputBase from '@mui/material/InputBase';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
 
-import { ghostBase } from '../utils/ghostFieldStyles';
-import { toDateTimeLocalValue, fromDateTimeLocalValue } from '../utils/dateFormat';
+import GhostTextField from '../Components/GhostField/GhostTextField';
+import { ghostSelectBase, ghostAutocompleteInputBase } from '../utils/ghostFieldStyles';
+import { dateTimeField, notesField } from '../utils/ghostFieldParsers';
 
 // Always-editable "ghost" cell editors for the Maps Table (MapRunsView) DataGrid.
 // Each editor renders as plain text until clicked, then edits in place and saves on
 // blur (text) or change (Select/Autocomplete) — mirroring the map-card design
 // (RouteCard). No DataGrid edit-mode; these live in `renderCell` and are always live.
 //
+// The three TEXT editors are now thin adapters over the shared GhostTextField
+// (req #3073). What they used to hand-roll, and what the shared component does
+// instead:
+//
+//   * They skipped the save when a value failed to parse (`if (parsed !== null)`)
+//     and left no trace, so a bad value looked saved until the next refetch quietly
+//     reverted it. Now it stays on screen in red with the reason beside it, and no
+//     write is issued.
+//   * They re-seeded from the row on ANY value change, which overwrote in-progress
+//     typing whenever a genuinely external change landed. Now a field re-seeds only
+//     when it is neither focused NOR dirty.
+//   * A rejected write left the failed value on screen. Now `onSave` is awaited and
+//     the field reverts when it rejects — so the cell never shows a value the
+//     database does not hold. This is why MapRunsView's `saveRunFields` rethrows.
+//   * There was no way to abandon an edit. Escape now reverts.
+//
+// They also stopped writing on every blur: tabbing through a row used to PUT each
+// cell unconditionally, which silently rewrote `avg_speed_mph` (DECIMAL(5,2)) with
+// its own one-decimal display value. GhostTextField only commits a value the user
+// actually changed.
+//
+// GhostSelectCell and GhostPartnersCell stay hand-rolled: a Select and a multi-value
+// Autocomplete are not text fields, and forcing them through a text component would
+// model them badly. They share the theme-aware underline and now roll back their
+// optimistic state on a failed write, which is the part that was worth having.
+//
 // Shared contract:
-//   - local state seeded from the row, reset via useEffect on [row.id, <value>] so an
-//     external data change (query invalidation, another session) refreshes the cell
-//     without clobbering in-progress typing (the saved value round-trips unchanged).
 //   - onClick stopPropagation on the wrapper so clicking inside a cell never toggles
 //     row selection or column sort.
+//   - onKeyDown stopPropagation for the keys an open editor owns — see EDITOR_KEYS.
+//
+// The verdict caption stays IN FLOW here, unlike the card. `.MuiDataGrid-cell` is
+// `overflow: hidden` with no vertical padding, so a caption hung below the field
+// would be clipped away and the user would see red text with no reason for it —
+// which is only half of the silent-drop fix. Letting the row grow instead costs a
+// reflow on the transitions into and out of an invalid value, and that is the
+// cheaper of the two.
 
 const cellWrapSx = { width: '100%', py: '2px' };
 const stop = (e) => e.stopPropagation();
 
 /**
- * Ghost InputBase for numeric / duration cells.
- * @param row      DataGrid row
- * @param field    field name on the row to edit
- * @param format   (rawValue) => display string
- * @param parse    (displayString) => API value, or null to skip the save
- * @param validate (displayString) => boolean; false renders the text red (optional)
- * @param onSave   (rowId, {[field]: value}) => void
- * @param align    'left' | 'right' (default 'right' to match number columns)
+ * The keys a permanently-open cell editor consumes, which must NOT reach the
+ * DataGrid's keyboard navigation: caret movement, selection, commit and abandon.
+ *
+ * Deliberately not "every key". The DataGrid registers `cellKeyDown` as a React
+ * synthetic handler on the cell, so stopping propagation wholesale also takes out
+ * PageUp/PageDown paging and the grid's cell-to-cell Tab tracking, neither of which
+ * an editor has any use for.
  */
-export const GhostInputCell = ({ row, field, format, parse, validate, onSave, align = 'right' }) => {
-    const rawValue = row[field];
-    const [value, setValue] = useState(() => format(rawValue));
+const EDITOR_KEYS = new Set([
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    'Home', 'End', 'Enter', 'Escape', ' ',
+]);
+const stopEditorKeys = (e) => { if (EDITOR_KEYS.has(e.key)) e.stopPropagation(); };
 
-    useEffect(() => {
-        setValue(format(rawValue));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [row.id, rawValue]);
+/**
+ * Ghost text field for a numeric / duration cell.
+ * @param row    DataGrid row
+ * @param field  column on the row to edit
+ * @param rule   the column's entry from utils/ghostFieldParsers — owns format,
+ *               normalize, validate, toApi and whether an emptied field reverts
+ * @param onSave (rowId, {[field]: value}) => Promise, REJECTING on failure
+ * @param align  'left' | 'right' (default 'right' to match number columns)
+ */
+export const GhostInputCell = ({ row, field, rule, onSave, align = 'right' }) => (
+    <Box sx={cellWrapSx} onClick={stop} onKeyDown={stopEditorKeys}>
+        <GhostTextField
+            value={rule.format(row[field])}
+            required={rule.required}
+            normalize={rule.normalize}
+            validate={rule.validate}
+            // Returns the promise: GhostTextField awaits it and reverts on rejection.
+            // An adapter that forgot to return would resolve instantly and disable
+            // the rollback with no visible symptom at all.
+            onCommit={(text) => onSave(row.id, { [field]: rule.toApi(text) })}
+            testId={`map-run-${field}`}
+            sx={{
+                width: '100%',
+                '& .MuiInputBase-input': { width: '100%', textAlign: align },
+            }}
+        />
+    </Box>
+);
 
-    const handleBlur = () => {
-        const parsed = parse(value);
-        if (parsed !== null) onSave(row.id, { [field]: parsed });
-    };
-
-    const isInvalid = validate ? !validate(value) : false;
-
+/**
+ * Ghost datetime-local for the start_time cell.
+ * @param row       DataGrid row (uses row.start_time)
+ * @param timezone  user's timezone
+ * @param onSave    (rowId, { start_time }) => Promise, REJECTING on failure
+ */
+export const GhostDateTimeCell = ({ row, timezone, onSave }) => {
+    const rule = dateTimeField(timezone);
     return (
-        <Box sx={cellWrapSx} onClick={stop}>
-            <InputBase
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onBlur={handleBlur}
+        <Box sx={cellWrapSx} onClick={stop} onKeyDown={stopEditorKeys}>
+            <GhostTextField
+                type="datetime-local"
+                value={rule.format(row.start_time)}
+                required={rule.required}
+                validate={rule.validate}
+                onCommit={(text) => onSave(row.id, { start_time: rule.toApi(text) })}
+                testId="map-run-start-time"
                 sx={{
-                    ...ghostBase,
                     width: '100%',
-                    '& .MuiInputBase-input': {
-                        ...ghostBase['& .MuiInputBase-input'],
-                        width: '100%',
-                        textAlign: align,
-                        ...(isInvalid && { color: 'error.main' }),
-                    },
+                    // Without this Chrome's own picker button opens on click and
+                    // swallows the first Escape to close itself, so the field never
+                    // sees the abandon key.
+                    '& input::-webkit-calendar-picker-indicator': { display: 'none' },
+                    '& input::-webkit-inner-spin-button': { display: 'none' },
+                    '& .MuiInputBase-input': { width: '100%' },
                 }}
             />
         </Box>
@@ -73,11 +132,37 @@ export const GhostInputCell = ({ row, field, format, parse, validate, onSave, al
 };
 
 /**
+ * Ghost multiline italic field for the notes cell.
+ * @param row     DataGrid row (uses row.notes)
+ * @param onSave  (rowId, { notes }) => Promise, REJECTING on failure. '' => 'NULL'.
+ */
+export const GhostNotesCell = ({ row, onSave }) => (
+    <Box sx={cellWrapSx} onClick={stop} onKeyDown={stopEditorKeys}>
+        <GhostTextField
+            multiline
+            value={notesField.format(row.notes)}
+            normalize={notesField.normalize}
+            onCommit={(text) => onSave(row.id, { notes: notesField.toApi(text) })}
+            testId="map-run-notes"
+            sx={{
+                fontStyle: 'italic',
+                color: 'text.secondary',
+                '& .MuiInputBase-input': {
+                    fontStyle: 'italic',
+                    color: 'text.secondary',
+                    minHeight: '1.2em',
+                },
+            }}
+        />
+    </Box>
+);
+
+/**
  * Ghost Select for route / activity cells.
  * @param row       DataGrid row
  * @param value     current selected value
  * @param options   [{ value, label }]
- * @param onSave    (rowId, newValue) => void  (fires on change)
+ * @param onSave    (rowId, newValue) => Promise, REJECTING on failure (fires on change)
  */
 export const GhostSelectCell = ({ row, value: controlledValue, options, onSave }) => {
     const [value, setValue] = useState(controlledValue);
@@ -87,26 +172,27 @@ export const GhostSelectCell = ({ row, value: controlledValue, options, onSave }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [row.id, controlledValue]);
 
-    const handleChange = (e) => {
-        const newVal = e.target.value;
-        setValue(newVal);
-        onSave(row.id, newVal);
+    // Optimistic, then rolled back if the write is refused — otherwise the cell keeps
+    // showing a route the run was never assigned. The catch is also what keeps a
+    // rejecting onSave from escaping this void handler as an unhandled rejection.
+    const handleChange = async (e) => {
+        const previous = value;
+        setValue(e.target.value);
+        try {
+            await onSave(row.id, e.target.value);
+        } catch {
+            setValue(previous);   // already reported by the caller
+        }
     };
 
     return (
-        <Box sx={cellWrapSx} onClick={stop}>
+        <Box sx={cellWrapSx} onClick={stop} onKeyDown={stopEditorKeys}>
             <Select
                 value={value}
                 onChange={handleChange}
                 variant="standard"
                 IconComponent={() => null}
-                sx={{
-                    width: '100%',
-                    fontSize: 'inherit',
-                    '& .MuiSelect-select': { py: 0, pr: '0 !important' },
-                    '&:before': { borderBottomColor: 'transparent' },
-                    '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                }}
+                sx={(theme) => ({ ...ghostSelectBase(theme), width: '100%' })}
             >
                 {options.map((opt) => (
                     <MenuItem key={String(opt.value)} value={opt.value} sx={{ fontSize: '0.8125rem' }}>
@@ -119,95 +205,12 @@ export const GhostSelectCell = ({ row, value: controlledValue, options, onSave }
 };
 
 /**
- * Ghost datetime-local for the start_time cell.
- * @param row       DataGrid row (uses row.start_time)
- * @param timezone  user's timezone
- * @param onSave    (rowId, { start_time }) => void  (fires on blur)
- */
-export const GhostDateTimeCell = ({ row, timezone, onSave }) => {
-    const [value, setValue] = useState(() => toDateTimeLocalValue(row.start_time, timezone));
-
-    useEffect(() => {
-        setValue(toDateTimeLocalValue(row.start_time, timezone));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [row.id, row.start_time, timezone]);
-
-    const handleBlur = () => {
-        const parsed = fromDateTimeLocalValue(value, timezone);
-        if (parsed) onSave(row.id, { start_time: parsed });
-    };
-
-    return (
-        <Box sx={cellWrapSx} onClick={stop}>
-            <InputBase
-                type="datetime-local"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onBlur={handleBlur}
-                sx={{
-                    ...ghostBase,
-                    width: '100%',
-                    '& input::-webkit-calendar-picker-indicator': { display: 'none' },
-                    '& input::-webkit-inner-spin-button': { display: 'none' },
-                    '& .MuiInputBase-input': {
-                        ...ghostBase['& .MuiInputBase-input'],
-                        width: '100%',
-                    },
-                }}
-            />
-        </Box>
-    );
-};
-
-/**
- * Ghost multiline italic InputBase for the notes cell.
- * @param row     DataGrid row (uses row.notes)
- * @param onSave  (rowId, { notes }) => void  (fires on blur; '' => 'NULL')
- */
-export const GhostNotesCell = ({ row, onSave }) => {
-    const [value, setValue] = useState(row.notes || '');
-
-    useEffect(() => {
-        setValue(row.notes || '');
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [row.id, row.notes]);
-
-    const handleBlur = () => {
-        onSave(row.id, { notes: value.trim() || 'NULL' });
-    };
-
-    return (
-        <Box sx={cellWrapSx} onClick={stop}>
-            <InputBase
-                fullWidth
-                multiline
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onBlur={handleBlur}
-                sx={{
-                    ...ghostBase,
-                    display: 'flex',
-                    width: '100%',
-                    fontStyle: 'italic',
-                    color: 'text.secondary',
-                    '& .MuiInputBase-input': {
-                        ...ghostBase['& .MuiInputBase-input'],
-                        fontStyle: 'italic',
-                        color: 'text.secondary',
-                        minHeight: '1.2em',
-                    },
-                }}
-            />
-        </Box>
-    );
-};
-
-/**
  * Ghost Autocomplete for the partners cell.
  * @param row          DataGrid row
  * @param partners     all partner records [{ id, name }]
  * @param runPartners  all run-partner links [{ map_run_fk, map_partner_fk }]
- * @param onSave       (rowId, newNames[]) => void  (fires on change; parent diffs add/remove)
+ * @param onSave       (rowId, newNames[]) => Promise, REJECTING on failure
+ *                     (fires on change; parent diffs add/remove)
  */
 export const GhostPartnersCell = ({ row, partners, runPartners, onSave }) => {
     const computeNames = () => {
@@ -221,13 +224,18 @@ export const GhostPartnersCell = ({ row, partners, runPartners, onSave }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [row.id, runPartners, partners]);
 
-    const handleChange = (e, newNames) => {
+    const handleChange = async (e, newNames) => {
+        const previous = value;
         setValue(newNames);
-        onSave(row.id, newNames);
+        try {
+            await onSave(row.id, newNames);
+        } catch {
+            setValue(previous);
+        }
     };
 
     return (
-        <Box sx={cellWrapSx} onClick={stop}>
+        <Box sx={cellWrapSx} onClick={stop} onKeyDown={stopEditorKeys}>
             <Autocomplete
                 multiple
                 freeSolo
@@ -247,16 +255,9 @@ export const GhostPartnersCell = ({ row, partners, runPartners, onSave }) => {
                         {...params}
                         variant="standard"
                         placeholder={value.length === 0 ? 'No partners' : ''}
-                        sx={{
-                            '& .MuiInput-underline:before': { borderBottomColor: 'transparent' },
-                            '& .MuiInput-underline:hover:not(.Mui-disabled, .Mui-error):before': {
-                                borderBottomColor: 'rgba(0,0,0,0.3)',
-                            },
-                            '& .MuiInputBase-input::placeholder': {
-                                color: 'text.disabled', opacity: 1, fontSize: '0.8125rem',
-                            },
-                            '& .MuiInputBase-root': { flexWrap: 'wrap', gap: 0.5 },
-                        }}
+                        sx={(theme) => ghostAutocompleteInputBase(theme, {
+                            placeholderFontSize: '0.8125rem',
+                        })}
                     />
                 )}
             />

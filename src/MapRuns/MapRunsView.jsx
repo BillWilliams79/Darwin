@@ -28,7 +28,8 @@ import call_rest_api from '../RestApi/RestApi';
 import { asyncPool } from '../utils/asyncPool';
 import { mapRunKeys, mapRouteKeys, mapPartnerKeys, mapRunPartnerKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { formatDuration, parseDuration } from '../utils/mapDataUtils';
+import { formatDuration } from '../utils/mapDataUtils';
+import { mapRunFields } from '../utils/ghostFieldParsers';
 import {
     GhostInputCell,
     GhostSelectCell,
@@ -170,8 +171,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="distance_mi"
-                    format={v => v != null ? Number(v).toFixed(1) : ''}
-                    parse={v => { const n = parseFloat(v); return isNaN(n) ? null : n; }}
+                    rule={mapRunFields.distance_mi}
                     onSave={saveRunFields}
                 />
             ),
@@ -186,9 +186,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="run_time_sec"
-                    format={v => v != null ? formatDuration(v) : ''}
-                    parse={v => { const s = parseDuration(v); return isNaN(s) ? null : s; }}
-                    validate={v => v === '' || !isNaN(parseDuration(v))}
+                    rule={mapRunFields.run_time_sec}
                     onSave={saveRunFields}
                     align="left"
                 />
@@ -204,8 +202,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="ascent_ft"
-                    format={v => v != null ? String(Math.round(Number(v))) : ''}
-                    parse={v => v === '' ? 'NULL' : (isNaN(parseInt(v, 10)) ? null : parseInt(v, 10))}
+                    rule={mapRunFields.ascent_ft}
                     onSave={saveRunFields}
                 />
             ),
@@ -220,8 +217,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="descent_ft"
-                    format={v => v != null ? String(Math.round(Number(v))) : ''}
-                    parse={v => v === '' ? 'NULL' : (isNaN(parseInt(v, 10)) ? null : parseInt(v, 10))}
+                    rule={mapRunFields.descent_ft}
                     onSave={saveRunFields}
                 />
             ),
@@ -236,8 +232,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="max_speed_mph"
-                    format={v => v != null ? Number(v).toFixed(1) : ''}
-                    parse={v => v === '' ? 'NULL' : (isNaN(parseFloat(v)) ? null : parseFloat(v))}
+                    rule={mapRunFields.max_speed_mph}
                     onSave={saveRunFields}
                 />
             ),
@@ -252,8 +247,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
                 <GhostInputCell
                     row={params.row}
                     field="avg_speed_mph"
-                    format={v => v != null ? Number(v).toFixed(1) : ''}
-                    parse={v => v === '' ? 'NULL' : (isNaN(parseFloat(v)) ? null : parseFloat(v))}
+                    rule={mapRunFields.avg_speed_mph}
                     onSave={saveRunFields}
                 />
             ),
@@ -287,18 +281,36 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
     ];
 
     // ── Inline-edit save helpers (mirror RouteCard) ──────────────────────────
+
+    /**
+     * REJECTS on failure, and that is the contract, not an oversight.
+     *
+     * The ghost cell editors await this and revert the cell when it rejects, so a
+     * write that resolved after a 500 would leave the failed value sitting in the
+     * grid looking saved until the next refetch quietly replaced it — the exact
+     * defect req #3073 exists to remove. The Select and Autocomplete cells catch it
+     * themselves and roll back their own optimistic state.
+     */
     const saveRunFields = async (rowId, fields) => {
+        let result;
         try {
-            const result = await call_rest_api(
+            result = await call_rest_api(
                 `${darwinUri}/map_runs`, 'PUT', [{ id: rowId, ...fields }], idToken
             );
-            if (result.httpStatus.httpStatus > 204) showError(result, 'Failed to update activity');
-            else queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
         } catch (err) {
             showError(err, 'Failed to update activity');
+            throw err;
         }
+        if (result.httpStatus.httpStatus > 204) {
+            showError(result, 'Failed to update activity');
+            throw new Error('Failed to update activity');
+        }
+        queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
     };
 
+    // Rethrows so GhostSelectCell can roll its optimistic value back. The route
+    // invalidation is deliberately inside the success path — a refused write has not
+    // changed which runs belong to which route.
     const handleRouteChange = async (rowId, newValue) => {
         await saveRunFields(rowId, { map_route_fk: newValue === NO_ROUTE ? 'NULL' : newValue });
         queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
@@ -328,6 +340,7 @@ const MapRunsView = ({ runs = [], routes = [], partners = [], runPartners = [], 
             queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
         } catch (err) {
             showError(err, 'Failed to update partners');
+            throw err;   // GhostPartnersCell rolls its chips back
         }
     };
 

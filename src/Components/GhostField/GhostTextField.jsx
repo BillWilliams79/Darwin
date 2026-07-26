@@ -6,6 +6,10 @@
 // (MapRuns/GhostCellEditors), which hand-rolled it per field against the shared
 // `ghostBase` sx.
 //
+// Req #3073 migrated both of those onto this component, so the list below is now
+// a record of what the migration FIXED in the Maps views rather than of how they
+// still differ.
+//
 // What this component adds over those two, and the reason it exists rather than
 // a third copy:
 //
@@ -41,15 +45,6 @@ import Typography from '@mui/material/Typography';
 
 import { ghostBase } from '../../utils/ghostFieldStyles';
 
-// `ghostBase` hard-codes a black hover underline, which is invisible on a dark
-// background. Every consumer of this component is theme-aware, so the hover and
-// focus colours are resolved from the palette here instead. Deliberately NOT
-// fixed in ghostBase itself: that object is shared with the Maps views and
-// changing it would alter their appearance from inside this requirement.
-const underlineHover = (theme) => theme.palette.mode === 'dark'
-    ? 'rgba(255,255,255,0.4)'
-    : 'rgba(0,0,0,0.3)';
-
 const GhostTextField = ({
     value,
     onCommit,
@@ -64,6 +59,15 @@ const GhostTextField = ({
     hint,
     // NOT NULL column: an emptied field reverts rather than writing ''.
     required = false,
+    // Passed straight to the underlying input. `datetime-local` is the one that
+    // matters: the Maps start_time fields need a native date/time picker AND the
+    // commit contract, and there is nothing about the contract that is specific to
+    // free text — validate/normalize just operate on the picker's string form.
+    //
+    // Undefined by default rather than 'text', and suppressed on a multiline field:
+    // `type` is not a valid attribute on a <textarea>, so defaulting it would put a
+    // React DOM warning and a stray attribute on every multiline field in the app.
+    type,
     multiline = false,
     // Enter commits instead of inserting a newline. Defaults to "whenever this is
     // not a multiline field", but the two are separable: a NAME is single-line
@@ -73,8 +77,33 @@ const GhostTextField = ({
     maxRows,
     placeholder,
     disabled = false,
+    // Lay the field out as part of the surrounding line rather than as a block of
+    // its own. RouteCard's stats table renders the value and its unit as one run of
+    // text — `12.5` + ` mi` — and the default block wrapper would drop the unit onto
+    // the next line. The verdict/hint caption still stacks underneath.
+    //
+    // Specifically inline-FLEX-column, not inline-block. An inline-block takes its
+    // baseline from its LAST line box, so the instant a verdict appeared under the
+    // value the trailing ` mi` would jump up beside the caption — the same
+    // line-breaking bug this prop exists to prevent, merely deferred to the first
+    // invalid keystroke. A flex container baselines on its FIRST item, so the input
+    // sits on the row's baseline whether or not a message is showing.
+    //
+    // Meaningless on a multiline field, which is a block of text by definition.
+    inline = false,
+    // Take the verdict/hint caption OUT of flow and hang it below the field.
+    // For the Maps DataGrid: rows are `getRowHeight: 'auto'` inside an `autoHeight`
+    // grid, and validation runs per keystroke, so an in-flow caption re-measures the
+    // row and shifts every row under it on and off with each character typed.
+    overlayMessage = false,
     // Merged into the input sx so the idle field inherits the typography of
     // whatever it replaced and looks unchanged until hovered.
+    //
+    // A PLAIN OBJECT, not the theme callback or array that MUI's own `sx` also
+    // accepts: the ghost branch spreads this and reads its nested
+    // '& .MuiInputBase-input' key by hand, so a function would spread to nothing and
+    // the caller's styling would vanish with no error. Resolve the theme in the
+    // caller if you need it.
     sx = {},
     inputProps = {},
     inputRef,
@@ -133,9 +162,31 @@ const GhostTextField = ({
     // and the re-seed it is guarding would never happen again.
     const lastSeeded = useRef(stored);
 
+    // The `stored` value a commit was issued against, held until the prop moves off
+    // it — see the re-seed effect below. Null when no write is outstanding; `stored`
+    // is always a string, so null is an unambiguous sentinel.
+    const staleStored = useRef(null);
+
     useEffect(() => {
         if (controlled) return;                    // no local copy to re-seed
         if (focused.current) return;
+        // OUR OWN WRITE HAS NOT COME BACK YET. `stored` is still the value from
+        // before the commit, and it stays that way until the caller's invalidation
+        // round-trips. Meanwhile the field has already adopted the committed text,
+        // so by the dirty test below it looks clean — and the re-seed would paint
+        // the pre-edit value back over the user's own successful edit.
+        //
+        // That is not a flicker: it lasts a whole network round trip, it reads as
+        // "the save failed", and the retry it invites writes the same value a second
+        // time. It only bites when `normalize` rewrites the text — typing `20` into
+        // a one-decimal column, `45:00` into a duration — which is why it stayed
+        // latent until the Maps migration gave every numeric field a normalizer.
+        //
+        // The latch is released by the PROP MOVING, not by the promise settling: the
+        // write resolves a microtask before React commits the render this guard has
+        // to survive, so anything cleared in a `finally` would already be gone.
+        if (staleStored.current !== null && stored === staleStored.current) return;
+        staleStored.current = null;
         if (text !== lastSeeded.current) return;   // dirty — keep the user's work
         lastSeeded.current = stored;
         setLocalText(stored);
@@ -194,6 +245,10 @@ const GhostTextField = ({
 
     const revert = () => {
         lastSeeded.current = stored;
+        // Whatever write was outstanding is over — a rejection, or an abandoned
+        // edit. The field is back on the stored value, so the stale-prop latch has
+        // nothing left to protect.
+        staleStored.current = null;
         applyText(stored);
         setError(null);
     };
@@ -228,7 +283,13 @@ const GhostTextField = ({
         if (!controlled && untouched) {
             // Nothing typed. If the server moved while we held focus, adopt that
             // value now — this is the re-seed the effect had to skip.
-            if (text !== stored) revert();
+            //
+            // `stored !== staleStored.current` is the same guard the effect applies:
+            // a write of ours may still be outstanding, in which case `stored` is
+            // the value from BEFORE it and adopting it would undo the edit. Clicking
+            // into a field and straight back out is exactly how a user checks that
+            // an edit took, so this path is anything but hypothetical.
+            if (text !== stored && stored !== staleStored.current) revert();
             return;
         }
 
@@ -262,6 +323,15 @@ const GhostTextField = ({
             // this same text, and the re-seed effect has to recognise that as
             // clean rather than as an external change arriving over a dirty field.
             lastSeeded.current = next;
+            // Until the prop catches up with this write, THIS FIELD — not the stale
+            // `stored` it was issued against — is the authority on its own value.
+            //
+            // Uncontrolled only, and stated rather than left to fall out: a draft
+            // field has no local copy to protect, so both readers of this ref (the
+            // re-seed effect and the `untouched` branch above) are behind
+            // `!controlled` already. Setting it there would be inert state that
+            // reads as meaningful.
+            if (!controlled) staleStored.current = stored;
             await onCommit(next);
         } catch {
             // The caller reports the failure; this only makes sure the field
@@ -308,6 +378,7 @@ const GhostTextField = ({
                 label={label}
                 variant="outlined"
                 size="small"
+                type={multiline ? undefined : type}
                 multiline={multiline}
                 minRows={minRows}
                 maxRows={maxRows}
@@ -327,13 +398,23 @@ const GhostTextField = ({
     }
 
     return (
-        <Box sx={{ minWidth: 0 }}>
+        <Box sx={{
+            minWidth: 0,
+            ...(inline && !multiline && {
+                display: 'inline-flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                verticalAlign: 'baseline',
+            }),
+            ...(overlayMessage && { position: 'relative' }),
+        }}>
             <InputBase
                 value={text}
                 onChange={handleChange}
                 onFocus={() => setEditing(true)}
                 onBlur={commit}
                 onKeyDown={handleKeyDown}
+                type={multiline ? undefined : type}
                 multiline={multiline}
                 minRows={minRows}
                 maxRows={maxRows}
@@ -354,36 +435,58 @@ const GhostTextField = ({
                     }),
                     'data-testid': testId,
                 }}
-                sx={(theme) => ({
-                    ...ghostBase,
-                    // A content-sized multiline field (autoWidthCh) must NOT be
-                    // stretched to full width — it wraps inside the width its own
-                    // text asks for.
-                    ...(multiline && {
-                        display: 'flex',
-                        ...(autoWidthCh ? {} : { width: '100%' }),
-                    }),
-                    ...sx,
-                    '& .MuiInputBase-input': {
-                        ...ghostBase['& .MuiInputBase-input'],
-                        ...(sx['& .MuiInputBase-input'] || {}),
-                        ...(error && { color: theme.palette.error.main }),
-                        '&:hover': { borderBottomColor: underlineHover(theme) },
-                        '&:focus': {
-                            outline: 'none',
-                            borderBottomColor: error
-                                ? theme.palette.error.main
-                                : theme.palette.primary.main,
+                sx={(theme) => {
+                    const base = ghostBase(theme);
+                    return {
+                        ...base,
+                        // A content-sized multiline field (autoWidthCh) must NOT be
+                        // stretched to full width — it wraps inside the width its own
+                        // text asks for.
+                        ...(multiline && {
+                            display: 'flex',
+                            ...(autoWidthCh ? {} : { width: '100%' }),
+                        }),
+                        ...sx,
+                        '& .MuiInputBase-input': {
+                            ...base['& .MuiInputBase-input'],
+                            ...(sx['& .MuiInputBase-input'] || {}),
+                            ...(error && { color: theme.palette.error.main }),
+                            // Only the ERROR case differs from the shared base, so
+                            // only that is restated: a blocked field underlines in
+                            // red rather than primary while it holds focus.
+                            ...(error && {
+                                '&:focus': {
+                                    outline: 'none',
+                                    borderBottomColor: theme.palette.error.main,
+                                },
+                            }),
+                            '&::placeholder': { color: theme.palette.text.disabled, opacity: 1 },
                         },
-                        '&::placeholder': { color: theme.palette.text.disabled, opacity: 1 },
-                    },
-                })}
+                    };
+                }}
             />
             {(error || advisory) && (
                 <Typography
                     variant="caption"
                     color={error ? 'error' : 'text.secondary'}
-                    sx={{ display: 'block', mt: 0.25 }}
+                    sx={{
+                        display: 'block',
+                        mt: 0.25,
+                        ...(overlayMessage && {
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            zIndex: 2,
+                            mt: 0,
+                            whiteSpace: 'nowrap',
+                            // It is floating over whatever is beneath it, so it needs
+                            // its own surface to stay legible.
+                            px: 0.5,
+                            borderRadius: 0.5,
+                            bgcolor: 'background.paper',
+                            boxShadow: 1,
+                        }),
+                    }}
                     data-testid={testId ? `${testId}-message` : undefined}
                 >
                     {error || advisory}
