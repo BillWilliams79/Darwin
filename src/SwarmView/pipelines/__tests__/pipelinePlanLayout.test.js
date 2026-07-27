@@ -371,6 +371,50 @@ describe('launch-batch box geometry', () => {
             assertNoLabelOverlap(layout, name);
         });
     }
+
+    // Verification-round regression: two batches at the same depth in ONE band.
+    // The first packing pass let a batch's mates spread around the other
+    // batch's lanes, so its box enclosed all of them. The contiguous-run
+    // allocation must keep every box to exactly its own members.
+    it('keeps two same-depth batches in one band strictly apart', () => {
+        const mk = (id, depIds, reqIds) => ({
+            id, title: `s${id}`, run: 'auto', state: 'pending', reqIds,
+            depIds, timeDeps: [], epicId: 1, epic: 'E1',
+            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        });
+        const rows = [
+            mk(1, [], []),
+            mk(2, [], []),
+            mk(6, [2], [906]), mk(7, [2], [907]), mk(8, [2], [908]),
+            mk(3, [1, 2], [903]), mk(4, [1, 2], [904]),
+        ];
+        const batches = [
+            { letter: 'A', stepIds: [6, 7, 8] },
+            { letter: 'B', stepIds: [3, 4] },
+        ];
+        const layout = computePlanLayout(rows, batches);
+        for (const box of layout.batchBoxes) {
+            const members = new Set(box.stepIds);
+            for (const n of layout.nodes.values()) {
+                if (members.has(n.id)) continue;
+                const inside = n.x > box.x && n.x < box.x + box.width
+                    && n.y > box.y && n.y < box.y + box.height;
+                if (inside) {
+                    throw new Error(`batch ${box.letter} box encloses `
+                        + `non-member step ${n.id}`);
+                }
+            }
+            // And every member really is inside its own box.
+            for (const id of members) {
+                const n = layout.nodes.get(id);
+                if (!n) continue;
+                expect(n.x > box.x && n.x < box.x + box.width
+                    && n.y > box.y && n.y < box.y + box.height).toBe(true);
+            }
+        }
+        assertNoLabelOverlap(layout, 'two same-depth batches');
+        assertStraightArcsClear(layout, rows);
+    });
 });
 
 describe('bead vocabulary (POC roles)', () => {

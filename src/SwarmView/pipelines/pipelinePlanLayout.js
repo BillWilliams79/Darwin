@@ -259,18 +259,43 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             }
             return true;
         };
-        // Same-band batch-mates take consecutive-as-possible lanes below their
-        // first member, so a batch box encloses members and (at worst)
-        // reservation-empty cells — never a foreign bead: any skipped cell is
-        // reserved, and reserved cells never receive beads at this depth.
-        const lastBatchLane = new Map(); // letter -> last lane used in THIS band
+        // Same-band batch-mates take a CONTIGUOUS RUN of lanes, allocated when
+        // the first mate places: the lowest run of members.length lanes that
+        // all pass laneOk (dep-anchored candidates first, so a gate on this
+        // band's lane keeps its straight arc when possible). Mates share one
+        // dep set, so laneOk is member-independent and the pre-check holds for
+        // every mate; the sort keeps mates consecutive, so nothing else places
+        // between the pre-check and the last mate. A batch box therefore
+        // encloses exactly its members — never a foreign bead. (Review found
+        // the earlier next-free-lane packing letting mates spread around an
+        // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
+        const batchRunNext = new Map(); // letter -> next lane in this band's run
         for (const r of steps) {
             const d = depthMemo.get(r.id);
             const letter = batchOf.get(r.id);
             let lane = null;
-            if (letter !== undefined && lastBatchLane.has(letter)) {
-                lane = lastBatchLane.get(letter) + 1;
-                while (!laneOk(r, d, lane)) lane += 1;
+            if (letter !== undefined) {
+                if (!batchRunNext.has(letter)) {
+                    const n = steps.filter((s) => batchOf.get(s.id) === letter).length;
+                    const runOk = (start) => {
+                        for (let k = 0; k < n; k++) {
+                            if (!laneOk(r, d, start + k)) return false;
+                        }
+                        return true;
+                    };
+                    let start = null;
+                    for (const a of sameEpicDepsOf(r)) {
+                        const al = laneById.get(a.id);
+                        if (al !== undefined && runOk(al)) { start = al; break; }
+                    }
+                    if (start === null) {
+                        start = 0;
+                        while (!runOk(start)) start += 1;
+                    }
+                    batchRunNext.set(letter, start);
+                }
+                lane = batchRunNext.get(letter);
+                batchRunNext.set(letter, lane + 1);
             } else {
                 for (const a of sameEpicDepsOf(r)) {
                     const al = laneById.get(a.id);
@@ -283,7 +308,6 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             }
             laneById.set(r.id, lane);
             take(d, lane, r.id);
-            if (letter !== undefined) lastBatchLane.set(letter, lane);
             // Reserve the corridor of every straight (same-lane) arc into this
             // step, so no LATER chain inherits a lane through it. take() never
             // overwrites, so an in-chain bead already in the corridor keeps its
@@ -477,9 +501,22 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         }
         others.push({ x, w });
         placedLetters.set(box.bandIndex, others);
+        const y = band.y + 22;
+        // A box whose top member sits below lane 0 leaves a gap between the
+        // header-strip letter and the box; the leader is a dashed drop-line the
+        // renderer draws from the letter to the box top so the association
+        // stays readable (review finding: a 133px orphaned letter). Clamped
+        // into the box's x-range for staggered letters.
+        const leader = box.y - (y + 11) > 6
+            ? {
+                x1: x + 4, y1: y + 12,
+                x2: Math.min(Math.max(x + 4, box.x + 6), box.x + box.width - 6),
+                y2: box.y,
+            }
+            : null;
         labels.push({
             kind: 'batch', letter: box.letter, text,
-            x, y: band.y + 22, w, h: 11,
+            x, y, w, h: 11, leader,
         });
     }
 

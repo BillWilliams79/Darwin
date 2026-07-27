@@ -369,6 +369,14 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.batch} fontFamily={MONO} fill={P.batch}
                       listening={false} />);
+            if (label.leader) {
+                worldNodes.push(
+                    <Line key={`lbl-${i}-leader`}
+                          points={[label.leader.x1, label.leader.y1,
+                                   label.leader.x2, label.leader.y2]}
+                          stroke="rgba(74, 217, 200, 0.55)" strokeWidth={1}
+                          dash={[4, 4]} listening={false} />);
+            }
         }
     });
 
