@@ -168,4 +168,28 @@ describe('createEntityQueries — wired devops blocks follow dev/prod split (req
         const url = callRestApiMock.mock.calls[0][0];
         expect(url).toContain(`${TEST_DARWIN_URI}/swarm_start_sessions`);
     });
+
+    // Req #3095 — the ground-truth CC-base breakdown added five columns to
+    // agent_telemetry_rows. The report route reads them by NAME through this
+    // factory's `fields=` projection (see agent-context-telemetry.md's
+    // ContextPage.jsx consumer); a typo'd or dropped column name here would
+    // silently omit that data from every fetch with no error anywhere, since
+    // Lambda-Rest's generic GET simply returns fewer columns for an unknown
+    // field rather than 400ing. This locks the five names into the projection.
+    it('agentTelemetryRows.useByRun projects the five ground-truth breakdown columns (req #3095)', async () => {
+        const { agentTelemetryRows } = await import('../factory/devopsQueries');
+        agentTelemetryRows.useByRun(1);
+        const url = callRestApiMock.mock.calls[0][0];
+        const fieldsMatch = /[?&]fields=([^&]+)/.exec(url);
+        expect(fieldsMatch).not.toBeNull();
+        const projected = fieldsMatch[1].split(',');
+        for (const breakdown of ['system_prompt_tokens', 'system_tools_tokens',
+            'mcp_tools_tokens', 'skills_tokens', 'custom_agents_tokens']) {
+            expect(projected).toContain(breakdown);
+        }
+        // Sanity: the pre-existing columns the table already rendered are untouched.
+        for (const existing of ['cc_base_tokens', 'claude_md_tokens', 'start_work_context_tokens']) {
+            expect(projected).toContain(existing);
+        }
+    });
 });

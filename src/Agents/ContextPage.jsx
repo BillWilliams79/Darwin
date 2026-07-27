@@ -107,6 +107,11 @@ const GLOSSARY = [
     ['Units', <>All values are <strong>actual tokens</strong> (real tokenizer, from transcript usage deltas), except <strong>Boot time</strong> which is milliseconds.</>],
     ['Boot time', <>Latency of the <code>darwin://agents/&lt;Name&gt;</code> boot call, measured <strong>sequentially</strong> (one boot at a time; parallel launch inflates it ~2&times;).</>],
     ['Claude Code', <>The Claude Code system prompt: harness instructions + tool schemas + skills listing + MCP listing. Equals Initial context minus CLAUDE.md and the charter stub.</>],
+    ['System Prompt', <>Ground-truth breakdown (req #3095): the harness instructions piece of Claude Code, read directly from Claude Code's own <code>/context</code> command.</>],
+    ['System Tools', <>Ground-truth breakdown: the built-in tool-schema piece of Claude Code (Read, Write, Bash, etc.), read directly from <code>/context</code>.</>],
+    ['MCP Tools', <>Ground-truth breakdown: the MCP tools/resources listing piece of Claude Code, read directly from <code>/context</code>.</>],
+    ['Skills', <>Ground-truth breakdown: the available-skills listing piece of Claude Code, read directly from <code>/context</code>.</>],
+    ['Custom Agents', <>Ground-truth breakdown: the other-custom-agent listing piece of Claude Code, read directly from <code>/context</code>.</>],
     ['CLAUDE.md', <>The project instruction file, loaded into every session.</>],
     ['Agent File', <>The agent's <code>.claude/agents/*.md</code> file, loaded as its system prompt.</>],
     ['Agent MCP Payload', <>Context added by the boot call — identity row, binding instructions, and document pointers (not document contents).</>],
@@ -402,12 +407,15 @@ const ContextPage = () => {
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }} data-testid="agent-context-page">
             <style>{TABLE_CSS}</style>
 
-            {/* maxWidth matches the atc-root Box below so the trailing icons here
-                right-align with the telemetry table's actual right edge, not the
-                full (possibly much wider) page — req #3065. mb matches the
-                atc-root Box's own flex `gap` (34px) so the gap above the capture
-                picker equals the gap below it (picker -> Description). */}
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: '34px', flexWrap: 'wrap', gap: 2, maxWidth: 1120 }}>
+            {/* No maxWidth (req #3095 follow-up) — the table now has 14 columns and
+                needs the full content-area width before its own horizontal scrollbar
+                (.atc-scroll) should ever engage; a fixed cap here forced that scrollbar
+                well before the viewport ran out of room. This Box and the atc-root Box
+                below both stretch to the same (unconstrained) width, so the trailing
+                icons here still right-align with the table's actual right edge. mb
+                matches the atc-root Box's own flex `gap` (34px) so the gap above the
+                capture picker equals the gap below it (picker -> Description). */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: '34px', flexWrap: 'wrap', gap: 2 }}>
                 <ToggleButtonGroup
                     size="small"
                     exclusive
@@ -445,7 +453,7 @@ const ContextPage = () => {
                     No telemetry captures recorded yet.
                 </Typography>
             ) : (
-                <Box className="atc-root" sx={{ ...vars, display: 'flex', flexDirection: 'column', gap: '34px', maxWidth: 1120 }}>
+                <Box className="atc-root" sx={{ ...vars, display: 'flex', flexDirection: 'column', gap: '34px' }}>
                     {/* Capture control is the first element of the render window
                         (req #3065) — above the Description, which is itself above
                         the table. A Button rather than a <Select> so the dropdown
@@ -664,6 +672,7 @@ const ContextPage = () => {
                                         Boot time<br />(ms){sortArrow('boot_time_ms')}
                                     </th>
                                     <th className="grp" colSpan={3}>FIXED OVERHEAD</th>
+                                    <th className="grp" colSpan={5}>CC BASE BREAKDOWN</th>
                                     <th className="grp" colSpan={3}>Loaded per-agent</th>
                                     <th className="num sortable" rowSpan={2}
                                         onClick={() => handleSort('start_work_context_tokens')}
@@ -684,6 +693,26 @@ const ContextPage = () => {
                                         data-testid="agent-context-sort-charter_stub_tokens">
                                         Agent File{sortArrow('charter_stub_tokens')}
                                     </th>
+                                    <th className="num sortable" onClick={() => handleSort('system_prompt_tokens')}
+                                        data-testid="agent-context-sort-system_prompt_tokens">
+                                        System<br />Prompt{sortArrow('system_prompt_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('system_tools_tokens')}
+                                        data-testid="agent-context-sort-system_tools_tokens">
+                                        System<br />Tools{sortArrow('system_tools_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('mcp_tools_tokens')}
+                                        data-testid="agent-context-sort-mcp_tools_tokens">
+                                        MCP<br />Tools{sortArrow('mcp_tools_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('skills_tokens')}
+                                        data-testid="agent-context-sort-skills_tokens">
+                                        Skills{sortArrow('skills_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('custom_agents_tokens')}
+                                        data-testid="agent-context-sort-custom_agents_tokens">
+                                        Custom<br />Agents{sortArrow('custom_agents_tokens')}
+                                    </th>
                                     <th className="num sortable" onClick={() => handleSort('boot_payload_tokens')}
                                         data-testid="agent-context-sort-boot_payload_tokens">
                                         Agent MCP Payload{sortArrow('boot_payload_tokens')}
@@ -701,7 +730,7 @@ const ContextPage = () => {
                             <tbody>
                                 {rowsLoading ? (
                                     <tr><td className="agent"><CircularProgress size={16} /></td>
-                                        <td colSpan={8} /></tr>
+                                        <td colSpan={13} /></tr>
                                 ) : rendered.list.map((r, idx) => {
                                     const c = computeCells(r, rendered.markerByText);
                                     // A cell string that equals the n/a sentinel renders muted.
@@ -739,6 +768,11 @@ const ContextPage = () => {
                                                             </span>
                                                         )}
                                                 </td>
+                                                <td className="num">{cell(c.systemPrompt)}</td>
+                                                <td className="num">{cell(c.systemTools)}</td>
+                                                <td className="num">{cell(c.mcpTools)}</td>
+                                                <td className="num">{cell(c.skills)}</td>
+                                                <td className="num">{cell(c.customAgents)}</td>
                                                 <td className="num">{cell(c.bootPayload)}</td>
                                                 <td className="num">{cell(c.autoload)}</td>
                                                 <td className={`mid${c.docsIncomplete ? ' docs-warn' : ''}${c.docsClickable ? ' docs-clickable' : ''}`}
@@ -764,6 +798,22 @@ const ContextPage = () => {
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Per-row footnotes (the *, †, … markers on individual cells — e.g. why a
+                        row's charter stub or boot/autoload phase shows n/a) render as a legend
+                        directly below the table, not inside the column-definition Glossary
+                        dialog — they explain THIS capture's specific rows, not the table's fixed
+                        column vocabulary, and a reader should be able to see them without an
+                        extra click. */}
+                    {rendered.markerByText.size > 0 && (
+                        <Box data-testid="agent-context-footnotes" sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            {[...rendered.markerByText.entries()].map(([text, mark]) => (
+                                <Typography key={mark} variant="caption" color="text.secondary">
+                                    <strong>{mark}</strong> {text}
+                                </Typography>
+                            ))}
+                        </Box>
+                    )}
                 </Box>
             )}
 
@@ -785,12 +835,6 @@ const ContextPage = () => {
                             <Fragment key={term}>
                                 <Typography variant="subtitle2">{term}</Typography>
                                 <Typography variant="body2" color="text.secondary">{def}</Typography>
-                            </Fragment>
-                        ))}
-                        {[...rendered.markerByText.entries()].map(([text, mark]) => (
-                            <Fragment key={mark}>
-                                <Typography variant="subtitle2">{mark}</Typography>
-                                <Typography variant="body2" color="text.secondary">{text}</Typography>
                             </Fragment>
                         ))}
                     </Box>
