@@ -264,11 +264,16 @@ function GroupCell({ show, value, labels, width, color, testid }) {
     return extra ? <Tooltip title={`All: ${extra}`}>{cell}</Tooltip> : cell;
 }
 
-export default function PipelinePlanTable({ plan, timezone }) {
+export default function PipelinePlanTable({ plan, timezone, costError = false }) {
     // The POC shipped with the Cost column HIDDEN (`<body class="hidecost">`) and
-    // a "Time / Tokens" button to reveal it. Same default here, for the same
-    // reason plus one: until req #3117 lands the server-side rollup, every cell
-    // is an em-dash, and a column of dashes on by default reads as broken data.
+    // a "Time / Tokens" button to reveal it. Same default here: cost is a
+    // secondary question about a plan whose primary job is showing what runs
+    // next, and the column is the widest thing that can be added to a row that
+    // already carries nine.
+    //
+    // The values are REAL as of req #3117 — `row.cost` comes from the server-side
+    // rollup (migration 077) via two bounded list reads, not from the
+    // per-requirement fan-out that got the POC's version disabled.
     const [showCost, setShowCost] = useState(false);
 
     const renderRows = useMemo(() => planRenderRows(plan), [plan]);
@@ -308,11 +313,12 @@ export default function PipelinePlanTable({ plan, timezone }) {
                 >
                     Time / Tokens
                 </Button>
-                {showCost && (
-                    <Typography variant="caption" color="text.secondary"
-                                data-testid="pipeline-cost-pending">
-                        Cost rollups are not collected yet — every cell reads an em-dash until
-                        the server-side rollup ships.
+                {showCost && costError && (
+                    <Typography variant="caption" color="error"
+                                data-testid="pipeline-cost-error">
+                        The cost reads failed — every cell below reads an em-dash because the
+                        numbers could not be fetched, not because this plan has no recorded
+                        cost. Reload before drawing conclusions from this column.
                     </Typography>
                 )}
                 <Box sx={{ flexGrow: 1 }} />
@@ -436,13 +442,19 @@ export default function PipelinePlanTable({ plan, timezone }) {
                                         {rowMachineLabel(row)}
                                     </TableCell>
                                     {showCost && (
-                                        <TableCell sx={{ ...NOWRAP, width: COL.cost,
+                                        // `pre-line`, not `nowrap`: fmtCost joins the
+                                        // wall clock and the token count with '\n'
+                                        // (the POC used <br>), and nowrap would print
+                                        // "2h 14m 132k tok" as one run-on line while
+                                        // the column is sized for two.
+                                        <TableCell sx={{ whiteSpace: 'pre-line',
+                                                          width: COL.cost,
                                                           color: 'text.secondary' }}
                                                    data-testid={`pipeline-cost-${row.id}`}>
-                                            {/* Shape-compatible with req #3117's rollup:
-                                                the same fmtCost the POC used, fed zeros
-                                                until the rollup exists. */}
-                                            {fmtCost(0, 0)}
+                                            {/* Server-side rollup (req #3117), summed
+                                                over the row's requirements by the engine
+                                                — never fetched per requirement. */}
+                                            {fmtCost(row.cost?.wallSecs, row.cost?.tokens)}
                                         </TableCell>
                                     )}
                                     <GroupCell show={showEpic} value={row.epic}

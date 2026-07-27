@@ -13,7 +13,12 @@
 //              renaming one silently resets everyone who chose it
 //   label      the switcher's tooltip / accessible name
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
-//   Component  receives { plan, model, pipeline, timezone } and renders the panel
+//   Component  receives { plan, model, pipeline, timezone, costError } and
+//              renders the panel. `costError` (req #3117) is true when either
+//              cost read failed — a mode showing cost must say so rather than
+//              print em-dashes, which read as "no cost recorded". Every plan row
+//              already carries its own total on `row.cost`, so a mode needs no
+//              cost data of its own.
 //   disabled   optional — renders a disabled ToggleButton (rule V1: a
 //              not-yet-built view is disabled, never omitted, so the group holds
 //              its width)
