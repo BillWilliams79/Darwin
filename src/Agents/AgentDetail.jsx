@@ -60,7 +60,7 @@ import InstructionUnbindDialog from './InstructionUnbindDialog';
 import {
     byId, linksByAgent, instructionLinksByAgent, agentsByInstruction,
     isCommonInstruction, relationshipChipProps, relationshipLabel,
-    docTypeChipProps, documentHref, isAutoload,
+    docTypeChipProps, documentHref, isAutoload, isPrinciples,
     agentModelChipProps, agentModelLabel,
     nextInstructionSortOrder, planInstructionSwap, restErrorMessage,
 } from './agentRegistryUtils';
@@ -137,6 +137,14 @@ const AgentDetail = () => {
 
     const autoloadCount = myDocuments.filter(
         d => isAutoload(d.link.relationship)).length;
+
+    // req #3129: THE one guiding-principles document. The DB permits at most one
+    // per agent (uq_agent_documents_principles), so `find` is not a truncation —
+    // a second would have been refused at write time. Undefined until one is
+    // assigned, which is a legitimate state and rendered as such.
+    const principlesDoc = useMemo(
+        () => myDocuments.find(d => isPrinciples(d.link.relationship)) || null,
+        [myDocuments]);
 
     const saveOverview = async () => {
         const next = overview.trim();
@@ -295,6 +303,42 @@ const AgentDetail = () => {
                 sx={{ mb: 3 }}
                 data-testid="agent-overview-field"
             />
+
+            {/* ---------- guiding principles (req #3129) ----------
+                Rendered ABOVE instructions because load order IS precedence:
+                principles > instructions > documents > priors. This is the same
+                link that appears in the Documents table below — surfaced twice
+                on purpose, once as the agent's stance and once in the inventory.
+                Exactly one per agent, enforced by uq_agent_documents_principles. */}
+            <Box id="principles" sx={{ scrollMarginTop: 16, mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                    Guiding Principles{' '}
+                    <Typography component="span" variant="body2" color="text.secondary">
+                        — read first, before instructions
+                    </Typography>
+                </Typography>
+
+                {!principlesDoc ? (
+                    <Typography color="text.secondary" data-testid="agent-principles-empty">
+                        No guiding-principles document assigned. Tag one of this agent's documents
+                        with the <code>principles</code> role.
+                    </Typography>
+                ) : (
+                    <Stack direction="row" spacing={1} alignItems="center"
+                           data-testid={`agent-principles-${principlesDoc.row.id}`}>
+                        {documentHref(principlesDoc.row) ? (
+                            <Link href={documentHref(principlesDoc.row)} target="_blank"
+                                  rel="noopener noreferrer" underline="hover">
+                                {principlesDoc.row.name} <OpenInNewIcon sx={{ fontSize: 12 }} />
+                            </Link>
+                        ) : principlesDoc.row.name}
+                        <Chip label="principles" size="small" color="secondary" variant="filled" />
+                        <Typography variant="caption" color="text.secondary">
+                            {principlesDoc.row.location}
+                        </Typography>
+                    </Stack>
+                )}
+            </Box>
 
             {/* ---------- instructions ---------- */}
             <Box id="instructions" sx={{ scrollMarginTop: 16 }}>
@@ -459,6 +503,10 @@ const AgentDetail = () => {
                                                         {row.name} <OpenInNewIcon sx={{ fontSize: 12 }} />
                                                     </Link>
                                                 ) : row.name}
+                                                {isPrinciples(link.relationship) && (
+                                                    <Chip label="principles" size="small" color="secondary"
+                                                          variant="filled" />
+                                                )}
                                                 {autoload && (
                                                     <Chip label="autoload" size="small" color="primary"
                                                           variant="outlined" />
