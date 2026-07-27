@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+    buildCostIndex,
     buildPipelineModel,
     orderedPlan,
     planRenderRows,
@@ -488,5 +489,167 @@ describe("the no-'#' production directive", () => {
             generated.push(b.gateStepIds.join(' '));
         }
         expect(generated.join('|')).not.toContain('#');
+    });
+});
+
+// ── Cost (req #3117) ────────────────────────────────────────────────────────
+//
+// The adapter's whole contribution to the Cost column: fold two bounded list
+// reads into a per-requirement rollup map, and hand it to the engine so every
+// PlanRow carries its own total. The named failure being prevented is the POC's
+// ~86 per-requirement fetches (design rule 5), so the tests that matter are the
+// ones about SHAPE — one pass, two lists — not just about arithmetic.
+
+describe('buildCostIndex', () => {
+    const SESSIONS = [
+        { id: 501, wall_secs_total: 3600, output_tokens_total: 120_000 },
+        { id: 502, wall_secs_total: 1800, output_tokens_total: 60_000 },
+        { id: 503, wall_secs_total: null, output_tokens_total: null },
+        { id: 504, wall_secs_total: 900, output_tokens_total: null },
+    ];
+
+    it('sums every session of a requirement', () => {
+        const { byRequirement } = buildCostIndex({
+            requirementSessions: [
+                { requirement_fk: 3110, session_fk: 501 },
+                { requirement_fk: 3110, session_fk: 502 },
+            ],
+            sessionCosts: SESSIONS,
+        });
+        expect(byRequirement[3110]).toEqual({ wallSecs: 5400, tokens: 180_000 });
+    });
+
+    it('credits a shared session to EVERY requirement it served', () => {
+        // Per-requirement attribution is full: any apportionment rule would be an
+        // invention, and the session genuinely did work for both. The STEP-level
+        // union that stops this becoming a double count lives in sumReqCost.
+        const { byRequirement, sessionIdsByRequirement } = buildCostIndex({
+            requirementSessions: [
+                { requirement_fk: 3110, session_fk: 501 },
+                { requirement_fk: 3111, session_fk: 501 },
+            ],
+            sessionCosts: SESSIONS,
+        });
+        expect(byRequirement[3110]).toEqual(byRequirement[3111]);
+        expect(byRequirement[3110]).toEqual({ wallSecs: 3600, tokens: 120_000 });
+        // The session ids are what let a step count 501 once.
+        expect(sessionIdsByRequirement[3110]).toEqual([501]);
+        expect(sessionIdsByRequirement[3111]).toEqual([501]);
+    });
+
+    it('a session with both totals NULL leaves the requirement absent, not zero', () => {
+        // Pre-backfill rows are UNKNOWN, not free. An entry of {0,0} would render
+        // "0m" — a claim the data does not support. Absence renders as a dash.
+        const { byRequirement, bySession } = buildCostIndex({
+            requirementSessions: [{ requirement_fk: 3110, session_fk: 503 }],
+            sessionCosts: SESSIONS,
+        });
+        expect(byRequirement[3110]).toBeUndefined();
+        expect(bySession[503]).toBeUndefined();
+    });
+
+    it('a session with one known total contributes only that half', () => {
+        const { byRequirement } = buildCostIndex({
+            requirementSessions: [{ requirement_fk: 3110, session_fk: 504 }],
+            sessionCosts: SESSIONS,
+        });
+        expect(byRequirement[3110]).toEqual({ wallSecs: 900, tokens: 0 });
+    });
+
+    it('ignores junction rows whose session is missing from the read', () => {
+        const index = buildCostIndex({
+            requirementSessions: [{ requirement_fk: 3110, session_fk: 99_999 }],
+            sessionCosts: SESSIONS,
+        });
+        expect(index.byRequirement).toEqual({});
+        expect(index.sessionIdsByRequirement).toEqual({});
+    });
+
+    it('a repeated junction pair does not double a requirement own total', () => {
+        // (requirement_fk, session_fk) is the junction's PK so this cannot occur
+        // in the table — but the read is data, not a proof.
+        const { byRequirement, sessionIdsByRequirement } = buildCostIndex({
+            requirementSessions: [
+                { requirement_fk: 3110, session_fk: 501 },
+                { requirement_fk: 3110, session_fk: 501 },
+            ],
+            sessionCosts: SESSIONS,
+        });
+        expect(byRequirement[3110]).toEqual({ wallSecs: 3600, tokens: 120_000 });
+        expect(sessionIdsByRequirement[3110]).toEqual([501]);
+    });
+
+    it('normalizes session ids so the step-level de-dup cannot be defeated', () => {
+        // The object-key lookups are type-tolerant (JS coerces a key to string)
+        // but `includes`/`Set.has` use SameValueZero. A junction row carrying
+        // '501' beside one carrying 501 would index fine and then de-dup as TWO
+        // sessions — silently restoring the double count this index prevents.
+        const { sessionIdsByRequirement, byRequirement } = buildCostIndex({
+            requirementSessions: [
+                { requirement_fk: 3110, session_fk: '501' },
+                { requirement_fk: 3110, session_fk: 501 },
+            ],
+            sessionCosts: SESSIONS,
+        });
+        expect(sessionIdsByRequirement[3110]).toEqual([501]);
+        expect(byRequirement[3110]).toEqual({ wallSecs: 3600, tokens: 120_000 });
+    });
+
+    it('is total on absent, null and malformed input', () => {
+        expect(buildCostIndex().byRequirement).toEqual({});
+        expect(buildCostIndex({}).byRequirement).toEqual({});
+        expect(buildCostIndex({
+            requirementSessions: [null, { requirement_fk: 1, session_fk: 501 }],
+            sessionCosts: [null, { wall_secs_total: 5 }, ...SESSIONS],
+        }).byRequirement[1]).toEqual({ wallSecs: 3600, tokens: 120_000 });
+    });
+});
+
+describe('orderedPlan attaches cost to every row', () => {
+    const NOW = '2026-07-27T03:00:00Z';
+
+    // Step 38 links 3110, 3111 and 3112. Sessions 601/602 are private to 3110
+    // and 3112; session 603 served 3111 AND 3112 — the shared-session case.
+    const costIndex = buildCostIndex({
+        requirementSessions: [
+            { requirement_fk: 3110, session_fk: 601 },
+            { requirement_fk: 3112, session_fk: 602 },
+            { requirement_fk: 3111, session_fk: 603 },
+            { requirement_fk: 3112, session_fk: 603 },
+        ],
+        sessionCosts: [
+            { id: 601, wall_secs_total: 600, output_tokens_total: 40_000 },
+            { id: 602, wall_secs_total: 300, output_tokens_total: 25_000 },
+            { id: 603, wall_secs_total: 1200, output_tokens_total: 90_000 },
+        ],
+    });
+
+    it('every row carries a cost object even with no cost data at all', () => {
+        // The renderer reads row.cost unconditionally; an undefined here would be
+        // a crash rather than a dash.
+        for (const r of orderedPlan(model(), { now: NOW }).rows) {
+            expect(r.cost).toEqual({ wallSecs: 0, tokens: 0 });
+        }
+    });
+
+    it('a step total is the union over its requirements sessions, counted once', () => {
+        const plan = orderedPlan(model(), { now: NOW, costIndex });
+        const row38 = plan.rows.find((r) => r.id === 38);
+        // 601 + 602 + 603, with 603 counted ONCE despite serving two of the
+        // step's requirements. Summing byRequirement instead would give
+        // 3300s / 245k — the double count design rule 2's condensation makes likely.
+        expect(row38.cost).toEqual({ wallSecs: 2100, tokens: 155_000 });
+        expect(costIndex.byRequirement[3111].wallSecs
+               + costIndex.byRequirement[3112].wallSecs).toBe(2700);
+    });
+
+    it('cost never changes the row order', () => {
+        // Cost is attached AFTER ordering and verification. If it could reach the
+        // comparator, a plan would re-order itself as sessions accrued time —
+        // silently, and against design rule 3's fixed banding.
+        const bare = orderedPlan(model(), { now: NOW });
+        const costed = orderedPlan(model(), { now: NOW, costIndex });
+        expect(costed.rows.map((r) => r.id)).toEqual(bare.rows.map((r) => r.id));
+        expect(costed.violations).toEqual([]);
     });
 });

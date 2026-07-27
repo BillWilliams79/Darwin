@@ -15,6 +15,7 @@
 
 import { formatDateTime } from '../../utils/dateFormat';
 import {
+    aggregateRowCost,
     buildPlanRows,
     displayOrder,
     verifyOrder,
@@ -101,19 +102,113 @@ export function buildPipelineModel({
 }
 
 /**
+ * Fold the two cost reads into a CostIndex — req #3117's whole client-side
+ * contribution.
+ *
+ * ONE PASS over two bounded lists, for any number of requirements. This is the
+ * shape design rule 5 demands and the POC could not have: it fetched a
+ * requirement's sessions per requirement AND a full session row per session
+ * (~86 reads, 2–3 minutes, feature shipped disabled behind PLANPAGE_COSTS).
+ * The reason it is possible now is entirely server-side — migration
+ * 20260727052402's `wall_secs_total` / `output_tokens_total` are stamped on each
+ * session status transition, so the totals survive the list projection that
+ * drops `phase_tokens` (req #3078).
+ *
+ * ## Why the index carries session ids and not just per-requirement totals
+ *
+ * `byRequirement` gives a requirement FULL credit for every session that served
+ * it, including one shared with another requirement — correct, because there is
+ * no apportionment rule that would not be an invention. But a STEP total summed
+ * from those buckets would count a shared session twice, and design rule 2
+ * actively proposes folding co-gated requirements into one multi-requirement
+ * step. Darwin's own history has the case (session 2429 closed 3056 and 3070).
+ * So the index also records which sessions each requirement reached, and
+ * `sumReqCost` unions them — full attribution per requirement, no double count
+ * per step, from the same single pass.
+ *
+ * NULL totals (a session predating the backfill) contribute nothing rather than
+ * zero — they are unknown, not free. Absent data therefore renders as
+ * `fmtCost`'s em-dash instead of as "0m", which would be a claim.
+ *
+ * @param {Object} args
+ * @param {Object[]} args.requirementSessions  requirement_sessions junction rows
+ * @param {Object[]} args.sessionCosts         swarm_sessions {id, wall_secs_total,
+ *                                             output_tokens_total}
+ * @returns {{byRequirement: Object<number, {wallSecs, tokens}>,
+ *            sessionIdsByRequirement: Object<number, number[]>,
+ *            bySession: Object<number, {wallSecs, tokens}>}} CostIndex
+ */
+export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
+    const bySession = {};
+    for (const s of asArray(sessionCosts)) {
+        if (s == null || s.id == null) continue;
+        const wall = Number(s.wall_secs_total);
+        const tok = Number(s.output_tokens_total);
+        const hasWall = s.wall_secs_total != null && Number.isFinite(wall);
+        const hasTok = s.output_tokens_total != null && Number.isFinite(tok);
+        // A session whose totals are BOTH unknown is not indexed at all, so a
+        // requirement reaching only such sessions stays absent from
+        // byRequirement and renders as a dash rather than a computed zero.
+        if (!hasWall && !hasTok) continue;
+        bySession[Number(s.id)] = {
+            wallSecs: hasWall ? wall : 0, tokens: hasTok ? tok : 0,
+        };
+    }
+
+    const byRequirement = {};
+    const sessionIdsByRequirement = {};
+    for (const link of asArray(requirementSessions)) {
+        if (link == null) continue;
+        const cost = bySession[link.session_fk];
+        if (!cost) continue;
+        const rid = link.requirement_fk;
+        // COERCED, and the de-dup is why. The object-key lookups above are
+        // type-tolerant (JS coerces a key to string), but `includes` and `Set.has`
+        // use SameValueZero — so a junction row carrying '2429' next to one
+        // carrying 2429 would index fine and then de-dup as two distinct
+        // sessions, silently restoring the double count this index exists to
+        // prevent. Lambda-Rest's JSON_OBJECT renders INT as a number today; this
+        // makes the structure type-consistent regardless.
+        const sid = Number(link.session_fk);
+        if (!Number.isFinite(sid)) continue;
+        const seen = sessionIdsByRequirement[rid]
+            || (sessionIdsByRequirement[rid] = []);
+        // The junction's PK is (requirement_fk, session_fk), so a duplicate pair
+        // cannot exist in the table — but the read is data, not a proof, and a
+        // repeated pair would double a requirement's own total.
+        if (seen.includes(sid)) continue;
+        seen.push(sid);
+        const bucket = byRequirement[rid] || (byRequirement[rid] = {
+            wallSecs: 0, tokens: 0,
+        });
+        bucket.wallSecs += cost.wallSecs;
+        bucket.tokens += cost.tokens;
+    }
+
+    return { byRequirement, sessionIdsByRequirement, bySession };
+}
+
+/**
  * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
- * propose → mark eligibility.
+ * propose → mark eligibility → attach cost.
  *
  * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
  * point: the renderer checks its own output and the caller renders any violation
  * loudly. `violations` is the only green light — an empty array.
  *
+ * Cost is attached HERE, onto `row.cost`, rather than computed in a cell
+ * renderer: the plan table and the plan visualizer are two surfaces over one
+ * plan, and a number they each derive independently is a number that can
+ * disagree. It is attached AFTER ordering and verification and is never an
+ * ordering input — cost must not be able to move a row.
+ *
  * @param {Object} model         from buildPipelineModel
  * @param {Object} [options]
  * @param {(Date|number|string)} [options.now]  clock for time-gate eligibility
+ * @param {?Object} [options.costIndex]          from buildCostIndex
  * @returns {Object} plan
  */
-export function orderedPlan(model, { now } = {}) {
+export function orderedPlan(model, { now, costIndex = null } = {}) {
     const planRows = buildPlanRows(model || {});
     const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
     const violations = verifyOrder(rows);
@@ -140,6 +235,11 @@ export function orderedPlan(model, { now } = {}) {
             if (!unresolvedReqIds.includes(id)) unresolvedReqIds.push(id);
         }
     }
+
+    // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
+    // call owns (buildPlanRows returns new objects every time), never the caller's
+    // input, so there is nothing outside this function to surprise.
+    for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
 
     return {
         rows,

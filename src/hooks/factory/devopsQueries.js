@@ -396,3 +396,52 @@ export const pipelineStepDeps = createEntityQueries({
     defaultFields: 'id,step_fk,dep_step_fk,time_at',
     fieldsInKey: true,
 });
+
+// ---------------------------------------------------------------------------
+// Cost rollup reads (req #3117, schema migration 077)
+//
+// The two lists that turn the plan table's Cost column from a column of dashes
+// into real numbers, WITHOUT a per-requirement fetch. This is the named failure
+// of req #3080 design rule 5: the POC assembled cost from ~86 per-requirement
+// MCP reads — 2–3 minute regenerations — and shipped with the feature disabled
+// behind a PLANPAGE_COSTS toggle.
+//
+// requirement -> sessions comes from one junction read; session -> cost comes
+// from one projected swarm_sessions read. Two bounded lists, joined in a
+// useMemo, for any number of requirements.
+// ---------------------------------------------------------------------------
+
+// The requirement <-> session junction (schema.sql, composite PK, no `id` and no
+// creator_fk — same ownership rule as the pipeline junctions above).
+export const requirementSessions = createEntityQueries({
+    entity: 'requirement_sessions',
+    defaultFields: 'requirement_fk,session_fk',
+    fieldsInKey: true,
+});
+
+// swarm_sessions projected to THREE columns — the id and migration 077's two
+// flat rollups. Nothing else: the plan page is requirement-centric and carries
+// no session data (design rule 9); these totals are cost facts that happen to be
+// stored on the session row.
+//
+// A SEPARATE BLOCK over the same table as `sessions` above, not an options
+// override on it, and the distinction is load-bearing. `sessions` has
+// `fieldsInKey: false`, so its cache key is exactly `['swarm_sessions',
+// creator]` — passing a custom `fields` to `sessions.useAll` would write this
+// 3-column payload into the entry every session page reads as the full row, and
+// whichever observer mounted first would decide what a refetch actually fetched.
+// `fieldsInKey: true` here appends `{fields}` to the key, so the two can never
+// be equal, while both still sit under the `['swarm_sessions', creator]` prefix
+// that existing invalidations use — the light read refreshes with the heavy one
+// rather than going stale behind it.
+//
+// MEASURED, not estimated — the estimate is what went wrong on the MCP side of
+// this same requirement (see HEAVY_COLUMNS in darwin-mcp/services/common.py):
+// 58,803 bytes across production's 891 sessions, 66 B/row, versus ~0.56 MB for
+// the full projection. It is immune to the req #3078 payload problem by
+// construction: none of the three columns can grow.
+export const sessionCostRollups = createEntityQueries({
+    entity: 'swarm_sessions',
+    defaultFields: 'id,wall_secs_total,output_tokens_total',
+    fieldsInKey: true,
+});

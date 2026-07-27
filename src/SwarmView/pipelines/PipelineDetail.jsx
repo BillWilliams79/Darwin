@@ -4,12 +4,16 @@
 // req #3115 adds its visualizer without touching this file), and the active
 // mode's panel.
 //
-// DATA: four bounded list reads + three dictionary reads, joined client-side in
-// one useMemo (design rule 5 — the POC's ~86 per-requirement fetches took 2–3
-// minutes per regeneration). Arriving from /swarm/pipelines every one of those
-// queries is already warm, so the plan paints from cache with zero fetches —
-// memory/detail-page-interlinking.md's composition rule, which is also why this
-// page adds NO endpoint of its own.
+// DATA: four bounded list reads + three dictionary reads + (req #3117) two cost
+// reads, joined client-side in one useMemo (design rule 5 — the POC's ~86
+// per-requirement fetches took 2–3 minutes per regeneration). Arriving from
+// /swarm/pipelines every one of those queries is already warm, so the plan paints
+// from cache with zero fetches — memory/detail-page-interlinking.md's composition
+// rule, which is also why this page adds NO endpoint of its own.
+//
+// The count grows with the number of TABLES the plan draws on, never with the
+// number of steps or requirements in it. That invariant is the acceptance check:
+// the network tab must show no per-requirement request at any plan size.
 //
 // REFRESH is event-driven (design rule 6): the query client's staleTime +
 // refetchOnWindowFocus + invalidation already do it. Deliberately no
@@ -40,7 +44,9 @@ import {
     useAllPipelineStepRequirements,
     useAllPipelineSteps,
     useAllPipelines,
+    useAllRequirementSessions,
     useAllRequirements,
+    useAllSessionCostRollups,
     useMachines,
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
@@ -55,11 +61,22 @@ import {
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import {
     PLAN_REQUIREMENT_FIELDS,
+    buildCostIndex,
     buildPipelineModel,
     machineTitle,
     orderedPlan,
     pipelineSummary,
 } from './pipelineViewModel';
+
+// A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
+// literal mints a NEW array on every render while `data` is undefined — which is
+// exactly the state a failed or in-flight read sits in — and that changing
+// identity permanently defeats every useMemo downstream of it: costIndex, plan
+// (so `new Date()` is re-read on every render, contradicting the "now is read
+// ONCE per model change" contract below), pipelineSummary, and the table's own
+// planRenderRows. One stable reference costs nothing and keeps the memo chain
+// honest in the error path the costError branch exists to handle.
+const EMPTY = Object.freeze([]);
 
 export default function PipelineDetail() {
     const { id } = useParams();
@@ -113,6 +130,20 @@ export default function PipelineDetail() {
     const { data: machines = [], isLoading: machinesLoading, isError: machinesError } =
         useMachines(creatorFk);
 
+    // Req #3117 — the Cost column, from TWO more bounded list reads. Deliberately
+    // NOT in `isLoading` below: cost is not an ordering input (see the comment
+    // there), so gating the whole plan on it would trade a correct-but-costless
+    // first paint for a slower one. They also do not gate because they are
+    // OPT-IN at the UI: the Cost column is hidden until the user asks for it.
+    const { data: requirementSessions = EMPTY, isError: requirementSessionsError } =
+        useAllRequirementSessions(creatorFk);
+    const { data: sessionCosts = EMPTY, isError: sessionCostsError } =
+        useAllSessionCostRollups(creatorFk);
+    // A failed cost read must not render as a column of em-dashes — that is
+    // indistinguishable from "this plan has no recorded cost", which is a claim
+    // about the data rather than about the fetch. The table says which it is.
+    const costError = requirementSessionsError || sessionCostsError;
+
     // EVERY read gates the render, the three label dictionaries included. They are
     // not decoration: `displayOrder()` breaks ties on epic first-appearance order,
     // so rendering before features/epics resolve produces a DIFFERENT, silently
@@ -136,10 +167,16 @@ export default function PipelineDetail() {
         pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines,
     }), [pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines]);
 
+    const costIndex = useMemo(
+        () => buildCostIndex({ requirementSessions, sessionCosts }),
+        [requirementSessions, sessionCosts]);
+
     // `now` is read ONCE per model change and handed to the engine, which never
     // reads a clock itself. Time-gate eligibility therefore re-evaluates when the
     // data does — on focus, on invalidation — rather than on a timer.
-    const plan = useMemo(() => orderedPlan(model, { now: new Date() }), [model]);
+    const plan = useMemo(
+        () => orderedPlan(model, { now: new Date(), costIndex }),
+        [model, costIndex]);
     const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
 
     if (isLoading) {
@@ -251,7 +288,8 @@ export default function PipelineDetail() {
             )}
 
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
-                             focusStepId={focusStepId} onStepFocus={onStepFocus} />
+                             focusStepId={focusStepId} onStepFocus={onStepFocus}
+                             costError={!!costError} />
         </Box>
     );
 }

@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -864,3 +864,15 @@ export const useAllPipelines                = pipelines.useAll;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
 export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
+
+// Req #3117 — the plan page's Cost column. TWO more bounded list reads, never a
+// per-requirement fetch: the junction maps requirements to their sessions, the
+// projected swarm_sessions read carries migration 077's two flat rollup columns,
+// and `buildCostIndex` folds them into one cost index in a single pass.
+//
+// The rollups themselves are computed SERVER-SIDE by darwin-mcp on every session
+// status transition. That is the whole design: the client sums three-column rows
+// it already has rather than reconstructing cost from phase blobs it cannot even
+// read (list projections drop `phase_tokens`, req #3078).
+export const useAllRequirementSessions  = requirementSessions.useAll;
+export const useAllSessionCostRollups   = sessionCostRollups.useAll;

@@ -10,6 +10,7 @@ import {
     deriveStepState, buildPlanRows, displayOrder, verifyOrder,
     eligibility, launchBatches, condensationProposals,
     dominantLabels, machineLabels, fmtCost, aggregateStepCost,
+    aggregateRowCost, sumReqCost,
 } from '../pipelineModel';
 import { PLAN_JSON_ROWS, SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -581,7 +582,7 @@ describe('code-review hardenings (2026-07-26)', () => {
     });
 });
 
-describe('cost stubs — shape-compatible with the cost-rollup req (#3117)', () => {
+describe('cost aggregation (req #3117 server-side rollup)', () => {
     it('fmtCost renders dashes when data is absent and h/m + token forms otherwise', () => {
         expect(fmtCost(0, 0)).toBe('—');
         expect(fmtCost(300, 0)).toBe('5m');
@@ -591,17 +592,99 @@ describe('cost stubs — shape-compatible with the cost-rollup req (#3117)', () 
         expect(fmtCost(60, 2_500_000)).toBe('1m\n2.5M tok');
     });
 
-    it('aggregateStepCost sums linked requirements; absent data stays dashes', () => {
-        const step38 = SUBSTRATE_REBUILD_MODEL.steps.find((s) => s.id === 38);
-        const costs = {
+    // A CostIndex, as buildCostIndex() produces: per-session totals plus which
+    // sessions each requirement reached. Sessions 1 and 2 are private to 3110
+    // and 3112; requirement 3111 reached NONE (no sessions, or only unbackfilled
+    // ones) and therefore contributes nothing.
+    const INDEX = {
+        bySession: {
+            1: { wallSecs: 600, tokens: 40_000 },
+            2: { wallSecs: 300, tokens: 25_000 },
+        },
+        sessionIdsByRequirement: { 3110: [1], 3112: [2] },
+        byRequirement: {
             3110: { wallSecs: 600, tokens: 40_000 },
             3112: { wallSecs: 300, tokens: 25_000 },
-            // 3111 absent — contributes zero
-        };
-        expect(aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, costs))
+        },
+    };
+
+    it('aggregateStepCost sums linked requirements; absent data stays dashes', () => {
+        const step38 = SUBSTRATE_REBUILD_MODEL.steps.find((s) => s.id === 38);
+        expect(aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, INDEX))
             .toEqual({ wallSecs: 900, tokens: 65_000 });
         const empty = aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, null);
         expect(empty).toEqual({ wallSecs: 0, tokens: 0 });
         expect(fmtCost(empty.wallSecs, empty.tokens)).toBe('—');
+    });
+
+    it('a session shared by two requirements OF ONE STEP counts once', () => {
+        // Design rule 2 proposes folding co-gated requirements into one
+        // multi-requirement step, and Darwin's history already has sessions that
+        // closed two requirements together (2429 -> 3056+3070). Summing per
+        // requirement would print roughly double the wall clock actually spent.
+        const shared = {
+            bySession: { 9: { wallSecs: 31_381, tokens: 324_239 } },
+            sessionIdsByRequirement: { 3110: [9], 3111: [9], 3112: [9] },
+            byRequirement: {
+                3110: { wallSecs: 31_381, tokens: 324_239 },
+                3111: { wallSecs: 31_381, tokens: 324_239 },
+                3112: { wallSecs: 31_381, tokens: 324_239 },
+            },
+        };
+        const step38 = SUBSTRATE_REBUILD_MODEL.steps.find((s) => s.id === 38);
+        expect(aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, shared))
+            .toEqual({ wallSecs: 31_381, tokens: 324_239 });
+        // Per-requirement attribution is still FULL — the union is a STEP rule.
+        expect(shared.byRequirement[3110]).toEqual({ wallSecs: 31_381, tokens: 324_239 });
+    });
+
+    it('aggregateRowCost sums a PlanRow to the same total as aggregateStepCost', () => {
+        // The two entry points exist because the table renders from PlanRows and
+        // the model-level helper predates them. They MUST agree — a plan whose
+        // table and visualizer print different numbers for one step is worse than
+        // one that prints none.
+        const step38 = SUBSTRATE_REBUILD_MODEL.steps.find((s) => s.id === 38);
+        const row38 = buildPlanRows(SUBSTRATE_REBUILD_MODEL).find((r) => r.id === 38);
+        expect(aggregateRowCost(row38, INDEX))
+            .toEqual(aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, INDEX));
+        expect(aggregateRowCost(row38, INDEX)).toEqual({ wallSecs: 900, tokens: 65_000 });
+    });
+
+    it('a requirement with no rollup entry contributes nothing rather than zeroing the row', () => {
+        // "Not measured" and "measured as zero" are different claims. A step whose
+        // OTHER requirements have real cost must keep showing it.
+        const step38 = SUBSTRATE_REBUILD_MODEL.steps.find((s) => s.id === 38);
+        expect(aggregateStepCost(step38, SUBSTRATE_REBUILD_MODEL, {
+            bySession: { 4: { wallSecs: 120, tokens: 0 } },
+            sessionIdsByRequirement: { 3111: [4] },
+            byRequirement: { 3111: { wallSecs: 120, tokens: 0 } },
+        })).toEqual({ wallSecs: 120, tokens: 0 });
+    });
+
+    it('sumReqCost tolerates missing ids, a null index and partial entries', () => {
+        expect(sumReqCost(null, null)).toEqual({ wallSecs: 0, tokens: 0 });
+        expect(sumReqCost([1, 2], null)).toEqual({ wallSecs: 0, tokens: 0 });
+        // A half-built index (no bySession) is treated as no data, not a crash.
+        expect(sumReqCost([1], { sessionIdsByRequirement: { 1: [7] } }))
+            .toEqual({ wallSecs: 0, tokens: 0 });
+        // A TRUTHY non-iterable slips past a `|| []` guard and throws `not
+        // iterable` — inside orderedPlan, inside a useMemo, blanking the whole
+        // plan page rather than showing a dash.
+        expect(sumReqCost([1], { bySession: {}, sessionIdsByRequirement: { 1: 7 } }))
+            .toEqual({ wallSecs: 0, tokens: 0 });
+        expect(sumReqCost('not an array', { bySession: {}, sessionIdsByRequirement: {} }))
+            .toEqual({ wallSecs: 0, tokens: 0 });
+        expect(sumReqCost([1, 2], {
+            bySession: { 7: { wallSecs: 60 }, 8: { tokens: 10 } },
+            sessionIdsByRequirement: { 1: [7], 2: [8] },
+        })).toEqual({ wallSecs: 60, tokens: 10 });
+    });
+
+    it('a req-less step costs nothing — there is nothing linked to attribute cost to', () => {
+        // Fixture step 7 ("record the regression baseline") links no requirements.
+        const row7 = buildPlanRows(SUBSTRATE_REBUILD_MODEL).find((r) => r.id === 7);
+        expect(row7.reqIds).toEqual([]);
+        const cost = aggregateRowCost(row7, INDEX);
+        expect(fmtCost(cost.wallSecs, cost.tokens)).toBe('—');
     });
 });

@@ -71,6 +71,8 @@
 // @property {{id: number, title: string}[]} featureLabels  full set, for tooltips
 // @property {string[]} machineLabels
 // @property {string} machineLabel      joined with ' / ', '—' when no requirements
+// @property {StepCost} [cost]          req #3117 — attached by orderedPlan when a
+//                                      CostIndex is supplied; absent otherwise
 //
 // @typedef {('done'|'running'|'pending')} StepState
 //
@@ -726,7 +728,16 @@ export function condensationProposals(rows) {
     return proposals;
 }
 
-// ── Cost stubs (shape-compatible with the cost-rollup req #3117) ────────────
+// ── Cost (req #3117) ────────────────────────────────────────────────────────
+//
+// LIVE since req #3117 — these were stubs fed zeros under #3114. What changed is
+// entirely upstream: `swarm_sessions.wall_secs_total` / `output_tokens_total`
+// (migration 077) are stamped server-side on every session status transition, so
+// a CostIndex can be folded from TWO bounded list reads instead of the
+// POC's ~86 per-requirement fetches (design rule 5's named failure — 2–3 minute
+// regenerations, feature shipped disabled). Nothing here fetches anything; the
+// map arrives as an argument, which is what makes the rule enforceable at this
+// layer rather than merely intended.
 
 // POC fmt_cost port: '—' when no data; 'Xh Ym' / 'Ym'; tokens as 'Nk tok' below
 // 1M else 'N.NM tok'; time and tokens joined with '\n' (the POC used <br>).
@@ -748,23 +759,71 @@ export function fmtCost(wallSecs, tokens) {
     return `${t}\n${k}`;
 }
 
-// Sum a step's cost over its linked requirements from a caller-supplied rollup
-// map {[requirementId]: StepCost}. Rule 5: rollups are precomputed server-side —
-// this never fans out. Missing entries contribute zero, so absent data renders
-// as fmtCost's dash.
+// Sum a cost index over a set of requirement ids, COUNTING EACH SESSION ONCE.
+//
+// The de-duplication is the whole subtlety, and skipping it over-reports by a
+// factor of the sharing. Design rule 2 actively PROPOSES folding requirements
+// that share a gate into one multi-requirement step, and Darwin's history
+// already contains sessions that closed two requirements together (2429 →
+// 3056+3070, 2431 → 3063+3068). Summing such a step per requirement would count
+// the same wall clock twice and print roughly double the real cost.
+//
+// Per-requirement attribution stays FULL: a shared session really did work for
+// each requirement, and there is no apportionment rule that would not be an
+// invention. What a STEP total needs is the union of the sessions its
+// requirements reached — which is why the index carries session ids at all.
+//
+// Missing entries contribute nothing rather than zero: a requirement with no
+// sessions and one whose sessions predate the backfill are both "no cost
+// recorded", and both render as fmtCost's dash.
+//
+// @param {number[]} reqIds
+// @param {?CostIndex} index   from buildCostIndex — {bySession, sessionIdsByRequirement}
+// @returns {StepCost}
+export function sumReqCost(reqIds, index) {
+    let wallSecs = 0;
+    let tokens = 0;
+    if (!index || !index.bySession || !index.sessionIdsByRequirement) {
+        return { wallSecs, tokens };
+    }
+    const counted = new Set();
+    for (const rid of Array.isArray(reqIds) ? reqIds : []) {
+        // Array.isArray, not `|| []`: a TRUTHY non-iterable (a bare number from
+        // a hand-built index) slips past a falsy guard and throws `not
+        // iterable` — inside orderedPlan, inside a useMemo, which blanks the
+        // entire plan page rather than showing a dash.
+        const sids = index.sessionIdsByRequirement[rid];
+        for (const sid of Array.isArray(sids) ? sids : []) {
+            if (counted.has(sid)) continue;
+            counted.add(sid);
+            const c = index.bySession[sid];
+            if (!c) continue;
+            wallSecs += c.wallSecs || 0;
+            tokens += c.tokens || 0;
+        }
+    }
+    return { wallSecs, tokens };
+}
+
+// Sum a step's cost over its linked requirements. Rule 5: rollups are
+// precomputed server-side — this never fans out.
 //
 // @param {PipelineStep} step
 // @param {PipelineModel} model
-// @param {?Object<number, StepCost>} costByReq
+// @param {?CostIndex} index
 // @returns {StepCost}
-export function aggregateStepCost(step, model, costByReq) {
-    let wallSecs = 0;
-    let tokens = 0;
-    for (const rid of linkedReqIds(step.id, model)) {
-        const c = costByReq ? costByReq[rid] : null;
-        if (!c) continue;
-        wallSecs += c.wallSecs || 0;
-        tokens += c.tokens || 0;
-    }
-    return { wallSecs, tokens };
+export function aggregateStepCost(step, model, index) {
+    return sumReqCost(linkedReqIds(step.id, model), index);
+}
+
+// The PlanRow-side entry point. A row already carries its `reqIds` (junction
+// order), so this needs no model — which is what lets orderedPlan() decorate
+// every row in one pass and lets BOTH render surfaces (the plan table and the
+// plan visualizer) print the same number from the same field.
+//
+// @param {PlanRow} row
+// @param {?CostIndex} index
+// @returns {StepCost}
+export function aggregateRowCost(row, index) {
+    return sumReqCost(row && row.reqIds, index);
 }

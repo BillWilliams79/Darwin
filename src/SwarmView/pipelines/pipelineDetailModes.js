@@ -14,10 +14,15 @@
 //   label      the switcher's tooltip / accessible name
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
 //   Component  receives { plan, model, pipeline, timezone, focusStepId,
-//              onStepFocus } and renders the panel. focusStepId/onStepFocus are
-//              the req #3115 cross-mode handshake: the visualizer calls
-//              onStepFocus(stepId) on a bead click, the page switches to the
-//              table mode, and the table scrolls to + highlights that row.
+//              onStepFocus, costError } and renders the panel.
+//              focusStepId/onStepFocus are the req #3115 cross-mode handshake:
+//              the visualizer calls onStepFocus(stepId) on a bead click, the
+//              page switches to the table mode, and the table scrolls to +
+//              highlights that row. `costError` (req #3117) is true when either
+//              cost read failed — a mode showing cost must say so rather than
+//              print em-dashes, which read as "no cost recorded". Every plan row
+//              already carries its own total on `row.cost`, so a mode needs no
+//              cost data of its own.
 //   disabled   optional — renders a disabled ToggleButton (rule V1: a
 //              not-yet-built view is disabled, never omitted, so the group holds
 //              its width)

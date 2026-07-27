@@ -56,6 +56,7 @@ import { semanticLevel } from '../konvaSwarmModel';
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
 } from './pipelineViewModel';
+import { fmtCost } from './pipelineModel';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
@@ -450,7 +451,7 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                 </Box>
 
                 {card && (
-                    <PlanDataCard card={card} timezone={timezone}
+                    <PlanDataCard card={card} timezone={timezone} level={level}
                                   containerW={size.w} containerH={size.h} />
                 )}
             </Box>
@@ -461,9 +462,20 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
 // ── Hover datacard (reuses the shared .ts-datacard CSS) ─────────────────────
 // Step: title, state, run, deps (step gates + wall-clock gates through the ONE
 // shared formatter), dominant + FULL epic/feature label sets from the engine,
-// requirement ids, machines. Batch: the launch unit with its exact /swarm-start
-// argument list. No session data anywhere (design rule 9); no generated '#'.
-function PlanDataCard({ card, timezone, containerW, containerH }) {
+// requirement ids, machines, and — at the 'in' level only — Cost (req #3117).
+// Batch: the launch unit with its exact /swarm-start argument list. No session
+// data anywhere (design rule 9); no generated '#'.
+//
+// COST IS LEVEL-GATED, matching the level ladder's own rule: 'in' is where the
+// per-step detail slot opens (the title line above does the same). It is also
+// the only place the number is actionable — at 'out' and 'mid' the question is
+// what runs next, not what it cost.
+//
+// It is NOT session data despite living on session rows. `row.cost` is a
+// per-requirement rollup summed by the engine; the visualizer reads a field the
+// table already renders, and design rule 9 stays intact because no session
+// identity, phase or status appears here.
+function PlanDataCard({ card, timezone, level, containerW, containerH }) {
     const CARD_W = 300;
     const cardRef = useRef(null);
     const [cardH, setCardH] = useState(0);
@@ -516,6 +528,14 @@ function PlanDataCard({ card, timezone, containerW, containerH }) {
                 {r.feature && rowEl('Feature', (r.featureLabels || []).length > 1
                     ? `${r.feature} (all: ${featAll})` : r.feature)}
                 {rowEl('Reqs', r.reqIds.length ? r.reqIds.join(' ') : '—')}
+                {level === 'in' && rowEl('Cost',
+                    // Same fmtCost the table's Cost column uses, on the same
+                    // row.cost the engine attached — the two surfaces cannot
+                    // disagree about a step's cost because there is one value.
+                    // '\n'-joined, so the card renders it on two lines.
+                    <span style={{ whiteSpace: 'pre-line' }}>
+                        {fmtCost(r.cost?.wallSecs, r.cost?.tokens)}
+                    </span>)}
                 {/* Through the shared stripper: the engine degrades an unknown
                     machine id to '#<id>' and the no-'#' directive covers it. */}
                 {rowEl('Machine', rowMachineLabel(r))}

@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -74,6 +74,15 @@ export const pipelineKeys = pipelines.keys;
 export const pipelineStepKeys = pipelineSteps.keys;
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const pipelineStepDepKeys = pipelineStepDeps.keys;
+
+// Req #3117 — the plan page's Cost column, from two more bounded list reads.
+// `sessionCostRollupKeys.all` shares the `['swarm_sessions', creator]` PREFIX
+// with `sessionKeys.all` on purpose: the light 3-column read is a projection of
+// the same table, so anything that already invalidates sessions refreshes the
+// cost numbers too. The `{fields}` suffix (fieldsInKey) is what keeps the two
+// cache ENTRIES apart.
+export const requirementSessionKeys = requirementSessions.keys;
+export const sessionCostRollupKeys = sessionCostRollups.keys;
 
 export const recurringTaskKeys = {
     all: (creatorFk) => ['recurring_tasks', creatorFk],
