@@ -248,11 +248,51 @@ export function buildPlanRows(model) {
         if (d.dep_step_fk != null) bucket.depIds.push(d.dep_step_fk);
         else if (d.time_at != null) bucket.timeDeps.push(d.time_at);
     }
+    // Rule 10 attaches labels to REQUIREMENTS, so a step that links none derives
+    // no epic at all. For a gate or a baseline — the whole reason `completed_at`
+    // exists — that is technically true and visually wrong: the plan's step 7,
+    // "Green Baseline", recorded the regression baseline for the substrate work
+    // it gates, and banding it under "No epic" put a lone bead in a band of its
+    // own between the epics it belongs between.
+    //
+    // So a req-less step INHERITS the dominant label of its dependencies, walking
+    // back until it finds one. That keeps rule 10 intact where the rule has an
+    // opinion — nothing is stored, and a step with requirements still derives
+    // from them and only them — while giving a step whose whole job is to gate
+    // other work the label of the work it gates. Ambiguity resolves the same way
+    // it does everywhere else here: the first dependency, in dep order.
+    const labelCache = new Map();
+    const inheritedLabels = (stepId, seen) => {
+        if (labelCache.has(stepId)) return labelCache.get(stepId);
+        if (seen.has(stepId)) return null;   // cycle guard
+        seen.add(stepId);
+        const step = (model.steps || []).find((s) => s.id === stepId);
+        if (!step) return null;
+        const own = dominantLabels(step, model);
+        if (own.epicId != null || own.featureId != null) {
+            labelCache.set(stepId, own);
+            return own;
+        }
+        for (const depId of (depsByStep.get(stepId) || { depIds: [] }).depIds) {
+            const up = inheritedLabels(depId, seen);
+            if (up && (up.epicId != null || up.featureId != null)) {
+                // Inherited, so the FULL label sets stay empty: those drive the
+                // "spans more than one epic" tooltip, and this step spans
+                // nothing — it borrowed one label from upstream.
+                const borrowed = { ...up, epicLabels: [], featureLabels: [], inherited: true };
+                labelCache.set(stepId, borrowed);
+                return borrowed;
+            }
+        }
+        labelCache.set(stepId, own);
+        return own;
+    };
+
     return (model.steps || []).map((step) => {
         const reqIds = linkedReqIds(step.id, model);
         const linked = reqIds.map((rid) => reqsById.get(rid)).filter(Boolean);
         const unresolvedReqIds = reqIds.filter((rid) => !reqsById.has(rid));
-        const labels = dominantLabels(step, model);
+        const labels = inheritedLabels(step.id, new Set()) || dominantLabels(step, model);
         const machines = machineLabels(step, model);
         const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
         return {
@@ -565,20 +605,59 @@ export function verifyOrder(rows) {
         }
     }
 
-    // Invariant 2: absolute state banding — done > running > pending.
-    let lastBand = 0;
-    for (const r of rows) {
-        const band = STATE_RANK[r.state] != null ? STATE_RANK[r.state] : 2;
-        if (band < lastBand) {
+    // Invariant 2: state banding — done > running > pending — SUBORDINATE TO
+    // TOPOLOGY.
+    //
+    // Design rule 3 orders the criteria: "topological, THEN state bands, then
+    // streams". Topology wins, and displayOrder implements exactly that — it only
+    // ever emits a row whose dependencies are already out. So when a step's GATE
+    // is in a later band than the step itself, NO ordering satisfies both rules
+    // and the one displayOrder picks (dependency first) is the right one.
+    //
+    // Checking banding as if it were absolute reported that forced case as a
+    // failure. On the live plan it fired every render: step 19 derives Running
+    // (it links the plan's own tracking requirement, #3083 — see req #3123) and
+    // it GATES step 38, which is Complete. The banner said "treat the sequence as
+    // untrustworthy" about the only sequence that was actually available.
+    //
+    // So a band inversion is a violation only when it was AVOIDABLE: the
+    // lower-band row does not depend, transitively, on the higher-band row it
+    // renders below. That keeps the regression this invariant was built for —
+    // two Running rows sinking below an UNRELATED Scheduled tail, which no
+    // dependency forced — while no longer crying wolf about the forced case.
+    const closure = new Map();
+    const dependsOn = (id) => {
+        if (closure.has(id)) return closure.get(id);
+        const out = new Set();
+        closure.set(id, out);   // cycle guard; the cycle invariant above reports it
+        const row = rows.find((r) => r.id === id);
+        for (const d of depIdsOf(row || {})) {
+            if (!posn.has(d)) continue;
+            out.add(d);
+            for (const dd of dependsOn(d)) out.add(dd);
+        }
+        return out;
+    };
+    const bandOf = (r) => (STATE_RANK[r.state] != null ? STATE_RANK[r.state] : 2);
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const band = bandOf(r);
+        // The earlier rows this one outranks by band but does NOT depend on.
+        const avoidable = [];
+        for (let j = 0; j < i; j++) {
+            const p = rows[j];
+            if (bandOf(p) > band && !dependsOn(r.id).has(p.id)) avoidable.push(p);
+        }
+        if (avoidable.length) {
+            const worst = avoidable[avoidable.length - 1];
             violations.push({
                 invariant: 'state-banding',
-                stepIds: [r.id],
-                message: `${r.state} step ${r.id} renders below a ` +
-                    `${lastBand === 2 ? 'pending' : 'running'} row — ` +
-                    'done>running>pending banding broken',
+                stepIds: [r.id, worst.id],
+                message: `${r.state} step ${r.id} renders below ${worst.state} step `
+                    + `${worst.id}, which it does not depend on — `
+                    + 'done>running>pending banding broken',
             });
         }
-        lastBand = band;
     }
 
     // Invariant 3: launch-batch contiguity — batch-mates render as one block.

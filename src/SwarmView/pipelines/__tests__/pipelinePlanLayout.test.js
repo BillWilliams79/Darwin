@@ -161,18 +161,30 @@ describe('chain lanes with cross-column reservation', () => {
 
     it('continues a chain along its dependency lane when the lane is free', () => {
         // Same-band chain inside "Swarm Substrate Rebuild": 10 → 26 → 25 (25
-        // gates on both). Each link should inherit its dependency's lane. (The
-        // 6 → 7 link canNOT be asserted here: step 7 links no requirements, so
-        // the engine derives no epic for it and it lives in the 'No epic' band —
-        // chain-lane inheritance is same-band by design.)
+        // gates on both). Each link should inherit its dependency's lane.
         const n10 = layout.nodes.get(10);
         const n26 = layout.nodes.get(26);
         const n25 = layout.nodes.get(25);
         expect(n26.lane).toBe(n10.lane);
         expect(n25.lane).toBe(n26.lane);
-        // And the req-less step really is banded separately.
-        const bandOf7 = layout.bands[layout.nodes.get(7).bandIndex];
-        expect(bandOf7.epicId).toBeNull();
+    });
+
+    it('the req-less step bands with the epic it inherits, and its chain holds', () => {
+        // This assertion used to read the other way: step 7 links no
+        // requirements, derived no epic, and sat alone in a 'No epic' band —
+        // which put a single bead in a band of its own between the two epics it
+        // belongs between, and broke the 6 → 7 chain because lane inheritance is
+        // same-band by design. req #3119: a req-less step inherits its
+        // dependencies' label, so both the band and the chain now hold.
+        const n6 = layout.nodes.get(6);
+        const n7 = layout.nodes.get(7);
+        const band6 = layout.bands[n6.bandIndex];
+        const band7 = layout.bands[n7.bandIndex];
+        expect(band7.epicId).toBe(band6.epicId);
+        expect(band7.epic).toBe('Swarm Substrate Rebuild');
+        expect(n7.lane).toBe(n6.lane);
+        // No 'No epic' band survives on this fixture at all.
+        expect(layout.bands.filter((b) => b.epicId == null)).toEqual([]);
     });
 });
 
@@ -194,16 +206,78 @@ describe('zero label overlap — all four layout/label combinations', () => {
             }
         });
 
-        it(`step/req/title labels stay inside their column slab (${name})`, () => {
+        // Column containment is now KIND-DEPENDENT (req #3119). Requirement ids
+        // still live strictly inside their column. The two STAGGERED kinds —
+        // the title slot, and the step label in title mode — are placed one line
+        // off on odd columns precisely so they may reach into their neighbours,
+        // which is what buys a readable title without a 5800px-wide world. Their
+        // guarantee is not "inside the slab" but "reaches no further than a
+        // bounded fraction of one neighbour", which combined with the parity
+        // offset is what makes the no-two-labels-intersect test above pass.
+        it(`req labels stay inside their column slab (${name})`, () => {
             const layout = computePlanLayout(plan.rows, plan.batches, opts);
             for (const label of layout.labels) {
-                if (label.stepId == null) continue;
+                if (label.stepId == null || label.kind !== 'req') continue;
                 const n = layout.nodes.get(label.stepId);
                 const left = layout.colX[n.depth] - layout.colW[n.depth] / 2;
                 const right = layout.colX[n.depth] + layout.colW[n.depth] / 2;
                 expect(label.x).toBeGreaterThanOrEqual(left - 0.01);
                 expect(label.x + label.w).toBeLessThanOrEqual(right + 0.01);
             }
+        });
+
+        // Assert the PAIRWISE property the module actually promises, not the
+        // per-label budget it is derived from. The first version of this test
+        // asserted "each label fits its budget and is centred on its column",
+        // which is exactly the placement rule — so it agreed with a budget that
+        // admitted a 40px overlap and could never have contradicted it (found in
+        // review). A per-label invariant that implies nothing about pairs is not
+        // coverage for a pairwise guarantee.
+        it(`no two same-line staggered labels overlap, at any column width (${name})`, () => {
+            const check = (rows, batches, label) => {
+                const layout = computePlanLayout(rows, batches, opts);
+                const staggered = layout.labels.filter((l) => l.stepId != null
+                    && (l.kind === 'title'
+                        || (l.kind === 'step' && opts.stepLabel === 'title')));
+                for (let i = 0; i < staggered.length; i++) {
+                    for (let j = i + 1; j < staggered.length; j++) {
+                        const a = staggered[i];
+                        const b = staggered[j];
+                        // Same line ⇒ same y. Different lines cannot collide.
+                        if (Math.abs(a.y - b.y) > 0.01) continue;
+                        const overlap = a.x < b.x + b.w && b.x < a.x + a.w;
+                        if (overlap) {
+                            throw new Error(`${label}: staggered labels overlap on one line — `
+                                + `${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+                        }
+                    }
+                }
+            };
+            check(plan.rows, plan.batches, `fixture (${name})`);
+            // The fixture's columns happen to be near-uniform. The failure mode
+            // needs WIDE outer columns around a NARROW shared one, so construct
+            // it: one chain (⇒ one lane, ⇒ same line for d and d+2) whose ends
+            // carry many requirement ids and whose middle carries one.
+            const wide = [5001, 5002, 5003, 5004, 5005].map((id, i) => ({
+                id,
+                title: 'A step title long enough to want the whole budget',
+                run: 'auto',
+                notes: null,
+                state: 'pending',
+                reqIds: (i === 0 || i === 4)
+                    ? [3001, 3002, 3003, 3004, 3005] : [3001],
+                depIds: i === 0 ? [] : [5000 + i],
+                timeDeps: [],
+                epicId: 1,
+                epic: 'E',
+                featureId: 1,
+                feature: 'F',
+                epicLabels: [{ id: 1, title: 'E' }],
+                featureLabels: [{ id: 1, title: 'F' }],
+                machineLabels: [],
+                machineLabel: '',
+            }));
+            check(wide, [], `wide-outer-columns (${name})`);
         });
     }
 
@@ -456,7 +530,7 @@ describe('step labels', () => {
     it('title mode truncates long titles with an ellipsis', () => {
         const long = 'x'.repeat(80);
         const label = stepLabelText({ id: 1, title: long }, 'title');
-        expect(label.length).toBeLessThanOrEqual(40);
+        expect(label.length).toBeLessThanOrEqual(60);
         expect(label.endsWith('…')).toBe(true);
     });
 });

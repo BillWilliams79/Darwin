@@ -169,11 +169,19 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // V7). Asserted with the exact figure, not just the word "pipeline":
             // it is also the guard that the stale sweep worked, and therefore that
             // the DataGrid row targeted below is on page 1 of an `id: desc` sort.
+            //
+            // The call-to-action names the ACTIVE view's click target (req #3119):
+            // "click a row" is wrong advice in Cards, where the target is a card.
             await expect(page.getByTestId('pipelines-accounting'))
-                .toHaveText('3 of 3 pipelines — click a row for the plan');
+                .toHaveText('3 of 3 pipelines — click a card for the plan');
 
             await page.getByTestId('view-toggle-table').click();
             await expect(page.getByTestId('pipelines-datagrid')).toBeVisible();
+
+            // ...and it flips with the view. Asserted on BOTH sides because a
+            // one-sided check passes just as well on a hardcoded noun.
+            await expect(page.getByTestId('pipelines-accounting'))
+                .toHaveText('3 of 3 pipelines — click a row for the plan');
 
             // useViewPreference persists the choice across a reload.
             await page.reload();
@@ -384,9 +392,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             if (!root) return ['NO PIPELINE DETAIL ROOT'];
             const clone = root.cloneNode(true) as HTMLElement;
             // Stored plan content: the goal paragraph, the "What this step does"
-            // column (always the second-to-last cell) and its notes line.
+            // column (always the second-to-last cell) and its notes line, and —
+            // since req #3119 gave it its own column — the step NAME, which is
+            // the plan's own `title` string and just as much stored prose as the
+            // description it used to share a cell with.
             clone.querySelectorAll('[data-testid="pipeline-goal"]').forEach((n) => n.remove());
             clone.querySelectorAll('[data-testid^="pipeline-notes-"]').forEach((n) => n.remove());
+            clone.querySelectorAll('[data-testid^="pipeline-name-"]').forEach((n) => n.remove());
             clone.querySelectorAll('tr').forEach((tr) => {
                 const cells = tr.querySelectorAll('td');
                 if (cells.length > 1) cells[cells.length - 2].remove();

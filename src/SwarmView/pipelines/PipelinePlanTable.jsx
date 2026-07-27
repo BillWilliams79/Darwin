@@ -52,7 +52,8 @@ import {
     rowMachineLabel,
     batchMachineLabel,
     formatTimeGates,
-    stepProse,
+    stepName,
+    stepDescription,
 } from './pipelineViewModel';
 import {
     stepStateLabel,
@@ -82,6 +83,12 @@ const COL = {
     cost: 96,
     epic: 190,
     feature: 170,
+    // The step NAME (req #3119) — its own column, because a name and a
+    // description answer different questions and the plan is skimmed by name.
+    // Sized to the live plan's longest ("Guiding Principles and Data Refactor",
+    // 36 chars) without flexing: a name column that reflows on content would
+    // make the whole grid jump between plans.
+    name: 210,
     reqs: 168,
     deps: 200,
 };
@@ -223,7 +230,7 @@ function BatchBannerRow({ batch, colSpan, timezone }) {
 
 // ── Requirement(s) cell ─────────────────────────────────────────────────────
 // Ids link to their own detail page and carry NO '#' (production directive).
-function RequirementLinks({ row }) {
+function RequirementLinks({ row, pipelineId }) {
     if (!row.reqIds.length) return <span>—</span>;
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
@@ -232,6 +239,9 @@ function RequirementLinks({ row }) {
                     key={id}
                     component={RouterLink}
                     to={`/swarm/requirement/${id}`}
+                    // Provenance, so the detail page's Back returns to THIS plan
+                    // rather than the Roadmap (req #3119).
+                    state={pipelineId ? { from: 'pipeline', pipelineId } : undefined}
                     underline="hover"
                     sx={{ fontFamily: 'monospace' }}
                     data-testid={`pipeline-req-link-${id}`}
@@ -265,18 +275,18 @@ function GroupCell({ show, value, labels, width, color, testid }) {
     return extra ? <Tooltip title={`All: ${extra}`}>{cell}</Tooltip> : cell;
 }
 
-export default function PipelinePlanTable({ plan, timezone, focusStepId,
-    costError = false }) {
-    // The POC shipped with the Cost column HIDDEN (`<body class="hidecost">`) and
-    // a "Time / Tokens" button to reveal it. Same default here: cost is a
-    // secondary question about a plan whose primary job is showing what runs
-    // next, and the column is the widest thing that can be added to a row that
-    // already carries nine.
+export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepId,
+    costError = false, showCost = false }) {
+    // `showCost` is OWNED BY THE PAGE since req #3119 — the Time / Tokens control
+    // renders in the header row beside the pipeline name, with the visualizer's
+    // toggles, so both modes put their controls in one place.
     //
-    // The values are REAL as of req #3117 — `row.cost` comes from the server-side
-    // rollup (migration 20260727052402) via two bounded list reads, not from the
+    // It still defaults OFF, as the POC did (`<body class="hidecost">`): cost is a
+    // secondary question about a plan whose primary job is showing what runs next,
+    // and the column is the widest thing that can be added to a row already
+    // carrying ten. The values are REAL as of req #3117 — `row.cost` comes from
+    // the server-side rollup via two bounded list reads, not from the
     // per-requirement fan-out that got the POC's version disabled.
-    const [showCost, setShowCost] = useState(false);
 
     const renderRows = useMemo(() => planRenderRows(plan), [plan]);
     const hasBatches = (plan.batches || []).length > 0;
@@ -293,7 +303,8 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
 
     // Column count for the banner colSpan — must track the Cost column's
     // visibility or the banner under-spans and leaves a ragged edge.
-    const colSpan = 9 + (showCost ? 1 : 0);
+    // 10 fixed columns since the Name column landed (req #3119).
+    const colSpan = 10 + (showCost ? 1 : 0);
 
     if (!renderRows.length) {
         return (
@@ -316,15 +327,11 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
                 key={(plan.proposals || []).map((p) => p.stepIds.join('-')).join('|')}
                 proposals={plan.proposals || []} />
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
-                <Button
-                    size="small"
-                    variant={showCost ? 'contained' : 'outlined'}
-                    onClick={() => setShowCost((v) => !v)}
-                    data-testid="pipeline-cost-toggle"
-                >
-                    Time / Tokens
-                </Button>
+            {/* The Time / Tokens control moved to the page header row (req
+                #3119). What stays here is the pair of things that describe THIS
+                table: the cost-read failure notice and the batch legend. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap',
+                        minHeight: (showCost && costError) || hasBatches ? undefined : 0 }}>
                 {showCost && costError && (
                     <Typography variant="caption" color="error"
                                 data-testid="pipeline-cost-error">
@@ -352,6 +359,7 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
                     <TableHead>
                         <TableRow>
                             <TableCell sx={{ ...NOWRAP, width: COL.step }}>Step</TableCell>
+                            <TableCell sx={{ ...NOWRAP, width: COL.name }}>Name</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.status }}>Status</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.run }}>Run</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.machine }}>Machine</TableCell>
@@ -404,7 +412,8 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
                             // deliberately permits).
                             const depIds = row.depIds.map(String);
                             const timeGates = formatTimeGates(row.timeDeps, timezone);
-                            const prose = stepProse(row);
+                            const name = stepName(row);
+                            const description = stepDescription(row);
                             return (
                                 <TableRow
                                     key={row.id}
@@ -484,19 +493,27 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
                                                labels={row.featureLabels} width={COL.feature}
                                                color="#0f9b8e"
                                                testid={`pipeline-feature-${row.id}`} />
+                                    {/* Name — the step's own short label. Wraps
+                                        rather than clipping (two lines at most
+                                        for this plan's longest), and a name that
+                                        a legacy row made prose-length is cut with
+                                        the full string on hover. */}
+                                    <TableCell sx={{ width: COL.name, fontWeight: 600 }}
+                                               data-testid={`pipeline-name-${row.id}`}>
+                                        {name.truncated ? (
+                                            <Tooltip title={name.full}>
+                                                <span>{name.text}</span>
+                                            </Tooltip>
+                                        ) : name.text}
+                                    </TableCell>
                                     <TableCell sx={{ width: COL.reqs }}>
-                                        <RequirementLinks row={row} />
+                                        <RequirementLinks row={row} pipelineId={pipeline?.id} />
                                     </TableCell>
                                     <TableCell sx={{ minWidth: 340 }}>
-                                        <Typography variant="body2">{prose.text}</Typography>
-                                        {prose.notes && (
-                                            <Typography variant="caption"
-                                                        color="text.secondary"
-                                                        sx={{ display: 'block', mt: 0.5 }}
-                                                        data-testid={`pipeline-notes-${row.id}`}>
-                                                {prose.notes}
-                                            </Typography>
-                                        )}
+                                        <Typography variant="body2"
+                                                    data-testid={`pipeline-notes-${row.id}`}>
+                                            {description}
+                                        </Typography>
                                     </TableCell>
                                     <TableCell sx={{ ...NOWRAP, width: COL.deps,
                                                       color: 'text.secondary' }}

@@ -78,7 +78,33 @@ const BAND_GAP = 8;
 const LANE_BASE_H = 56;         // POC horizontal pitch, before the title slot
 const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 const REQ_LINE_H = 12;          // vertical layout: one requirement id per line
-const STEP_LABEL_MAX = 40;      // title label truncation above the bead
+const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
+// Staggering (req #3119, the Build Visualizer's version-label pattern —
+// `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
+// draw their long text one line further from the bead, so a label and its
+// left/right neighbours are never on the same line and each may overflow its own
+// column. Only the SAME-PARITY columns (d±2) share a line, and the budget below
+// keeps two of those from meeting.
+const STAGGER_GAP = 14;
+// Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
+// Labels are centred on their column, so the budget must bound the reach into
+// the NARROWER neighbour and then apply symmetrically — bounding the sum of both
+// neighbours does not work, because a wide left neighbour would buy half-width
+// that gets spent on the right. (That was the first version of this, and it
+// admits an overlap: with colW = [224, 64, 64, 64, 224] the labels at d=1 and
+// d=3 — the only pair that shares a line — overlapped by ~40px. Found in review,
+// with the dataset.) Two same-line labels intrude on the shared column d±1 from
+// opposite sides, so anything under 0.5 per side cannot meet; 0.4 leaves margin
+// for the mono-width estimate itself.
+const STAGGER_REACH = 0.4;
+// Minimum column width when STEP TITLES are drawn (req #3119, user directive:
+// "increase the display of the step name by 50% more characters"). The binding
+// constraint on a step name was never STEP_LABEL_MAX — it was the stagger
+// budget, which is derived from the column, and a column sized to a 4-digit
+// requirement id is ~64px, i.e. ~16 characters after the reach is added. Giving
+// the column a floor raises the budget for every title at once; STEP_LABEL_MAX
+// is only the ceiling that stops a pathological title from running forever.
+const TITLE_COL_MIN = 96;
 export const PLAN_VIZ_FONT = {
     label: 11, req: 11, title: 9.5, epic: 12, batch: 10, check: 9,
 };
@@ -92,9 +118,9 @@ const truncate = (s, n) => {
 
 // The text drawn ABOVE a bead. NO '#' anywhere — ids render bare (production
 // directive), titles render verbatim (stored plan content).
-export function stepLabelText(row, stepLabel) {
+export function stepLabelText(row, stepLabel, maxChars = STEP_LABEL_MAX) {
     return stepLabel === 'title'
-        ? truncate(row.title || `step ${row.id}`, STEP_LABEL_MAX)
+        ? truncate(row.title || `step ${row.id}`, Math.max(4, Math.min(STEP_LABEL_MAX, maxChars)))
         : String(row.id);
 }
 
@@ -146,10 +172,18 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         const d = depthMemo.get(r.id);
         (colSteps[d] ||= []).push(r);
     }
+    // Title-mode step labels are STAGGERED, so a column no longer has to be as
+    // wide as its longest title — the label overflows into the neighbouring
+    // columns, which draw on the other line (req #3119). Sizing columns to full
+    // titles is what made the world 5800px wide on the live plan; the ids and
+    // the layout drive the width now, and the label is fitted to the room it
+    // actually has, below.
+    const staggerLabels = stepLabel === 'title';
     const colW = [];
     for (let d = 0; d <= maxD; d++) {
         const steps = colSteps[d] || [];
-        const labelW = Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW + 16));
+        const labelW = staggerLabels ? TITLE_COL_MIN
+            : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW + 16));
         let w;
         if (reqLayout === 'horizontal') {
             w = Math.max(64, labelW, ...steps.map((r) => reqStr(r).length * CHW + 30));
@@ -159,6 +193,18 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         }
         colW.push(w);
     }
+    // How much horizontal room a STAGGERED label at depth d may occupy: its own
+    // column plus a bounded reach into each neighbour. Ends have one neighbour.
+    // At the ends there is no neighbouring column, but there IS margin: the
+    // left gutter the lane wires start after, and the right padding the world
+    // width already reserves. Bounding by those keeps a d=0 label out of the
+    // gutter instead of letting a wide colW[1] push it off the world.
+    const staggerBudget = (d) => {
+        const left = d > 0 ? colW[d - 1] : LEFT;
+        const right = d < maxD ? colW[d + 1] : RIGHT + 40;
+        return colW[d] + 2 * STAGGER_REACH * Math.min(left, right);
+    };
+    const staggerOf = (d) => (d % 2) * STAGGER_GAP;
     const colX = [];
     {
         let acc = LEFT;
@@ -325,21 +371,62 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         // Lane pitch (zero-overlap contract, half 2): the vertical envelope of
         // one lane — step label above, bead, req ids below, then the reserved
         // title slot — never reaches the next lane's label.
-        const pitch = (reqLayout === 'vertical'
-            ? 58 + (maxReqs - 1) * REQ_LINE_H
-            : LANE_BASE_H) + TITLE_SLOT;
+        //
+        // PER-LANE since req #3119. In 'vertical' mode a lane is as tall as ITS
+        // OWN deepest requirement stack, not as tall as the band's. One 5-req
+        // step used to set the pitch for every lane in its band: in the live
+        // Substrate plan that made all nine lanes of "Swarm Substrate Rebuild"
+        // 120px tall to accommodate step 1, when eight of them carry a single
+        // requirement and need 72 — ~380px of dead vertical space in one band,
+        // and the whole plan taller than the panel for no reason. 'horizontal'
+        // keeps a constant pitch because its req ids sit on ONE line whatever
+        // the count, so there is nothing lane-specific to measure.
+        const laneReqs = new Map();
+        for (const r of steps) {
+            const lane = laneById.get(r.id);
+            const n = (r.reqIds || []).length;
+            if (n > (laneReqs.get(lane) || 0)) laneReqs.set(lane, n);
+        }
+        // The stagger costs one extra line per lane, and it is charged ONCE
+        // because the two staggered things are mutually exclusive: in 'title'
+        // mode the step label above the bead staggers and the title slot is not
+        // drawn at all; in 'id' mode the label is a 4-digit id that never needed
+        // the room and the title slot below staggers instead.
+        const lanePitch = (lane) => (reqLayout === 'vertical'
+            ? 58 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
+            : LANE_BASE_H) + TITLE_SLOT + STAGGER_GAP;
+        // Cumulative lane tops, so a lane's y is the SUM of the lanes above it
+        // rather than index × a single pitch. `laneY` is exported on the band:
+        // every consumer that draws per-lane furniture (the visualizer's lane
+        // wires) must use it or the wires detach from the beads.
+        const laneY = [];
+        {
+            let acc = 0;
+            for (let l = 0; l < sub; l++) { laneY.push(acc); acc += lanePitch(l); }
+            laneY.push(acc); // sentinel: total lane height
+        }
+        // Retained for consumers that want a representative pitch; band height
+        // now comes from laneY, never from sub × pitch.
+        const pitch = lanePitch(0);
         // Bands hosting batch members take a taller header: the batch letter
         // lives in a reserved header strip (below the epic label, above lane
         // 0's step label) and the box top must clear the epic label — found in
         // review as an epic-label × batch-label collision on long epic titles.
-        const headerH = BAND_HEADER
+        // The header also absorbs the stagger, but ONLY in title mode: lane 0's
+        // step label is what gets LIFTED on odd columns (req #3119), and without
+        // the extra line it rises into the epic label — and, in a band hosting a
+        // batch, into the batch letter strip. Both collisions were caught by the
+        // overlap invariant. In id mode nothing above the bead moves (the title
+        // slot staggers DOWNWARD instead), so charging the header there would be
+        // 14px of dead space per band in the default view.
+        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_GAP : 0)
             + (steps.some((r) => batchOf.has(r.id)) ? BATCH_HEADER_EXTRA : 0);
-        bands.push({ ...band, steps, sub, maxReqs, pitch, headerH });
+        bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs, headerH });
     }
     let y = 8;
     for (const band of bands) {
         band.y = y;
-        band.height = band.headerH + band.sub * band.pitch;
+        band.height = band.headerH + band.laneY[band.sub];
         y += band.height + BAND_GAP;
     }
     const totalH = y + 8;
@@ -352,7 +439,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             nodes.set(r.id, {
                 id: r.id,
                 x: colX[d],
-                y: band.y + band.headerH + laneById.get(r.id) * band.pitch + 10,
+                y: band.y + band.headerH + band.laneY[laneById.get(r.id)] + 10,
                 depth: d,
                 lane: laneById.get(r.id),
                 bandIndex,
@@ -424,11 +511,18 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
-        const label = stepLabelText(r, stepLabel);
+        // A staggered title label is fitted to its budget (own column + a
+        // bounded reach into each neighbour) and lifted one line on odd columns.
+        const labelMax = staggerLabels
+            ? Math.floor((staggerBudget(n.depth) - 8) / CHW)
+            : STEP_LABEL_MAX;
+        const label = stepLabelText(r, stepLabel, labelMax);
         const lw = label.length * CHW;
         labels.push({
             kind: 'step', stepId: r.id, text: label,
-            x: n.x - lw / 2, y: n.y - 26, w: lw, h: 12,
+            x: n.x - lw / 2,
+            y: n.y - 26 - (staggerLabels ? staggerOf(n.depth) : 0),
+            w: lw, h: 12,
         });
         const ids = r.reqIds || [];
         if (reqLayout === 'horizontal') {
@@ -456,12 +550,24 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         // when the step label already IS the title — it would duplicate).
         if (stepLabel !== 'title') {
             const band = bands[n.bandIndex];
-            const maxChars = Math.max(4, Math.floor((colW[n.depth] - 8) / CHW_TITLE));
+            // Staggered too, and therefore budgeted the same way: the title may
+            // reach into its neighbours because they draw on the other line.
+            // Before req #3119 this was capped at the bare column width, which
+            // is what cut plan titles to a few characters in narrow columns.
+            const maxChars = Math.max(4, Math.floor((staggerBudget(n.depth) - 8) / CHW_TITLE));
             const t = truncate(r.title || '', maxChars);
             if (t) {
-                const slotY = reqLayout === 'vertical'
-                    ? n.y + 14 + band.maxReqs * REQ_LINE_H + 2
-                    : n.y + 28;
+                // The slot clears THIS LANE's requirement stack — the same count
+                // that sized the lane (req #3119). It used to clear the BAND's
+                // deepest stack, which was equivalent only while every lane in a
+                // band shared one pitch; with per-lane heights a one-req lane in
+                // a five-req band had its title pushed 48px past its own lane
+                // and straight onto the next lane's bead. Caught by the
+                // label-vs-bead invariant, which is why that test exists.
+                const laneN = Math.max(1, band.laneReqs.get(n.lane) || 1);
+                const slotY = (reqLayout === 'vertical'
+                    ? n.y + 14 + laneN * REQ_LINE_H + 2
+                    : n.y + 28) + staggerOf(n.depth);
                 labels.push({
                     kind: 'title', stepId: r.id, text: t,
                     x: n.x - (t.length * CHW_TITLE) / 2, y: slotY,

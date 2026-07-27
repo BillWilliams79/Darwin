@@ -85,12 +85,25 @@ const RequirementDetail = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const fromCalendar = location.state?.from === 'calendar';
+    // Req #3119: arriving from a plan (the plan table's requirement link or the
+    // visualizer's requirement label) must go BACK to that plan, not to the
+    // Roadmap. Without this the only exit from a requirement opened out of the
+    // visualizer was the Requirements cards view — a different page than the one
+    // the user left, so the plan (and the mode/layout toggles they had set) had
+    // to be found again by hand.
+    const fromPipelineId = location.state?.from === 'pipeline'
+        ? Number(location.state?.pipelineId) : null;
+    const hasPipelineOrigin = Number.isFinite(fromPipelineId) && fromPipelineId > 0;
     // "new" mode (req #2414): the user came from the aggregator template row.
     // No DB record exists yet — the requirement is POSTed only when the user
     // picks a category. Until then this page edits a purely local draft.
     const isNew = id === 'new';
-    const handleBack = () => navigate(fromCalendar ? '/calview' : '/swarm');
-    const backLabel = fromCalendar ? 'Back to Calendar' : 'Back to Roadmap';
+    const handleBack = () => {
+        if (hasPipelineOrigin) return navigate(`/swarm/pipeline/${fromPipelineId}`);
+        return navigate(fromCalendar ? '/calview' : '/swarm');
+    };
+    const backLabel = hasPipelineOrigin ? 'Back to Plan'
+        : (fromCalendar ? 'Back to Calendar' : 'Back to Roadmap');
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);
@@ -586,7 +599,7 @@ const RequirementDetail = () => {
                 <Tooltip title="Previous requirement" enterDelay={400}>
                     <span>
                         <IconButton
-                            onClick={() => navigate(`/swarm/requirement/${prevId}`)}
+                            onClick={() => navigate(`/swarm/requirement/${prevId}`, { state: location.state })}
                             disabled={!prevId}
                             data-testid="btn-prev-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
@@ -598,7 +611,7 @@ const RequirementDetail = () => {
                 <Tooltip title="Next requirement" enterDelay={400}>
                     <span>
                         <IconButton
-                            onClick={() => navigate(`/swarm/requirement/${nextId}`)}
+                            onClick={() => navigate(`/swarm/requirement/${nextId}`, { state: location.state })}
                             disabled={!nextId}
                             data-testid="btn-next-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
