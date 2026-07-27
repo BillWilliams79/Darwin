@@ -17,6 +17,8 @@ import {
     rowMachineLabel,
     batchMachineLabel,
     stepProse,
+    stepName,
+    stepDescription,
     formatTimeGate,
     formatTimeGates,
 } from '../pipelineViewModel';
@@ -651,5 +653,73 @@ describe('orderedPlan attaches cost to every row', () => {
         const costed = orderedPlan(model(), { now: NOW, costIndex });
         expect(costed.rows.map((r) => r.id)).toEqual(bare.rows.map((r) => r.id));
         expect(costed.violations).toEqual([]);
+    });
+});
+
+// ── Name vs description (req #3119) ─────────────────────────────────────────
+// A title is a NAME. The darwin_dev seed used to load a truncated summary into
+// pipeline_steps.title, so a "name" could be a paragraph; the generator now
+// loads the plan's own short title. These two functions are what keeps the Name
+// column from becoming a second copy of the description either way.
+
+describe('stepName — the Name column', () => {
+    it('returns a short title unchanged and unflagged', () => {
+        expect(stepName({ title: 'Session Drain' }))
+            .toEqual({ text: 'Session Drain', full: 'Session Drain', truncated: false });
+    });
+
+    it('em-dashes a missing, empty or whitespace-only title', () => {
+        for (const row of [null, undefined, {}, { title: '' }, { title: '   ' }]) {
+            expect(stepName(row)).toEqual({ text: '—', full: '', truncated: false });
+        }
+    });
+
+    it('trims surrounding whitespace rather than counting it toward the cut', () => {
+        expect(stepName({ title: '  Green Baseline  ' }).full).toBe('Green Baseline');
+    });
+
+    it('cuts a prose-length legacy title at a word boundary, keeping the full text', () => {
+        const legacy = 'Seven parallel sessions on the proven substrate: house dialog '
+            + 'pattern under /agents, IntegrityError-to-409 mapping';
+        const out = stepName(legacy && { title: legacy });
+        expect(out.truncated).toBe(true);
+        expect(out.full).toBe(legacy);
+        expect(out.text.endsWith('…')).toBe(true);
+        expect(out.text.length).toBeLessThanOrEqual(48);
+        // Word boundary: nothing but the ellipsis after the last space.
+        expect(out.text.slice(0, -1).endsWith(' ')).toBe(false);
+        expect(legacy.startsWith(out.text.slice(0, -1))).toBe(true);
+    });
+
+    it('falls back to a hard cut when the first 48 chars hold no space', () => {
+        const out = stepName({ title: 'x'.repeat(80) });
+        expect(out.truncated).toBe(true);
+        expect(out.text).toBe(`${'x'.repeat(47)}…`);
+    });
+
+    it('honours an explicit max', () => {
+        expect(stepName({ title: 'Session Drain' }, 8).text).toBe('Session…');
+    });
+});
+
+describe('stepDescription — the "What this step does" column', () => {
+    it('prints the notes, never the name repeated', () => {
+        expect(stepDescription({ title: 'Session Drain', notes: 'Drain: close every session' }))
+            .toBe('Drain: close every session');
+    });
+
+    it('prints a SHORT supplementary note alone — the Name column carries the title', () => {
+        expect(stepDescription({ title: 'Green Baseline', notes: 'Blocked on the snapshot gate.' }))
+            .toBe('Blocked on the snapshot gate.');
+    });
+
+    it('falls back to the title when there is no description at all', () => {
+        expect(stepDescription({ title: 'Green Baseline', notes: null })).toBe('Green Baseline');
+        expect(stepDescription({ title: 'Green Baseline', notes: '   ' })).toBe('Green Baseline');
+    });
+
+    it('is empty, never a crash, on a row with neither', () => {
+        expect(stepDescription({})).toBe('');
+        expect(stepDescription(null)).toBe('');
     });
 });

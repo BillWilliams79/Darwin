@@ -148,11 +148,14 @@ export default function PipelinesPage() {
                 </Stack>
 
                 {/* Accounting line counts the WHOLE dataset, with the filtered
-                    subset named separately (V7). */}
+                    subset named separately (V7). The call-to-action names what
+                    the ACTIVE view actually shows — "click a row" is wrong
+                    advice in Cards, where the click target is a card. */}
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
                             data-testid="pipelines-accounting">
                     {filtered.length} of {pipelines.length} pipeline
-                    {pipelines.length === 1 ? '' : 's'} — click a row for the plan
+                    {pipelines.length === 1 ? '' : 's'} — click a{' '}
+                    {activeView === 'table' ? 'row' : 'card'} for the plan
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
@@ -173,6 +176,7 @@ export default function PipelinesPage() {
                         summaries={summaries}
                         machines={machines}
                         onOpen={open}
+                        filtered={statusFilter !== null}
                     />
                 )}
             </Box>

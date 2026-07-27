@@ -478,4 +478,56 @@ export function stepProse(row) {
     return { text: title, notes };
 }
 
+/**
+ * The step's NAME, for the Name column (req #3119).
+ *
+ * A title is a name — "Session Drain", "Bounded MCP Reads" — not the opening
+ * clause of the description. The darwin_dev fixture used to load
+ * `short_title(summary)` here, so a "name" could be 256 characters of truncated
+ * prose; the seed generator now loads the plan's own short title instead.
+ *
+ * Rows written before that fix (or by any other producer) can still carry a
+ * paragraph, and this column must not become a second copy of the description.
+ * So a name that is clearly prose is CUT for display — the full string stays one
+ * hover away, and the description column still prints it in full. The cut is
+ * presentational only; nothing stored is rewritten.
+ *
+ * @param {Object} row  a PlanRow
+ * @returns {{text: string, full: string, truncated: boolean}}
+ */
+export const STEP_NAME_MAX = 48;
+
+export function stepName(row, max = STEP_NAME_MAX) {
+    const full = (row && row.title ? String(row.title) : '').trim();
+    if (!full) return { text: '—', full: '', truncated: false };
+    if (full.length <= max) return { text: full, full, truncated: false };
+    // Cut at a word boundary so a name never ends mid-token, matching the
+    // generator's own short_title().
+    const cut = full.slice(0, max - 1);
+    const space = cut.lastIndexOf(' ');
+    return { text: `${space > 0 ? cut.slice(0, space) : cut}…`, full, truncated: true };
+}
+
+/**
+ * What the "What this step does" cell should print, now that Name is its own
+ * column (req #3119): the DESCRIPTION, never the name repeated.
+ *
+ * `notes` is the full summary prose. When a row has no notes at all there is no
+ * description to show, and the title is the only thing written about the step —
+ * printing it beats printing an em-dash, so it falls back.
+ *
+ * It does NOT re-print the title alongside the notes, even when the notes are a
+ * short supplementary remark rather than a full description: the Name column
+ * carries the title on the same row, two cells to the left, and repeating it
+ * here is what the Name column was added to stop.
+ *
+ * @param {Object} row  a PlanRow
+ * @returns {string}
+ */
+export function stepDescription(row) {
+    const notes = row && row.notes ? String(row.notes).trim() : '';
+    if (!notes) return (row && row.title ? String(row.title) : '').trim();
+    return notes;
+}
+
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };

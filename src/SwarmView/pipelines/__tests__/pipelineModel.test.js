@@ -22,8 +22,16 @@ import { PLAN_JSON_ROWS, SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixtu
 // Both golden orders pass the archived verify_order.
 const E1 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 10, 26, 25, 28, 11, 22, 16, 23, 33,
     12, 13, 14, 19, 38, 34, 39, 40, 41, 43, 42, 17, 18, 31, 20];
-const E2 = [1, 2, 3, 4, 5, 6, 8, 9, 7, 21, 10, 26, 25, 28, 11, 22, 16, 23, 33,
-    12, 13, 14, 19, 38, 34, 39, 40, 41, 43, 42, 17, 18, 31, 20];
+// There used to be a SECOND expectation here, E2, identical to E1 except that
+// step 7 sorted three places later (…6, 8, 9, 7, 21… instead of …6, 7, 8, 9…).
+// It existed because the req-less step 7 derived NO epic — rule 10 attaches
+// labels to requirements and step 7 links none — and epic order is a tie-break
+// in displayOrder, so the product's own output disagreed with the POC's on the
+// one row where the POC read the label straight off the plan.
+//
+// req #3119 closed that gap: a req-less step now INHERITS its dependencies'
+// dominant label (see buildPlanRows), so the full derivation reproduces E1
+// exactly and there is one expected order again, not two.
 
 const PLAN_STATE = { done: STEP_DONE, active: STEP_RUNNING, pending: STEP_PENDING };
 
@@ -70,10 +78,15 @@ describe('POC parity — the archived generate.py output is the contract', () =>
         expect(verifyOrder(result.rows)).toEqual([]);
     });
 
-    it('reproduces E2 over the table-shaped fixture via full derivation', () => {
+    // The stronger form of the parity contract: derivation from the TABLE-SHAPED
+    // fixture — junction rows, requirement statuses, feature→epic chains — must
+    // land on the same order as the POC reading the PLAN-JSON's own columns.
+    // Same expectation as E1, deliberately: two orders would mean the product
+    // and its own acceptance fixture disagree about the plan.
+    it('reproduces E1 over the table-shaped fixture via full derivation', () => {
         const rows = buildPlanRows(SUBSTRATE_REBUILD_MODEL);
         const result = displayOrder(rows);
-        expect(ids(result.rows)).toEqual(E2);
+        expect(ids(result.rows)).toEqual(E1);
         expect(result.cycleDetected).toBe(false);
         expect(verifyOrder(result.rows)).toEqual([]);
     });
@@ -86,19 +99,39 @@ describe('POC parity — the archived generate.py output is the contract', () =>
         }
     });
 
-    it('derives every fixture epic/feature label equal to the PLAN-JSON labels ' +
-       '(null for the req-less step 7)', () => {
+    it('derives every fixture epic/feature label equal to the PLAN-JSON labels, '
+       + 'the req-less step 7 included', () => {
         const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
         for (const planRow of PLAN_JSON_ROWS) {
             const derived = byId.get(Number(planRow.step));
-            if (planRow.reqs.length === 0) {
-                expect(derived.epic).toBeNull();
-                expect(derived.feature).toBeNull();
-            } else {
-                expect(derived.epic, `step ${planRow.step}`).toBe(planRow.epic);
-                expect(derived.feature, `step ${planRow.step}`).toBe(planRow.feature);
-            }
+            expect(derived.epic, `step ${planRow.step}`).toBe(planRow.epic);
+            expect(derived.feature, `step ${planRow.step}`).toBe(planRow.feature);
         }
+    });
+
+    // The mechanism behind that, stated on its own so a regression names itself:
+    // step 7 links no requirement, so it has nothing of its own to derive from
+    // and borrows from step 6 — which is what the plan itself records for it.
+    it('a req-less step inherits its dependency label, and claims no label set', () => {
+        const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
+        const seven = byId.get(7);
+        expect(seven.reqIds).toEqual([]);
+        expect(seven.depIds).toEqual([6]);
+        expect(seven.epic).toBe(byId.get(6).epic);
+        expect(seven.feature).toBe(byId.get(6).feature);
+        // Borrowed, not spanned: the label SETS stay empty, so the "spans more
+        // than one epic" tooltip never fires on an inherited label.
+        expect(seven.epicLabels).toEqual([]);
+        expect(seven.featureLabels).toEqual([]);
+    });
+
+    it('a step with its OWN requirements never inherits from a dependency', () => {
+        const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
+        // Step 19 spans epics by design (rule 10) and gates step 38, which sits
+        // under a different epic; 38 must keep its own, not 19's.
+        expect(byId.get(38).depIds).toEqual([19]);
+        expect(byId.get(38).epic).toBe('Swarm Orchestration Feature');
+        expect(byId.get(38).epicLabels.length).toBeGreaterThan(0);
     });
 
     it('joins dependencies faithfully (spot checks)', () => {
@@ -157,6 +190,52 @@ describe('verifyOrder — each invariant caught on a seeded bad input', () => {
         expect(violations.some((v) => v.invariant === 'state-banding'
             && v.stepIds[0] === 2)).toBe(true);
     });
+
+    // Design rule 3 orders its criteria "topological, THEN state bands", so
+    // topology WINS. When a step's own gate sits in a later band, no ordering
+    // satisfies both and dependency-first is the only correct answer — reporting
+    // it was the checker being stricter than the rule, and it fired on every
+    // render of the live plan (step 19 Running gates step 38 Complete).
+    it('invariant 2: a band inversion FORCED by a dependency is not a violation', () => {
+        const gate = row(19, STEP_RUNNING);
+        const dependent = row(38, STEP_DONE, [19]);
+        const violations = verifyOrder([gate, dependent]);
+        expect(violations.filter((v) => v.invariant === 'state-banding')).toEqual([]);
+        // ...and the order is topologically sound, so nothing else fires either.
+        expect(violations).toEqual([]);
+    });
+
+    it('invariant 2: transitively forced inversions are accepted too', () => {
+        const violations = verifyOrder([
+            row(1, STEP_RUNNING),
+            row(2, STEP_DONE, [1]),
+            row(3, STEP_DONE, [2]),
+        ]);
+        expect(violations).toEqual([]);
+    });
+
+    it('invariant 2: an inversion the order did NOT have to make is still caught', () => {
+        // Same shape, minus the dependency — step 38 could have rendered first,
+        // so the sink is a real ordering defect. This is the 4th regression the
+        // invariant was built for: state losing to stream grouping.
+        const violations = verifyOrder([row(19, STEP_RUNNING), row(38, STEP_DONE)]);
+        const banding = violations.filter((v) => v.invariant === 'state-banding');
+        expect(banding).toHaveLength(1);
+        expect(banding[0].stepIds).toEqual([38, 19]);
+    });
+
+    it('invariant 2: depending on ONE running row does not excuse sinking below another',
+        () => {
+            // 38 must follow 19 (dependency). It need not follow 20, and does.
+            const violations = verifyOrder([
+                row(19, STEP_RUNNING),
+                row(20, STEP_RUNNING),
+                row(38, STEP_DONE, [19]),
+            ]);
+            const banding = violations.filter((v) => v.invariant === 'state-banding');
+            expect(banding).toHaveLength(1);
+            expect(banding[0].stepIds).toEqual([38, 20]);
+        });
 
     it('invariant 3 (batch contiguity): a split launch batch is caught', () => {
         const a = row(3, STEP_PENDING, [1]);

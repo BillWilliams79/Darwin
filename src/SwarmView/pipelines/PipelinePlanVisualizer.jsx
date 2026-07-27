@@ -47,11 +47,8 @@ import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 
-import { useViewPreference } from '../../hooks/useViewPreference';
 import { semanticLevel } from '../konvaSwarmModel';
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
@@ -65,8 +62,6 @@ import {
 } from './pipelinePlanLayout';
 import '../../CalendarFC/swarmVisualizer.css';
 
-const REQ_LAYOUT_KEY = 'darwin-pipeline-viz-req-layout';
-const STEP_LABEL_KEY = 'darwin-pipeline-viz-step-label';
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 const LEVEL_NAME = { out: 'Overview', mid: 'Plan', in: 'Detail' };
@@ -88,12 +83,45 @@ function LegendDot({ fill, ring, dashed, label }) {
     );
 }
 
-export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) {
+// Machine colours for the requirement ids (req #3119) — the high-contrast
+// ecosystem pairing (user directive 2026-07-27): each machine reads as its
+// PLATFORM at a glance, so the two are told apart by association rather than by
+// consulting a key.
+//
+// Keyed on `machines.platform`, NOT on position in the plan's machine list. A
+// positional palette makes a machine's colour depend on which OTHER machines a
+// plan happens to use, so the Mac mini would be one colour on a two-machine plan
+// and another on a three-machine one — and the whole value of an ecosystem
+// pairing is that it is the same everywhere.
+const MACHINE_MAC_COLOR = '#FF5F56';       // Apple traffic-light red
+const MACHINE_WINDOWS_COLOR = '#0078D4';   // Microsoft blue
+const MACHINE_ANY_COLOR = '#8fa4c4';       // no pin — not a machine
+// A machine outside the pairing still has to be distinguishable, so it takes a
+// hue that is neither ecosystem colour.
+const MACHINE_FALLBACK_PALETTE = ['#8ce99a', '#c8a2ff', '#6ee7e7', '#ffb86b', '#f78ca0'];
+
+// Which ecosystem a MACHINE ROW belongs to. Colour is resolved per machine id —
+// the requirement carries `machine_fk` and that id decides the colour — but the
+// id itself says nothing about the ecosystem, so the machine record does.
+// `platform` first because it is the field that means this; hostname/title only
+// as a backstop, since a machine registered without a platform would otherwise
+// silently drop out of the pairing into a fallback hue.
+function machineEcosystem(machine) {
+    const hay = `${machine?.platform || ''} ${machine?.title || ''} ${machine?.hostname || ''}`
+        .toLowerCase();
+    if (/darwin|mac|osx|os x/.test(hay)) return 'mac';
+    if (/wsl|win32|windows|cygwin|msys|mchp/.test(hay)) return 'windows';
+    return null;
+}
+
+export default function PipelinePlanVisualizer({
+    plan, model, pipeline, timezone, onStepFocus,
+    // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
+    // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
+    // pattern, req #2407), so the panel is the canvas and nothing else.
+    reqLayout = 'horizontal', stepLabel = 'id', colorKey = 'state',
+}) {
     const navigate = useNavigate();
-    const [reqLayoutPref, setReqLayoutPref] = useViewPreference(REQ_LAYOUT_KEY, 'horizontal');
-    const [stepLabelPref, setStepLabelPref] = useViewPreference(STEP_LABEL_KEY, 'id');
-    const reqLayout = reqLayoutPref === 'vertical' ? 'vertical' : 'horizontal';
-    const stepLabel = stepLabelPref === 'title' ? 'title' : 'id';
 
     const rows = plan.rows || [];
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
@@ -101,9 +129,58 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         () => new Map((plan.batches || []).map((b) => [b.letter, b])), [plan.batches]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
 
+    // Requirement name + status for the hover tooltip (req #3119). The canvas
+    // keeps drawing bare IDS — a plan title is many times the width of the
+    // column it hangs under, so putting names on the surface either shrinks them
+    // to nothing or blows the layout apart. The name belongs on demand.
+    // From the SAME light projection the page already read; no extra fetch.
+    const reqInfo = useMemo(
+        () => new Map((model?.requirements || [])
+            .map((r) => [r.id, { title: r.title, status: r.requirement_status }])),
+        [model]);
     const layout = useMemo(
         () => computePlanLayout(rows, plan.batches || [], { reqLayout, stepLabel }),
         [rows, plan.batches, reqLayout, stepLabel]);
+
+    // ── Machine identity on the REQUIREMENT IDS (req #3119) ─────────────────
+    // Machine rides the requirement ids, never the bead: the bead's fill already
+    // carries derived state (rule 1), and repainting it would trade that reading
+    // for this one. Colour + weight, so the distinction survives at small sizes.
+    //
+    // Colour comes from the machine's PLATFORM, so it is the same on every plan.
+    const machineView = useMemo(() => {
+        const reqMachine = new Map((model?.requirements || [])
+            .map((r) => [r.id, r.machine_fk == null ? null : r.machine_fk]));
+        const machineById = new Map((model?.machines || []).map((m) => [m.id, m]));
+        const titleById = new Map((model?.machines || []).map((m) => [m.id, m.title]));
+        const used = [...new Set([...reqMachine.values()].filter((v) => v != null))]
+            .sort((a, b) => a - b);
+        let fallbackNext = 0;
+        const colorById = new Map(used.map((id) => {
+            const eco = machineEcosystem(machineById.get(id));
+            if (eco === 'mac') return [id, MACHINE_MAC_COLOR];
+            if (eco === 'windows') return [id, MACHINE_WINDOWS_COLOR];
+            const c = MACHINE_FALLBACK_PALETTE[fallbackNext % MACHINE_FALLBACK_PALETTE.length];
+            fallbackNext += 1;
+            return [id, c];
+        }));
+        const anyPresent = [...reqMachine.values()].some((v) => v == null);
+        return {
+            colorOf: (reqId) => {
+                const m = reqMachine.get(reqId);
+                return m == null ? MACHINE_ANY_COLOR : (colorById.get(m) || MACHINE_ANY_COLOR);
+            },
+            legend: [
+                ...used.map((id) => ({
+                    key: id, color: colorById.get(id),
+                    label: titleById.get(id) || `Machine ${id}`,
+                })),
+                ...(anyPresent
+                    ? [{ key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' }] : []),
+            ],
+        };
+    }, [model]);
+    const byMachine = colorKey === 'machine';
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -130,6 +207,25 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         setSize({ w: containerEl.clientWidth, h: containerEl.clientHeight });
         return () => ro.disconnect();
     }, [containerEl]);
+
+    // The canvas fills whatever is left below it, MEASURED (req #3119). A
+    // `calc(100vh - Npx)` constant — which is what the swarm canvas can afford,
+    // because its chrome is fixed — assumes this page's header height, and this
+    // page's header is not fixed: the breadcrumb, a one- or two-line description,
+    // and an order-violations alert that appears only on some plans all move it.
+    // Guessing put the panel 57px below the fold on the live plan. `top` does not
+    // depend on the panel's own height, so writing height from it cannot loop.
+    const [availH, setAvailH] = useState(null);
+    useLayoutEffect(() => {
+        if (!containerEl) return undefined;
+        const recompute = () => {
+            const { top } = containerEl.getBoundingClientRect();
+            setAvailH(Math.max(480, Math.round(window.innerHeight - top - 14)));
+        };
+        recompute();
+        window.addEventListener('resize', recompute);
+        return () => window.removeEventListener('resize', recompute);
+    }, [containerEl, plan, colorKey, reqLayout, stepLabel]);
 
     // Fit-to-width base scale — the POC page rendered the whole plan across the
     // panel; kBase is that view, and semanticLevel(curK / kBase) matches the
@@ -246,6 +342,10 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p && batch) setCard({ x: p.x, y: p.y, kind: 'batch', batch });
     }, [batchByLetter]);
+    const showReqCard = useCallback((reqId, e) => {
+        const p = e?.target?.getStage?.()?.getPointerPosition?.();
+        if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
+    }, [reqInfo]);
     const hideCard = useCallback(() => setCard(null), []);
 
     if (!rows.length) {
@@ -264,6 +364,84 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
 
     const hasBatchBoxes = layout.batchBoxes.length > 0;
 
+    // ── Floating epic labels (req #3119, prototype item 3) ──────────────────
+    // The epic name rides its band's top edge, CLAMPS to the top of the viewport
+    // while any part of the band is visible, and slides away only as the band's
+    // bottom passes. Static world text scrolls off the moment you pan into a tall
+    // band, and a full-height canvas makes bands taller — so on the live plan you
+    // could be four screens deep in a band with nothing on screen saying which.
+    //
+    // HTML overlay rather than a Konva node: the clamp is a per-frame position
+    // that has nothing to do with the world transform, and computing it here
+    // keeps the world purely a function of the layout. `pointerEvents: 'none'` on
+    // the strip so it never eats a drag-pan; the label itself re-enables them so
+    // the epic stays clickable (production directive).
+    const LABEL_H = 20;      // the HTML chip's own height, in SCREEN px
+    const CHAR_W = 7.3;      // 12px bold mono, for the width estimate
+    const floatingEpics = layout.bands.map((band) => {
+        // Band geometry in SCREEN space.
+        const top = t.y + band.y * t.k;
+        const bottom = t.y + (band.y + band.height) * t.k;
+        const headerBottom = t.y + (band.y + band.headerH) * t.k;
+        const left = t.x + 2 * t.k;
+        const right = t.x + (layout.width - 2) * t.k;
+        // Off-screen on EITHER axis means no label. Vertical alone was not
+        // enough: panning far right leaves a band's rectangle entirely to the
+        // left of the panel, and clamping x into a rectangle that is off-screen
+        // puts the label off-screen with it — correct, but it should simply not
+        // render. (Caught by the pan sweep, which found three labels at negative
+        // x after a -1100px drag.)
+        if (bottom < 0 || top > size.h) return null;
+        if (right < 0 || left > size.w) return null;
+
+        // VERTICAL: confined to the band's HEADER STRIP, never into lane space.
+        //
+        // The strip is the only part of the epic rectangle that holds no step
+        // content, so this is what "must not overlap another swim lane's text"
+        // reduces to. It also keeps the label inside its own rectangle at both
+        // ends, which a plain viewport clamp did not: a band whose bottom edge
+        // had scrolled just past the top of the view still parked its label at
+        // the viewport top, i.e. below its own band.
+        //
+        // The label is sized in SCREEN px while the header is reserved in WORLD
+        // px — that mismatch is the actual cause of the overlap. At fit zoom
+        // (k≈0.67) a 40+14pxworld header is only ~36px on screen, and the label is
+        // 20 of them; zoom out further and the strip becomes shorter than the
+        // label, so the clamp below pins to the strip's TOP and lets it extend
+        // over the band's own first lane rather than over a neighbouring band.
+        const minY = top + 3;
+        const maxY = Math.max(minY, headerBottom - LABEL_H - 2);
+        const y = Math.min(Math.max(4, minY), maxY);
+        // WHOLLY on screen or not at all. Testing only the label's TOP left a
+        // band whose header strip ends 2px above the panel floor rendering a
+        // label that hung 2px past it.
+        if (y < 0 || y + LABEL_H > size.h) return null;
+
+        // HORIZONTAL: inside the band rectangle too, so a pan never leaves the
+        // label hanging in the margin beside the plan it labels.
+        const estW = band.epic.length * CHAR_W + 18;
+        // Confine to the part of the band that is BOTH inside the rectangle and
+        // on screen. When the band has scrolled far enough that its visible
+        // sliver is narrower than the label, there is no honest position left:
+        // clamping to the rectangle alone hangs the label off the panel edge
+        // (measured at x=-40 after a -1200px drag), and clamping to the panel
+        // alone puts it outside the rectangle. Hide it instead — the band is
+        // leaving anyway.
+        const visLeft = Math.max(0, left);
+        const visRight = Math.min(size.w, right);
+        if (visRight - visLeft < estW + 12) return null;
+        const x = Math.min(Math.max(visLeft + 6, left + 6), right - estW - 6);
+
+        return {
+            key: band.key == null ? 'none' : band.key,
+            epicId: band.epicId,
+            text: band.epic,
+            color: band.color,
+            x,
+            y,
+        };
+    }).filter(Boolean);
+
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
 
@@ -276,7 +454,9 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                   height={band.height} cornerRadius={8}
                   stroke={band.color} strokeWidth={1} opacity={0.35} />);
         for (let l = 0; l < band.sub; l++) {
-            const wy = band.y + band.headerH + l * band.pitch + 10;
+            // band.laneY, not l × pitch — lanes have individual heights since
+            // req #3119 and a constant-pitch wire would drift off its beads.
+            const wy = band.y + band.headerH + band.laneY[l] + 10;
             worldNodes.push(
                 <Line key={`wire-${band.key}-${l}`}
                       points={[36, wy, layout.width - 14, wy]}
@@ -343,10 +523,34 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
             if (level === 'out') return;
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.req} fontFamily={MONO} fill={P.req}
-                      onMouseEnter={(e) => cursorPointer(e, true)}
-                      onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={() => navigate(`/swarm/requirement/${label.reqId}`)} />);
+                      fontSize={F.req} fontFamily={MONO}
+                      // Machine colour + bold on the ids themselves. Applied on
+                      // the SAME node in both requirement layouts — the SVG
+                      // prototype coloured only the horizontal one, because a
+                      // `text { fill }` CSS rule beat the attribute on <text> but
+                      // never reached its <tspan> children. Konva has no tspans,
+                      // so the cause cannot recur here; the symptom is asserted
+                      // against both layouts anyway.
+                      // WHITE by default, machine colour when that key is on
+                      // (user directive 2026-07-27). A requirement number is an
+                      // identifier, and colouring it was reading as a status —
+                      // status already lives in the bead's fill and the row
+                      // highlight, which is where it belongs. The palette's
+                      // `req` blue is retained for anything that wants it, but
+                      // the id itself no longer carries a second signal.
+                      fill={byMachine ? machineView.colorOf(label.reqId) : P.text}
+                      fontStyle={byMachine ? 'bold' : 'normal'}
+                      onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
+                      onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                      // Carry the plan's identity so the requirement page's Back
+                      // returns HERE and not to the Roadmap (req #3119). The
+                      // mode/layout/label toggles restore themselves — they are
+                      // useViewPreference — so landing back on this route is
+                      // enough to resume the view; only pan/zoom re-fits.
+                      onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
+                          pipeline?.id
+                              ? { state: { from: 'pipeline', pipelineId: pipeline.id } }
+                              : undefined)} />);
         } else if (label.kind === 'title') {
             if (level !== 'in') return;
             worldNodes.push(
@@ -354,17 +558,8 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                       fontSize={F.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
         } else if (label.kind === 'epic') {
-            const clickable = label.epicId != null;
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.epic} fontFamily={MONO} fontStyle="bold"
-                      fill={(layout.bands.find((b) => b.epicId === label.epicId) || {}).color || P.text}
-                      onMouseEnter={clickable ? (e) => cursorPointer(e, true) : undefined}
-                      onMouseLeave={clickable ? (e) => cursorPointer(e, false) : undefined}
-                      onActivate={clickable
-                          ? () => navigate(`/swarm/features?epic=${label.epicId}`)
-                          : undefined}
-                      listening={clickable} />);
+            // Drawn as an HTML overlay below, not in the world — see
+            // `floatingEpics`. Nothing is pushed here.
         } else if (label.kind === 'batch') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -385,47 +580,10 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         <Box>
             <OrderViolationsAlert plan={plan} />
 
-            {/* Toolbar: the two POC layout toggles + the legend. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1,
-                        flexWrap: 'wrap' }}>
-                <ToggleButtonGroup value={reqLayout} exclusive size="small"
-                                   onChange={(_e, v) => v && setReqLayoutPref(v)}
-                                   data-testid="pipeline-viz-reqlayout-toggle">
-                    <ToggleButton value="horizontal" sx={{ px: 1.5, textTransform: 'none' }}>
-                        Reqs: Horizontal
-                    </ToggleButton>
-                    <ToggleButton value="vertical" sx={{ px: 1.5, textTransform: 'none' }}>
-                        Reqs: Vertical
-                    </ToggleButton>
-                </ToggleButtonGroup>
-                <ToggleButtonGroup value={stepLabel} exclusive size="small"
-                                   onChange={(_e, v) => v && setStepLabelPref(v)}
-                                   data-testid="pipeline-viz-steplabel-toggle">
-                    <ToggleButton value="id" sx={{ px: 1.5, textTransform: 'none' }}>
-                        Step: ID
-                    </ToggleButton>
-                    <ToggleButton value="title" sx={{ px: 1.5, textTransform: 'none' }}>
-                        Step: Title
-                    </ToggleButton>
-                </ToggleButtonGroup>
-                <Box sx={{ flexGrow: 1 }} />
-                <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap"
-                       useFlexGap>
-                    <LegendDot fill={P.doneFill} label="Complete" />
-                    <LegendDot fill={P.runningFill} label="Running" />
-                    <LegendDot fill={P.pendingFill} ring="#5b7293" label="Scheduled" />
-                    <LegendDot ring={P.manualRing} label="Manual" />
-                    <LegendDot ring={P.eligibleRing} label="eligible now" />
-                    {/* Batch key ONLY when a batch box is actually drawn —
-                        production directive, kept from the POC. */}
-                    {hasBatchBoxes && (
-                        <Box data-testid="pipeline-viz-batch-legend">
-                            <LegendDot ring={P.batch} dashed
-                                       label="launch batch = one /swarm-start" />
-                        </Box>
-                    )}
-                </Stack>
-            </Box>
+            {/* The layout toggles moved into the page header row (req #3119).
+                What stays with the canvas is the LEGEND — it describes the marks
+                on this surface and nothing else — and it now floats INSIDE the
+                panel, so it costs the plan no vertical space. */}
 
             {/* `data-transform` mirrors the world transform d3-zoom computes.
                 The canvas is a bitmap, so pan and zoom are otherwise only
@@ -437,8 +595,13 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                 purpose as the `pipeline-viz-zoom-level` chip beside it. */}
             <Box ref={setContainer} data-testid="pipeline-plan-visualizer"
                  data-transform={`${t.x.toFixed(2)},${t.y.toFixed(2)},${t.k.toFixed(4)}`}
-                 sx={{ position: 'relative', height: 'calc(100vh - 350px)',
-                        minHeight: 460, overflow: 'hidden', borderRadius: '8px',
+                 // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
+                 // verbatim. It only fits because the page header collapsed to
+                 // one row: the toggles, the accounting line and the legend all
+                 // left this column.
+                 sx={{ position: 'relative',
+                        height: availH ? `${availH}px` : 'calc(100vh - 260px)',
+                        minHeight: 480, overflow: 'hidden', borderRadius: '8px',
                         border: `1px solid ${P.line}`, background: P.panel,
                         touchAction: 'none' }}>
                 {size.w > 0 && (
@@ -450,6 +613,72 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                         </Layer>
                     </Stage>
                 )}
+
+                {/* Floating epic labels — pinned to their band, clamped to the
+                    top of the viewport while the band is on screen. The strip
+                    ignores the pointer so it can never swallow a drag-pan; each
+                    label re-enables it so the epic stays clickable. */}
+                <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+                            overflow: 'hidden' }}
+                     data-testid="pipeline-viz-epic-layer">
+                    {floatingEpics.map((e) => (
+                        <Box
+                            key={e.key}
+                            onClick={e.epicId != null
+                                ? () => navigate(`/swarm/features?epic=${e.epicId}`) : undefined}
+                            data-testid={`pipeline-viz-epic-${e.key}`}
+                            sx={{
+                                position: 'absolute', left: e.x, top: e.y,
+                                height: 20, lineHeight: '14px',
+                                display: 'flex', alignItems: 'center',
+                                fontFamily: MONO, fontSize: 12, fontWeight: 700,
+                                color: e.color,
+                                // OPAQUE, not a wash: the chip sits over the
+                                // canvas, and a translucent one let whatever is
+                                // behind it read through the epic name.
+                                background: P.panel,
+                                px: 0.9, py: 0.2, borderRadius: '5px',
+                                border: `1px solid ${e.color}55`,
+                                whiteSpace: 'nowrap', userSelect: 'none',
+                                pointerEvents: e.epicId != null ? 'auto' : 'none',
+                                cursor: e.epicId != null ? 'pointer' : 'default',
+                            }}
+                        >
+                            {e.text}
+                        </Box>
+                    ))}
+                </Box>
+
+                {/* Legend, floated into the panel so it costs the plan no height. */}
+                <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap"
+                       useFlexGap
+                       data-testid="pipeline-viz-legend"
+                       sx={{ position: 'absolute', top: 8, right: 10,
+                              background: 'rgba(13, 20, 32, 0.82)',
+                              px: 1, py: 0.4, borderRadius: '10px',
+                              pointerEvents: 'none', userSelect: 'none', maxWidth: '70%' }}>
+                    {byMachine ? (
+                        machineView.legend.map((m) => (
+                            <LegendDot key={m.key} fill={m.color} label={m.label} />
+                        ))
+                    ) : (
+                        <>
+                            <LegendDot fill={P.doneFill} label="Complete" />
+                            <LegendDot fill={P.runningFill} label="Running" />
+                            <LegendDot fill={P.pendingFill} ring="#5b7293" label="Scheduled" />
+                            <LegendDot ring={P.manualRing} label="Manual" />
+                            <LegendDot ring={P.eligibleRing} label="eligible now" />
+                        </>
+                    )}
+                    {/* Batch key ONLY when a batch box is actually drawn —
+                        production directive, kept from the POC. */}
+                    {hasBatchBoxes && (
+                        <Box data-testid="pipeline-viz-batch-legend">
+                            <LegendDot ring={P.batch} dashed
+                                       label="launch batch = one /swarm-start" />
+                        </Box>
+                    )}
+                </Stack>
 
                 <Box sx={{ position: 'absolute', bottom: 8, right: 10, fontSize: 11,
                             color: P.dim, background: 'rgba(0,0,0,0.45)',
@@ -502,7 +731,20 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
     );
 
     let body;
-    if (card.kind === 'batch') {
+    if (card.kind === 'req') {
+        // Requirement hover (req #3119): the NAME and the STATUS, which is what
+        // an id alone cannot tell you. Deliberately not on the canvas — see the
+        // reqInfo comment. Requirement status is the requirement's OWN field, not
+        // the step state derived from it, so it is shown verbatim.
+        const info = card.info || {};
+        body = (
+            <div className="ts-datacard">
+                <div className="ts-datacard-title">{card.reqId}</div>
+                {rowEl('Name', info.title || '(untitled)')}
+                {rowEl('Status', info.status || 'unknown')}
+            </div>
+        );
+    } else if (card.kind === 'batch') {
         const b = card.batch;
         const timeGates = formatTimeGates(b.timeDeps, timezone);
         body = (

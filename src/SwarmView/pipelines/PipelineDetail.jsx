@@ -20,22 +20,29 @@
 // refetchInterval — a poll here would be the POC's manual regenerate step wearing
 // a different hat.
 
-import { useCallback, useContext, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Breadcrumbs from '@mui/material/Breadcrumbs';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Link from '@mui/material/Link';
-import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
+import call_rest_api from '../../RestApi/RestApi';
+import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import { pipelineKeys } from '../../hooks/useQueryKeys';
+import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
+import '../../CalendarFC/CalendarFC.css';
 import {
     ALL_ROWS,
     useAllEpics,
@@ -78,6 +85,79 @@ import {
 // honest in the error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
 
+// ── Editable pipeline description (req #3119) ───────────────────────────────
+// The plan's goal text is the one field on this page a human authors, and it was
+// read-only prose. It is now the house edit-in-place field: an outlined
+// TextField whose notched "Description" label sits on the top-left border, saved
+// on blur, exactly like the requirement description.
+//
+// Local draft + save-on-blur rather than a controlled write per keystroke: the
+// query cache is the source of truth and re-rendering the whole plan on every
+// character would re-run the ordering engine.
+//
+// The draft ADOPTS a server value that arrives or changes later, but only while
+// the field is clean. Seeding state once at mount is the standard version of
+// this component and it has a data-loss shape: if the row is rendered before its
+// description is in hand, the draft is '' forever, and the next edit-and-blur
+// writes that '' over real text. `savedRef` doubles as the clean/dirty marker —
+// equal to `draft` means untouched since the last known-good value.
+function PipelineDescription({ pipeline }) {
+    const { idToken, profile } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore((s) => s.showError);
+    const incoming = pipeline.description || '';
+    const [draft, setDraft] = useState(incoming);
+    const savedRef = useRef(incoming);
+
+    useEffect(() => {
+        if (incoming === savedRef.current) return;   // nothing new from the server
+        if (draft !== savedRef.current) return;      // user is mid-edit — never clobber
+        savedRef.current = incoming;
+        setDraft(incoming);
+    }, [incoming, draft]);
+
+    const save = () => {
+        const value = draft;
+        if (value === savedRef.current) return;      // nothing changed — no write
+        savedRef.current = value;
+        call_rest_api(`${darwinUri}/pipelines`, 'PUT',
+            [{ id: pipeline.id, description: value }], idToken)
+            .then((result) => {
+                const code = result?.httpStatus?.httpStatus;
+                if (code !== 200 && code !== 204) {
+                    showError(result, 'Unable to update the pipeline description');
+                } else {
+                    queryClient.invalidateQueries({
+                        queryKey: pipelineKeys.all(profile?.userName) });
+                }
+            })
+            .catch((error) => showError(error, 'Unable to update the pipeline description'));
+    };
+
+    return (
+        <TextField
+            label="Description"
+            variant="outlined"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={save}
+            fullWidth
+            multiline
+            minRows={1}
+            maxRows={4}
+            size="small"
+            autoComplete="off"
+            // House spacing for a description block (RequirementDetail uses a
+            // full `mb: 2` unit around its own): the field was sitting flush
+            // against the header row above and the plan below, which is the one
+            // thing that made it read as chrome rather than content.
+            sx={{ mt: 2, mb: 3, maxWidth: 1100 }}
+            data-testid="pipeline-goal"
+        />
+    );
+}
+
 export default function PipelineDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -88,6 +168,22 @@ export default function PipelineDetail() {
 
     const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
+
+    // ── Mode toolbar state, OWNED HERE (req #3119) ──────────────────────────
+    // The controls render in the header row beside the pipeline name — the
+    // SwarmView/VisualizerToolbar arrangement (req #2407), where the panel is the
+    // canvas and the page owns the chrome. That is what buys the visualizer a
+    // full-height canvas: every row of chrome it used to carry is now shared.
+    const [showCost, setShowCost] = useState(false);
+    const [reqLayoutPref, setReqLayoutPref] = useViewPreference(
+        'darwin-pipeline-viz-req-layout', 'horizontal');
+    const [stepLabelPref, setStepLabelPref] = useViewPreference(
+        'darwin-pipeline-viz-step-label', 'id');
+    const [colorKeyPref, setColorKeyPref] = useViewPreference(
+        'darwin-pipeline-viz-color-key', 'state');
+    const reqLayout = reqLayoutPref === 'vertical' ? 'vertical' : 'horizontal';
+    const stepLabel = stepLabelPref === 'title' ? 'title' : 'id';
+    const colorKey = colorKeyPref === 'machine' ? 'machine' : 'state';
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
@@ -179,6 +275,18 @@ export default function PipelineDetail() {
         [model, costIndex]);
     const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
 
+    // Every distinct machine the plan's steps actually touch, derived from the
+    // requirements (design rule 10's level). Sorted for a stable chip.
+    const planMachines = useMemo(() => {
+        const seen = [];
+        for (const row of plan.rows || []) {
+            for (const label of row.machineLabels || []) {
+                if (!seen.includes(label)) seen.push(label);
+            }
+        }
+        return seen.sort((a, b) => a.localeCompare(b));
+    }, [plan.rows]);
+
     if (isLoading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
@@ -204,8 +312,20 @@ export default function PipelineDetail() {
     const ActiveComponent = (findPipelineDetailMode(activeMode)
         || PIPELINE_DETAIL_MODES[0]).Component;
 
+    // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
+    // Box is an item of the `.app-layout` CSS grid, whose items default to
+    // `min-width: auto` — "never shrink below your content". The plan table is
+    // ~1640px of NOWRAP columns, so on the real 41-step plan this Box grew past
+    // its grid track and took the WHOLE PAGE into horizontal scroll: measured
+    // 187px of document overflow at 1680px wide and 427px at 1440px, dragging the
+    // nav rail and header sideways with it. The TableContainer already carries
+    // `overflow-x: auto` and `min-width: 0` and was never getting the chance to
+    // use them — it cannot scroll content that its own ancestor widened to fit.
+    // One property restores what PipelinePlanTable's GroupCell comment already
+    // claims happens ("The TableContainer scrolls instead"), and it is scoped to
+    // this page: nothing else reads it.
     return (
-        <Box sx={{ p: 3 }} data-testid="pipeline-detail">
+        <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
             <Breadcrumbs sx={{ mb: 1 }}>
                 <Link component="button" variant="body2" underline="hover"
                       onClick={() => navigate('/swarm/pipelines')}
@@ -215,6 +335,11 @@ export default function PipelineDetail() {
                 <Typography variant="body2" color="text.primary">{pipeline.title}</Typography>
             </Breadcrumbs>
 
+            {/* ONE header row (req #3119): mode switch, name, the accounting line
+                immediately right of the name, then the active mode's controls and
+                the status chips. Everything the plan used to stack above itself
+                now shares this line, which is what leaves room for a full-height
+                canvas below. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
                         mb: 1 }}>
                 <ToggleButtonGroup
@@ -227,7 +352,7 @@ export default function PipelineDetail() {
                 >
                     {PIPELINE_DETAIL_MODES.map(({ value, label, icon: Icon, disabled }) => (
                         <ToggleButton key={value} value={value} disabled={disabled}
-                                      sx={{ px: 2 }}
+                                      className="cal-toggle-btn" sx={{ px: 1.5 }}
                                       data-testid={`pipeline-mode-${value}`}>
                             <Tooltip title={`${label} view`}>
                                 <Icon fontSize="small" />
@@ -236,46 +361,93 @@ export default function PipelineDetail() {
                     ))}
                 </ToggleButtonGroup>
 
-                <Typography variant="h6" sx={{ flex: 1 }} data-testid="pipeline-title">
+                <Typography variant="h6" sx={{ flexShrink: 0 }} data-testid="pipeline-title">
                     {pipeline.title}
                 </Typography>
+
+                {/* Accounting — the whole plan, never a filtered view
+                    (view-switchable-pages § V7). */}
+                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}
+                            data-testid="pipeline-accounting">
+                    {summary.total} step{summary.total === 1 ? '' : 's'} —{' '}
+                    {summary.done} complete · {summary.running} running ·{' '}
+                    {summary.pending} scheduled
+                    {pipeline.started_at
+                        ? ` · started ${formatDateTime(pipeline.started_at, timezone)}` : ''}
+                    {pipeline.completed_at
+                        ? ` · completed ${formatDateTime(pipeline.completed_at, timezone)}` : ''}
+                </Typography>
+
+                <Box sx={{ flexGrow: 1 }} />
+
+                {activeMode === 'table' ? (
+                    <Button
+                        size="small"
+                        className="cal-toggle-btn"
+                        variant={showCost ? 'contained' : 'outlined'}
+                        onClick={() => setShowCost((v) => !v)}
+                        data-testid="pipeline-cost-toggle"
+                    >
+                        Time / Tokens
+                    </Button>
+                ) : (
+                    <>
+                        <ToggleButtonGroup value={reqLayout} exclusive size="small"
+                                           onChange={(_e, v) => v && setReqLayoutPref(v)}
+                                           data-testid="pipeline-viz-reqlayout-toggle">
+                            <ToggleButton value="horizontal" className="cal-toggle-btn">
+                                Reqs: Horizontal
+                            </ToggleButton>
+                            <ToggleButton value="vertical" className="cal-toggle-btn">
+                                Reqs: Vertical
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                        <ToggleButtonGroup value={stepLabel} exclusive size="small"
+                                           onChange={(_e, v) => v && setStepLabelPref(v)}
+                                           data-testid="pipeline-viz-steplabel-toggle">
+                            <ToggleButton value="id" className="cal-toggle-btn">
+                                Step: ID
+                            </ToggleButton>
+                            <ToggleButton value="title" className="cal-toggle-btn">
+                                Step: Title
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                        {/* Machine colours the REQUIREMENT IDS, not the beads —
+                            the bead's fill is derived state and stays that. */}
+                        <ToggleButtonGroup value={colorKey} exclusive size="small"
+                                           onChange={(_e, v) => v && setColorKeyPref(v)}
+                                           data-testid="pipeline-viz-colorkey-toggle">
+                            <ToggleButton value="state" className="cal-toggle-btn">
+                                State
+                            </ToggleButton>
+                            <ToggleButton value="machine" className="cal-toggle-btn">
+                                Machine
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                    </>
+                )}
 
                 <Chip size="small" label={pipeline.pipeline_status}
                       {...pipelineStatusChipProps(pipeline.pipeline_status)}
                       data-testid="pipeline-status-chip" />
-                <Chip size="small" variant="outlined"
-                      label={machineTitle(pipeline.machine_fk, machines)}
-                      data-testid="pipeline-machine-chip" />
+                {/* The machine chip reports what the PLAN ACTUALLY SPANS, not
+                    just `pipelines.machine_fk` (req #3119). The stored field is a
+                    single id, and the live Substrate plan runs 25 steps on the
+                    Mac mini, 6 on the WSL box and 8 unpinned — so a bare "Mac
+                    mini" here read as "this plan is Mac-mini only", which is how
+                    the discrepancy was noticed. One machine still prints its
+                    name; more prints the count and names them on hover. */}
+                <Tooltip title={planMachines.length > 1
+                    ? `Steps run on: ${planMachines.join(', ')}` : ''}>
+                    <Chip size="small" variant="outlined"
+                          label={planMachines.length > 1
+                              ? `${planMachines.length} machines`
+                              : (planMachines[0] || machineTitle(pipeline.machine_fk, machines))}
+                          data-testid="pipeline-machine-chip" />
+                </Tooltip>
             </Box>
 
-            {pipeline.description && (
-                <Typography variant="body2" color="text.secondary"
-                            sx={{ mb: 1, maxWidth: 900 }}
-                            data-testid="pipeline-goal">
-                    {pipeline.description}
-                </Typography>
-            )}
-
-            {/* Accounting line — the whole plan, never the filtered view
-                (view-switchable-pages § V7). */}
-            <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}
-                   alignItems="center" data-testid="pipeline-accounting">
-                <Typography variant="body2" color="text.secondary">
-                    {summary.total} step{summary.total === 1 ? '' : 's'} —{' '}
-                    {summary.done} complete · {summary.running} running ·{' '}
-                    {summary.pending} scheduled
-                </Typography>
-                {pipeline.started_at && (
-                    <Typography variant="body2" color="text.secondary">
-                        · started {formatDateTime(pipeline.started_at, timezone)}
-                    </Typography>
-                )}
-                {pipeline.completed_at && (
-                    <Typography variant="body2" color="text.secondary">
-                        · completed {formatDateTime(pipeline.completed_at, timezone)}
-                    </Typography>
-                )}
-            </Stack>
+            <PipelineDescription pipeline={pipeline} />
 
             {dictionaryError && (
                 <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
@@ -289,7 +461,10 @@ export default function PipelineDetail() {
 
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId} onStepFocus={onStepFocus}
-                             costError={!!costError} />
+                             costError={!!costError}
+                             showCost={showCost}
+                             reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
+                             />
         </Box>
     );
 }
