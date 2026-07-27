@@ -484,6 +484,10 @@ describe('code-review hardenings (2026-07-26)', () => {
         expect(eligibility(gated, [], '2026-08-01T00:00:00')).toBe(true);
         // explicit offsets still honored
         expect(eligibility(gated, [], '2026-08-01T02:00:00+03:00')).toBe(false);
+        // MySQL's space-separated naive form is the same UTC value
+        const spaceGated = row(2, STEP_PENDING, [], { timeDeps: ['2026-08-01 00:00:00'] });
+        expect(eligibility(spaceGated, [], '2026-08-01T00:00:00Z')).toBe(true);
+        expect(eligibility(spaceGated, [], '2026-07-31T23:59:59Z')).toBe(false);
     });
 
     it('duplicate step ids are reported loudly, never silently collapsed', () => {
@@ -495,6 +499,8 @@ describe('code-review hardenings (2026-07-26)', () => {
             && v.stepIds.includes(5))).toBe(true);
         // clean input reports none
         expect(displayOrder([row(1, STEP_DONE)]).duplicateStepIds).toEqual([]);
+        // and duplicates never masquerade as an empty-stepIds cycle violation
+        expect(violations.filter((v) => v.invariant === 'cycle')).toEqual([]);
     });
 
     it('dependencies pointing outside the row set are reported as dangling', () => {

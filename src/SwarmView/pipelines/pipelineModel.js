@@ -477,7 +477,13 @@ export function displayOrder(rows) {
 // Known inherent conflict: a running/done row that depends on a not-done row
 // (a step started before its gate finished) makes state banding and topology
 // jointly unsatisfiable — the violations then report a real PLAN-DATA anomaly,
-// not an engine bug, and clear when the plan data is corrected.
+// not an engine bug, and clear when the plan data is corrected. Rare greedy-pass
+// edge cases can also surface a batch-contiguity violation on clean data — those
+// too must render loudly, exactly per this contract.
+//
+// Duplicate-id detection only fires when verifying rows that still CONTAIN the
+// duplicates; on displayOrder output (already collapsed) read
+// OrderResult.duplicateStepIds instead.
 //
 // @param {PlanRow[]} rows  display order (displayOrder(...).rows)
 // @returns {OrderViolation[]}
@@ -534,8 +540,8 @@ export function verifyOrder(rows) {
             }
         }
     }
-    if (peeled.size < rows.length) {
-        const stuck = rows.filter((r) => !peeled.has(r.id)).map((r) => r.id);
+    const stuck = rows.filter((r) => !peeled.has(r.id)).map((r) => r.id);
+    if (stuck.length > 0) {
         violations.push({
             invariant: 'cycle',
             stepIds: stuck,
@@ -594,10 +600,15 @@ function toEpochMs(t) {
     if (t == null) return null;
     if (t instanceof Date) return t.getTime();
     if (typeof t === 'number') return t;
-    // Darwin timestamps are NAIVE UTC ("2026-07-27T01:31:17" — no designator).
-    // Date.parse reads a no-offset datetime as LOCAL time, which would shift
-    // every time gate by the machine's UTC offset — normalize to UTC explicitly.
-    const s = /T\d/.test(t) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t) ? `${t}Z` : t;
+    // Darwin timestamps are NAIVE UTC ("2026-07-27T01:31:17" — no designator;
+    // MySQL's space-separated "2026-07-27 01:31:17" is the same value). Date.parse
+    // reads a no-offset datetime as LOCAL time, which would shift every time gate
+    // by the machine's UTC offset — normalize both naive forms to UTC explicitly.
+    let s = t;
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(t)
+            && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t)) {
+        s = `${t.replace(' ', 'T')}Z`;
+    }
     const parsed = Date.parse(s);
     return Number.isNaN(parsed) ? null : parsed;
 }
