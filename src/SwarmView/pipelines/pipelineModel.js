@@ -57,6 +57,10 @@
 // @property {?string} completedAt
 // @property {StepState} state           DERIVED, never stored (rule 1)
 // @property {number[]} reqIds           junction order
+// @property {number[]} unresolvedReqIds junction rows whose requirement is missing
+//                                       from model.requirements (truncated read /
+//                                       data loss) — render LOUDLY; these rows'
+//                                       state may be under-derived
 // @property {number[]} depIds           step dependencies
 // @property {string[]} timeDeps         time gates (ISO-8601)
 // @property {?number} epicId            dominant epic (rule 10)
@@ -73,10 +77,14 @@
 // @typedef {Object} OrderResult
 // @property {PlanRow[]} rows            display order
 // @property {boolean} cycleDetected     rule-3 cycle contract: detected, reported,
-// @property {number[]} cycleStepIds     deterministic fallback to stored order
+// @property {number[]} cycleStepIds     deterministic fallback to stored order;
+//                                       lists steps in OR gated behind the cycle
+// @property {number[]} duplicateStepIds ids appearing more than once in the input —
+//                                       duplicates collapse to one row; render LOUDLY
 //
 // @typedef {Object} OrderViolation
-// @property {('topology'|'state-banding'|'batch-contiguity'|'cycle')} invariant
+// @property {('topology'|'state-banding'|'batch-contiguity'|'cycle'
+//            |'duplicate-id'|'dangling-dependency')} invariant
 // @property {string} message
 // @property {number[]} stepIds
 //
@@ -89,7 +97,8 @@
 // @property {('auto'|'manual')} run
 // @property {string[]} machineLabels
 // @property {number[]} swarmStartArgs   the EXACT requirement-id argument list (rule 8)
-// @property {string} swarmStartCommand  '/swarm-start <req ids>'
+// @property {?string} swarmStartCommand '/swarm-start <req ids>', null when the
+//                                       batch has no linked requirements
 //
 // @typedef {Object} CondensationProposal  rule 2 — proposal only; UI decides
 // @property {number[]} stepIds
@@ -240,6 +249,7 @@ export function buildPlanRows(model) {
     return (model.steps || []).map((step) => {
         const reqIds = linkedReqIds(step.id, model);
         const linked = reqIds.map((rid) => reqsById.get(rid)).filter(Boolean);
+        const unresolvedReqIds = reqIds.filter((rid) => !reqsById.has(rid));
         const labels = dominantLabels(step, model);
         const machines = machineLabels(step, model);
         const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
@@ -251,6 +261,7 @@ export function buildPlanRows(model) {
             completedAt: step.completed_at != null ? step.completed_at : null,
             state: deriveStepState(step, linked),
             reqIds,
+            unresolvedReqIds,
             depIds: deps.depIds,
             timeDeps: deps.timeDeps,
             epicId: labels.epicId,
@@ -282,7 +293,7 @@ function idCmp(a, b) {
 // machine set) — the batch key of rules 2 and 8. Time gates are part of the
 // gate; machine set comes from the requirement-derived labels.
 function launchKey(row) {
-    const deps = [...depIdsOf(row)].sort(idCmp).join(',');
+    const deps = [...new Set(depIdsOf(row))].sort(idCmp).join(',');
     const times = [...(row.timeDeps || [])].sort().join(',');
     const machines = [...(row.machineLabels || [])].sort().join(',');
     return `${deps}|${times}|${row.run || 'auto'}|${machines}`;
@@ -315,8 +326,12 @@ function cmpKey(a, b) {
 // rows whose deps are all done, ranked active first then deepest continuation of
 // finished work), anchor (position of latest placed dependency) clustering
 // dependents under their gate, then epic (first-appearance order), run
-// (auto before manual), numeric id. Stored order is insertion history and never
-// drives display.
+// (auto before manual), numeric id. Bands, streams, topology and clustering never
+// derive from storage order — but storage position IS the POC's deterministic
+// FINAL tie-break (done band, root ranking, epic first-appearance), so callers
+// must supply rows in the canonical stored order (the steps-table order; the
+// pipelines read contract must ORDER BY a stable column). Same input order in,
+// same display order out.
 //
 // Two hardenings over the POC, both inert when no launch batch exists (the POC
 // merely DETECTED batch interleaving via verify_order; this port prevents it):
@@ -328,9 +343,20 @@ function cmpKey(a, b) {
 // Cycle contract (rule 3): detect, report, deterministic fallback — the
 // unplaceable remainder is appended in stored order and flagged.
 //
-// @param {PlanRow[]} rows  insertion order
+// @param {PlanRow[]} rows  canonical stored order (steps-table order)
 // @returns {OrderResult}
 export function displayOrder(rows) {
+    const duplicateStepIds = [];
+    {
+        const seenIds = new Set();
+        for (const r of rows) {
+            if (seenIds.has(r.id)) {
+                if (!duplicateStepIds.includes(r.id)) duplicateStepIds.push(r.id);
+            } else {
+                seenIds.add(r.id);
+            }
+        }
+    }
     const byId = new Map(rows.map((r) => [r.id, r]));
     const idx = new Map(rows.map((r, i) => [r.id, i]));
     const epics = [];
@@ -440,19 +466,59 @@ export function displayOrder(rows) {
         out.push(pick);
         remaining.delete(pick.id);
     }
-    return { rows: out, cycleDetected, cycleStepIds };
+    return { rows: out, cycleDetected, cycleStepIds, duplicateStepIds };
 }
 
-// Rule 3 self-check: the three ordering invariants (+ explicit cycle detection),
-// returned as structured violations — NEVER thrown. CONTRACT: callers render
-// violations LOUDLY and never silently ship a bad order; an empty array is the
-// only green light.
+// Rule 3 self-check: the three ordering invariants (+ explicit cycle,
+// duplicate-id and dangling-dependency detection), returned as structured
+// violations — NEVER thrown. CONTRACT: callers render violations LOUDLY and
+// never silently ship a bad order; an empty array is the only green light.
+//
+// Known inherent conflict: a running/done row that depends on a not-done row
+// (a step started before its gate finished) makes state banding and topology
+// jointly unsatisfiable — the violations then report a real PLAN-DATA anomaly,
+// not an engine bug, and clear when the plan data is corrected.
 //
 // @param {PlanRow[]} rows  display order (displayOrder(...).rows)
 // @returns {OrderViolation[]}
 export function verifyOrder(rows) {
     const violations = [];
     const posn = new Map(rows.map((r, i) => [r.id, i]));
+
+    // Duplicate ids collapse rows in every Map-keyed pass — loudest failure first.
+    {
+        const seenIds = new Set();
+        const dupIds = [];
+        for (const r of rows) {
+            if (seenIds.has(r.id)) {
+                if (!dupIds.includes(r.id)) dupIds.push(r.id);
+            } else {
+                seenIds.add(r.id);
+            }
+        }
+        if (dupIds.length) {
+            violations.push({
+                invariant: 'duplicate-id',
+                stepIds: dupIds,
+                message: `duplicate step ids ${dupIds.join(', ')} — rows collapse silently; ` +
+                    'the rendered plan is missing steps',
+            });
+        }
+    }
+
+    // A dependency pointing outside the row set is data loss or an id-type
+    // mismatch — the FK guarantees every dep exists within the pipeline.
+    for (const r of rows) {
+        for (const d of depIdsOf(r)) {
+            if (!posn.has(d)) {
+                violations.push({
+                    invariant: 'dangling-dependency',
+                    stepIds: [r.id, d],
+                    message: `step ${r.id} depends on step ${d}, which is not in the rendered rows`,
+                });
+            }
+        }
+    }
 
     // Cycle: peel rows whose known deps are all peeled; the remainder is in —
     // or gated behind — a dependency cycle.
@@ -528,7 +594,11 @@ function toEpochMs(t) {
     if (t == null) return null;
     if (t instanceof Date) return t.getTime();
     if (typeof t === 'number') return t;
-    const parsed = Date.parse(t);
+    // Darwin timestamps are NAIVE UTC ("2026-07-27T01:31:17" — no designator).
+    // Date.parse reads a no-offset datetime as LOCAL time, which would shift
+    // every time gate by the machine's UTC offset — normalize to UTC explicitly.
+    const s = /T\d/.test(t) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t) ? `${t}Z` : t;
+    const parsed = Date.parse(s);
     return Number.isNaN(parsed) ? null : parsed;
 }
 
@@ -561,10 +631,24 @@ export function eligibility(row, rows, now) {
 
 // ── Launch batches & condensation ───────────────────────────────────────────
 
+// Excel-style batch letters: A..Z, then AA, AB, …
+function batchLetter(i) {
+    let n = i + 1;
+    let s = '';
+    while (n > 0) {
+        n -= 1;
+        s = String.fromCharCode(65 + (n % 26)) + s;
+        n = Math.floor(n / 26);
+    }
+    return s;
+}
+
 // Rules 2 + 8: pending steps sharing an identical (dep set + time gates, run,
 // machine set) launch together in ONE /swarm-start. Batches of >=2 steps get a
 // letter — A launches first — following display order, and each carries the
-// EXACT /swarm-start argument list (requirement ids in display order).
+// EXACT /swarm-start argument list (requirement ids in display order). A batch
+// with no linked requirements (req-less gate steps) has no launchable command:
+// swarmStartCommand is null, never an argument-less string.
 //
 // @param {PlanRow[]} orderedRows  display order (letters follow it)
 // @returns {LaunchBatch[]}
@@ -584,7 +668,7 @@ export function launchBatches(orderedRows) {
             for (const l of m.machineLabels || []) if (!labels.includes(l)) labels.push(l);
         }
         batches.push({
-            letter: String.fromCharCode(65 + batches.length),
+            letter: batchLetter(batches.length),
             key: k,
             stepIds: members.map((m) => m.id),
             gateStepIds: [...depIdsOf(members[0])].sort(idCmp),
@@ -592,7 +676,7 @@ export function launchBatches(orderedRows) {
             run: members[0].run || 'auto',
             machineLabels: labels,
             swarmStartArgs: reqIds,
-            swarmStartCommand: `/swarm-start ${reqIds.join(' ')}`,
+            swarmStartCommand: reqIds.length ? `/swarm-start ${reqIds.join(' ')}` : null,
         });
     }
     return batches;

@@ -473,6 +473,108 @@ describe('dominantLabels + machineLabels — rule 10 derivation', () => {
     });
 });
 
+describe('code-review hardenings (2026-07-26)', () => {
+    it('naive Darwin timestamps (no timezone designator) are UTC — time gates ' +
+       'must not shift by the machine offset', () => {
+        // "2026-08-01T00:00:00" is the shape Lambda-Rest actually returns.
+        const gated = row(2, STEP_PENDING, [], { timeDeps: ['2026-08-01T00:00:00'] });
+        expect(eligibility(gated, [], '2026-07-31T23:59:59Z')).toBe(false);
+        expect(eligibility(gated, [], '2026-08-01T00:00:00Z')).toBe(true);
+        // naive `now` strings normalize the same way
+        expect(eligibility(gated, [], '2026-08-01T00:00:00')).toBe(true);
+        // explicit offsets still honored
+        expect(eligibility(gated, [], '2026-08-01T02:00:00+03:00')).toBe(false);
+    });
+
+    it('duplicate step ids are reported loudly, never silently collapsed', () => {
+        const stored = [row(5, STEP_DONE), row(5, STEP_PENDING), row(7, STEP_RUNNING)];
+        const result = displayOrder(stored);
+        expect(result.duplicateStepIds).toEqual([5]);
+        const violations = verifyOrder(stored);
+        expect(violations.some((v) => v.invariant === 'duplicate-id'
+            && v.stepIds.includes(5))).toBe(true);
+        // clean input reports none
+        expect(displayOrder([row(1, STEP_DONE)]).duplicateStepIds).toEqual([]);
+    });
+
+    it('dependencies pointing outside the row set are reported as dangling', () => {
+        const violations = verifyOrder([row(2, STEP_PENDING, [99])]);
+        expect(violations.some((v) => v.invariant === 'dangling-dependency'
+            && v.stepIds[0] === 2 && v.stepIds[1] === 99)).toBe(true);
+    });
+
+    it('junction rows whose requirement is missing from the model are surfaced ' +
+       'on the row, not silently under-derived', () => {
+        const model = {
+            steps: [{ id: 1, title: 't', run: 'auto', notes: null, completed_at: null }],
+            stepRequirements: [{ step_fk: 1, requirement_fk: 3110 }],
+            stepDeps: [],
+            requirements: [],   // 3110 absent — e.g. a truncated bounded list read
+            features: [],
+            epics: [],
+        };
+        const [derived] = buildPlanRows(model);
+        expect(derived.unresolvedReqIds).toEqual([3110]);
+        // fixture rows resolve fully
+        for (const r of buildPlanRows(SUBSTRATE_REBUILD_MODEL)) {
+            expect(r.unresolvedReqIds).toEqual([]);
+        }
+    });
+
+    it('an all-req-less batch never emits an argument-less /swarm-start', () => {
+        const stored = [
+            row(1, STEP_DONE),
+            row(10, STEP_PENDING, [1]),
+            row(11, STEP_PENDING, [1]),
+        ];
+        const [batch] = launchBatches(displayOrder(stored).rows);
+        expect(batch.stepIds).toEqual([10, 11]);
+        expect(batch.swarmStartArgs).toEqual([]);
+        expect(batch.swarmStartCommand).toBeNull();
+    });
+
+    it('batch letters continue Excel-style past Z (batch 27 → AA)', () => {
+        const stored = [];
+        for (let g = 1; g <= 27; g++) {
+            stored.push(row(g, STEP_DONE));
+        }
+        for (let g = 1; g <= 27; g++) {
+            stored.push(row(100 + g * 2, STEP_PENDING, [g], { reqIds: [1000 + g] }));
+            stored.push(row(101 + g * 2, STEP_PENDING, [g], { reqIds: [2000 + g] }));
+        }
+        const batches = launchBatches(displayOrder(stored).rows);
+        expect(batches).toHaveLength(27);
+        expect(batches[25].letter).toBe('Z');
+        expect(batches[26].letter).toBe('AA');
+    });
+
+    it('fixture variant with a real launch batch: hardenings keep batch-mates ' +
+       'contiguous and derive the exact /swarm-start', () => {
+        // Flip step 43 to run:auto — it then shares (gate 40, auto, Mac mini)
+        // with step 41: the first genuine batch in the Substrate Rebuild data.
+        const steps = SUBSTRATE_REBUILD_MODEL.steps.map(
+            (s) => (s.id === 43 ? { ...s, run: 'auto' } : s));
+        const rows = buildPlanRows({ ...SUBSTRATE_REBUILD_MODEL, steps });
+        const result = displayOrder(rows);
+        expect(result.cycleDetected).toBe(false);
+        expect(verifyOrder(result.rows)).toEqual([]);
+        const batches = launchBatches(result.rows);
+        expect(batches).toHaveLength(1);
+        expect(batches[0]).toMatchObject({
+            letter: 'A',
+            stepIds: [41, 43],
+            gateStepIds: [40],
+            run: 'auto',
+            machineLabels: ['Mac mini'],
+            swarmStartArgs: [3118, 3108],
+            swarmStartCommand: '/swarm-start 3118 3108',
+        });
+        const posn = new Map(ids(result.rows).map((id, i) => [id, i]));
+        expect(Math.abs(posn.get(41) - posn.get(43))).toBe(1);
+        expect(condensationProposals(rows)).toHaveLength(1);
+    });
+});
+
 describe('cost stubs — shape-compatible with the cost-rollup req (#3117)', () => {
     it('fmtCost renders dashes when data is absent and h/m + token forms otherwise', () => {
         expect(fmtCost(0, 0)).toBe('—');
