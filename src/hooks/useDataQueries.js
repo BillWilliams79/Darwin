@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -764,3 +764,9 @@ export const useAgentTelemetryRun       = agentTelemetryRuns.useById;
 export const agentTelemetryRunKeys      = agentTelemetryRuns.keys;
 export const useAgentTelemetryRowsByRun = agentTelemetryRows.useByRun;
 export const agentTelemetryRowKeys      = agentTelemetryRows.keys;
+// Req #3096 — per-document breakdown. ContextPage.jsx achieves laziness by only
+// mounting the consumer component while a row is expanded (conditional mount, not
+// a conditional hook call) rather than passing an `enabled` option here — either
+// approach works, but a future caller reusing this hook can pick whichever fits.
+export const useAgentTelemetryRowDocsByRow = agentTelemetryRowDocs.useByRow;
+export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;

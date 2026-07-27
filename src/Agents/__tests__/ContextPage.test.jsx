@@ -34,6 +34,11 @@ let rowsData = [];
 vi.mock('../../hooks/useDataQueries', () => ({
     useAgentTelemetryRuns: () => ({ data: runsData, isLoading: false }),
     useAgentTelemetryRowsByRun: () => ({ data: rowsData, isLoading: false }),
+    // req #3096 additions ContextPage.jsx now depends on — mocked as empty/no-op
+    // so this file's pre-existing test scope (the five ground-truth breakdown
+    // columns) is unaffected by the per-document drill-down feature.
+    useAgentTelemetryRowDocsByRow: () => ({ data: [], isLoading: false }),
+    useMachines: () => ({ data: [] }),
     agentTelemetryRunKeys: { all: (c) => ['agent_telemetry_runs', c] },
 }));
 

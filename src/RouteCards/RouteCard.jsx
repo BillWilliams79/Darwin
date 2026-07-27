@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useContext } from 'react';
+import React, { useState, useMemo, useContext } from 'react';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import InputBase from '@mui/material/InputBase';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Autocomplete from '@mui/material/Autocomplete';
@@ -26,12 +25,48 @@ import { checkPhotosProxy, startScan } from '../photo-browser/scanUtils.js';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import RouteMapThumbnail from './RouteMapThumbnail';
 import RideDeleteDialog from './RideDeleteDialog';
-import { formatDuration, parseDuration } from '../utils/mapDataUtils';
-import { toDateTimeLocalValue, fromDateTimeLocalValue } from '../utils/dateFormat';
-import { ghostBase } from '../utils/ghostFieldStyles';
+import GhostTextField from '../Components/GhostField/GhostTextField';
+import { mapRunFields, dateTimeField, notesField } from '../utils/ghostFieldParsers';
+import { ghostSelectBase, ghostAutocompleteInputBase } from '../utils/ghostFieldStyles';
 
 const NO_ROUTE = '__no_route__';
 const ACTIVITY_TYPES = ['Ride', 'Hike'];
+
+/**
+ * One row of the stats table: label, ghost-editable value, unit.
+ *
+ * `rule` is the column's entry from ghostFieldParsers — it owns the display format,
+ * the canonical form a commit normalizes to, the verdict on a bad value, and the
+ * shape of the PUT payload. The card just wires it to a field and a save.
+ *
+ * `inline` is what keeps `12.5` and ` mi` on the same line inside the <td>, and
+ * `overlayMessage` is what keeps them there once a verdict appears: an inline-flex
+ * box is as wide as its widest child, so an in-flow "Enter a number" would be three
+ * times the width of the value and would shove the unit across the cell. Nothing on
+ * the card clips it, unlike the DataGrid cells.
+ */
+const StatRow = ({ label, column, rule, raw, unit, widthCh, onSave, testId }) => (
+    <tr>
+        <td>{label}</td>
+        <td>
+            <GhostTextField
+                inline
+                overlayMessage
+                value={rule.format(raw)}
+                required={rule.required}
+                normalize={rule.normalize}
+                validate={rule.validate}
+                // Returns the promise on purpose: GhostTextField awaits onCommit and
+                // reverts on rejection, and an adapter that forgets to return would
+                // resolve immediately and disable the rollback with no symptom.
+                onCommit={(text) => onSave({ [column]: rule.toApi(text) })}
+                autoWidthCh={widthCh}
+                testId={testId}
+            />
+            {unit ? ` ${unit}` : null}
+        </td>
+    </tr>
+);
 
 const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners = [], dedupedPhotoIndex = null }) => {
     const navigate = useNavigate();
@@ -44,61 +79,73 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
 
     const [deleteOpen, setDeleteOpen] = useState(false);
 
-    // Editable state — mirrors run props
+    // Only the three controls that are NOT ghost text fields still mirror the run in
+    // local state — a Select and an Autocomplete both have to render optimistically
+    // and be rolled back by hand. Every stat field below reads straight from `run`;
+    // GhostTextField owns its own text between focus and blur and re-seeds itself
+    // from the prop when a refetch lands, which is what makes the old per-field
+    // useState block and its `[run.id]` reset effect unnecessary.
     const [routeValue, setRouteValue] = useState(run.map_route_fk ?? NO_ROUTE);
     const [activityType, setActivityType] = useState(run.activity_name || '');
-    const [startTime, setStartTime] = useState(() => toDateTimeLocalValue(run.start_time, timezone));
-    const [distance, setDistance] = useState(Number(run.distance_mi).toFixed(1));
-    const [avgSpeed, setAvgSpeed] = useState(run.avg_speed_mph != null ? Number(run.avg_speed_mph).toFixed(1) : '');
-    const [maxSpeed, setMaxSpeed] = useState(run.max_speed_mph != null ? Number(run.max_speed_mph).toFixed(1) : '');
-    const [ascent, setAscent] = useState(run.ascent_ft != null ? String(Math.round(Number(run.ascent_ft))) : '');
-    const [rideTime, setRideTime] = useState(formatDuration(run.run_time_sec));
-    const [stoppedTime, setStoppedTime] = useState(formatDuration(run.stopped_time_sec || 0));
-    const [notes, setNotes] = useState(run.notes || '');
     const [selectedPartners, setSelectedPartners] = useState(() => {
         const ids = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
         return partners.filter(p => ids.includes(p.id)).map(p => p.name);
     });
 
-    // Reset when a different run is displayed
-    useEffect(() => {
-        setRouteValue(run.map_route_fk ?? NO_ROUTE);
-        setActivityType(run.activity_name || '');
-        setStartTime(toDateTimeLocalValue(run.start_time, timezone));
-        setDistance(Number(run.distance_mi).toFixed(1));
-        setAvgSpeed(run.avg_speed_mph != null ? Number(run.avg_speed_mph).toFixed(1) : '');
-        setMaxSpeed(run.max_speed_mph != null ? Number(run.max_speed_mph).toFixed(1) : '');
-        setAscent(run.ascent_ft != null ? String(Math.round(Number(run.ascent_ft))) : '');
-        setRideTime(formatDuration(run.run_time_sec));
-        setStoppedTime(formatDuration(run.stopped_time_sec || 0));
-        setNotes(run.notes || '');
-        const ids = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
-        setSelectedPartners(partners.filter(p => ids.includes(p.id)).map(p => p.name));
-    }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
+    const startTime = useMemo(() => dateTimeField(timezone), [timezone]);
 
     const sortedRoutes = useMemo(() =>
         [...(routes || [])].sort((a, b) => a.name.localeCompare(b.name)), [routes]);
 
     // ── Save helpers ─────────────────────────────────────────────────────────
 
+    /**
+     * REJECTS on failure, and that is the contract, not an oversight.
+     *
+     * GhostTextField awaits onCommit and reverts the field when it rejects, so a
+     * write that resolves after a 500 would leave the failed value sitting on screen
+     * looking saved until the next refetch quietly replaced it — the exact defect
+     * req #3073 exists to remove. Every caller that is NOT a GhostTextField catches
+     * this itself and rolls back its own optimistic state.
+     */
     const saveRunFields = async (fields) => {
+        let result;
         try {
-            const result = await call_rest_api(`${darwinUri}/map_runs`, 'PUT', [{ id: run.id, ...fields }], idToken);
-            if (result.httpStatus.httpStatus > 204) showError(result, 'Failed to update activity');
-            else queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
+            result = await call_rest_api(`${darwinUri}/map_runs`, 'PUT', [{ id: run.id, ...fields }], idToken);
         } catch (err) {
             showError(err, 'Failed to update activity');
+            throw err;
         }
+        if (result.httpStatus.httpStatus > 204) {
+            showError(result, 'Failed to update activity');
+            throw new Error('Failed to update activity');
+        }
+        queryClient.invalidateQueries({ queryKey: mapRunKeys.all(creatorFk) });
     };
 
     const handleRouteChange = async (newValue) => {
+        const previous = routeValue;
         setRouteValue(newValue);
-        await saveRunFields({ map_route_fk: newValue === NO_ROUTE ? 'NULL' : newValue });
-        queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
+        try {
+            await saveRunFields({ map_route_fk: newValue === NO_ROUTE ? 'NULL' : newValue });
+            queryClient.invalidateQueries({ queryKey: mapRouteKeys.all(creatorFk) });
+        } catch {
+            setRouteValue(previous);   // already reported by saveRunFields
+        }
+    };
+
+    const handleActivityChange = async (newValue) => {
+        const previous = activityType;
+        setActivityType(newValue);
+        try {
+            await saveRunFields({ activity_name: newValue });
+        } catch {
+            setActivityType(previous);
+        }
     };
 
     const handlePartnerChange = async (newNames) => {
+        const previous = selectedPartners;
         setSelectedPartners(newNames);
         const existingIds = runPartners.filter(rp => rp.map_run_fk === run.id).map(rp => rp.map_partner_fk);
         const existingNames = partners.filter(p => existingIds.includes(p.id)).map(p => p.name);
@@ -121,7 +168,10 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
             }
             queryClient.invalidateQueries({ queryKey: mapPartnerKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: mapRunPartnerKeys.all(creatorFk) });
-        } catch (err) { showError(err, 'Failed to update partners'); }
+        } catch (err) {
+            showError(err, 'Failed to update partners');
+            setSelectedPartners(previous);
+        }
     };
 
     const handleDeleteConfirm = async () => {
@@ -152,9 +202,6 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
         else navigate('/maps/settings/photos');
     };
 
-    // w: width in ch units for the input, sized to current value length
-    const w = (val, min = 2) => ({ style: { width: `${Math.max((val ?? '').length, min)}ch` } });
-
     return (
         <>
             <Card raised={true}
@@ -171,12 +218,10 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                         displayEmpty
                         IconComponent={() => null}
                         data-testid="route-card-route-select"
-                        sx={{
+                        sx={(theme) => ({
+                            ...ghostSelectBase(theme),
                             fontSize: 24, fontWeight: 'normal', flexGrow: 1,
-                            '& .MuiSelect-select': { py: 0, pr: '0 !important' },
-                            '&:before': { borderBottomColor: 'transparent' },
-                            '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                        }}
+                        })}
                     >
                         <MenuItem value={NO_ROUTE}><em>No route</em></MenuItem>
                         {sortedRoutes.map(r => (
@@ -197,38 +242,38 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                         <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap' }}>
                             <Select
                                 value={activityType}
-                                onChange={async (e) => { setActivityType(e.target.value); await saveRunFields({ activity_name: e.target.value }); }}
+                                onChange={(e) => handleActivityChange(e.target.value)}
                                 variant="standard"
                                 IconComponent={() => null}
                                 data-testid="route-card-activity-type"
-                                sx={{
+                                sx={(theme) => ({
+                                    ...ghostSelectBase(theme),
                                     fontSize: '0.875rem',
                                     color: 'text.secondary',
-                                    '& .MuiSelect-select': { py: 0, pr: '0 !important' },
-                                    '&:before': { borderBottomColor: 'transparent' },
-                                    '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                                }}
+                                })}
                             >
                                 {ACTIVITY_TYPES.map(t => <MenuItem key={t} value={t} sx={{ fontSize: '0.875rem' }}>{t}</MenuItem>)}
                             </Select>
                             <Typography variant="body2" color="text.secondary" component="span" sx={{ mx: 0.75 }}>·</Typography>
-                            <InputBase
+                            <GhostTextField
+                                inline
+                                overlayMessage
                                 type="datetime-local"
-                                value={startTime}
-                                onChange={(e) => setStartTime(e.target.value)}
-                                onBlur={async () => { const p = fromDateTimeLocalValue(startTime, timezone); if (p) await saveRunFields({ start_time: p }); }}
+                                value={startTime.format(run.start_time)}
+                                required={startTime.required}
+                                validate={startTime.validate}
+                                onCommit={(text) => saveRunFields({ start_time: startTime.toApi(text) })}
+                                testId="route-card-start-time"
                                 sx={{
-                                    ...ghostBase,
                                     fontSize: '0.875rem',
                                     color: 'text.secondary',
+                                    // Without this Chrome's own picker button opens on
+                                    // click and swallows the first Escape to close
+                                    // itself, so the field never sees the abandon key.
                                     '& input::-webkit-calendar-picker-indicator': { display: 'none' },
                                     '& input::-webkit-inner-spin-button': { display: 'none' },
-                                    '& .MuiInputBase-input': {
-                                        ...ghostBase['& .MuiInputBase-input'],
-                                        minWidth: '16ch',
-                                    },
+                                    '& .MuiInputBase-input': { minWidth: '16ch' },
                                 }}
-                                data-testid="route-card-start-time"
                             />
                         </Box>
                         {featureEnabled && (
@@ -250,93 +295,50 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                     </Box>
 
                     {/* Stats table — matches original sx exactly.
-                        Right column: InputBase (ghost text) followed by " unit" text, same as original "{value} unit". */}
+                        Right column: ghost text field followed by " unit", same as original "{value} unit". */}
                     <Box component="table" sx={{ width: '100%', '& td': { py: 0.2 }, '& td:first-of-type': { color: 'text.secondary', pr: 1.5 } }}>
                         <tbody>
-                            <tr>
-                                <td>Distance</td>
-                                <td>
-                                    <InputBase value={distance} onChange={(e) => setDistance(e.target.value)}
-                                        onBlur={async () => { const v = parseFloat(distance); if (!isNaN(v)) await saveRunFields({ distance_mi: v }); }}
-                                        inputProps={w(distance, 3)} sx={ghostBase} data-testid="route-card-distance"
-                                    /> mi
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Avg Speed</td>
-                                <td>
-                                    <InputBase value={avgSpeed} onChange={(e) => setAvgSpeed(e.target.value)}
-                                        onBlur={async () => { const v = avgSpeed === '' ? 'NULL' : parseFloat(avgSpeed); if (avgSpeed === '' || !isNaN(v)) await saveRunFields({ avg_speed_mph: v }); }}
-                                        inputProps={w(avgSpeed, 3)} sx={ghostBase} data-testid="route-card-avg-speed"
-                                    /> mph
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Max Speed</td>
-                                <td>
-                                    <InputBase value={maxSpeed} onChange={(e) => setMaxSpeed(e.target.value)}
-                                        onBlur={async () => { const v = maxSpeed === '' ? 'NULL' : parseFloat(maxSpeed); if (maxSpeed === '' || !isNaN(v)) await saveRunFields({ max_speed_mph: v }); }}
-                                        inputProps={w(maxSpeed, 3)} sx={ghostBase} data-testid="route-card-max-speed"
-                                    /> mph
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Ascent</td>
-                                <td>
-                                    <InputBase value={ascent} onChange={(e) => setAscent(e.target.value)}
-                                        onBlur={async () => { const v = ascent === '' ? 'NULL' : parseInt(ascent, 10); if (ascent === '' || !isNaN(v)) await saveRunFields({ ascent_ft: v }); }}
-                                        inputProps={w(ascent, 1)} sx={ghostBase} data-testid="route-card-ascent"
-                                    /> ft
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Ride Time</td>
-                                <td>
-                                    <InputBase value={rideTime} onChange={(e) => setRideTime(e.target.value)}
-                                        onBlur={async () => { const s = parseDuration(rideTime); if (!isNaN(s)) await saveRunFields({ run_time_sec: s }); }}
-                                        inputProps={w(rideTime, 7)}
-                                        sx={{ ...ghostBase, '& .MuiInputBase-input': { ...ghostBase['& .MuiInputBase-input'], color: rideTime !== '' && isNaN(parseDuration(rideTime)) ? 'error.main' : 'inherit' } }}
-                                        data-testid="route-card-ride-time"
-                                    />
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Stop Time</td>
-                                <td>
-                                    <InputBase value={stoppedTime} onChange={(e) => setStoppedTime(e.target.value)}
-                                        onBlur={async () => { const s = parseDuration(stoppedTime); if (!isNaN(s)) await saveRunFields({ stopped_time_sec: s }); }}
-                                        inputProps={w(stoppedTime, 7)}
-                                        sx={{ ...ghostBase, '& .MuiInputBase-input': { ...ghostBase['& .MuiInputBase-input'], color: stoppedTime !== '' && isNaN(parseDuration(stoppedTime)) ? 'error.main' : 'inherit' } }}
-                                        data-testid="route-card-stopped-time"
-                                    />
-                                </td>
-                            </tr>
+                            <StatRow label="Distance" column="distance_mi" rule={mapRunFields.distance_mi}
+                                raw={run.distance_mi} unit="mi" widthCh={3}
+                                onSave={saveRunFields} testId="route-card-distance" />
+                            <StatRow label="Avg Speed" column="avg_speed_mph" rule={mapRunFields.avg_speed_mph}
+                                raw={run.avg_speed_mph} unit="mph" widthCh={3}
+                                onSave={saveRunFields} testId="route-card-avg-speed" />
+                            <StatRow label="Max Speed" column="max_speed_mph" rule={mapRunFields.max_speed_mph}
+                                raw={run.max_speed_mph} unit="mph" widthCh={3}
+                                onSave={saveRunFields} testId="route-card-max-speed" />
+                            <StatRow label="Ascent" column="ascent_ft" rule={mapRunFields.ascent_ft}
+                                raw={run.ascent_ft} unit="ft" widthCh={1}
+                                onSave={saveRunFields} testId="route-card-ascent" />
+                            <StatRow label="Ride Time" column="run_time_sec" rule={mapRunFields.run_time_sec}
+                                raw={run.run_time_sec} widthCh={7}
+                                onSave={saveRunFields} testId="route-card-ride-time" />
+                            <StatRow label="Stop Time" column="stopped_time_sec" rule={mapRunFields.stopped_time_sec}
+                                raw={run.stopped_time_sec} widthCh={7}
+                                onSave={saveRunFields} testId="route-card-stopped-time" />
                         </tbody>
                     </Box>
 
                     {/* Notes — matches original: body2 secondary italic.
                         Always visible (empty = blank line, hover shows affordance). */}
-                    <InputBase
-                        fullWidth multiline
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        onBlur={async () => saveRunFields({ notes: notes.trim() || 'NULL' })}
+                    <GhostTextField
+                        multiline
+                        value={notesField.format(run.notes)}
+                        normalize={notesField.normalize}
+                        onCommit={(text) => saveRunFields({ notes: notesField.toApi(text) })}
+                        testId="route-card-notes"
                         sx={{
-                            ...ghostBase,
-                            display: 'flex',
                             mt: 1,
                             fontSize: '0.875rem',
                             color: 'text.secondary',
                             fontStyle: 'italic',
                             '& .MuiInputBase-input': {
-                                ...ghostBase['& .MuiInputBase-input'],
                                 fontSize: '0.875rem',
                                 color: 'text.secondary',
                                 fontStyle: 'italic',
                                 minHeight: '1.2em',
                             },
                         }}
-                        data-testid="route-card-notes"
                     />
 
                     {/* Partners row — Autocomplete on left, delete button on right */}
@@ -358,12 +360,9 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                                     {...params}
                                     variant="standard"
                                     placeholder={selectedPartners.length === 0 ? 'No partners' : ''}
-                                    sx={{
-                                        '& .MuiInput-underline:before': { borderBottomColor: 'transparent' },
-                                        '& .MuiInput-underline:hover:not(.Mui-disabled, .Mui-error):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                                        '& .MuiInputBase-input::placeholder': { color: 'text.disabled', opacity: 1, fontSize: '0.875rem' },
-                                        '& .MuiInputBase-root': { flexWrap: 'wrap', gap: 0.5 },
-                                    }}
+                                    sx={(theme) => ghostAutocompleteInputBase(theme, {
+                                        placeholderFontSize: '0.875rem',
+                                    })}
                                 />
                             )}
                             data-testid="route-card-partners"

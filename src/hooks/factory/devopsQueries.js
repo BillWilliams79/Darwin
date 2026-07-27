@@ -291,6 +291,7 @@ export const agentTelemetryRuns = createEntityQueries({
     entity: 'agent_telemetry_runs',
     defaultFields:
         'id,captured_at,label,agent_count,harness_version,source_note,' +
+        'ai_model,effort,machine_fk,' +
         'creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'captured_at:desc',
@@ -308,5 +309,17 @@ export const agentTelemetryRows = createEntityQueries({
     fieldsInKey: true,
     foreignKeys: [
         { field: 'run_fk', as: 'run', creatorScoped: false },
+    ],
+});
+
+// Per-document actual-token breakdown (req #3096), one level under
+// agent_telemetry_rows. Fetched lazily per row (only while its drill-down is
+// expanded) via useAgentTelemetryRowDocsByRow — never eagerly for a whole run.
+export const agentTelemetryRowDocs = createEntityQueries({
+    entity: 'agent_telemetry_row_docs',
+    defaultFields: 'id,row_fk,doc_path,actual_tokens,sort_order,creator_fk',
+    fieldsInKey: true,
+    foreignKeys: [
+        { field: 'row_fk', as: 'row', creatorScoped: false },
     ],
 });

@@ -155,6 +155,11 @@ export function computeCells(row, markerByText) {
         docsIncomplete: (row.docs_loaded !== null && row.docs_loaded !== undefined
                && row.docs_expected !== null && row.docs_expected !== undefined)
             ? row.docs_loaded < row.docs_expected : false,
+        // req #3096 — the Docs Loaded cell becomes a click-to-expand drill-down
+        // trigger only when there is at least one document to show. Zero count
+        // (0 loaded, or docs_loaded unknown/n/a) stays inert — same "zero count
+        // = inert" rule as the anchor-chip pattern (memory/detail-page-interlinking.md).
+        docsClickable: !!row.docs_loaded && row.docs_loaded > 0,
         swc: fmt(row.start_work_context_tokens),   // always present — bold teal
     };
 }
