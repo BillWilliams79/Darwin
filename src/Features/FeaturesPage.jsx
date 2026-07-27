@@ -9,11 +9,14 @@
 //   - Coverage dot (green ≥1 link / red 0 links) computed client-side
 
 import { useState, useMemo, useContext, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllFeatures, useAllCategories, useFeatureTestCaseLinks } from '../hooks/useDataQueries';
+import {
+    useAllFeatures, useAllCategories, useAllEpics, useFeatureTestCaseLinks,
+} from '../hooks/useDataQueries';
 import { featureKeys, featureTestCaseKeys } from '../hooks/useQueryKeys';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
@@ -80,10 +83,28 @@ export default function FeaturesPage() {
     const coverageFilter = useFeaturesFilterStore(s => s.coverageFilter);
     const setCoverageFilter = useFeaturesFilterStore(s => s.setCoverageFilter);
 
+    // Epic filter via ?epic=<id> (req #3115): the plan visualizer's epic band
+    // labels land here. A URL param, not the persisted filter store — the link
+    // IS the filter, and dismissing the chip clears it without touching the
+    // user's saved category/status/coverage choices. The minimal target the
+    // requirement asked for; dedicated epic pages are deliberately deferred.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const epicParamRaw = searchParams.get('epic');
+    // Integer ids only: Number(' ') is 0 and Number('1.5') is 1.5, either of
+    // which would filter every feature out under a chip reading "Epic: 0".
+    const epicFilter = epicParamRaw != null && /^\d+$/.test(epicParamRaw.trim())
+        ? Number(epicParamRaw.trim()) : null;
+    const clearEpicFilter = () => {
+        const next = new URLSearchParams(searchParams);
+        next.delete('epic');
+        setSearchParams(next, { replace: true });
+    };
+
     const creatorFk = profile?.userName;
     const { data: features = [], isLoading: loadingFeatures } = useAllFeatures(creatorFk, {
-        fields: 'id,title,description,feature_status,category_fk,closed,sort_order,create_ts',
+        fields: 'id,title,description,feature_status,category_fk,epic_fk,closed,sort_order,create_ts',
     });
+    const { data: epics = [] } = useAllEpics(creatorFk);
     const { data: categories = [] } = useAllCategories(creatorFk, {
         fields: 'id,category_name,color,project_fk,closed',
         closed: 0,
@@ -104,6 +125,7 @@ export default function FeaturesPage() {
 
     const filtered = useMemo(() => {
         return features.filter(f => {
+            if (epicFilter !== null && f.epic_fk !== epicFilter) return false;
             if (categoryFilter !== null && f.category_fk !== categoryFilter) return false;
             if (statusFilter !== 'all' && f.feature_status !== statusFilter) return false;
             const linkedCount = coverageByFeature[f.id] || 0;
@@ -111,7 +133,7 @@ export default function FeaturesPage() {
             if (coverageFilter === 'uncovered' && linkedCount > 0) return false;
             return true;
         });
-    }, [features, coverageByFeature, categoryFilter, statusFilter, coverageFilter]);
+    }, [features, coverageByFeature, epicFilter, categoryFilter, statusFilter, coverageFilter]);
 
     // ---- bulk selection + bulk edit (mirrors RequirementsTableView) ----
     const [rowSelectionModel, setRowSelectionModel] = useState({ type: 'include', ids: new Set() });
@@ -225,6 +247,14 @@ export default function FeaturesPage() {
                         </ToggleButton>
                     </Tooltip>
                 </ToggleButtonGroup>
+
+                {epicFilter !== null && (
+                    <Chip size="small" color="secondary"
+                          label={`Epic: ${epics.find(e => e.id === epicFilter)?.title || epicFilter}`}
+                          onDelete={clearEpicFilter}
+                          sx={{ flexShrink: 0 }}
+                          data-testid="epic-filter-chip" />
+                )}
 
                 <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }} data-testid="category-filter">
                     <Chip label="All" size="small"

@@ -16,7 +16,7 @@
 // refetchInterval — a poll here would be the POC's manual regenerate step wearing
 // a different hat.
 
-import { useContext, useMemo } from 'react';
+import { useCallback, useContext, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -71,7 +71,28 @@ export default function PipelineDetail() {
 
     const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
-    const activeMode = normalizeView(mode, PIPELINE_DETAIL_MODES);
+
+    // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
+    // the user on the SAME step in the table — the visualizer calls
+    // onStepFocus(stepId), the page switches modes, and the table scrolls to and
+    // highlights the row. The switch is a TRANSIENT override, never written to
+    // the persisted preference: the user asked to inspect one step, not to make
+    // Table their default everywhere (review finding). Picking a mode by hand
+    // persists it as usual and clears both the override and the focus, so a
+    // stale highlight never survives an unrelated visit to the table.
+    const [focusStepId, setFocusStepId] = useState(null);
+    const [modeOverride, setModeOverride] = useState(null);
+    const onStepFocus = useCallback((stepId) => {
+        setFocusStepId(stepId);
+        setModeOverride('table');
+    }, []);
+    const handleModeChange = useCallback((_e, v) => {
+        if (v == null) return;
+        setFocusStepId(null);
+        setModeOverride(null);
+        setMode(v);
+    }, [setMode]);
+    const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
 
     // The list read, not a by-id read: /swarm/pipelines has already primed this
     // exact cache entry, so arriving here costs nothing. A by-id hook would be a
@@ -162,7 +183,7 @@ export default function PipelineDetail() {
                 <ToggleButtonGroup
                     value={activeMode}
                     exclusive
-                    onChange={(_e, v) => setMode(v)}
+                    onChange={handleModeChange}
                     size="small"
                     sx={{ flexShrink: 0 }}
                     data-testid="pipeline-detail-mode-toggle"
@@ -229,7 +250,8 @@ export default function PipelineDetail() {
                 </Alert>
             )}
 
-            <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone} />
+            <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
+                             focusStepId={focusStepId} onStepFocus={onStepFocus} />
         </Box>
     );
 }

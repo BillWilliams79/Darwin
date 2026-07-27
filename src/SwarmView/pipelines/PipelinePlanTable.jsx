@@ -25,7 +25,7 @@
 // Design rule 9: every mark here derives from requirements and the plan
 // hierarchy. Session/phase detail belongs to the Swarm visualizer.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -89,8 +89,9 @@ const COL = {
 // ── Violations banner (design rule 3) ───────────────────────────────────────
 // The renderer refuses to ship a bad order SILENTLY. The POC raised SystemExit;
 // a web page cannot, so it renders the failure at the top of the plan instead —
-// loud, specific, and never dismissible.
-function OrderViolationsAlert({ plan }) {
+// loud, specific, and never dismissible. Exported: the Plan visualizer
+// (req #3115) renders from the same computed order and owes the same loudness.
+export function OrderViolationsAlert({ plan }) {
     const { violations = [], duplicateStepIds = [], unresolvedReqIds = [] } = plan;
     if (!violations.length && !duplicateStepIds.length && !unresolvedReqIds.length) return null;
 
@@ -264,7 +265,7 @@ function GroupCell({ show, value, labels, width, color, testid }) {
     return extra ? <Tooltip title={`All: ${extra}`}>{cell}</Tooltip> : cell;
 }
 
-export default function PipelinePlanTable({ plan, timezone }) {
+export default function PipelinePlanTable({ plan, timezone, focusStepId }) {
     // The POC shipped with the Cost column HIDDEN (`<body class="hidecost">`) and
     // a "Time / Tokens" button to reveal it. Same default here, for the same
     // reason plus one: until req #3117 lands the server-side rollup, every cell
@@ -273,6 +274,16 @@ export default function PipelinePlanTable({ plan, timezone }) {
 
     const renderRows = useMemo(() => planRenderRows(plan), [plan]);
     const hasBatches = (plan.batches || []).length > 0;
+
+    // Req #3115 handshake: a bead click in the Plan visualizer switches to this
+    // mode with focusStepId set — scroll that row to center and highlight it.
+    const rootRef = useRef(null);
+    useEffect(() => {
+        if (focusStepId == null || !rootRef.current) return;
+        const el = rootRef.current.querySelector(
+            `[data-testid="pipeline-step-row-${focusStepId}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, [focusStepId, renderRows]);
 
     // Column count for the banner colSpan — must track the Cost column's
     // visibility or the banner under-spans and leaves a ragged edge.
@@ -293,7 +304,7 @@ export default function PipelinePlanTable({ plan, timezone }) {
     }
 
     return (
-        <Box>
+        <Box ref={rootRef}>
             <OrderViolationsAlert plan={plan} />
             <CondensationAlert
                 key={(plan.proposals || []).map((p) => p.stepIds.join('-')).join('|')}
@@ -363,7 +374,12 @@ export default function PipelinePlanTable({ plan, timezone }) {
                             }
                             const { row, showEpic, showFeature, eligible, batchLetter } = entry;
                             const running = row.state === STEP_RUNNING;
-                            const tint = running
+                            // The visualizer-focused row outranks the state tints:
+                            // the user just clicked THIS bead and must find it.
+                            const focused = row.id === focusStepId;
+                            const tint = focused
+                                ? 'rgba(74, 217, 200, 0.16)'
+                                : running
                                 ? ROW_ACCENT.running.tint
                                 : eligible ? ROW_ACCENT.eligible.tint : undefined;
                             // Batch membership is the loudest edge (it says "this
@@ -390,6 +406,7 @@ export default function PipelinePlanTable({ plan, timezone }) {
                                     data-testid={`pipeline-step-row-${row.id}`}
                                     data-state={row.state}
                                     data-eligible={eligible ? 'true' : 'false'}
+                                    data-focused={focused ? 'true' : 'false'}
                                 >
                                     <TableCell sx={{ ...NOWRAP, width: COL.step,
                                                       color: 'text.secondary',

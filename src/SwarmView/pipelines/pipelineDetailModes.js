@@ -13,7 +13,11 @@
 //              renaming one silently resets everyone who chose it
 //   label      the switcher's tooltip / accessible name
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
-//   Component  receives { plan, model, pipeline, timezone } and renders the panel
+//   Component  receives { plan, model, pipeline, timezone, focusStepId,
+//              onStepFocus } and renders the panel. focusStepId/onStepFocus are
+//              the req #3115 cross-mode handshake: the visualizer calls
+//              onStepFocus(stepId) on a bead click, the page switches to the
+//              table mode, and the table scrolls to + highlights that row.
 //   disabled   optional — renders a disabled ToggleButton (rule V1: a
 //              not-yet-built view is disabled, never omitted, so the group holds
 //              its width)
@@ -25,7 +29,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 import PipelinePlanTable from './PipelinePlanTable';
-import PipelinePlanPlaceholder from './PipelinePlanPlaceholder';
+import PipelinePlanVisualizer from './PipelinePlanVisualizer';
 
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
@@ -37,14 +41,13 @@ export const PIPELINE_DETAIL_MODES = [
         Component: PipelinePlanTable,
     },
     {
-        // Req #3115 replaces this Component with the real drag-pan / three-level
-        // zoom visualizer. It ships ENABLED with a placeholder panel rather than
-        // disabled: the mode is real, its content is pending, and the panel says
-        // so in as many words.
+        // The req #3115 Plan visualizer: epic bands, chain-aware swim lanes,
+        // dependency-depth columns, launch-batch boxes, drag-pan + three-level
+        // zoom (react-konva + d3-zoom, the Swarm Visualizer's feel).
         value: 'plan',
         label: 'Plan',
         icon: AccountTreeIcon,
-        Component: PipelinePlanPlaceholder,
+        Component: PipelinePlanVisualizer,
     },
 ];
 
