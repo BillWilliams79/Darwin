@@ -456,7 +456,8 @@ export default function PipelinePlanTable({ plan, timezone, focusStepId,
                                         </Box>
                                     </TableCell>
                                     <TableCell sx={{ ...NOWRAP, width: COL.machine,
-                                                      color: 'text.secondary' }}>
+                                                      color: 'text.secondary' }}
+                                               data-testid={`pipeline-machine-${row.id}`}>
                                         {rowMachineLabel(row)}
                                     </TableCell>
                                     {showCost && (

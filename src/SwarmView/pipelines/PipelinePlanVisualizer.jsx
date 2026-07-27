@@ -427,7 +427,16 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                 </Stack>
             </Box>
 
+            {/* `data-transform` mirrors the world transform d3-zoom computes.
+                The canvas is a bitmap, so pan and zoom are otherwise only
+                observable as changed pixels — and pixels also change when a
+                hover datacard appears, which makes a screenshot diff a weak
+                proof that the view actually moved. Publishing {x, y, k} costs one
+                attribute on a node React already re-renders per zoom event and
+                makes the interaction falsifiable (req #3118 PIPE-08/09). Same
+                purpose as the `pipeline-viz-zoom-level` chip beside it. */}
             <Box ref={setContainer} data-testid="pipeline-plan-visualizer"
+                 data-transform={`${t.x.toFixed(2)},${t.y.toFixed(2)},${t.k.toFixed(4)}`}
                  sx={{ position: 'relative', height: 'calc(100vh - 350px)',
                         minHeight: 460, overflow: 'hidden', borderRadius: '8px',
                         border: `1px solid ${P.line}`, background: P.panel,

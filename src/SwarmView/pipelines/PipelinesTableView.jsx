@@ -78,23 +78,29 @@ export default function PipelinesTableView({ pipelines, summaries, machines, tim
         },
     ], [timezone]);
 
+    // The testid goes on a WRAPPING Box, not on <DataGrid> — MUI does not
+    // forward unknown props to the grid root, so a `data-testid` handed to the
+    // component simply never reaches the DOM and the registry entry named in
+    // this file's header was unqueryable (found by the req #3118 E2E battery).
+    // Same shape as RequirementsTableView / InstructionsTableView.
     return (
-        <DataGrid
-            rows={rows}
-            columns={columns}
-            rowHeight={52}
-            density="compact"
-            slots={{ toolbar: GridToolbar }}
-            slotProps={{ toolbar: { showQuickFilter: true } }}
-            initialState={{
-                pagination: { paginationModel: { pageSize: 25 } },
-                sorting: { sortModel: [{ field: 'id', sort: 'desc' }] },
-            }}
-            pageSizeOptions={[25, 50, 100]}
-            disableRowSelectionOnClick
-            onRowClick={(params) => onOpen(params.row.id)}
-            sx={{ cursor: 'pointer' }}
-            data-testid="pipelines-datagrid"
-        />
+        <Box sx={{ width: '100%' }} data-testid="pipelines-datagrid">
+            <DataGrid
+                rows={rows}
+                columns={columns}
+                rowHeight={52}
+                density="compact"
+                slots={{ toolbar: GridToolbar }}
+                slotProps={{ toolbar: { showQuickFilter: true } }}
+                initialState={{
+                    pagination: { paginationModel: { pageSize: 25 } },
+                    sorting: { sortModel: [{ field: 'id', sort: 'desc' }] },
+                }}
+                pageSizeOptions={[25, 50, 100]}
+                disableRowSelectionOnClick
+                onRowClick={(params) => onOpen(params.row.id)}
+                sx={{ cursor: 'pointer' }}
+            />
+        </Box>
     );
 }
