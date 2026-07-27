@@ -13,8 +13,12 @@
 //              renaming one silently resets everyone who chose it
 //   label      the switcher's tooltip / accessible name
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
-//   Component  receives { plan, model, pipeline, timezone, costError } and
-//              renders the panel. `costError` (req #3117) is true when either
+//   Component  receives { plan, model, pipeline, timezone, focusStepId,
+//              onStepFocus, costError } and renders the panel.
+//              focusStepId/onStepFocus are the req #3115 cross-mode handshake:
+//              the visualizer calls onStepFocus(stepId) on a bead click, the
+//              page switches to the table mode, and the table scrolls to +
+//              highlights that row. `costError` (req #3117) is true when either
 //              cost read failed — a mode showing cost must say so rather than
 //              print em-dashes, which read as "no cost recorded". Every plan row
 //              already carries its own total on `row.cost`, so a mode needs no
@@ -30,7 +34,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 import PipelinePlanTable from './PipelinePlanTable';
-import PipelinePlanPlaceholder from './PipelinePlanPlaceholder';
+import PipelinePlanVisualizer from './PipelinePlanVisualizer';
 
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
@@ -42,14 +46,13 @@ export const PIPELINE_DETAIL_MODES = [
         Component: PipelinePlanTable,
     },
     {
-        // Req #3115 replaces this Component with the real drag-pan / three-level
-        // zoom visualizer. It ships ENABLED with a placeholder panel rather than
-        // disabled: the mode is real, its content is pending, and the panel says
-        // so in as many words.
+        // The req #3115 Plan visualizer: epic bands, chain-aware swim lanes,
+        // dependency-depth columns, launch-batch boxes, drag-pan + three-level
+        // zoom (react-konva + d3-zoom, the Swarm Visualizer's feel).
         value: 'plan',
         label: 'Plan',
         icon: AccountTreeIcon,
-        Component: PipelinePlanPlaceholder,
+        Component: PipelinePlanVisualizer,
     },
 ];
 
