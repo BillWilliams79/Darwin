@@ -194,3 +194,90 @@ In parallel headless Chromium, the Space key event sometimes fails to initiate t
 3. **AREA-03** should remain skipped — the risk is low and the flakiness is a library issue
 4. **Responsive testing** is low priority for a desktop-focused productivity app
 5. **New user signup** is adequately covered by the Lambda-Cognito integration tests
+
+---
+
+## Swarm Orchestration pipelines — coverage analysis (req #3118)
+
+**22 tests across 2 spec files** (13 UI + 9 mutation-replay), all passing headless
+in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.md
+§ "Swarm Orchestration — pipelines acceptance battery".
+
+### What is covered, by design rule
+
+| req #3080 rule | Covered by |
+|----------------|------------|
+| 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (`completed_at` only on a req-less step), MUT-07 (all three derivations) |
+| 2 — a step is a swarm-start (launch unit) | PIPE-04 (condensation proposal rendered), MUT-07 (multi-requirement step) |
+| 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
+| 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |
+| 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `step_count` against the steps returned |
+| 6 — refresh is event-driven | Indirect only — see gaps |
+| 7 — automation that waits fails loud | Out of scope here (the watchdog is a shell script, not a UI surface) |
+| 8 — launch batch visibility | PIPE-04 (exact `/swarm-start` args, gate, banner placement), PIPE-10 (dashed box + conditional key) |
+| 9 — requirement-centric views carry no session data | Structural: the plan reads carry no session table at all |
+| 10 — one epic/feature label per step | PIPE-03 (contiguous groups compared by ID, not title) |
+
+Production directives from the POC polish review are covered by PIPE-07 (no '#'),
+PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (steps/requirements/epics are
+clickable links) and PIPE-10 (batch key only when a batch renders).
+
+### Defect found and fixed by this battery
+
+`pipelines-datagrid` never reached the DOM: the testid was handed to `<DataGrid>`,
+which MUI does not forward to the grid root, so the registry entry named in
+`PipelinesTableView.jsx`'s own header was unqueryable. Moved to a wrapping `<Box>`,
+matching `RequirementsTableView` / `InstructionsTableView`.
+
+### Gaps — deliberately not covered
+
+1. **Per-level canvas detail suppression.** PIPE-09 asserts that the level chip
+   crosses Overview → Plan → Detail, that `data-transform`'s scale moves in the
+   right direction at each, that the canvas redraws, and that the layout really
+   contains the label kinds the ladder gates (`title` at `in`, `step` suppressed
+   at `out`). What it does NOT assert is that those labels are absent from the
+   rendered BITMAP at the wrong level — Konva draws to a canvas, so proving that
+   needs pixel-region comparison or a screenshot baseline.
+   **Priority: low** — what remains unproven is three lines of
+   `if (level === …) return` between a verified level and a verified label set.
+2. **The hover datacard.** Content and edge-clamping of `PlanDataCard` are
+   untested: it is triggered by a canvas `mouseenter` hit-test and its rows are
+   built from the same `row.cost` / `formatTimeGates` the table asserts.
+   **Priority: medium** — it is the visualizer's whole detail surface.
+3. **Failed-read banners.** `pipeline-dictionary-error` and `pipeline-cost-error`
+   are asserted ABSENT on healthy data but never provoked; making them appear needs
+   request interception on specific list reads. Both exist because a silent failure
+   would read as real data, so the positive case has real value.
+   **Priority: medium.**
+4. **Design rule 6 (event-driven refresh).** No test mutates a requirement and
+   watches an open plan page update. The refresh is TanStack Query's staleTime +
+   `refetchOnWindowFocus` + invalidation rather than code this feature owns, but
+   the rule is about the plan staying current and nothing proves that end to end.
+   **Priority: medium.**
+5. **Truncated composed reads.** `readPlan()` scans each returned list for a
+   `_truncated` marker element — which is where `truncate_to_budget` actually puts
+   one — but no fixture is large enough to produce it, so the branch is
+   unexercised. (An earlier version of this guard checked a top-level
+   `composed._truncated`, which the service never sets on a dict payload: a check
+   that could not fire, on a payload shape where a real marker would have reached
+   `buildPipelineModel` as a row with `id: undefined`.)
+   **Priority: low** — req #3078's own suite covers the budget logic.
+
+7. **Rendered order after a mutation.** The MUT spec has no browser: after each
+   of the eight mutations it re-runs the engine over a fresh composed read, so
+   what is proven invariant-clean is the ORDER, not the PAGE. Nothing checks that
+   the plan page survives the eight mutations end to end.
+   **Priority: medium** — the two halves meet only at the shared engine import.
+
+8. **The other five order invariants.** Only `cycle` has a corrupted fixture.
+   `topology`, `state-banding`, `batch-contiguity`, `duplicate-id` and
+   `dangling-dependency` have none — and `duplicate-id` has a dedicated banner
+   branch in `PipelinePlanTable.jsx` that this battery never reaches. (The engine's
+   vitest suite covers the detection itself; what is untested is the banner.)
+   **Priority: medium** — these are the loud-failure paths, and a loud-failure
+   path that is never exercised is indistinguishable from a silent one.
+6. **Cost with real numbers.** Every seeded requirement is new, so the Cost column
+   is all em-dashes; PIPE-05 deliberately accepts "a dash OR a real figure" so it
+   cannot break when a rollup starts returning figures, but the formatted
+   `Xh Ym / Nk tok` path is only covered by the `fmtCost` unit tests.
+   **Priority: low.**

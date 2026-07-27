@@ -326,3 +326,82 @@ These components need `data-testid` attributes added for reliable E2E selectors:
 - **CRA → Vite migration**: E2E tests provide safety net. Only `webServer.command` changes in config.
 - **Auth code + PKCE overhaul**: Update auth setup helper to use new flow. Most tests unaffected.
 - **Vitest**: After Vite migration, replace Jest with Vitest for unit tests (same config).
+
+---
+
+## Swarm Orchestration — pipelines acceptance battery (req #3118)
+
+The regression gate for the Swarm Orchestration epic: the engine (req #3112), the
+list/table UI (#3114), the Plan visualizer (#3115) and the MCP tools (#3113),
+measured against the design rules in req #3080.
+
+**Spec files**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `pipelines.spec.ts` | PIPE-01…12 (13) | The browser surface, over a seeded plan |
+| `pipeline-mutations.spec.ts` | MUT-01…08 (9) | The eight recorded mutation classes, via the MCP tools |
+
+**Fixture strategy — why it is not the req #3111 fixture**
+
+`darwin_dev` already holds the Substrate Rebuild plan (pipeline 9001) from req
+#3111, but it is owned by the user's Cognito sub and every Darwin read is
+creator-scoped server-side (req #3050), so the E2E user cannot see a row of it.
+`helpers/pipelineFixture.ts` therefore re-seeds the SAME plan — from the static
+module req #3112 froze, `src/SwarmView/pipelines/__tests__/substrateRebuildFixture.js`
+— under the test user's own identity, through Lambda-Rest. Two properties are
+preserved deliberately: steps are inserted SEQUENTIALLY so id order matches the
+canonical stored order the display-order tie-break depends on, and step titles are
+verbatim so the no-'#' audit is measured against real plan prose.
+
+Three plans are seeded: the 34-step Substrate plan, a four-step launch-batch plan,
+and a two-step plan with a deliberate dependency cycle. A stale-fixture sweep runs
+before every seed, because `cleanupStaleData` knows nothing about pipelines and its
+requirement deletes actually FAIL against a leaked plan (`requirement_fk` is
+ON DELETE RESTRICT).
+
+**The mutation replay's second daemon**
+
+The MCP daemon on port 8765 talks to production `darwin`, where `pipelines` must
+stay EMPTY until the Primary's live-plan cutover. `scripts/mcp/darwin-dev-mcp.sh`
+starts a second daemon pinned to `darwin_dev` on port 8766 with its own pid/log
+files; `helpers/darwinDevMcp.ts` points `MCP_URL` at it and drives the ordinary
+`darwin-read.sh` / `darwin-tool.sh` wrappers, so the always-via-wrapper policy
+(req #2365) is unchanged — only the transport endpoint moves. That daemon
+authenticates as the USER's Darwin account, so the replay's rows are invisible to
+the browser half; the two share a database and nothing else.
+
+### PIPE — the browser surface
+
+| ID | Test | Expected |
+|----|------|----------|
+| PIPE-01 | Cards\|Table switch on `/swarm/pipelines` | Both views render, the choice persists via `useViewPreference`, a row click opens the plan |
+| PIPE-02 | Rendered step order vs `displayOrder` | The full 34-row sequence matches element for element, and the engine's own `violations` are empty first |
+| PIPE-03 | State chips, epic/feature groups, machine column | Every chip reads the DERIVED state; labels render once per contiguous group (compared by id, not title); machine cells match `rowMachineLabel`, em-dash on the req-less step |
+| PIPE-04 | Launch-batch banner | `LAUNCH BATCH A`, the exact `/swarm-start <ids>` command, the wall-clock gate, the banner immediately above its first member, the legend key, and the rule-2 condensation proposal |
+| PIPE-04b | No batch | No banner and NO legend key on the Substrate plan, with `batches === []` asserted as a precondition |
+| PIPE-05 | Time / Tokens toggle | Cost hidden by default; one cell per row when revealed; a dash or a real figure; no cost-error notice |
+| PIPE-06 | Requirement link | Renders the bare id and navigates to `/swarm/requirement/:id` |
+| PIPE-07 | NO-'#' audit | Zero `#<digits>` in generated labels on both views. Stored plan prose is excluded — and the exclusion is evidenced, since the fixture's step 22 really contains "#3077 R13" |
+| PIPE-08 | Visualizer drag | The canvas mounts, a drag changes the world transform (pixel diff on a plan with no pulsing bead), and neither the container nor the document scrolls horizontally |
+| PIPE-09 | Zoom | The level chip crosses Overview → Plan → Detail and the canvas redraws at each |
+| PIPE-10 | Batch box + conditional key | One dashed box and a visible key on the batch plan; no box and no key on the Substrate plan |
+| PIPE-11 | Click targets | Bead → Table mode focused on that row; requirement label → `/swarm/requirement/:id`; epic band label → `/swarm/features?epic=<id>` |
+| PIPE-12 | Loud failure | The corrupted plan raises the non-dismissible invariant banner naming the cycle, on BOTH views |
+
+### MUT — the eight recorded mutation classes
+
+Each case asserts the tool's ECHO, the DERIVED state, and a `verifyOrder`-clean
+order re-read from `darwin://pipeline/{id}` — after every mutation, not once at
+the end.
+
+| ID | Recorded case | Expected |
+|----|---------------|----------|
+| MUT-01 | Step inserted mid-pipeline (#3078) | The new step lands with its gate and links; the displaced step re-gates onto it; topological order follows |
+| MUT-02 | Requirement wontfixed, scope folded (#3041 → #3072/#3077) | wontfix is terminal so the step derives Complete; the fold note lands in the RECEIVING requirement; the step then leaves the plan with no link, dep or dangling reference behind |
+| MUT-03 | Coordination flipped with an autonomy grant (#3075) | The flip and the note echo back; coordination is NOT a state input, so the derived state and the order are untouched |
+| MUT-04 | Step re-scoped after filing (B5 split) | Title and notes update; `notes` REPLACES on the second write; an unset field is left alone |
+| MUT-05 | Gate passed WITH EXCEPTIONS (s1.4) | The disposition is stored in the step notes and `completed_at` is stamped — valid only because the step links no requirements, and a later link attempt is refused |
+| MUT-06 | Dual-condition gate (s0.4) | Two dep rows on one step; eligibility stays false with either half unsatisfied and flips true only when BOTH hold |
+| MUT-07 | Two requirements, one step (s0.5) | Running while any is `development`; Scheduled in the honest middle; Complete only when all are terminal (`deferred` counts) |
+| MUT-08 | Step dropped without residue (#3065/#3074) | The drop is REFUSED while another step gates on it and the message names that step, with nothing deleted on the way; after the reference clears, the hard delete leaves no step, link or dep row |
