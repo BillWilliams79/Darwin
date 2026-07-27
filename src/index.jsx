@@ -57,6 +57,8 @@ import SwarmUndosPage from './SwarmUndos/SwarmUndosPage';
 import SwarmUndoDetail from './SwarmUndos/SwarmUndoDetail';
 import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
 import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
+import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
+import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -150,6 +152,17 @@ root.render(
                                                          </AuthenticatedRoute>} />
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
+                                                         </AuthenticatedRoute>} />
+                    {/* Swarm Orchestration pipelines (req #3114). React Router v6
+                        ranks by SPECIFICITY, so the literal "swarm/pipelines" and
+                        the parameterised "swarm/pipeline/:id" cannot shadow each
+                        other — the singular/plural split is deliberate and matches
+                        the requirement's route spec. */}
+                    <Route path="swarm/pipelines" element= {<AuthenticatedRoute>
+                                                             <PipelinesPage />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/pipeline/:id" element= {<AuthenticatedRoute>
+                                                             <PipelineDetail />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/features" element= {<AuthenticatedRoute>
                                                              <FeaturesPage />

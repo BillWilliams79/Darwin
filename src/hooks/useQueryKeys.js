@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -68,6 +68,13 @@ export const swarmStartSessionKeys = swarmStartSessions.keys;
 export const swarmUndoKeys = swarmUndos.keys;
 export const devServerKeys = devServers.keys;
 
+// Req #3114 — Swarm Orchestration pipelines. Four bounded list reads joined
+// client-side by the plan page (design rule 5: no N+1 at render).
+export const pipelineKeys = pipelines.keys;
+export const pipelineStepKeys = pipelineSteps.keys;
+export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
+export const pipelineStepDepKeys = pipelineStepDeps.keys;
+
 export const recurringTaskKeys = {
     all: (creatorFk) => ['recurring_tasks', creatorFk],
     active: (creatorFk) => ['recurring_tasks', creatorFk, { active: 1 }],
@@ -100,6 +107,14 @@ export const mapRunPartnerKeys = {
 
 // Req #2380 — Swarm Features & Test Cases registry. `fields` must appear in the
 // extended key (req #2213) so two callers with different projections don't collide.
+
+// Req #3111 migration 076 / req #3114 — the top tier of Epic > Feature > Story.
+// Sits with featureKeys because it is the same hierarchy; the pipeline EXECUTION
+// tables are factory keys, re-exported at the bottom of this file.
+export const epicKeys = {
+    all: (creatorFk) => ['epics', creatorFk],
+    byId: (creatorFk, id) => ['epics', creatorFk, { id }],
+};
 
 export const featureKeys = {
     all: (creatorFk) => ['features', creatorFk],

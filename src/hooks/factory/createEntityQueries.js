@@ -191,5 +191,16 @@ export function createEntityQueries({
         };
     });
 
-    return { keys, useAll, useById, ...fkHooks };
+    // The resolved declaration, exposed read-only (req #3114). A block's
+    // `defaultFields` / `defaultSort` are real CONTRACTS, not styling — the
+    // pipelines plan page depends on `pipeline_steps` arriving in canonical
+    // stored order, and a junction with a composite PK 400s the whole read if a
+    // projection ever names `id`. Without this, pinning either in a test would
+    // mean rendering a hook just to read back a URL.
+    const config = Object.freeze({
+        entity, defaultFields, defaultSort, fieldsInKey,
+        byIdCreatorScoped, byIdReturnsArray, ops,
+    });
+
+    return { keys, useAll, useById, ...fkHooks, config };
 }
