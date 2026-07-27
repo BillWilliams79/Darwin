@@ -12,6 +12,7 @@ import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import LanIcon from '@mui/icons-material/Lan';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BusinessIcon from '@mui/icons-material/Business';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -66,6 +67,11 @@ export const NAV_LINKS = [
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
+    // Req #3114 — Swarm Orchestration: durable multi-requirement execution plans.
+    // Sits directly under Requirements because a pipeline is the layer ABOVE them
+    // (Epic > Feature > Story, sequenced into steps), and above Sessions because
+    // plan views carry no session data at all (req #3080 design rule 9).
+    { path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm' },
     { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
     { path: '/swarm/swarm-starts', label: 'Starts', icon: RocketLaunchIcon, group: 'swarm' },
     { path: '/swarm/swarm-completes', label: 'Completes', icon: CheckCircleIcon, group: 'swarm' },

@@ -323,3 +323,76 @@ export const agentTelemetryRowDocs = createEntityQueries({
         { field: 'row_fk', as: 'row', creatorScoped: false },
     ],
 });
+
+// ---------------------------------------------------------------------------
+// Swarm Orchestration — pipelines-as-data (req #3114, schema from req #3111
+// migration 076). The four EXECUTION tables behind /swarm/pipelines; the agile
+// hierarchy above them (epics / features.epic_fk / requirements.feature_fk)
+// lives in useDataQueries.js beside the existing features hooks.
+//
+// Routes through the default `darwinUri` (dev/prod split, req #2683). NOT `ops`
+// tables: a pipeline is durable plan CONTENT the user and the Primary AI curate,
+// and the fixture that proves this feature
+// (DarwinSQL/scripts/seed_pipelines_darwin_dev.sql — the live req #3083
+// Substrate Rebuild plan) is seeded into darwin_dev ONLY. Production `darwin`
+// stays empty until the Primary's live-plan cutover, so an `ops: true` pin here
+// would make the dev page render nothing at all.
+//
+// EVERY READ IS A BOUNDED LIST READ, composed client-side (req #3080 design
+// rule 5 — the POC's 2–3 minute page regeneration from ~86 per-requirement
+// fetches is the named failure). There is deliberately NO per-step or
+// per-requirement hook: the plan page joins four small lists in a useMemo. Nor
+// is there a refetchInterval anywhere (design rule 6 — the global staleTime +
+// refetchOnWindowFocus + invalidation the query client already provides is what
+// makes this event-driven).
+// ---------------------------------------------------------------------------
+
+// `id:desc` — newest plan first on the list page. Carries creator_fk (in
+// Lambda-Rest CREATOR_FK_TABLES) so the generic passthrough scopes it server-side.
+export const pipelines = createEntityQueries({
+    entity: 'pipelines',
+    defaultFields:
+        'id,title,description,pipeline_status,machine_fk,' +
+        'started_at,completed_at,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'id:desc',
+});
+
+// `sort=id:asc` IS LOAD-BEARING, not cosmetic. pipeline_steps has no seq column
+// (design rule 3 — display order is computed at render), and pipelineModel's
+// displayOrder() uses the position of a row in the input array as its
+// deterministic FINAL tie-break for the done band, root ranking and epic
+// first-appearance order. "Canonical stored order" for a table whose only stable
+// identity is its AUTO_INCREMENT id means id ascending; without the explicit
+// sort the plan could re-order between renders on an unordered result set.
+export const pipelineSteps = createEntityQueries({
+    entity: 'pipeline_steps',
+    defaultFields: 'id,pipeline_fk,title,run,notes,completed_at,creator_fk',
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+});
+
+// Junction, composite PK (step_fk, requirement_fk) — NO `id` column, never
+// request one. No creator_fk either (correctly absent from Lambda-Rest
+// CREATOR_FK_TABLES): the links inherit their step's ownership, exactly like
+// swarm_start_sessions and agent_documents. The `creatorFk` argument to useAll
+// therefore only shapes the cache key and the enabled predicate.
+export const pipelineStepRequirements = createEntityQueries({
+    entity: 'pipeline_step_requirements',
+    defaultFields: 'step_fk,requirement_fk',
+    // `fieldsInKey` even though there is one caller and only two columns to ask
+    // for: it is the req #2213 / #3015 collision guard, and its whole point is
+    // that it has to be there BEFORE the second caller with a different
+    // projection arrives, because the failure mode is silent (one caller serves
+    // the other its narrower column set and a column renders blank).
+    fieldsInKey: true,
+});
+
+// Dependency edges. One row = ONE condition; exactly one of dep_step_fk /
+// time_at is set, and a dual-condition gate is simply two rows on one step
+// (req #3111). Surrogate `id`, no creator_fk — same ownership rule as above.
+export const pipelineStepDeps = createEntityQueries({
+    entity: 'pipeline_step_deps',
+    defaultFields: 'id,step_fk,dep_step_fk,time_at',
+    fieldsInKey: true,
+});

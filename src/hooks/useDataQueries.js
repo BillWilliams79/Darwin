@@ -2,8 +2,8 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs } from './factory/devopsQueries';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -181,7 +181,13 @@ export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,machine_fk,sort_order', enabled = true } = {}) {
+// `feature_fk` joined the projection with req #3114 (column added by #3111
+// migration 076). It is where the Epic > Feature > Story hierarchy attaches —
+// design rule 10 puts epic/feature labels on the REQUIREMENT and never on the
+// plan step, so any surface that wants to show them needs the column. A NULL-able
+// INT costs nothing on the wire, and this key already carries no `fields`, so
+// widening it cannot collide (the callers here all take the default).
+export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,machine_fk,feature_fk,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -463,8 +469,13 @@ export function useMapRunPartners(creatorFk, { fields = 'id,map_run_fk,map_partn
 // across callers with different projections).
 // ---------------------------------------------------------------------------
 
-const FEATURE_DEFAULT_FIELDS = 'id,title,feature_status,category_fk,closed,sort_order,create_ts';
-const FEATURE_FULL_FIELDS    = 'id,title,description,feature_status,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
+// `epic_fk` (req #3111 migration 076) joined both projections with req #3114:
+// features are the middle tier of Epic > Feature > Story, and the plan table
+// walks requirement -> feature -> epic to derive a step's dominant label
+// (design rule 10). Both keys already carry `fields`, so widening them cannot
+// collide with a narrower caller (req #2213).
+const FEATURE_DEFAULT_FIELDS = 'id,title,feature_status,epic_fk,category_fk,closed,sort_order,create_ts';
+const FEATURE_FULL_FIELDS    = 'id,title,description,feature_status,epic_fk,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
 const TESTCASE_DEFAULT_FIELDS = 'id,title,test_type,tags,category_fk,closed,sort_order,create_ts';
 const TESTCASE_FULL_FIELDS    = 'id,title,preconditions,steps,expected,test_type,tags,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
 const TESTPLAN_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
@@ -472,13 +483,80 @@ const TESTPLANCASE_FIELDS = 'test_plan_fk,test_case_fk,sort_order';
 const TESTRUN_DEFAULT_FIELDS = 'id,test_plan_fk,run_status,started_at,completed_at,notes,create_ts';
 const TESTRESULT_FIELDS = 'id,test_run_fk,test_case_fk,result_status,actual,notes,executed_at,create_ts';
 
-// ----- features -----
+// "Do not filter on `closed` at all" (req #3114).
+//
+// A SENTINEL STRING, not `undefined`, and that distinction is load-bearing:
+// TanStack Query hashes a query key with JSON.stringify, which DROPS properties
+// whose value is `undefined`. `{ fields, closed: undefined }` and `{ fields }`
+// therefore hash to the SAME key — two reads with different URLs sharing one
+// cache entry, with whichever observer registered first deciding what a refetch
+// actually fetches. A string survives the hash and keeps them apart.
+export const ALL_ROWS = 'all';
 
-export function useAllFeatures(creatorFk, { fields = FEATURE_DEFAULT_FIELDS, enabled = true } = {}) {
+// ----- epics (req #3111 migration 076; hooks req #3114) -----
+//
+// The top tier of Epic > Feature > Story. Hand-written here rather than as a
+// `createEntityQueries` block because this is the agile hierarchy's home — epics
+// sits directly above the features hooks below it and shares their conventions
+// (fields-in-key, sort_order:asc, an explicit `closed` filter). The four
+// EXECUTION tables of the same feature — pipelines, pipeline_steps and their two
+// link tables — ARE factory blocks, in factory/devopsQueries.js.
+//
+// `closed` defaults to ALL_ROWS = fetch every epic, deliberately unlike the
+// features hooks. Epics here are read as a LABEL DICTIONARY (step -> dominant
+// epic, design rule 10), not as a browsable catalog: filtering closed rows out
+// would blank the Epic column on plan rows whose epic has since been closed,
+// which reads as a data bug rather than as a filter.
+const EPIC_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
+
+export function useAllEpics(creatorFk,
+    { fields = EPIC_DEFAULT_FIELDS, closed = ALL_ROWS, enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
-    const uri = `${darwinUri}/features?closed=0&fields=${fields}&sort=sort_order:asc`;
-    const queryKey = [...featureKeys.all(creatorFk), { fields }];
+    const closedParam = closed === ALL_ROWS ? '' : `closed=${closed}&`;
+    const uri = `${darwinUri}/epics?${closedParam}fields=${fields}&sort=sort_order:asc`;
+    // `closed` is always in the key and always a stringify-surviving value, so
+    // the filtered and unfiltered reads can never collide (see ALL_ROWS above).
+    const queryKey = [...epicKeys.all(creatorFk), { fields, closed }];
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!creatorFk && !!idToken,
+    });
+}
+
+export function useEpicById(creatorFk, id, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const uri = `${darwinUri}/epics?id=${id}&fields=${EPIC_DEFAULT_FIELDS}`;
+    const queryKey = epicKeys.byId(creatorFk, id);
+    return useQuery({
+        queryKey,
+        queryFn: () => fetchEntity(uri, idToken),
+        enabled: enabled && !!id && !!idToken,
+    });
+}
+
+// ----- features -----
+
+// `closed` defaults to 0 — the historical behavior every existing caller relies
+// on (a browsable catalog hides closed rows). Req #3114 added the option so the
+// plan table can pass ALL_ROWS and read features as a LABEL DICTIONARY, for the
+// same reason spelled out on useAllEpics above.
+//
+// `closed` is ALWAYS in the cache key. That does change the key for existing
+// callers (from `{fields}` to `{fields, closed: 0}`), which is safe because both
+// of them invalidate by the `featureKeys.all` PREFIX and nothing reconstructs the
+// full key — and it is the only shape that cannot collide: a key that omits the
+// filter for one value and includes it for another is one JSON.stringify quirk
+// away from serving the wrong rows.
+export function useAllFeatures(creatorFk,
+    { fields = FEATURE_DEFAULT_FIELDS, closed = 0, enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const closedParam = closed === ALL_ROWS ? '' : `closed=${closed}&`;
+    const uri = `${darwinUri}/features?${closedParam}fields=${fields}&sort=sort_order:asc`;
+    const queryKey = [...featureKeys.all(creatorFk), { fields, closed }];
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
@@ -770,3 +848,19 @@ export const agentTelemetryRowKeys      = agentTelemetryRows.keys;
 // approach works, but a future caller reusing this hook can pick whichever fits.
 export const useAgentTelemetryRowDocsByRow = agentTelemetryRowDocs.useByRow;
 export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;
+
+// Req #3114 — Swarm Orchestration pipelines (schema req #3111). Four bounded
+// list reads; /swarm/pipelines and /swarm/pipeline/:id join them client-side in
+// a useMemo.
+//
+// ONLY list hooks are exported, including for `pipelines` itself: the junction
+// and dep tables carry no pipeline_fk, so nothing can be fetched per-pipeline
+// without the fan-out design rule 5 forbids — and once the four lists are in
+// cache, the detail page selects its pipeline from the list it already has
+// (memory/detail-page-interlinking.md's composition rule) rather than opening a
+// second cache entry that is guaranteed to refetch on every navigation. A by-id
+// hook would be dead code that quietly invites that regression back.
+export const useAllPipelines                = pipelines.useAll;
+export const useAllPipelineSteps            = pipelineSteps.useAll;
+export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
+export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
