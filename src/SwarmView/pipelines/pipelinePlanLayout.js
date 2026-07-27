@@ -71,6 +71,9 @@ const CHW_TITLE = 5.8;          // px per mono char at font 9.5 (the title slot)
 const CHW_EPIC = 7.3;           // px per mono char at font 12 (epic band label)
 const BEAD_R = 10;
 const BAND_HEADER = 40;         // deviation 1 (POC 34) — see header comment
+const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
+                                // reserves the letter strip + keeps box tops
+                                // below the epic label (review finding)
 const BAND_GAP = 8;
 const LANE_BASE_H = 56;         // POC horizontal pitch, before the title slot
 const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
@@ -190,39 +193,106 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     }
 
     // ── Chain-aware lanes with cross-column reservation ─────────────────────
+    // Steps place in ascending depth order, so by the time a step chooses a
+    // lane every shallower column is FINAL — checking the arc's intermediate
+    // cells at inheritance time is complete, not heuristic. (The POC reserved
+    // cells only after placement, which the ascending order made unreachable:
+    // an arc could still run straight through an unrelated bead placed earlier
+    // at an intermediate depth. Found in code review; fixed by checking the
+    // corridor BEFORE inheriting — a blocked corridor falls back to a fresh
+    // lane, turning the arc curved instead of driving it through a bead.)
+    // Transitive dependency closure — corridor cells occupied by an IN-CHAIN
+    // bead (a transitive dependent of the arc's tail and dependency of its
+    // head, e.g. 13 on the 12→14 arc where 14 gates on both) are legitimate:
+    // the chain reads as one line through its own members. Only unrelated
+    // occupants and foreign reservations block a corridor.
+    const reachMemo = new Map();
+    const reach = (id) => {
+        if (reachMemo.has(id)) return reachMemo.get(id);
+        const out = new Set();
+        reachMemo.set(id, out); // cycle guard
+        const row = byId.get(id);
+        for (const d of (row ? depsOf(row) : [])) {
+            out.add(d);
+            for (const dd of reach(d)) out.add(dd);
+        }
+        return out;
+    };
+
     const laneById = new Map();
     const bands = [];
+    const RESERVED = Symbol('reserved');
     for (const key of bandKeys) {
         const band = bandByKey.get(key);
         const steps = [...band.steps].sort((a, b) =>
             (depthMemo.get(a.id) - depthMemo.get(b.id)) ||
-            (batchOf.get(a.id) || '~').localeCompare(batchOf.get(b.id) || '~'));
-        const used = new Map(); // depth -> Set(lane)
-        const take = (d, lane) => {
-            if (!used.has(d)) used.set(d, new Set());
-            used.get(d).add(lane);
+            ((batchOf.has(a.id) ? 0 : 1) - (batchOf.has(b.id) ? 0 : 1)) ||
+            String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
+        const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
+        const take = (d, lane, occupant) => {
+            if (!used.has(d)) used.set(d, new Map());
+            const cells = used.get(d);
+            if (!cells.has(lane)) cells.set(lane, occupant);
         };
-        const free = (d, lane) => !(used.has(d) && used.get(d).has(lane));
+        const occupant = (d, lane) =>
+            (used.has(d) ? used.get(d).get(lane) : undefined);
+        const free = (d, lane) => occupant(d, lane) === undefined;
+        const corridorOk = (a, r, lane) => {
+            for (let dd = depthMemo.get(a.id) + 1; dd < depthMemo.get(r.id); dd++) {
+                const o = occupant(dd, lane);
+                if (o === undefined) continue;
+                if (o === RESERVED) return false;
+                if (!(reach(o).has(a.id) && reach(r.id).has(o))) return false;
+            }
+            return true;
+        };
+        const sameEpicDepsOf = (r) => depsOf(r).map((x) => byId.get(x))
+            .filter((a) => (a.epicId != null ? a.epicId : null) === key);
+        // A lane is usable only if the cell is free AND every same-lane
+        // dependency arc into it crosses only in-chain beads.
+        const laneOk = (r, d, lane) => {
+            if (!free(d, lane)) return false;
+            for (const a of sameEpicDepsOf(r)) {
+                if (laneById.get(a.id) === lane && !corridorOk(a, r, lane)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        // Same-band batch-mates take consecutive-as-possible lanes below their
+        // first member, so a batch box encloses members and (at worst)
+        // reservation-empty cells — never a foreign bead: any skipped cell is
+        // reserved, and reserved cells never receive beads at this depth.
+        const lastBatchLane = new Map(); // letter -> last lane used in THIS band
         for (const r of steps) {
             const d = depthMemo.get(r.id);
-            const sameEpicDeps = depsOf(r).map((x) => byId.get(x))
-                .filter((a) => (a.epicId != null ? a.epicId : null) === key);
+            const letter = batchOf.get(r.id);
             let lane = null;
-            for (const a of sameEpicDeps) {
-                const al = laneById.get(a.id);
-                if (al !== undefined && free(d, al)) { lane = al; break; }
-            }
-            if (lane === null) {
-                lane = 0;
-                while (!free(d, lane)) lane += 1;
+            if (letter !== undefined && lastBatchLane.has(letter)) {
+                lane = lastBatchLane.get(letter) + 1;
+                while (!laneOk(r, d, lane)) lane += 1;
+            } else {
+                for (const a of sameEpicDepsOf(r)) {
+                    const al = laneById.get(a.id);
+                    if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
+                }
+                if (lane === null) {
+                    lane = 0;
+                    while (!laneOk(r, d, lane)) lane += 1;
+                }
             }
             laneById.set(r.id, lane);
-            take(d, lane);
-            // Reservation: the chain's lane is held across every column the arc
-            // spans, so nothing else is placed on the arc's path.
-            for (const a of sameEpicDeps) {
+            take(d, lane, r.id);
+            if (letter !== undefined) lastBatchLane.set(letter, lane);
+            // Reserve the corridor of every straight (same-lane) arc into this
+            // step, so no LATER chain inherits a lane through it. take() never
+            // overwrites, so an in-chain bead already in the corridor keeps its
+            // identity for later corridorOk checks.
+            for (const a of sameEpicDepsOf(r)) {
                 if (laneById.get(a.id) === lane) {
-                    for (let dd = depthMemo.get(a.id) + 1; dd < d; dd++) take(dd, lane);
+                    for (let dd = depthMemo.get(a.id) + 1; dd < d; dd++) {
+                        take(dd, lane, RESERVED);
+                    }
                 }
             }
         }
@@ -234,12 +304,18 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         const pitch = (reqLayout === 'vertical'
             ? 58 + (maxReqs - 1) * REQ_LINE_H
             : LANE_BASE_H) + TITLE_SLOT;
-        bands.push({ ...band, steps, sub, maxReqs, pitch });
+        // Bands hosting batch members take a taller header: the batch letter
+        // lives in a reserved header strip (below the epic label, above lane
+        // 0's step label) and the box top must clear the epic label — found in
+        // review as an epic-label × batch-label collision on long epic titles.
+        const headerH = BAND_HEADER
+            + (steps.some((r) => batchOf.has(r.id)) ? BATCH_HEADER_EXTRA : 0);
+        bands.push({ ...band, steps, sub, maxReqs, pitch, headerH });
     }
     let y = 8;
     for (const band of bands) {
         band.y = y;
-        band.height = BAND_HEADER + band.sub * band.pitch;
+        band.height = band.headerH + band.sub * band.pitch;
         y += band.height + BAND_GAP;
     }
     const totalH = y + 8;
@@ -252,7 +328,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             nodes.set(r.id, {
                 id: r.id,
                 x: colX[d],
-                y: band.y + BAND_HEADER + laneById.get(r.id) * band.pitch + 10,
+                y: band.y + band.headerH + laneById.get(r.id) * band.pitch + 10,
                 depth: d,
                 lane: laneById.get(r.id),
                 bandIndex,
@@ -283,6 +359,11 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     }
 
     // ── Launch-batch boxes (identical gate ⇒ identical column) ──────────────
+    // One box SEGMENT per epic band the batch touches, not one tall rect: a
+    // single rect spanning bands would also enclose whatever unrelated band
+    // lies between two members (review finding) — a user would read a
+    // non-member as launching in the batch. Segments share the letter and the
+    // hover payload, so the launch unit stays one visible thing.
     const batchBoxes = [];
     for (const b of safeBatches) {
         const members = (b.stepIds || []).map((id) => nodes.get(id)).filter(Boolean);
@@ -290,16 +371,26 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         const d = members[0].depth;
         const w = Math.max((colW[d] || 110) - 8, 56);
         const x = members[0].x - w / 2;
-        const yTop = Math.min(...members.map((n) => n.y)) - 40;
-        const yBot = Math.max(...members.map((n) => {
-            const row = byId.get(n.id);
-            const nReqs = (row.reqIds || []).length;
-            return n.y + (reqLayout === 'vertical'
-                ? 28 + Math.max(0, nReqs - 1) * REQ_LINE_H : 30);
-        }));
-        batchBoxes.push({
-            letter: b.letter, stepIds: b.stepIds, x, y: yTop,
-            width: w, height: yBot - yTop,
+        const byBand = new Map();
+        for (const n of members) {
+            if (!byBand.has(n.bandIndex)) byBand.set(n.bandIndex, []);
+            byBand.get(n.bandIndex).push(n);
+        }
+        [...byBand.keys()].sort((p, q) => p - q).forEach((bandIndex, i) => {
+            const ms = byBand.get(bandIndex);
+            const yTop = Math.min(...ms.map((n) => n.y)) - 40;
+            const yBot = Math.max(...ms.map((n) => {
+                const row = byId.get(n.id);
+                const nReqs = (row.reqIds || []).length;
+                return n.y + (reqLayout === 'vertical'
+                    ? 28 + Math.max(0, nReqs - 1) * REQ_LINE_H : 30);
+            }));
+            batchBoxes.push({
+                letter: b.letter, stepIds: ms.map((n) => n.id),
+                batchStepIds: b.stepIds, x, y: yTop,
+                width: w, height: yBot - yTop,
+                bandIndex, topSegment: i === 0,
+            });
         });
     }
 
@@ -361,10 +452,34 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             x: 12, y: band.y + 6, w: band.epic.length * CHW_EPIC, h: 13,
         });
     }
+    // Batch letters live in the reserved header strip of the top segment's
+    // band — below the epic label (ends at band.y+19), above lane 0's step
+    // label (starts at band.y + headerH − 16 = band.y + 40 with the extended
+    // header) — so the letter can never collide with either, whatever the epic
+    // title length. Letters sharing a band stagger rightward.
+    const placedLetters = new Map(); // bandIndex -> [{x, w}]
     for (const box of batchBoxes) {
+        if (!box.topSegment) continue;
+        const text = `batch ${box.letter}`;
+        const w = text.length * 6;
+        const band = bands[box.bandIndex];
+        let x = box.x + 5;
+        const others = placedLetters.get(box.bandIndex) || [];
+        let moved = true;
+        while (moved) {
+            moved = false;
+            for (const o of others) {
+                if (x < o.x + o.w + 8 && o.x < x + w + 8) {
+                    x = o.x + o.w + 8;
+                    moved = true;
+                }
+            }
+        }
+        others.push({ x, w });
+        placedLetters.set(box.bandIndex, others);
         labels.push({
-            kind: 'batch', letter: box.letter, text: `batch ${box.letter}`,
-            x: box.x + 5, y: box.y + 3, w: `batch ${box.letter}`.length * 6, h: 11,
+            kind: 'batch', letter: box.letter, text,
+            x, y: band.y + 22, w, h: 11,
         });
     }
 

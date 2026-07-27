@@ -90,8 +90,10 @@ export default function FeaturesPage() {
     // requirement asked for; dedicated epic pages are deliberately deferred.
     const [searchParams, setSearchParams] = useSearchParams();
     const epicParamRaw = searchParams.get('epic');
-    const epicFilter = epicParamRaw != null && epicParamRaw !== '' && Number.isFinite(Number(epicParamRaw))
-        ? Number(epicParamRaw) : null;
+    // Integer ids only: Number(' ') is 0 and Number('1.5') is 1.5, either of
+    // which would filter every feature out under a chip reading "Epic: 0".
+    const epicFilter = epicParamRaw != null && /^\d+$/.test(epicParamRaw.trim())
+        ? Number(epicParamRaw.trim()) : null;
     const clearEpicFilter = () => {
         const next = new URLSearchParams(searchParams);
         next.delete('epic');

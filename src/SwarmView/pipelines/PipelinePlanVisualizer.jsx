@@ -53,7 +53,9 @@ import Typography from '@mui/material/Typography';
 
 import { useViewPreference } from '../../hooks/useViewPreference';
 import { semanticLevel } from '../konvaSwarmModel';
-import { formatTimeGates } from './pipelineViewModel';
+import {
+    formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
+} from './pipelineViewModel';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
@@ -102,7 +104,12 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         () => computePlanLayout(rows, plan.batches || [], { reqLayout, stepLabel }),
         [rows, plan.batches, reqLayout, stepLabel]);
 
-    const containerRef = useRef(null);
+    // The container is tracked as STATE, not a bare ref: with an empty plan the
+    // component returns the empty panel and no container exists — if the first
+    // step arrives later (focus refetch on a draft pipeline), effects keyed on
+    // a ref would never re-run and the canvas would stay blank forever (review
+    // finding). A ref callback re-fires every effect when the node appears.
+    const [containerEl, setContainer] = useState(null);
     const stageRef = useRef(null);
     const layerRef = useRef(null);
     const zoomRef = useRef(null);
@@ -113,16 +120,15 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
     const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'batch', ...}
 
     useLayoutEffect(() => {
-        const el = containerRef.current;
-        if (!el) return undefined;
+        if (!containerEl) return undefined;
         const ro = new ResizeObserver((entries) => {
             const cr = entries[0]?.contentRect;
             if (cr) setSize({ w: Math.round(cr.width), h: Math.round(cr.height) });
         });
-        ro.observe(el);
-        setSize({ w: el.clientWidth, h: el.clientHeight });
+        ro.observe(containerEl);
+        setSize({ w: containerEl.clientWidth, h: containerEl.clientHeight });
         return () => ro.disconnect();
-    }, []);
+    }, [containerEl]);
 
     // Fit-to-width base scale — the POC page rendered the whole plan across the
     // panel; kBase is that view, and semanticLevel(curK / kBase) matches the
@@ -133,7 +139,7 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
 
     // The d3-zoom behavior (KonvaSwarmCanvas pattern).
     useEffect(() => {
-        const el = containerRef.current;
+        const el = containerEl;
         if (!el || size.w === 0) return undefined;
         const sel = select(el);
         const zb = d3zoom()
@@ -143,6 +149,9 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
             .on('zoom', (ev) => {
                 const tr = ev.transform;
                 setTransform({ x: tr.x, y: tr.y, k: tr.k });
+                // The world slides under a stationary datacard, which would
+                // then caption whatever bead ends up beneath it — dismiss.
+                setCard(null);
             })
             .on('start', (ev) => {
                 if (!ev.sourceEvent || ev.sourceEvent.type === 'wheel') return;
@@ -162,22 +171,22 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
         if (sc) sc.style.cursor = 'grab';
         zoomRef.current = zb;
         return () => { sel.on('.zoom', null); };
-    }, [size.w, size.h, kBase]);
+    }, [containerEl, size.w, size.h, kBase]);
 
     // Fit the plan on first size and whenever a layout toggle changes the world
     // dimensions wholesale (the POC re-rendered from scratch on those toggles).
     useEffect(() => {
-        const el = containerRef.current;
+        const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
         select(el).call(zb.transform, zoomIdentity.scale(kBase));
-    }, [size.w, size.h, kBase, reqLayout, stepLabel]);
+    }, [containerEl, size.w, size.h, kBase, reqLayout, stepLabel]);
 
     // Manual DOM click hit-test: d3-zoom owns the pointer gesture, so a
     // non-drag click is resolved against the stage and fired as the Konva
     // 'activate' event on the topmost shape (react-konva binds onActivate).
     useEffect(() => {
-        const el = containerRef.current;
+        const el = containerEl;
         if (!el) return undefined;
         const onDown = (e) => { downRef.current = { x: e.clientX, y: e.clientY }; };
         const onClick = (e) => {
@@ -197,20 +206,27 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
             el.removeEventListener('mousedown', onDown);
             el.removeEventListener('click', onClick);
         };
-    }, []);
+    }, [containerEl]);
 
     // Running-bead pulse (POC @keyframes pulse) — one Konva.Animation drives
-    // every node named 'pulse-bead'; no React re-render per frame.
+    // every node named 'pulse-bead'; no React re-render per frame. Keyed on
+    // size.w because the Layer only mounts once the container has measured —
+    // an effect keyed on rows alone runs before the Layer exists and never
+    // again (review finding). Skipped entirely when nothing is running: an
+    // unconditional animation would redraw the whole layer at ~60fps on every
+    // completed pipeline.
+    const hasRunning = useMemo(
+        () => rows.some((r) => r.state === STEP_RUNNING), [rows]);
     useEffect(() => {
         const layer = layerRef.current;
-        if (!layer) return undefined;
+        if (!layer || !hasRunning) return undefined;
         const anim = new Konva.Animation((frame) => {
             const op = 0.45 + 0.55 * Math.abs(Math.sin((frame?.time || 0) / 480));
             layer.find('.pulse-bead').forEach((n) => n.opacity(op));
         }, layer);
         anim.start();
         return () => { anim.stop(); };
-    }, [rows]);
+    }, [rows, hasRunning, size.w]);
 
     const t = transform || { x: 0, y: 0, k: kBase };
 
@@ -259,7 +275,7 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                   height={band.height} cornerRadius={8}
                   stroke={band.color} strokeWidth={1} opacity={0.35} />);
         for (let l = 0; l < band.sub; l++) {
-            const wy = band.y + 40 + l * band.pitch + 10;
+            const wy = band.y + band.headerH + l * band.pitch + 10;
             worldNodes.push(
                 <Line key={`wire-${band.key}-${l}`}
                       points={[36, wy, layout.width - 14, wy]}
@@ -402,7 +418,7 @@ export default function PipelinePlanVisualizer({ plan, timezone, onStepFocus }) 
                 </Stack>
             </Box>
 
-            <Box ref={containerRef} data-testid="pipeline-plan-visualizer"
+            <Box ref={setContainer} data-testid="pipeline-plan-visualizer"
                  sx={{ position: 'relative', height: 'calc(100vh - 350px)',
                         minHeight: 460, overflow: 'hidden', borderRadius: '8px',
                         border: `1px solid ${P.line}`, background: P.panel,
@@ -468,7 +484,7 @@ function PlanDataCard({ card, timezone, containerW, containerH }) {
                     ? `steps ${b.gateStepIds.join(', ')}` : 'no step gate')}
                 {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
                 {rowEl('Run', runLabel(b.run))}
-                {b.machineLabels.length > 0 && rowEl('Machines', b.machineLabels.join(' / '))}
+                {b.machineLabels.length > 0 && rowEl('Machines', batchMachineLabel(b))}
                 {rowEl('Launch', b.swarmStartCommand
                     ? <code style={{ fontSize: '0.85em' }}>{b.swarmStartCommand}</code>
                     : 'no linked requirements — nothing to launch')}
@@ -492,7 +508,9 @@ function PlanDataCard({ card, timezone, containerW, containerH }) {
                 {r.feature && rowEl('Feature', (r.featureLabels || []).length > 1
                     ? `${r.feature} (all: ${featAll})` : r.feature)}
                 {rowEl('Reqs', r.reqIds.length ? r.reqIds.join(' ') : '—')}
-                {rowEl('Machine', r.machineLabel || '—')}
+                {/* Through the shared stripper: the engine degrades an unknown
+                    machine id to '#<id>' and the no-'#' directive covers it. */}
+                {rowEl('Machine', rowMachineLabel(r))}
             </div>
         );
     }

@@ -34,6 +34,54 @@ const beadRect = (n) => ({
     w: 2 * BEAD_RADIUS, h: 2 * BEAD_RADIUS,
 });
 
+// The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
+// arc may cross only beads that are part of its own chain — a transitive
+// dependent of the tail AND dependency of the head (e.g. 13 on the 12→14 arc,
+// where 14 gates on both). Anything else on the wire is the failure the
+// cross-column reservation exists to prevent.
+function assertStraightArcsClear(layout, rows) {
+    const rowById = new Map(rows.map((r) => [r.id, r]));
+    const reachMemo = new Map();
+    const reach = (id) => {
+        if (reachMemo.has(id)) return reachMemo.get(id);
+        const out = new Set();
+        reachMemo.set(id, out); // cycle guard
+        for (const d of (rowById.get(id)?.depIds || [])) {
+            out.add(d);
+            for (const dd of reach(d)) out.add(dd);
+        }
+        return out;
+    };
+    for (const arc of layout.arcs.filter((a) => a.straight)) {
+        const a = layout.nodes.get(arc.fromId);
+        const b = layout.nodes.get(arc.toId);
+        expect(a.y).toBe(b.y);
+        for (const n of layout.nodes.values()) {
+            if (n.id === a.id || n.id === b.id) continue;
+            const onWire = n.bandIndex === a.bandIndex
+                && n.y === a.y && n.x > a.x && n.x < b.x;
+            if (!onWire) continue;
+            const inChain = reach(n.id).has(a.id) && reach(b.id).has(n.id);
+            if (!inChain) {
+                throw new Error(`straight arc ${a.id}→${b.id} passes through `
+                    + `unrelated bead ${n.id}`);
+            }
+        }
+    }
+}
+
+function assertNoLabelOverlap(layout, name) {
+    const labels = layout.labels;
+    for (let i = 0; i < labels.length; i++) {
+        for (let j = i + 1; j < labels.length; j++) {
+            if (rectsOverlap(labels[i], labels[j])) {
+                throw new Error(`label overlap (${name}): `
+                    + `${JSON.stringify(labels[i])} vs ${JSON.stringify(labels[j])}`);
+            }
+        }
+    }
+}
+
 describe('placement fundamentals (Substrate Rebuild fixture)', () => {
     const layout = computePlanLayout(plan.rows, plan.batches);
 
@@ -84,39 +132,31 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
 describe('chain lanes with cross-column reservation', () => {
     const layout = computePlanLayout(plan.rows, plan.batches);
 
-    // The POC invariant this exists for: a same-lane dependency arc spans its
-    // columns along ONE wire, and no UNRELATED bead may sit on that wire between
-    // the endpoints — the reservation is what keeps arcs off other beads. A bead
-    // that is itself part of the chain (a transitive dependent of the arc's tail
-    // and dependency of its head — e.g. 13 on the 12→14 arc, where 14 gates on
-    // BOTH) legitimately sits on the wire: the chain reads as one line through
-    // its own members.
     it('keeps every straight (same-lane) arc clear of unrelated beads', () => {
-        const rowById = new Map(plan.rows.map((r) => [r.id, r]));
-        const reachMemo = new Map(); // id -> Set of transitive dependency ids
-        const reach = (id) => {
-            if (reachMemo.has(id)) return reachMemo.get(id);
-            const out = new Set();
-            reachMemo.set(id, out); // cycle guard
-            for (const d of (rowById.get(id)?.depIds || [])) {
-                out.add(d);
-                for (const dd of reach(d)) out.add(dd);
-            }
-            return out;
-        };
-        for (const arc of layout.arcs.filter((a) => a.straight)) {
-            const a = layout.nodes.get(arc.fromId);
-            const b = layout.nodes.get(arc.toId);
-            expect(a.y).toBe(b.y);
-            for (const n of layout.nodes.values()) {
-                if (n.id === a.id || n.id === b.id) continue;
-                const onWire = n.bandIndex === a.bandIndex
-                    && n.y === a.y && n.x > a.x && n.x < b.x;
-                if (!onWire) continue;
-                const inChain = reach(n.id).has(a.id) && reach(b.id).has(n.id);
-                expect(inChain).toBe(true);
-            }
-        }
+        assertStraightArcsClear(layout, plan.rows);
+    });
+
+    // Regression for the review finding that killed the POC's post-hoc
+    // reservation: step 8's only dependency lives in ANOTHER band, so 8 grabs
+    // lane 0 at depth 1 before the 1→5 chain (depth 0 → 2) wants to run
+    // through that cell. The corridor check must push 5 onto its other dep's
+    // lane instead of drawing the 1→5 wire through bead 8.
+    it('does not inherit a lane whose corridor holds an unrelated bead', () => {
+        const mk = (id, depIds, epicId, epic) => ({
+            id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+            depIds, timeDeps: [], epicId, epic,
+            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        });
+        const rows = [
+            mk(1, [], 1, 'E1'),
+            mk(3, [], 1, 'E1'),
+            mk(4, [3], 1, 'E1'),
+            mk(5, [1, 4], 1, 'E1'),
+            mk(8, [9], 1, 'E1'),
+            mk(9, [], 2, 'E2'),
+        ];
+        const l = computePlanLayout(rows, []);
+        assertStraightArcsClear(l, rows);
     });
 
     it('continues a chain along its dependency lane when the lane is free', () => {
@@ -141,16 +181,7 @@ describe('zero label overlap — all four layout/label combinations', () => {
         const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
         it(`no two labels intersect (${name})`, () => {
             const layout = computePlanLayout(plan.rows, plan.batches, opts);
-            const labels = layout.labels;
-            for (let i = 0; i < labels.length; i++) {
-                for (let j = i + 1; j < labels.length; j++) {
-                    const clash = rectsOverlap(labels[i], labels[j]);
-                    if (clash) {
-                        throw new Error(`label overlap (${name}): `
-                            + `${JSON.stringify(labels[i])} vs ${JSON.stringify(labels[j])}`);
-                    }
-                }
-            }
+            assertNoLabelOverlap(layout, name);
         });
 
         it(`no label intersects any bead (${name})`, () => {
@@ -207,8 +238,11 @@ describe('launch-batch box geometry', () => {
     });
 
     // A genuine batch, with the two members' requirements under DIFFERENT
-    // epics: the box must contain both member beads — spanning the two epic
-    // bands — and exclude the same-gate manual step (not a batch-mate).
+    // epics: the batch renders one box SEGMENT per band (a single tall rect
+    // would also enclose whatever band lies between — review finding), and the
+    // same-gate manual step (not a batch-mate) stays outside every segment.
+    // Epic titles are deliberately LONG: the review found the batch letter
+    // colliding with a long epic label when both lived in the band header.
     const CROSS_EPIC_READS = {
         steps: [
             { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
@@ -239,7 +273,10 @@ describe('launch-batch box geometry', () => {
             { id: 101, title: 'Wave One', epic_fk: 11 },
             { id: 102, title: 'Wave Two', epic_fk: 12 },
         ],
-        epics: [{ id: 11, title: 'Epic One' }, { id: 12, title: 'Epic Two' }],
+        epics: [
+            { id: 11, title: 'Swarm Orchestration Substrate Rebuild Epic One' },
+            { id: 12, title: 'Primary and Swarm Agentic Integration Epic Two' },
+        ],
         machines: MACHINES,
     };
     const crossPlan = orderedPlan(
@@ -249,23 +286,91 @@ describe('launch-batch box geometry', () => {
         }),
         { now: NOW });
 
-    it('boxes every member, spans epic bands, and excludes non-members', () => {
+    it('boxes every member via per-band segments and excludes non-members', () => {
         expect(crossPlan.batches).toHaveLength(1);
         const layout = computePlanLayout(crossPlan.rows, crossPlan.batches);
-        expect(layout.batchBoxes).toHaveLength(1);
-        const box = layout.batchBoxes[0];
-        const inBox = (n) => n.x > box.x && n.x < box.x + box.width
-            && n.y > box.y && n.y < box.y + box.height;
+        const inSomeBox = (n) => layout.batchBoxes.some((box) =>
+            n.x > box.x && n.x < box.x + box.width
+            && n.y > box.y && n.y < box.y + box.height);
 
         const m2 = layout.nodes.get(2);
         const m3 = layout.nodes.get(3);
         const outsider = layout.nodes.get(4);
-        expect(inBox(m2)).toBe(true);
-        expect(inBox(m3)).toBe(true);
-        expect(inBox(outsider)).toBe(false);
-        // The members sit in different epic bands — the box legitimately spans.
+        // Cross-band batch → one segment per member band, one letter overall.
         expect(m2.bandIndex).not.toBe(m3.bandIndex);
+        expect(layout.batchBoxes).toHaveLength(2);
+        expect(layout.batchBoxes.filter((b) => b.topSegment)).toHaveLength(1);
+        expect(inSomeBox(m2)).toBe(true);
+        expect(inSomeBox(m3)).toBe(true);
+        expect(inSomeBox(outsider)).toBe(false);
+        expect(layout.labels.filter((l) => l.kind === 'batch')).toHaveLength(1);
     });
+
+    it('never encloses a bead from an unrelated band between two members', () => {
+        // Review dataset: members in the first and third bands, a NON-member in
+        // the band between them, all sharing the gate. The POC's single tall
+        // rect read step 3 as launching in batch A; segments must not.
+        const reads = {
+            steps: [
+                { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
+                    completed_at: '2026-07-01T00:00:00' },
+                { id: 2, pipeline_fk: 1, title: 'mate A', run: 'auto', notes: null,
+                    completed_at: null },
+                { id: 3, pipeline_fk: 1, title: 'not a mate', run: 'manual', notes: null,
+                    completed_at: null },
+                { id: 4, pipeline_fk: 1, title: 'mate B', run: 'auto', notes: null,
+                    completed_at: null },
+            ],
+            stepRequirements: [
+                { step_fk: 2, requirement_fk: 900 },
+                { step_fk: 3, requirement_fk: 901 },
+                { step_fk: 4, requirement_fk: 902 },
+            ],
+            stepDeps: [
+                { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+                { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
+                { id: 3, step_fk: 4, dep_step_fk: 1, time_at: null },
+            ],
+            requirements: [
+                { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 201 },
+                { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 202 },
+                { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 203 },
+            ],
+            features: [
+                { id: 201, title: 'F1', epic_fk: 21 },
+                { id: 202, title: 'F2', epic_fk: 22 },
+                { id: 203, title: 'F3', epic_fk: 23 },
+            ],
+            epics: [
+                { id: 21, title: 'Epic A' }, { id: 22, title: 'Epic B' },
+                { id: 23, title: 'Epic C' },
+            ],
+            machines: MACHINES,
+        };
+        const p = orderedPlan(
+            buildPipelineModel({
+                pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
+                ...reads,
+            }),
+            { now: NOW });
+        expect(p.batches).toHaveLength(1);
+        expect(p.batches[0].stepIds.sort()).toEqual([2, 4]);
+        const layout = computePlanLayout(p.rows, p.batches);
+        const outsider = layout.nodes.get(3);
+        for (const box of layout.batchBoxes) {
+            const inside = outsider.x > box.x && outsider.x < box.x + box.width
+                && outsider.y > box.y && outsider.y < box.y + box.height;
+            expect(inside).toBe(false);
+        }
+    });
+
+    for (const opts of COMBOS) {
+        const name = `batch plan, ${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
+        it(`zero label overlap with batch letters and long epic titles (${name})`, () => {
+            const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, opts);
+            assertNoLabelOverlap(layout, name);
+        });
+    }
 });
 
 describe('bead vocabulary (POC roles)', () => {
