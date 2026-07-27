@@ -12,8 +12,14 @@ import { AI_MODEL_COLOR, modelFillColor } from '../SwarmView/modelChipStyles';
 // may carry several roles at once (e.g. "owned,autoload") and REST returns them
 // as a comma-joined string. These helpers parse that string. `autoload` is the
 // role marking a document the agent reads IN FULL at boot — stored, not derived.
+//
+// `principles` (req #3129) marks THE ONE document carrying an agent's guiding
+// principles. It sorts FIRST because precedence follows load order: the agent
+// reads its principles, then its instructions, then its documents. At most one
+// link per AGENT may carry it — the mirror image of the one-'owned'-per-DOCUMENT
+// rule, enforced by uq_agent_documents_principles.
 export const RELATIONSHIP_ORDER = [
-    'owned', 'curated', 'autoload', 'referenced',
+    'principles', 'owned', 'curated', 'autoload', 'referenced',
 ];
 
 // Comma-joined SET string -> array of roles, in precedence order.
@@ -24,6 +30,7 @@ export const parseRoles = (rel) => {
 
 export const hasRole = (rel, role) => parseRoles(rel).includes(role);
 export const isAutoload = (rel) => hasRole(rel, 'autoload');
+export const isPrinciples = (rel) => hasRole(rel, 'principles');
 
 /**
  * The INVERSE of `parseRoles`: roles -> the exact string the database stores.
@@ -58,6 +65,7 @@ export const relationshipRank = (rel) => {
 // primary because it is the load-bearing one — at most one per document (DB).
 export const relationshipChipProps = (rel) => {
     switch (primaryRole(rel)) {
+        case 'principles': return { color: 'secondary', variant: 'filled' };
         case 'owned':      return { color: 'primary', variant: 'filled' };
         case 'curated':    return { color: 'success', variant: 'filled' };
         case 'autoload':   return { color: 'info',    variant: 'outlined' };
@@ -605,6 +613,17 @@ export const relationshipSetError = (roles = []) => {
     // precedence rule refer to itself, so it is a hard block rather than a hint.
     if (list.includes('owned') && list.includes('referenced')) {
         return 'A link cannot be both owned and referenced — owning already outranks referencing.';
+    }
+    // req #3129: a guiding-principles document is read at boot by definition, so
+    // `principles` without `autoload` is a link that says "read this first" and
+    // "read this on demand" at the same time. The two roles are carried together
+    // deliberately — `principles` does not imply `autoload` in code, precisely so
+    // that every existing autoload consumer keeps working unchanged.
+    if (list.includes('principles') && !list.includes('autoload')) {
+        return 'A principles document must also be autoload — it is read at boot by definition.';
+    }
+    if (list.includes('principles') && list.includes('referenced')) {
+        return 'A link cannot be both principles and referenced — principles outranks every other role.';
     }
     return null;
 };
