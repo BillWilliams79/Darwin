@@ -300,6 +300,8 @@ export const agentTelemetryRows = createEntityQueries({
     entity: 'agent_telemetry_rows',
     defaultFields:
         'id,run_fk,agent_name,role,session_kind,boot_time_ms,cc_base_tokens,' +
+        'system_prompt_tokens,system_tools_tokens,mcp_tools_tokens,skills_tokens,' +
+        'custom_agents_tokens,' +
         'claude_md_tokens,charter_stub_tokens,boot_payload_tokens,autoload_tokens,' +
         'docs_loaded,docs_expected,start_work_context_tokens,footnote,sort_order,' +
         'creator_fk',

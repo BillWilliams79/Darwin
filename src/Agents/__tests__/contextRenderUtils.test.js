@@ -175,6 +175,53 @@ describe('computeCells — primary (no boot/autoload phase)', () => {
     });
 });
 
+describe('naturalSortDir — ground-truth breakdown columns (req #3095)', () => {
+    it('defaults each breakdown column to descending, same as any other numeric column', () => {
+        expect(naturalSortDir('system_prompt_tokens')).toBe('desc');
+        expect(naturalSortDir('system_tools_tokens')).toBe('desc');
+        expect(naturalSortDir('mcp_tools_tokens')).toBe('desc');
+        expect(naturalSortDir('skills_tokens')).toBe('desc');
+        expect(naturalSortDir('custom_agents_tokens')).toBe('desc');
+    });
+});
+
+describe('sortByColumn — ground-truth breakdown columns (req #3095)', () => {
+    it('sorts by system_tools_tokens, NULLs last', () => {
+        const rows = [
+            architect({ id: 1, system_tools_tokens: 36500 }),
+            architect({ id: 2, system_tools_tokens: null }),
+            architect({ id: 3, system_tools_tokens: 12000 }),
+        ];
+        expect(sortByColumn(rows, 'system_tools_tokens', 'desc').map(r => r.id))
+            .toEqual([1, 3, 2]);
+    });
+});
+
+describe('computeCells — ground-truth breakdown (req #3095)', () => {
+    it('formats all five breakdown cells when present', () => {
+        const row = architect({
+            system_prompt_tokens: 926, system_tools_tokens: 36500,
+            mcp_tools_tokens: 21400, skills_tokens: 2000, custom_agents_tokens: 922,
+        });
+        const c = computeCells(row, new Map());
+        expect(c.systemPrompt).toBe('926');
+        expect(c.systemTools).toBe('36,500');
+        expect(c.mcpTools).toBe('21,400');
+        expect(c.skills).toBe('2,000');
+        expect(c.customAgents).toBe('922');
+    });
+    it('renders n/a for a row whose breakdown was never captured', () => {
+        // architect() fixture doesn't set the five breakdown fields at all —
+        // the same "not yet measured" shape as an existing historical run row.
+        const c = computeCells(architect(), new Map());
+        expect(c.systemPrompt).toBe(NA);
+        expect(c.systemTools).toBe(NA);
+        expect(c.mcpTools).toBe(NA);
+        expect(c.skills).toBe(NA);
+        expect(c.customAgents).toBe(NA);
+    });
+});
+
 describe('computeCells — docsIncomplete edge cases', () => {
     const m = new Map();
     it('0/0 is not incomplete — nothing was owed', () => {

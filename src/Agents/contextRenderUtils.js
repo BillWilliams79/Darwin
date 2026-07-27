@@ -22,6 +22,11 @@ const SORT_COLUMNS = {
     agent_name: { type: 'string', get: (r) => r.agent_name },
     boot_time_ms: { type: 'number', get: (r) => r.boot_time_ms },
     cc_base_tokens: { type: 'number', get: (r) => r.cc_base_tokens },
+    system_prompt_tokens: { type: 'number', get: (r) => r.system_prompt_tokens },
+    system_tools_tokens: { type: 'number', get: (r) => r.system_tools_tokens },
+    mcp_tools_tokens: { type: 'number', get: (r) => r.mcp_tools_tokens },
+    skills_tokens: { type: 'number', get: (r) => r.skills_tokens },
+    custom_agents_tokens: { type: 'number', get: (r) => r.custom_agents_tokens },
     claude_md_tokens: { type: 'number', get: (r) => r.claude_md_tokens },
     charter_stub_tokens: { type: 'number', get: (r) => r.charter_stub_tokens },
     boot_payload_tokens: { type: 'number', get: (r) => r.boot_payload_tokens },
@@ -123,6 +128,14 @@ export function computeCells(row, markerByText) {
         bootMs: num(row.boot_time_ms),
         ccBase: num(row.cc_base_tokens),
         ccBaseMarker: marker,                      // superscript appended to CC base
+        // Ground-truth CC-base breakdown (req #3095) — each independently nullable;
+        // a row without a captured breakdown renders "n/a" in all five, same as any
+        // other not-yet-measured cell on this page.
+        systemPrompt: num(row.system_prompt_tokens),
+        systemTools: num(row.system_tools_tokens),
+        mcpTools: num(row.mcp_tools_tokens),
+        skills: num(row.skills_tokens),
+        customAgents: num(row.custom_agents_tokens),
         claudeMd: num(row.claude_md_tokens),
         // Charter stub: a real number when present; the footnote marker when the
         // agent BUNDLES its stub into CC base (reviewer); otherwise n/a (primary).
