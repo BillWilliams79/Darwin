@@ -518,7 +518,7 @@ export function stepName(row, max = STEP_NAME_MAX) {
  *
  * It does NOT re-print the title alongside the notes, even when the notes are a
  * short supplementary remark rather than a full description: the Name column
- * carries the title on the same row, two cells to the left, and repeating it
+ * carries the title on the same row, earlier in the row, and repeating it
  * here is what the Name column was added to stop.
  *
  * @param {Object} row  a PlanRow
