@@ -77,7 +77,12 @@ const NOWRAP = { whiteSpace: 'nowrap' };
 // the table off-screen the moment a time gate appeared.
 const COL = {
     step: 74,
-    status: 116,
+    // The widest rendered chip is "Complete" + its check icon (not the
+    // longer "Scheduled" text, which carries no icon) — down from 116 to 104
+    // (req #3148 width audit). Table layout is the browser default (`auto`),
+    // so this is a hint only: the column never shrinks below the chip's own
+    // min-content width regardless of this number.
+    status: 104,
     run: 132,
     machine: 148,
     cost: 96,
@@ -430,6 +435,19 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                       ...(edge ? { borderLeft: edge } : {}) }}>
                                         {row.id}
                                     </TableCell>
+                                    {/* Name — the step's own short label. Wraps
+                                        rather than clipping (two lines at most
+                                        for this plan's longest), and a name that
+                                        a legacy row made prose-length is cut with
+                                        the full string on hover. */}
+                                    <TableCell sx={{ width: COL.name, fontWeight: 600 }}
+                                               data-testid={`pipeline-name-${row.id}`}>
+                                        {name.truncated ? (
+                                            <Tooltip title={name.full}>
+                                                <span>{name.text}</span>
+                                            </Tooltip>
+                                        ) : name.text}
+                                    </TableCell>
                                     <TableCell sx={{ ...NOWRAP, width: COL.status }}>
                                         <Chip
                                             size="small"
@@ -493,19 +511,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                labels={row.featureLabels} width={COL.feature}
                                                color="#0f9b8e"
                                                testid={`pipeline-feature-${row.id}`} />
-                                    {/* Name — the step's own short label. Wraps
-                                        rather than clipping (two lines at most
-                                        for this plan's longest), and a name that
-                                        a legacy row made prose-length is cut with
-                                        the full string on hover. */}
-                                    <TableCell sx={{ width: COL.name, fontWeight: 600 }}
-                                               data-testid={`pipeline-name-${row.id}`}>
-                                        {name.truncated ? (
-                                            <Tooltip title={name.full}>
-                                                <span>{name.text}</span>
-                                            </Tooltip>
-                                        ) : name.text}
-                                    </TableCell>
                                     <TableCell sx={{ width: COL.reqs }}>
                                         <RequirementLinks row={row} pipelineId={pipeline?.id} />
                                     </TableCell>
