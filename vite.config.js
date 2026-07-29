@@ -39,8 +39,14 @@ function devserverMarker() {
 // `apply: 'serve'` excludes this plugin (and therefore the asset payload) from
 // `vite build`, so production bundles have zero topology content. See req #2521.
 // V1 (systems/ subdir, /systems route) was retired in req #2525.
-function topologyDevAssets() {
+function topologyDevAssets(command) {
   const darwinRoot = import.meta.dirname
+  const hasTopologyEntrypoint = p => {
+    try {
+      if (!fs.statSync(p).isDirectory()) return false
+      return fs.statSync(path.join(p, 'systems2', 'nvlink_topology.html')).isFile()
+    } catch { return false }
+  }
   const candidates = [
     process.env.TOPOLOGY_PATH,
     path.resolve(darwinRoot, '..', 'Topology'),
@@ -57,12 +63,56 @@ function topologyDevAssets() {
   // the asset payload, causing every /systems2 request to silently 404. Probing
   // the actual entrypoint file lets the loop fall through to the next candidate
   // (typically the canonical $HOME/Projects/DarwinAI/Topology clone). Req #2519.
-  const topologyPath = candidates.find(p => {
-    try {
-      if (!fs.statSync(p).isDirectory()) return false
-      return fs.statSync(path.join(p, 'systems2', 'nvlink_topology.html')).isFile()
-    } catch { return false }
-  })
+  let topologyPath = candidates.find(hasTopologyEntrypoint)
+
+  // Shared-machine fallback (req #3155), dev-server only — a session whose
+  // affectedRepos didn't include Topology has no `../Topology` sibling of its
+  // own, and on WSL (legacy layout, req #3086 not yet cut over) there is no
+  // canonical ~/Projects/DarwinAI/Topology clone either — every candidate
+  // above misses, and /systems2 404s with only a misleading WebSocket/bfcache
+  // line in the browser console. resolve-primary-root.sh resolves this
+  // machine's primary DarwinAI-Config checkout (workspace root on legacy
+  // layout, <workspace>/primary on the target layout) regardless of which
+  // repos this session happens to have cloned, so its sibling Topology/ clone
+  // — checked out once per machine, not per session — is reachable as a last
+  // resort. Only shelled out to when the cheap candidates already missed and
+  // only for `vite serve` — `vite build` never needs Topology at all (see
+  // `apply: 'serve'` below) and must not pay a subprocess for nothing.
+  //
+  // Does NOT reach the reference Mac's primary session, whose Darwin/ is a
+  // symlink through which `darwinRoot` resolves (see the comment on candidate
+  // 4 above) — `resolve-primary-root.sh` lives beside the REAL checkout, not
+  // the symlink target, so the script path below misses there. Candidate 4
+  // is what covers that layout; this fallback is WSL/session-clone-specific.
+  //
+  // req #3155 was exactly a case where the only diagnostic lived in a log
+  // nobody looked at — so a failure here must not repeat that silence.
+  // `fallbackDiagnostic` carries the reason forward to the not-found error
+  // below instead of a bare swallowed catch.
+  let fallbackDiagnostic = null
+  if (!topologyPath && command === 'serve') {
+    const resolverScript = path.resolve(darwinRoot, '..', 'scripts', 'lib', 'resolve-primary-root.sh')
+    if (!fs.existsSync(resolverScript)) {
+      fallbackDiagnostic = `resolver script not found at ${resolverScript}`
+    } else {
+      try {
+        const primaryRoot = execSync(`bash "${resolverScript}"`, {
+          timeout: 5000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim()
+        const fallback = primaryRoot ? path.resolve(primaryRoot, 'Topology') : null
+        if (fallback && hasTopologyEntrypoint(fallback)) {
+          topologyPath = fallback
+        } else if (fallback) {
+          fallbackDiagnostic = `primary root ${primaryRoot} has no systems2/nvlink_topology.html at ${fallback}`
+        } else {
+          fallbackDiagnostic = 'resolve-primary-root.sh returned no output'
+        }
+      } catch (err) {
+        const stderr = err.stderr ? String(err.stderr).trim() : err.message
+        fallbackDiagnostic = `resolve-primary-root.sh failed: ${stderr}`
+      }
+    }
+  }
 
   const MIME = {
     '.html': 'text/html; charset=utf-8',
@@ -89,7 +139,10 @@ function topologyDevAssets() {
         // visually loud enough to catch on next glance. See req #2540.
         server.config.logger.error(
           '[topology-dev-assets] no Topology clone found; /systems2 routes will 404. ' +
-          'Set TOPOLOGY_PATH or clone https://github.com/BillWilliams79/Topology to ~/Projects/DarwinAI/Topology/.',
+          'Set TOPOLOGY_PATH, clone https://github.com/BillWilliams79/Topology to ' +
+          '~/Projects/DarwinAI/Topology/, or check this machine\'s primary DarwinAI-Config ' +
+          "checkout for a Topology/ clone (req #3155 fallback)." +
+          (fallbackDiagnostic ? ` [fallback diagnostic: ${fallbackDiagnostic}]` : ''),
           { clear: false, timestamp: true }
         )
         return
@@ -172,7 +225,7 @@ export default defineConfig(({ command }) => {
   }
 
   return {
-    plugins: [react(), basicSsl(), devserverMarker(), topologyDevAssets()],
+    plugins: [react(), basicSsl(), devserverMarker(), topologyDevAssets(command)],
     define: {
       global: 'globalThis',
       'import.meta.env.VITE_DEV_REQ_ID': JSON.stringify(devReqId),
