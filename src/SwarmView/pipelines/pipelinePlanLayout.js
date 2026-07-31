@@ -66,18 +66,23 @@ export const EPIC_PALETTE = ['#7c4dff', '#00897b', '#c2185b', '#f57c00', '#3949a
 const LEFT = 66;
 const RIGHT = 14;
 const MIN_WORLD_W = 1180;       // POC viewBox floor
-const CHW = 6.7;                // px per mono char at font 11 (POC constant)
+// Type scale (user directive 2026-07-31): step label +50%, requirement ids
+// +25%, epic label +25% over the POC's font-11/12 base. Char-width metrics
+// scale linearly with font size (mono: ~0.609 px/pt per char) — they MUST move
+// with PLAN_VIZ_FONT or the zero-overlap contract silently rots.
+const CHW_LABEL = 10.05;        // px per mono char at font 16.5 (step label)
+const CHW_REQ = 8.4;            // px per mono char at font 13.75 (req ids)
 const CHW_TITLE = 5.8;          // px per mono char at font 9.5 (the title slot)
-const CHW_EPIC = 7.3;           // px per mono char at font 12 (epic band label)
+const CHW_EPIC = 9.15;          // px per mono char at font 15 (epic band label)
 const BEAD_R = 10;
-const BAND_HEADER = 40;         // deviation 1 (POC 34) — see header comment
+const BAND_HEADER = 46;         // deviation 1 (POC 34) + type-scale headroom
 const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
                                 // reserves the letter strip + keeps box tops
                                 // below the epic label (review finding)
 const BAND_GAP = 8;
-const LANE_BASE_H = 56;         // POC horizontal pitch, before the title slot
+const LANE_BASE_H = 62;         // POC 56 + type-scale headroom, before the title slot
 const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
-const REQ_LINE_H = 12;          // vertical layout: one requirement id per line
+const REQ_LINE_H = 15;          // vertical layout: one req id per line at font 13.75
 const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // Staggering (req #3119, the Build Visualizer's version-label pattern —
 // `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
@@ -85,7 +90,7 @@ const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // left/right neighbours are never on the same line and each may overflow its own
 // column. Only the SAME-PARITY columns (d±2) share a line, and the budget below
 // keeps two of those from meeting.
-const STAGGER_GAP = 14;
+const STAGGER_GAP = 18;
 // Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
 // Labels are centred on their column, so the budget must bound the reach into
 // the NARROWER neighbour and then apply symmetrically — bounding the sum of both
@@ -104,9 +109,9 @@ const STAGGER_REACH = 0.4;
 // requirement id is ~64px, i.e. ~16 characters after the reach is added. Giving
 // the column a floor raises the budget for every title at once; STEP_LABEL_MAX
 // is only the ceiling that stops a pathological title from running forever.
-const TITLE_COL_MIN = 96;
+const TITLE_COL_MIN = 144;
 export const PLAN_VIZ_FONT = {
-    label: 11, req: 11, title: 9.5, epic: 12, batch: 10, check: 9,
+    label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9,
 };
 
 export const BEAD_RADIUS = BEAD_R;
@@ -183,13 +188,13 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     for (let d = 0; d <= maxD; d++) {
         const steps = colSteps[d] || [];
         const labelW = staggerLabels ? TITLE_COL_MIN
-            : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW + 16));
+            : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW_LABEL + 16));
         let w;
         if (reqLayout === 'horizontal') {
-            w = Math.max(64, labelW, ...steps.map((r) => reqStr(r).length * CHW + 30));
+            w = Math.max(64, labelW, ...steps.map((r) => reqStr(r).length * CHW_REQ + 30));
         } else {
             w = Math.max(70, labelW,
-                ...steps.map((r) => Math.min(reqStr(r).length, 6) * CHW + 40));
+                ...steps.map((r) => Math.min(reqStr(r).length, 6) * CHW_REQ + 40));
         }
         colW.push(w);
     }
@@ -267,6 +272,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
 
     const laneById = new Map();
     const bands = [];
+    const bandUsed = [];       // bandIndex -> the band's cell map (kept for arc routing)
     const RESERVED = Symbol('reserved');
     for (const key of bandKeys) {
         const band = bandByKey.get(key);
@@ -275,10 +281,17 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             ((batchOf.has(a.id) ? 0 : 1) - (batchOf.has(b.id) ? 0 : 1)) ||
             String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
+        const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
         const take = (d, lane, occupant) => {
             if (!used.has(d)) used.set(d, new Map());
             const cells = used.get(d);
-            if (!cells.has(lane)) cells.set(lane, occupant);
+            if (!cells.has(lane)) {
+                cells.set(lane, occupant);
+                if (occupant !== RESERVED) {
+                    if (!laneBeads.has(lane)) laneBeads.set(lane, []);
+                    laneBeads.get(lane).push({ id: occupant, d });
+                }
+            }
         };
         const occupant = (d, lane) =>
             (used.has(d) ? used.get(d).get(lane) : undefined);
@@ -294,12 +307,49 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         };
         const sameEpicDepsOf = (r) => depsOf(r).map((x) => byId.get(x))
             .filter((a) => (a.epicId != null ? a.epicId : null) === key);
-        // A lane is usable only if the cell is free AND every same-lane
-        // dependency arc into it crosses only in-chain beads.
+        // Same-band dependents, for the corridor-aware placement check below.
+        const dependentsInBand = new Map(); // id -> [dependent ids]
+        for (const r of steps) {
+            for (const a of sameEpicDepsOf(r)) {
+                if (!dependentsInBand.has(a.id)) dependentsInBand.set(a.id, []);
+                dependentsInBand.get(a.id).push(r.id);
+            }
+        }
+        // A lane is usable only if (1) the cell is free, (2) every same-lane
+        // dependency arc into it crosses only in-chain beads, and (3) — the
+        // corridor-aware rule (user directive, epic #6 plan) — no shallower
+        // bead already on the lane still owes an arc PAST this column to a
+        // deeper same-band dependent: parking here would sit this bead on that
+        // arc's horizontal run (the 50-under-49 spaghetti). Exempt when the
+        // shallower bead is one of r's own deps (r continues that chain — the
+        // arc anchors elsewhere or reroutes) or when r is in-chain between the
+        // two ends.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
             for (const a of sameEpicDepsOf(r)) {
-                if (laneById.get(a.id) === lane && !corridorOk(a, r, lane)) {
+                const al = laneById.get(a.id);
+                if (al === lane && !corridorOk(a, r, lane)) {
+                    return false;
+                }
+                // Cross-lane dep: the arc will need EITHER its source-lane
+                // corridor (late bend) or this candidate lane's corridor
+                // (early bend). If both are already blocked, any drawing of
+                // the arc runs over an unrelated bead — reject the lane and
+                // let dep-adjacent insertion open a clean one. (Found live:
+                // a two-dep step parked where one dep's arc had no clear
+                // corridor on either lane and overdrew two beads.)
+                if (al !== undefined && al !== lane
+                    && !corridorOk(a, r, al) && !corridorOk(a, r, lane)) {
+                    return false;
+                }
+            }
+            const rDeps = new Set(depsOf(r));
+            for (const { id: sid, d: ds } of laneBeads.get(lane) || []) {
+                if (ds >= d || rDeps.has(sid)) continue;
+                for (const tid of dependentsInBand.get(sid) || []) {
+                    if (tid === r.id) continue;
+                    if (depthMemo.get(tid) <= d) continue;
+                    if (reach(r.id).has(sid) && reach(tid).has(r.id)) continue;
                     return false;
                 }
             }
@@ -348,8 +398,29 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
                     if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
                 }
                 if (lane === null) {
-                    lane = 0;
-                    while (!laneOk(r, d, lane)) lane += 1;
+                    // Dep-adjacent lane INSERTION (user directive, epic #6 plan
+                    // image review): when every anchored lane is occupied or
+                    // corridor-blocked, a branch step opens a FRESH lane
+                    // directly below its parent instead of scanning downward
+                    // past every reserved corridor — the scan banished the
+                    // branch below unrelated roots and its dependency arc then
+                    // dove across all of their outgoing corridors. Lanes are
+                    // fractional during placement (0.5 sits between 0 and 1)
+                    // and renumbered ordinally at band close, so a fresh value
+                    // carries no cells, no corridors, and always places.
+                    const anchors = sameEpicDepsOf(r)
+                        .map((a) => laneById.get(a.id))
+                        .filter((v) => v !== undefined);
+                    if (anchors.length > 0) {
+                        const al = Math.min(...anchors);
+                        const below = [...laneBeads.keys()]
+                            .filter((v) => v > al)
+                            .sort((p, q) => p - q)[0];
+                        lane = below === undefined ? al + 1 : (al + below) / 2;
+                    } else {
+                        lane = 0;
+                        while (!laneOk(r, d, lane)) lane += 1;
+                    }
                 }
             }
             laneById.set(r.id, lane);
@@ -365,6 +436,20 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
                     }
                 }
             }
+        }
+        // Ordinal renumber: fractional inserted lanes become whole rows here.
+        // Everything downstream — bandUsed (arc-corridor checks), laneReqs,
+        // laneY, node positions — speaks the renumbered values, so the
+        // fractions never escape this loop.
+        const laneVals = [...new Set(steps.map((r) => laneById.get(r.id)))].sort((p, q) => p - q);
+        const laneRemap = new Map(laneVals.map((v, i) => [v, i]));
+        for (const r of steps) laneById.set(r.id, laneRemap.get(laneById.get(r.id)));
+        for (const [dd, cells] of used) {
+            const remapped = new Map();
+            for (const [lv, occ] of cells) {
+                remapped.set(laneRemap.has(lv) ? laneRemap.get(lv) : lv, occ);
+            }
+            used.set(dd, remapped);
         }
         const sub = Math.max(1, ...steps.map((r) => laneById.get(r.id) + 1));
         const maxReqs = Math.max(1, ...steps.map((r) => (r.reqIds || []).length));
@@ -393,7 +478,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         // drawn at all; in 'id' mode the label is a 4-digit id that never needed
         // the room and the title slot below staggers instead.
         const lanePitch = (lane) => (reqLayout === 'vertical'
-            ? 58 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
+            ? 64 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
             : LANE_BASE_H) + TITLE_SLOT + STAGGER_GAP;
         // Cumulative lane tops, so a lane's y is the SUM of the lanes above it
         // rather than index × a single pitch. `laneY` is exported on the band:
@@ -422,6 +507,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         const headerH = BAND_HEADER + (staggerLabels ? STAGGER_GAP : 0)
             + (steps.some((r) => batchOf.has(r.id)) ? BATCH_HEADER_EXTRA : 0);
         bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs, headerH });
+        bandUsed.push(used);
     }
     let y = 8;
     for (const band of bands) {
@@ -447,7 +533,29 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         }
     });
 
-    // ── Dependency arcs: straight same-lane, cubic cross-lane (POC bend) ────
+    // ── Dependency arcs: straight same-lane, cubic cross-lane ───────────────
+    // Cross-lane routing is ADAPTIVE (user directive, epic #6 plan — "less
+    // crossover"). The POC bent EARLY: the arc joined the DESTINATION lane's y
+    // right after the source column and ran horizontally through every
+    // intermediate column at that height — straight through any bead parked on
+    // the destination lane (the convergence into a penultimate step overdrew
+    // the whole main chain). Now an arc runs the horizontal on its SOURCE lane
+    // and dives just before the destination column (LATE bend) whenever that
+    // corridor is clear of unrelated beads and reservations; if only the
+    // destination-lane corridor is clear it bends early as before; if neither
+    // is clear, early is the fallback. Corridor-aware PLACEMENT (laneOk above)
+    // keeps source corridors clear in the common case, so late is the norm.
+    const corridorClear = (bandIndex, lane, dFrom, dTo, aId, rId) => {
+        const used = bandUsed[bandIndex];
+        if (!used) return true;
+        for (let dd = dFrom + 1; dd < dTo; dd++) {
+            const o = used.has(dd) ? used.get(dd).get(lane) : undefined;
+            if (o === undefined) continue;
+            if (o === RESERVED) return false;
+            if (!(reach(o).has(aId) && reach(rId).has(o))) return false;
+        }
+        return true;
+    };
     const arcs = [];
     for (const r of safeRows) {
         for (const dId of depsOf(r)) {
@@ -459,13 +567,27 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             const x2 = b.x - BEAD_R - 1;
             const y2 = b.y;
             if (y1 === y2) {
-                arcs.push({ fromId: dId, toId: r.id, straight: true, x1, y1, x2, y2 });
+                arcs.push({ fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2 });
+                continue;
+            }
+            const sameBand = a.bandIndex === b.bandIndex;
+            const late = sameBand
+                && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
+            let path;
+            if (late) {
+                const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
+                const xb = Math.max(x1, x2 - bend);
+                path = `M${x1},${y1} L${xb},${y1} C${xb + bend * 0.45},${y1} `
+                    + `${xb + bend * 0.55},${y2} ${x2},${y2}`;
             } else {
                 const bend = Math.min((colW[a.depth] || 110) * 0.9, Math.max(40, x2 - x1));
-                const path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
+                path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
                     + `${x1 + bend},${y2} L${Math.max(x2, x1 + bend)},${y2}`;
-                arcs.push({ fromId: dId, toId: r.id, straight: false, x1, y1, x2, y2, path });
             }
+            arcs.push({
+                fromId: dId, toId: r.id, straight: false,
+                route: late ? 'late' : 'early', x1, y1, x2, y2, path,
+            });
         }
     }
 
@@ -514,35 +636,35 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         // A staggered title label is fitted to its budget (own column + a
         // bounded reach into each neighbour) and lifted one line on odd columns.
         const labelMax = staggerLabels
-            ? Math.floor((staggerBudget(n.depth) - 8) / CHW)
+            ? Math.floor((staggerBudget(n.depth) - 8) / CHW_LABEL)
             : STEP_LABEL_MAX;
         const label = stepLabelText(r, stepLabel, labelMax);
-        const lw = label.length * CHW;
+        const lw = label.length * CHW_LABEL;
         labels.push({
             kind: 'step', stepId: r.id, text: label,
             x: n.x - lw / 2,
-            y: n.y - 26 - (staggerLabels ? staggerOf(n.depth) : 0),
-            w: lw, h: 12,
+            y: n.y - 31 - (staggerLabels ? staggerOf(n.depth) : 0),
+            w: lw, h: 17,
         });
         const ids = r.reqIds || [];
         if (reqLayout === 'horizontal') {
-            const totalReqW = reqStr(r).length * CHW;
+            const totalReqW = reqStr(r).length * CHW_REQ;
             let rx = n.x - totalReqW / 2;
             for (const reqId of ids) {
                 const t = String(reqId);
-                const w = t.length * CHW;
+                const w = t.length * CHW_REQ;
                 labels.push({
                     kind: 'req', stepId: r.id, reqId, text: t,
-                    x: rx, y: n.y + 14, w, h: 12,
+                    x: rx, y: n.y + 14, w, h: 14,
                 });
-                rx += w + CHW; // one mono space between ids
+                rx += w + CHW_REQ; // one mono space between ids
             }
         } else {
             ids.forEach((reqId, i) => {
                 const t = String(reqId);
                 labels.push({
                     kind: 'req', stepId: r.id, reqId, text: t,
-                    x: n.x - 15, y: n.y + 14 + i * REQ_LINE_H, w: t.length * CHW, h: 12,
+                    x: n.x - 15, y: n.y + 14 + i * REQ_LINE_H, w: t.length * CHW_REQ, h: 14,
                 });
             });
         }
@@ -567,7 +689,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
                 const laneN = Math.max(1, band.laneReqs.get(n.lane) || 1);
                 const slotY = (reqLayout === 'vertical'
                     ? n.y + 14 + laneN * REQ_LINE_H + 2
-                    : n.y + 28) + staggerOf(n.depth);
+                    : n.y + 30) + staggerOf(n.depth);
                 labels.push({
                     kind: 'title', stepId: r.id, text: t,
                     x: n.x - (t.length * CHW_TITLE) / 2, y: slotY,
@@ -579,7 +701,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     for (const band of bands) {
         labels.push({
             kind: 'epic', epicId: band.epicId, text: band.epic,
-            x: 12, y: band.y + 6, w: band.epic.length * CHW_EPIC, h: 13,
+            x: 12, y: band.y + 6, w: band.epic.length * CHW_EPIC, h: 16,
         });
     }
     // Batch letters live in the reserved header strip of the top segment's
@@ -607,7 +729,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         }
         others.push({ x, w });
         placedLetters.set(box.bandIndex, others);
-        const y = band.y + 22;
+        const y = band.y + 26;
         // A box whose top member sits below lane 0 leaves a gap between the
         // header-strip letter and the box; the leader is a dashed drop-line the
         // renderer draws from the letter to the box top so the association

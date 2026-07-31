@@ -12,7 +12,7 @@ import 'yet-another-react-lightbox/styles.css';
 import './PhotoMarkerLayer.css';
 
 import { loadIndex } from '../photo-browser/handleDB.js';
-import { deduplicateIndex, computeRideTimeRange, filterByTimeRange } from '../photo-browser/filterUtils.js';
+import { deduplicateIndex, unionPhotosForRuns } from '../photo-browser/filterUtils.js';
 import { proxyFileUrl } from '../photo-browser/ThumbnailGrid.jsx';
 
 // ---------------------------------------------------------------------------
@@ -295,7 +295,13 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
 // Component
 // ---------------------------------------------------------------------------
 
-const PhotoMarkerLayer = ({ run, coordinates }) => {
+// `run` (single) or `runs` (aggregate) — `runs` supersedes `run` when both are
+// given. Photos are the union of each run's exact time window over the deduped
+// index, deduped across overlapping windows by path (req #3159).
+// `dedupedIndex` (optional): a caller that already loaded + deduplicated the
+// index (RouteCardView does) passes it here to skip a second IndexedDB load
+// and dedup pass; omitted, the layer self-loads as before.
+const PhotoMarkerLayer = ({ run, runs, coordinates, dedupedIndex = null }) => {
     const map = useMap();
     const rawIndexRef = useRef(null);
     const blobCache = useRef(new Map());
@@ -311,6 +317,7 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
     const lightboxSlidesRef = useRef([]);
 
     useEffect(() => {
+        if (dedupedIndex) return undefined; // caller supplied the index — no self-load
         let cancelled = false;
         loadIndex().then(idx => {
             if (!cancelled && idx) {
@@ -320,7 +327,7 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
             }
         });
         return () => { cancelled = true; };
-    }, []);
+    }, [dedupedIndex]);
 
     useEffect(() => () => {
         for (const s of lightboxSlidesRef.current) {
@@ -328,14 +335,20 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
         }
     }, []);
 
+    const runList = runs ?? (run ? [run] : []);
+    // Value key so the memo tracks list content, not array identity.
+    const runListKey = runList
+        .map(r => `${r.id}:${r.start_time}:${r.run_time_sec}:${r.stopped_time_sec}`)
+        .join('|');
+
     const gpsPhotos = useMemo(() => {
-        if (!rawIndexRef.current || !run) return [];
-        const deduped = deduplicateIndex(rawIndexRef.current);
-        const range = computeRideTimeRange(run);
-        if (!range) return [];
-        return filterByTimeRange(deduped, range.filterStart, range.filterEnd)
+        const deduped = dedupedIndex
+            ?? (rawIndexRef.current ? deduplicateIndex(rawIndexRef.current) : null);
+        if (!deduped || runList.length === 0) return [];
+        return unionPhotosForRuns(deduped, runList)
             .filter(i => i.lat != null && i.lon != null);
-    }, [indexLoaded.current, run?.id, run?.start_time, run?.run_time_sec, run?.stopped_time_sec]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [indexLoaded.current, runListKey, dedupedIndex]);
 
     const handleOpenLightbox = useCallback(async (idx) => {
         for (const s of lightboxSlidesRef.current) {
@@ -452,7 +465,6 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
         };
 
         group.on('clusterclick', e => {
-            console.log('[PhotoMarkerLayer] clusterclick, children:', e.layer.getChildCount());
             const items = e.layer.getAllChildMarkers()
                 .map(m => markerItemMap.get(m))
                 .filter(Boolean)
@@ -461,22 +473,12 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
                     const db = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
                     return da - db;
                 });
-            console.log('[PhotoMarkerLayer] resolved items:', items.length);
             openGrid(e.layer.getLatLng(), items);
         });
 
         group.on('click', e => {
-            console.log('[PhotoMarkerLayer] marker click');
             const item = markerItemMap.get(e.layer);
             if (item) openGrid(e.layer.getLatLng(), [item]);
-        });
-
-        // Telemetry: log when cluster group is re-added or events are rebound after zoom
-        map.on('zoomend', () => {
-            if (cancelled) return;
-            const hasGroup = map.hasLayer(group);
-            const listenerCount = group.listens('clusterclick');
-            console.log('[PhotoMarkerLayer] zoomend — group on map:', hasGroup, 'clusterclick listeners:', listenerCount);
         });
 
         return () => {

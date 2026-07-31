@@ -175,10 +175,12 @@ export default function PipelineDetail() {
     // canvas and the page owns the chrome. That is what buys the visualizer a
     // full-height canvas: every row of chrome it used to carry is now shared.
     const [showCost, setShowCost] = useState(false);
+    // Defaults vertical + title (user directive 2026-07-31); a persisted
+    // preference still wins — useViewPreference only falls back to these.
     const [reqLayoutPref, setReqLayoutPref] = useViewPreference(
-        'darwin-pipeline-viz-req-layout', 'horizontal');
+        'darwin-pipeline-viz-req-layout', 'vertical');
     const [stepLabelPref, setStepLabelPref] = useViewPreference(
-        'darwin-pipeline-viz-step-label', 'id');
+        'darwin-pipeline-viz-step-label', 'title');
     const [colorKeyPref, setColorKeyPref] = useViewPreference(
         'darwin-pipeline-viz-color-key', 'state');
     const reqLayout = reqLayoutPref === 'vertical' ? 'vertical' : 'horizontal';

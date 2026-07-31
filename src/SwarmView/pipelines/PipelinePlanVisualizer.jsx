@@ -119,7 +119,7 @@ export default function PipelinePlanVisualizer({
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
-    reqLayout = 'horizontal', stepLabel = 'id', colorKey = 'state',
+    reqLayout = 'vertical', stepLabel = 'title', colorKey = 'state',
 }) {
     const navigate = useNavigate();
 
@@ -629,9 +629,12 @@ export default function PipelinePlanVisualizer({
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
-                                height: 20, lineHeight: '14px',
+                                height: 24, lineHeight: '17px',
                                 display: 'flex', alignItems: 'center',
-                                fontFamily: MONO, fontSize: 12, fontWeight: 700,
+                                // +25% with the band-label metric in the layout
+                                // (PLAN_VIZ_FONT.epic / CHW_EPIC) — this chip is
+                                // an HTML overlay, so it does not inherit them.
+                                fontFamily: MONO, fontSize: 15, fontWeight: 700,
                                 color: e.color,
                                 // OPAQUE, not a wash: the chip sits over the
                                 // canvas, and a translucent one let whatever is
