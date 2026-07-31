@@ -599,7 +599,15 @@ export default function PipelinePlanVisualizer({
                  // verbatim. It only fits because the page header collapsed to
                  // one row: the toggles, the accounting line and the legend all
                  // left this column.
-                 sx={{ position: 'relative',
+                 //
+                 // `mx`/`mb: -3` (req #3156) cancel PipelineDetail's ancestor
+                 // `p: 3` on the sides/bottom only — top stays, since `availH`
+                 // already measures from this Box's own top and accounts for
+                 // everything above it. Without this the canvas sat in a
+                 // visibly boxed 24px gutter on every side while the swarm
+                 // canvas (KonvaSwarmCanvas.jsx) bleeds edge-to-edge inside a
+                 // zero-padding tab panel; this makes the two match.
+                 sx={{ position: 'relative', mx: -3, mb: -3,
                         height: availH ? `${availH}px` : 'calc(100vh - 260px)',
                         minHeight: 480, overflow: 'hidden', borderRadius: '8px',
                         border: `1px solid ${P.line}`, background: P.panel,

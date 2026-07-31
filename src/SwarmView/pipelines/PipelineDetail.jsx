@@ -459,6 +459,11 @@ export default function PipelineDetail() {
                 </Alert>
             )}
 
+            {/* MUST stay the last child (req #3156): PipelinePlanVisualizer's
+                canvas cancels this Box's `p: 3` on its own sides/bottom via a
+                negative margin, which relies on being the last thing in flow
+                — anything rendered after it here would overlap the canvas by
+                24px instead of leaving a gap. */}
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId} onStepFocus={onStepFocus}
                              costError={!!costError}
