@@ -128,15 +128,13 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false, children = null }) => {
-    // Memoized on the prop so FitBounds/ResetView only re-fire when the tracks
-    // actually change — an inline map() minted a new identity every render and
-    // refit the map (discarding the user's pan/zoom) on unrelated re-renders.
-    const allPositions = React.useMemo(() => (routeCoordinates || []).map(coords =>
-        coords.map(c => [Number(c.latitude), Number(c.longitude)])
-    ).filter(positions => positions.length > 0), [routeCoordinates]);
-
+const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false }) => {
     if (!routeCoordinates || routeCoordinates.length === 0) return null;
+
+    const allPositions = routeCoordinates.map(coords =>
+        coords.map(c => [Number(c.latitude), Number(c.longitude)])
+    ).filter(positions => positions.length > 0);
+
     if (allPositions.length === 0) return null;
 
     const firstPoint = allPositions[0][0];
@@ -203,11 +201,6 @@ const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', co
                         <CoordinateDisplay />
                     </>
                 )}
-
-                {/* Extra map layers supplied by the caller (e.g. the aggregator
-                    card's photo markers) — rendered inside the MapContainer so
-                    they can call useMap(). */}
-                {children}
             </MapContainer>
         </Box>
     );

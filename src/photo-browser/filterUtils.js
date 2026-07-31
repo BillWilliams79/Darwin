@@ -62,7 +62,7 @@ export function deduplicateIndex(index) {
  * @returns {{ filterStart: Date, filterEnd: Date } | null} null if run is missing
  */
 export function computeRideTimeRange(run, beforeMin = 0, afterMin = 0) {
-    if (!run || !run.start_time) return null;
+    if (!run) return null;
     const startUtc = new Date(run.start_time.endsWith('Z') ? run.start_time : run.start_time + 'Z');
     const endUtc = new Date(startUtc.getTime() + ((run.run_time_sec || 0) + (run.stopped_time_sec || 0)) * 1000);
     const filterStart = new Date(startUtc.getTime() - beforeMin * 60 * 1000);
@@ -83,40 +83,6 @@ export function filterByTimeRange(items, filterStart, filterEnd) {
         if (filterEnd && d > filterEnd) return false;
         return true;
     });
-}
-
-/**
- * Union of photos/videos across multiple runs' exact time windows, deduped by
- * path so overlapping windows never duplicate an item. Expects an
- * already-deduplicated index (deduplicateIndex output). Returns items sorted by
- * dateTaken ascending — the same ordering deduplicateIndex produces, preserved
- * across the union. Used by the aggregator card (req #3159): the stats count is
- * this union's length (ALL in-window photos, the per-card badge convention);
- * the marker layer renders the geotagged subset of the same union, so the map
- * may legitimately show fewer markers than the count.
- * @param {Array} dedupedIndex - deduplicated index entries
- * @param {Array} runs - ride objects with start_time/run_time_sec/stopped_time_sec
- * @returns {Array} union of in-window items ([] on missing inputs)
- */
-export function unionPhotosForRuns(dedupedIndex, runs) {
-    if (!dedupedIndex || !runs || runs.length === 0) return [];
-    const seen = new Set();
-    const union = [];
-    for (const run of runs) {
-        const range = computeRideTimeRange(run);
-        if (!range) continue;
-        for (const item of filterByTimeRange(dedupedIndex, range.filterStart, range.filterEnd)) {
-            if (seen.has(item.path)) continue;
-            seen.add(item.path);
-            union.push(item);
-        }
-    }
-    union.sort((a, b) => {
-        const da = a.dateTaken ? new Date(a.dateTaken).getTime() : 0;
-        const db = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
-        return da - db;
-    });
-    return union;
 }
 
 /**
