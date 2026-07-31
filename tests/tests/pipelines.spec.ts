@@ -496,6 +496,26 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(overflow.containerOverflowX).toBe('hidden');
             expect(overflow.container).toBeLessThanOrEqual(0);
             expect(overflow.document).toBeLessThanOrEqual(0);
+
+            // Req #3156: the canvas must BLEED to the same edges as
+            // `pipeline-detail` — the negative `mx`/`mb` margins on the
+            // container (PipelinePlanVisualizer.jsx) cancel PipelineDetail's
+            // ancestor `p: 3` so the visualizer uses the full available space,
+            // matching the swarm/requirements visualizer instead of sitting in
+            // a padded, visibly boxed rectangle. A future edit that changes
+            // either side's spacing token without the other breaks this.
+            const detailBox = (await page.getByTestId('pipeline-detail').boundingBox())!;
+            const vizBox = (await container.boundingBox())!;
+            expect(vizBox.x, 'canvas left edge matches the page container'
+                + ' left edge (no left gutter)').toBeCloseTo(detailBox.x, 0);
+            expect(vizBox.x + vizBox.width,
+                'canvas right edge matches the page container right edge'
+                + ' (no right gutter)')
+                .toBeCloseTo(detailBox.x + detailBox.width, 0);
+            expect(vizBox.y + vizBox.height,
+                'canvas bottom edge matches the page container bottom edge'
+                + ' (no trailing dead space / page scrollbar)')
+                .toBeCloseTo(detailBox.y + detailBox.height, 0);
         });
 
     test('PIPE-09: zoom crosses all three semantic levels and redraws each time',
