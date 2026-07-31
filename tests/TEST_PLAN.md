@@ -339,7 +339,7 @@ measured against the design rules in req #3080.
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `pipelines.spec.ts` | PIPE-01…12 (13) | The browser surface, over a seeded plan |
+| `pipelines.spec.ts` | PIPE-01…13 (14) | The browser surface, over a seeded plan |
 | `pipeline-mutations.spec.ts` | MUT-01…08 (9) | The eight recorded mutation classes, via the MCP tools |
 
 **Fixture strategy — why it is not the req #3111 fixture**
@@ -388,6 +388,7 @@ the browser half; the two share a database and nothing else.
 | PIPE-10 | Batch box + conditional key | One dashed box and a visible key on the batch plan; no box and no key on the Substrate plan |
 | PIPE-11 | Click targets | Bead → Table mode focused on that row; requirement label → `/swarm/requirement/:id`; epic band label → `/swarm/features?epic=<id>` |
 | PIPE-12 | Loud failure | The corrupted plan raises the non-dismissible invariant banner naming the cycle, on BOTH views |
+| PIPE-13 | Description in the title bar (req #3179) | The goal field is ABSENT from the page column; the info button is inside the header row, right of the title and every chip; it opens a Dialog carrying the seeded text and closing unmounts it; and the canvas starts within 16px of the header row and runs to the bottom of the viewport |
 
 ### MUT — the eight recorded mutation classes
 

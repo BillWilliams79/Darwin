@@ -396,6 +396,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // since req #3119 gave it its own column — the step NAME, which is
             // the plan's own `title` string and just as much stored prose as the
             // description it used to share a cell with.
+            //
+            // The goal strip is BELT-AND-BRACES since req #3179: the description
+            // moved into a Dialog behind the header's info button, so it is both
+            // outside this root (a Dialog is a portal into document.body) and
+            // unmounted while shut. The line stays because the exclusion is about
+            // WHAT the text is, not where it currently renders — a future inline
+            // preview of the goal must not silently start failing this sweep.
             clone.querySelectorAll('[data-testid="pipeline-goal"]').forEach((n) => n.remove());
             clone.querySelectorAll('[data-testid^="pipeline-notes-"]').forEach((n) => n.remove());
             clone.querySelectorAll('[data-testid^="pipeline-name-"]').forEach((n) => n.remove());
@@ -657,5 +664,90 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(banner.locator('button')).toHaveCount(0);
             await openPlanVisualizer(page, fixture.cyclePipelineId);
             await expect(page.getByTestId('pipeline-order-violations')).toBeVisible();
+        });
+
+    // ── PIPE-13: the description is chrome-free (req #3179) ────────────────
+
+    test('PIPE-13: the description lives behind the header button, not in the column',
+        async ({ page }) => {
+            // Req #3179 moved the plan's goal text out of the render column and
+            // into a Dialog behind an info button at the right end of the title
+            // row — the Telemetry page's Glossary affordance. Two claims, and the
+            // second is the one the requirement was actually about: the prose is
+            // still reachable AND it no longer charges the plan any viewport.
+            //
+            // Tall enough that `availH`'s 480px floor is never the binding
+            // constraint on the canvas height, and wide enough to be a realistic
+            // desktop. Deliberately NOT wide enough to guarantee the header row
+            // stays on one line — in Plan mode it carries three labelled toggle
+            // groups and needs ~2100px of viewport before it stops wrapping, so
+            // every claim below is written to be WRAP-INVARIANT instead. A test
+            // that passes only above the wrap point is a test about the wrap
+            // point.
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
+
+            // 1. Nothing in the page column. Not "hidden" — ABSENT: MUI unmounts a
+            //    closed Dialog's children, so the field is not in the DOM at all.
+            await expect(page.getByTestId('pipeline-goal')).toHaveCount(0);
+
+            // 2. The button is IN the header row (not merely somewhere on the
+            //    page) and at its right end — past the last chip, which is its
+            //    immediately preceding sibling and therefore on its own line
+            //    whether or not the row wrapped.
+            await expect(page.locator('[data-testid="pipeline-header-row"]'
+                + ' [data-testid="pipeline-description-btn"]')).toHaveCount(1);
+            const btn = page.getByTestId('pipeline-description-btn');
+            await expect(btn).toBeVisible();
+            const chipBox = (await page.getByTestId('pipeline-machine-chip').boundingBox())!;
+            const btnBox = (await btn.boundingBox())!;
+            expect(btnBox.y, 'the button shares the last chip\'s line')
+                .toBeLessThan(chipBox.y + chipBox.height);
+            expect(btnBox.y + btnBox.height, 'the button shares the last chip\'s line')
+                .toBeGreaterThan(chipBox.y);
+            expect(btnBox.x, 'the button is the LAST control on the row')
+                .toBeGreaterThan(chipBox.x + chipBox.width - 1);
+
+            // 3. It opens the goal, editable, with the seeded text.
+            await btn.click();
+            const dialog = page.getByTestId('pipeline-description-dialog');
+            await expect(dialog).toBeVisible();
+            const field = page.getByTestId('pipeline-goal').locator('textarea').first();
+            await expect(field).toHaveValue(/eliminate the shared-clone corruption class/);
+
+            // 4. And closing it puts the field back out of the DOM — a Dialog left
+            //    mounted behind the plan would re-introduce exactly the DOM the
+            //    requirement removed, even if it painted nothing.
+            await dialog.getByRole('button', { name: 'Close' }).click();
+            await expect(dialog).toHaveCount(0);
+            await expect(page.getByTestId('pipeline-goal')).toHaveCount(0);
+
+            // 5. THE POINT: the canvas starts immediately under the header row and
+            //    runs to the bottom of the viewport. The gate is the row's own
+            //    `mb: 1` (8px) plus slack — the ~90px description block this
+            //    replaced could not fit inside it, so this is a real regression
+            //    guard and not a tautology.
+            //
+            //    Both boxes are read AFTER the dialog has closed, never from a
+            //    measurement taken before it opened: a modal that perturbed the
+            //    layout would otherwise be compared against a stale header.
+            const headerBox = (await page.getByTestId('pipeline-header-row')
+                .boundingBox())!;
+            const vizBox = (await page.getByTestId('pipeline-plan-visualizer')
+                .boundingBox())!;
+            expect(vizBox.y - (headerBox.y + headerBox.height),
+                'no chrome between the header row and the canvas')
+                .toBeLessThanOrEqual(16);
+            expect(vizBox.y + vizBox.height,
+                'the canvas runs to the bottom of the viewport')
+                .toBeGreaterThan(page.viewportSize()!.height - 24);
+            // The canvas the Konva stage actually paints is the same height — a
+            // container that grew while the stage stayed small would satisfy the
+            // checks above and still render a letterboxed plan. (The stage is
+            // sized to the container's CONTENT box, so it is short by the 1px
+            // border on each edge.)
+            const canvasBox = (await canvas.boundingBox())!;
+            expect(canvasBox.height, 'the Konva stage fills the container')
+                .toBeCloseTo(vizBox.height, -1);
         });
 });

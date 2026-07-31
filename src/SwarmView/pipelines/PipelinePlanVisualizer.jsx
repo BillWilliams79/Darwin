@@ -211,21 +211,51 @@ export default function PipelinePlanVisualizer({
     // The canvas fills whatever is left below it, MEASURED (req #3119). A
     // `calc(100vh - Npx)` constant — which is what the swarm canvas can afford,
     // because its chrome is fixed — assumes this page's header height, and this
-    // page's header is not fixed: the breadcrumb, a one- or two-line description,
-    // and an order-violations alert that appears only on some plans all move it.
-    // Guessing put the panel 57px below the fold on the live plan. `top` does not
-    // depend on the panel's own height, so writing height from it cannot loop.
+    // page's header is not fixed: the breadcrumb and an order-violations alert
+    // that appears only on some plans both move it. (The description block was a
+    // third mover until req #3179 put it behind the header's info button; the
+    // pixels it used to spend arrive here automatically, because this measures
+    // its OWN top rather than subtracting a list of known chrome.)
+    //
+    // Measured on EVERY render, not on a dependency list (req #3179). A list has
+    // to name each thing that can move this Box's top, and it silently goes stale
+    // the moment the page above grows or loses a control — which is exactly the
+    // edit req #3179 makes. `top` does not depend on the panel's own height, so
+    // writing height from it cannot loop; the equality bail below makes that
+    // explicit rather than relying on React's own bail-out.
+    //
+    // The cost is one forced layout per render, and a drag-pan renders per
+    // pointermove (d3-zoom → setTransform). Affordable, but do not write down the
+    // tempting justification — that the floating epic chips already dirty layout
+    // every frame, so this reads a value the browser was about to compute anyway.
+    // It is true only WHILE A CHIP IS ON SCREEN (`floatingEpics` returns null on
+    // three separate guards below, and a pan that carries every band off-screen
+    // renders none), and it leans on the chips writing `left`/`top` through `sx`,
+    // which is itself a per-frame Emotion class injection somebody should fix.
+    // The honest statement is the plain one: a rect read is cheap, this panel's
+    // DOM is a canvas plus a handful of overlay nodes, and a canvas measured from
+    // a stale header is a visible defect while a few microseconds are not.
     const [availH, setAvailH] = useState(null);
-    useLayoutEffect(() => {
-        if (!containerEl) return undefined;
-        const recompute = () => {
-            const { top } = containerEl.getBoundingClientRect();
-            setAvailH(Math.max(480, Math.round(window.innerHeight - top - 14)));
-        };
-        recompute();
-        window.addEventListener('resize', recompute);
-        return () => window.removeEventListener('resize', recompute);
-    }, [containerEl, plan, colorKey, reqLayout, stepLabel]);
+    const measureAvailH = useCallback(() => {
+        if (!containerEl) return;
+        // SCROLL-INVARIANT (req #3179 review). getBoundingClientRect().top is
+        // viewport-relative, so a scrolled document reports a smaller top, which
+        // would hand the canvas the scrolled-away pixels as extra height — and
+        // measuring on every render is what makes an unrelated re-render (a bead
+        // hover, a pan) read that scroll position. Adding scrollY converts it to
+        // the top this Box has when the page is at rest, which is the number the
+        // "fill the rest of the window" intent actually means. Where the scroller
+        // is an inner element instead of the document, scrollY is 0 and this is
+        // the old expression exactly.
+        const top = containerEl.getBoundingClientRect().top + (window.scrollY || 0);
+        const next = Math.max(480, Math.round(window.innerHeight - top - 14));
+        setAvailH((prev) => (prev === next ? prev : next));
+    }, [containerEl]);
+    useLayoutEffect(measureAvailH);                     // after every render
+    useEffect(() => {
+        window.addEventListener('resize', measureAvailH);
+        return () => window.removeEventListener('resize', measureAvailH);
+    }, [measureAvailH]);
 
     // Fit-to-width base scale — the POC page rendered the whole plan across the
     // panel; kBase is that view, and semanticLevel(curK / kBase) matches the
@@ -598,7 +628,9 @@ export default function PipelinePlanVisualizer({
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. It only fits because the page header collapsed to
                  // one row: the toggles, the accounting line and the legend all
-                 // left this column.
+                 // left this column, and req #3179 took the description with
+                 // them. Nothing but the breadcrumb and that one header row is
+                 // now above this Box.
                  //
                  // `mx`/`mb: -3` (req #3156) cancel PipelineDetail's ancestor
                  // `p: 3` on the sides/bottom only — top stays, since `availH`
