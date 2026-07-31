@@ -32,15 +32,17 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 // The requirement projection the plan needs, SHARED by the list page and the
 // detail page. Bounded and explicit: `feature_fk` carries the Epic > Feature
 // label chain (design rule 10), `machine_fk` the Machine column,
-// `requirement_status` the derived step state (design rule 1), `title` the link
-// tooltips. Nothing about sessions (design rule 9).
+// `requirement_status` the derived step state (design rule 1), `tracking` the
+// CONTAINER exemption to that derivation (req #3123 — without it a step linking
+// a tracking requirement derives Running forever), `title` the link tooltips.
+// Nothing about sessions (design rule 9).
 //
 // The sharing is the point, not tidiness: `useAllRequirements` puts `fields` in
 // its cache key, so two pages asking for different projections are two cache
 // entries and the second one refetches the whole requirements table. One
 // constant means list -> detail navigation reuses the read it already paid for.
 export const PLAN_REQUIREMENT_FIELDS =
-    'id,title,requirement_status,machine_fk,feature_fk,coordination_type';
+    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking';
 
 /**
  * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.

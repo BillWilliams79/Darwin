@@ -33,6 +33,7 @@
 // @property {string} requirement_status
 // @property {?number} machine_fk
 // @property {?number} feature_fk
+// @property {(0|1|boolean)} [tracking]   req #3123 — 1 = CONTAINER, not work
 // @property {?string} coordination_type  carried for shape completeness; not read here
 //
 // @typedef {Object} PipelineFeature  features row: {id, title, epic_fk}
@@ -56,7 +57,11 @@
 // @property {?string} notes
 // @property {?string} completedAt
 // @property {StepState} state           DERIVED, never stored (rule 1)
-// @property {number[]} reqIds           junction order
+// @property {number[]} reqIds           junction order — the COMPLETE set
+// @property {number[]} trackingReqIds   req #3123 — the subset of reqIds that are
+//                                       CONTAINERS: they neither gate the step
+//                                       (rule 1) nor appear in its /swarm-start
+//                                       argument list (rule 8)
 // @property {number[]} unresolvedReqIds junction rows whose requirement is missing
 //                                       from model.requirements (truncated read /
 //                                       data loss) — render LOUDLY; these rows'
@@ -98,13 +103,19 @@
 // @property {string[]} timeDeps
 // @property {('auto'|'manual')} run
 // @property {string[]} machineLabels
-// @property {number[]} swarmStartArgs   the EXACT requirement-id argument list (rule 8)
+// @property {number[]} swarmStartArgs   the EXACT requirement-id argument list (rule 8),
+//                                       tracking containers excluded
 // @property {?string} swarmStartCommand '/swarm-start <req ids>', null when the
-//                                       batch has no linked requirements
+//                                       batch has nothing launchable
+// @property {?string} noLaunchReason    why there is no command — null when there is
+//                                       one. Distinguishes "no links at all" from
+//                                       "every link is a container" (req #3123)
 //
 // @typedef {Object} CondensationProposal  rule 2 — proposal only; UI decides
 // @property {number[]} stepIds
-// @property {number[]} requirementIds
+// @property {number[]} requirementIds         launchable only (rule 8)
+// @property {number[]} trackingRequirementIds containers — carried over on a merge,
+//                                             never launched (req #3123)
 // @property {number[]} depStepIds
 // @property {string[]} timeDeps
 // @property {('auto'|'manual')} run
@@ -127,21 +138,70 @@ const RUN_RANK = { auto: 0, manual: 1 };
 
 // ── Derivation ──────────────────────────────────────────────────────────────
 
-// Rule 1: STEP STATE IS DERIVED, NEVER STORED-BY-HAND. Any linked requirement in
+// A TRACKING requirement is a CONTAINER, not work (req #3123, migration
+// 20260731124830 → `requirements.tracking`). It HOLDS a plan — or an epic — rather
+// than being work performed inside it, so it stays `development` for the entire life
+// of what it holds. The flag is a DURABLE SIGNAL read from the row, never a heuristic
+// guessed here: choosing it was a schema decision, and inventing one in this file
+// would be reinventing the rule instead of codifying it.
+//
+// MySQL TINYINT arrives as 1/0; a hand-built fixture row may say `true`. An ABSENT
+// field is work, which is what every row written before the migration is and what the
+// column's DEFAULT 0 says.
+//
+// NUMERIC coercion, not `Boolean(...)`, and it matters at exactly one input class:
+// the STRING "0". `Boolean("0")` is true, so a bare truthiness check would read a
+// stringified zero as a CONTAINER and silently stop a real requirement from gating
+// its step — a wrong answer in the dangerous direction, and the only input for which
+// this function would disagree with the old unconditional derivation. The three
+// server-side readers (`services/pipelines.py::_is_tracking`,
+// `seed_pipelines_darwin_dev.py::is_tracking`) all coerce through `int()`, so this is
+// what keeps the two engines from disagreeing about the same row. Nothing produces a
+// string today; the point is that nothing has to.
+//
+// @param {PipelineRequirement} req
+// @returns {boolean}
+export function isTrackingRequirement(req) {
+    const value = req == null ? null : req.tracking;
+    if (value === null || value === undefined || value === '') return false;
+    if (typeof value === 'boolean') return value;
+    const n = Number(value);
+    return Number.isFinite(n) ? n !== 0 : false;
+}
+
+// Rule 1: STEP STATE IS DERIVED, NEVER STORED-BY-HAND. Any GATING requirement in
 // development → running; all terminal (met/deferred/wontfix) → done; else pending.
-// Zero linked requirements: the step's own completed_at stamp decides done vs
+// No gating requirements: the step's own completed_at stamp decides done vs
 // pending — the only place that column means anything.
+//
+// THE GATING SET EXCLUDES TRACKING CONTAINERS (req #3123). Without that, a plan
+// that tracks itself pins a step Running forever: the container never leaves
+// `development` because the plan it holds is still running, and the step is
+// waiting on the plan that is waiting on the step. Measured on the seeded
+// Substrate Rebuild fixture — step 19 links #3083, the plan's own tracker, and
+// derived Running where the plan recorded done. It was the single divergence.
+//
+// ORDER MATTERS: the tracking filter runs BEFORE the empty check, and the empty
+// check is the same branch a zero-requirement step takes. So a step whose links
+// are ALL containers falls through to its own completed_at stamp — Complete or
+// Scheduled, never Running — which is precisely a link-less step's behaviour,
+// because a step with nothing to derive from is what it has become.
+//
+// A MIXED step subtracts the containers and lets the remaining work decide:
+// fixture step 19 links #3080 (met), #3083 (tracking), #3105 (met), so its
+// gating set is all-terminal and it derives done, reproducing the plan.
 //
 // @param {PipelineStep} step
 // @param {PipelineRequirement[]} linkedReqs
 // @returns {StepState}
 export function deriveStepState(step, linkedReqs) {
     const reqs = (linkedReqs || []).filter(Boolean);
-    if (reqs.length === 0) {
+    const gating = reqs.filter((r) => !isTrackingRequirement(r));
+    if (gating.length === 0) {
         return step && step.completed_at ? STEP_DONE : STEP_PENDING;
     }
-    if (reqs.some((r) => r.requirement_status === 'development')) return STEP_RUNNING;
-    if (reqs.every((r) => TERMINAL_REQUIREMENT_STATUSES.includes(r.requirement_status))) {
+    if (gating.some((r) => r.requirement_status === 'development')) return STEP_RUNNING;
+    if (gating.every((r) => TERMINAL_REQUIREMENT_STATUSES.includes(r.requirement_status))) {
         return STEP_DONE;
     }
     return STEP_PENDING;
@@ -159,6 +219,14 @@ function linkedReqIds(stepId, model) {
 // requirements; ties break to first appearance in the step's requirement order.
 // The full sets are exposed for tooltips — a launch unit may legitimately cross
 // epics. Requirements without a resolvable feature contribute nothing.
+//
+// TRACKING CONTAINERS ARE COUNTED HERE, deliberately (req #3123). The exemption
+// is about GATING, and a container genuinely belongs to its epic — it is the
+// thing that holds the epic's work. Do not "finish" the filter by adding it
+// here; that would silently change which epic a step bands under, which is a
+// display regression, not a rule. `machineLabels` below DOES filter, and the
+// reason it differs is written there: an epic is a taxonomy label, a machine is
+// a launch parameter.
 //
 // @param {PipelineStep} step
 // @param {PipelineModel} model
@@ -208,17 +276,33 @@ function dominant(list) {
     return best;
 }
 
-// Rule 10 sibling: machine labels from the linked requirements' machine_fk.
+// Rule 10 sibling: machine labels from the LAUNCHABLE requirements' machine_fk.
 // NULL pin → 'Any'; unknown machine id → '#<id>' (POC behavior); multiple →
-// unique labels in requirement order joined with ' / '; no requirements → '—'.
+// unique labels in requirement order joined with ' / '; nothing launchable → '—'.
+//
+// TRACKING CONTAINERS ARE EXCLUDED HERE, unlike dominantLabels above, and the
+// difference is not an inconsistency (req #3123). An epic is a TAXONOMY label: a
+// container genuinely belongs to its epic, so it counts. A machine is a LAUNCH
+// PARAMETER — this column answers "where does this step run" — and a container
+// runs nowhere, so it has no opinion to contribute.
+//
+// It is also load-bearing rather than cosmetic: `launchKey` is built from these
+// labels, so a container's machine pin would split two steps that are
+// launch-identical on everything actually launched. Measured before the fix: two
+// pending steps sharing a gate, one linking a container pinned to Mac mini, the
+// other pinned to Any — `launchBatches` returned [] and the plan rendered no
+// batch letter and no /swarm-start command at all. Reachable only since this
+// requirement, because before it a step linking a container derived Running and
+// so never entered `pendingGroups`.
 //
 // @param {PipelineStep} step
 // @param {PipelineModel} model
 // @returns {{labels: string[], label: string}}
 export function machineLabels(step, model) {
-    const reqIds = linkedReqIds(step.id, model);
-    if (reqIds.length === 0) return { labels: [], label: '—' };
     const reqsById = indexById(model.requirements);
+    const reqIds = linkedReqIds(step.id, model)
+        .filter((rid) => !isTrackingRequirement(reqsById.get(rid)));
+    if (reqIds.length === 0) return { labels: [], label: '—' };
     const machinesById = indexById(model.machines);
     const labels = [];
     for (const rid of reqIds) {
@@ -292,6 +376,15 @@ export function buildPlanRows(model) {
         const reqIds = linkedReqIds(step.id, model);
         const linked = reqIds.map((rid) => reqsById.get(rid)).filter(Boolean);
         const unresolvedReqIds = reqIds.filter((rid) => !reqsById.has(rid));
+        // req #3123. `reqIds` deliberately stays COMPLETE — the plan table links
+        // every requirement a step carries, and cost aggregation must sum the
+        // sessions of all of them. What the container flag changes is which ids
+        // GATE (deriveStepState, above) and which get LAUNCHED (rule 8, in
+        // launchBatches), so the tracking set is published beside the full one
+        // rather than subtracted from it. An unresolved id is not a container:
+        // nothing was read that said so.
+        const trackingReqIds = reqIds.filter(
+            (rid) => isTrackingRequirement(reqsById.get(rid)));
         const labels = inheritedLabels(step.id, new Set()) || dominantLabels(step, model);
         const machines = machineLabels(step, model);
         const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
@@ -303,6 +396,7 @@ export function buildPlanRows(model) {
             completedAt: step.completed_at != null ? step.completed_at : null,
             state: deriveStepState(step, linked),
             reqIds,
+            trackingReqIds,
             unresolvedReqIds,
             depIds: deps.depIds,
             timeDeps: deps.timeDeps,
@@ -615,10 +709,18 @@ export function verifyOrder(rows) {
     // and the one displayOrder picks (dependency first) is the right one.
     //
     // Checking banding as if it were absolute reported that forced case as a
-    // failure. On the live plan it fired every render: step 19 derives Running
-    // (it links the plan's own tracking requirement, #3083 — see req #3123) and
-    // it GATES step 38, which is Complete. The banner said "treat the sequence as
-    // untrustworthy" about the only sequence that was actually available.
+    // failure. The instance that produced this relaxation was step 19 deriving
+    // Running while GATING step 38, which is Complete — the banner said "treat
+    // the sequence as untrustworthy" about the only sequence that was actually
+    // available. That particular instance is GONE since req #3123: step 19 was
+    // Running only because it links the plan's own tracking requirement (#3083),
+    // and deriveStepState now exempts containers, so step 19 derives done.
+    //
+    // The relaxation stays, and not out of caution — it is independently
+    // correct. A step legitimately starts before its gate finishes (a gate
+    // passed WITH exceptions, playbook case 5), and whenever that happens
+    // banding and topology remain jointly unsatisfiable no matter what any
+    // requirement's flag says.
     //
     // So a band inversion is a violation only when it was AVOIDABLE: the
     // lower-band row does not depend, transitively, on the higher-band row it
@@ -735,11 +837,23 @@ function batchLetter(i) {
     return s;
 }
 
+// The requirement ids a step actually LAUNCHES: its links minus its tracking
+// containers (req #3123). Rule 8 says a step's requirement ids ARE the
+// /swarm-start argument list, so before the flag existed a step linking its
+// plan's tracker would have launched a session against the plan itself —
+// a container has no work to do and no acceptance criteria to satisfy.
+// Now that the signal is durable, the defect is fixable, so it is fixed here.
+function launchableReqIds(row) {
+    const tracking = new Set(row.trackingReqIds || []);
+    return (row.reqIds || []).filter((id) => !tracking.has(id));
+}
+
 // Rules 2 + 8: pending steps sharing an identical (dep set + time gates, run,
 // machine set) launch together in ONE /swarm-start. Batches of >=2 steps get a
 // letter — A launches first — following display order, and each carries the
-// EXACT /swarm-start argument list (requirement ids in display order). A batch
-// with no linked requirements (req-less gate steps) has no launchable command:
+// EXACT /swarm-start argument list (requirement ids in display order, tracking
+// containers excluded). A batch with nothing launchable — req-less gate steps,
+// or steps linked only to containers — has no launchable command:
 // swarmStartCommand is null, never an argument-less string.
 //
 // @param {PlanRow[]} orderedRows  display order (letters follow it)
@@ -754,7 +868,7 @@ export function launchBatches(orderedRows) {
         const members = groups.get(k);
         if (members.length < 2 || seen.has(k)) continue;
         seen.add(k);
-        const reqIds = members.flatMap((m) => m.reqIds || []);
+        const reqIds = members.flatMap(launchableReqIds);
         const labels = [];
         for (const m of members) {
             for (const l of m.machineLabels || []) if (!labels.includes(l)) labels.push(l);
@@ -769,6 +883,17 @@ export function launchBatches(orderedRows) {
             machineLabels: labels,
             swarmStartArgs: reqIds,
             swarmStartCommand: reqIds.length ? `/swarm-start ${reqIds.join(' ')}` : null,
+            // Why there is no command, in the batch rather than at each render
+            // surface — "no linked requirements" acquired a SECOND meaning with
+            // req #3123 and was flatly false for the new one: a batch can now
+            // carry requirement links and still have nothing to launch, because
+            // every one of them is a container. Both the table and the
+            // visualizer print this field, so they cannot drift apart.
+            noLaunchReason: reqIds.length
+                ? null
+                : (members.some((m) => (m.reqIds || []).length)
+                    ? 'every linked requirement is a tracking container — nothing to launch'
+                    : 'no linked requirements — nothing to launch'),
         });
     }
     return batches;
@@ -794,7 +919,15 @@ export function condensationProposals(rows) {
             ? `steps ${[...depIdsOf(first)].sort(idCmp).join(', ')}` : 'no step gate';
         proposals.push({
             stepIds: members.map((m) => m.id),
-            requirementIds: members.flatMap((m) => m.reqIds || []),
+            // Tracking containers excluded for the same reason as in
+            // launchBatches: a condensed step's requirement set is what the
+            // merged /swarm-start would launch. They are reported SEPARATELY
+            // rather than dropped, because a caller that acts on this proposal
+            // builds the merged step from these ids — and silently losing a
+            // container link would delete a real row from the plan.
+            requirementIds: members.flatMap(launchableReqIds),
+            trackingRequirementIds: [...new Set(
+                members.flatMap((m) => m.trackingReqIds || []))],
             depStepIds: [...depIdsOf(first)].sort(idCmp),
             timeDeps: [...(first.timeDeps || [])].sort(),
             run: first.run || 'auto',

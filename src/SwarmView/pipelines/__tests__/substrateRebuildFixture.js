@@ -18,6 +18,14 @@
 // PLAN-JSON states: done rows -> all terminal (met; #3041 wontfix per its real
 // disposition), active rows -> development, pending rows -> approved/swarm_ready.
 // Step 7 is the req-less done step: completed_at carries its manual stamp.
+//
+// ONE requirement is deliberately NOT chosen that way, and it is the point of req
+// #3123: #3083 carries `tracking: 1` and stays in `development`, its real status,
+// because it is this plan's CONTAINER and a container never leaves development
+// while the plan it holds is running. Step 19 links it and still derives done —
+// through the exemption, on its real inputs, rather than through a status picked
+// to make the arithmetic work. Before the flag existed this row said `met`, which
+// got the right answer for the wrong reason and left the exemption untested.
 // Req #3105 is attached to feature "Swarm Lifecycle" under the Swarm Substrate
 // Rebuild epic — the real cross-epic batch-mate of step 19 ("cross-epic per rule
 // 10" in the plan) — so dominant-label derivation is exercised by the fixture
@@ -126,7 +134,17 @@ export const REQUIREMENTS = [
     { id: 3079, requirement_status: "met", machine_fk: 3, feature_fk: 105, coordination_type: "implemented" },
     { id: 3080, requirement_status: "met", machine_fk: 2, feature_fk: 112, coordination_type: "discuss" },
     { id: 3082, requirement_status: "approved", machine_fk: 2, feature_fk: 111, coordination_type: "implemented" },
-    { id: 3083, requirement_status: "met", machine_fk: 2, feature_fk: 112, coordination_type: "implemented" },
+    // THE tracking container (req #3123, `requirements.tracking`). #3083 HOLDS this
+    // plan — the PLAN-JSON lived in its description — so it stays in `development`
+    // for the plan's whole life and can never gate a step of the plan it describes.
+    // Its status here is `development` and NOT `met` for exactly that reason: with
+    // `met` the fixture would derive step 19 correctly for the WRONG reason and
+    // exercise nothing. Step 19 is the mixed case — #3080 met, #3083 tracking, #3105
+    // met — so the gating set is all-terminal and the step derives done, which is
+    // what the plan recorded. Req #3169: req #3184's Python engine pins its ported
+    // predicates against THIS file, so the signal has to be here or both engines
+    // agree and both are wrong.
+    { id: 3083, requirement_status: "development", tracking: 1, machine_fk: 2, feature_fk: 112, coordination_type: "implemented" },
     { id: 3084, requirement_status: "met", machine_fk: 3, feature_fk: 105, coordination_type: "implemented" },
     { id: 3085, requirement_status: "met", machine_fk: 3, feature_fk: 105, coordination_type: "implemented" },
     { id: 3086, requirement_status: "approved", machine_fk: 3, feature_fk: 105, coordination_type: "implemented" },

@@ -225,7 +225,8 @@ function BatchBannerRow({ batch, colSpan, timezone }) {
                             {batch.swarmStartCommand}
                         </Box>
                     ) : (
-                        <em>no linked requirements — nothing to launch</em>
+                        <em>{batch.noLaunchReason
+                            || 'no linked requirements — nothing to launch'}</em>
                     )}
                 </Box>
             </TableCell>
@@ -235,25 +236,54 @@ function BatchBannerRow({ batch, colSpan, timezone }) {
 
 // ── Requirement(s) cell ─────────────────────────────────────────────────────
 // Ids link to their own detail page and carry NO '#' (production directive).
+//
+// A TRACKING link renders dimmed and italic with a tooltip (req #3123). It is
+// the answer to a question the table otherwise cannot answer: "this step links a
+// requirement that is still in development — why is the step not Running?"
+// Without the distinction the derivation looks broken to a reader who is right
+// to check it. Kept to a style + tooltip on the existing link deliberately: no
+// second chip, no new column, no new view.
 function RequirementLinks({ row, pipelineId }) {
     if (!row.reqIds.length) return <span>—</span>;
+    const tracking = new Set(row.trackingReqIds || []);
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {row.reqIds.map((id) => (
-                <Link
-                    key={id}
-                    component={RouterLink}
-                    to={`/swarm/requirement/${id}`}
-                    // Provenance, so the detail page's Back returns to THIS plan
-                    // rather than the Roadmap (req #3119).
-                    state={pipelineId ? { from: 'pipeline', pipelineId } : undefined}
-                    underline="hover"
-                    sx={{ fontFamily: 'monospace' }}
-                    data-testid={`pipeline-req-link-${id}`}
-                >
-                    {id}
-                </Link>
-            ))}
+            {row.reqIds.map((id) => {
+                const isTracking = tracking.has(id);
+                const link = (
+                    <Link
+                        key={id}
+                        component={RouterLink}
+                        to={`/swarm/requirement/${id}`}
+                        // Provenance, so the detail page's Back returns to THIS plan
+                        // rather than the Roadmap (req #3119).
+                        state={pipelineId ? { from: 'pipeline', pipelineId } : undefined}
+                        underline="hover"
+                        sx={{
+                            fontFamily: 'monospace',
+                            ...(isTracking
+                                ? { fontStyle: 'italic', opacity: 0.6 }
+                                : null),
+                        }}
+                        data-testid={`pipeline-req-link-${id}`}
+                        data-tracking={isTracking ? 'true' : undefined}
+                    >
+                        {id}
+                    </Link>
+                );
+                return isTracking
+                    ? (
+                        <Tooltip
+                            key={id}
+                            title={`#${id} is a tracking container, not work — it holds `
+                                + 'the plan, so this step is not gated on it and it is '
+                                + 'not launched with the step (req #3123)'}
+                        >
+                            {link}
+                        </Tooltip>
+                    )
+                    : link;
+            })}
         </Box>
     );
 }
