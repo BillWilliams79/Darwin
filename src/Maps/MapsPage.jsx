@@ -33,7 +33,6 @@ import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
-import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
@@ -53,7 +52,6 @@ import ExportDialog from '../MapExport/ExportDialog';
 import TrendsFilterChips from './TrendsFilterChips';
 import PickerDialog from './PickerDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
-import { useMapAggregatorCardStore } from '../stores/useMapAggregatorCardStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { applyViewFilter } from '../utils/mapViewFilter';
@@ -91,11 +89,6 @@ const MapsPage = () => {
 
     // Savable view filter state
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
-
-    // Aggregate Map Card visibility (cards view only) — same wiring shape as
-    // SwarmView's SwarmStartCard rocket toggle (view-switchable-pages.md pitfall #4).
-    const showAggregatorCard = useMapAggregatorCardStore((s) => s.show);
-    const toggleAggregatorCard = useMapAggregatorCardStore((s) => s.toggle);
 
     // ── Restore scroll position when returning from photo browser ────────────
     useEffect(() => {
@@ -384,20 +377,6 @@ const MapsPage = () => {
 
                 <Box sx={{ flexGrow: 1 }} />
 
-                {view === 'cards' && (
-                    <Tooltip title={showAggregatorCard ? 'Hide Aggregate Map Card' : 'Show Aggregate Map Card'}>
-                        <IconButton
-                            size="small"
-                            onClick={toggleAggregatorCard}
-                            color={showAggregatorCard ? 'primary' : 'default'}
-                            data-testid="map-aggregator-card-toggle"
-                            sx={{ flexShrink: 0 }}
-                        >
-                            <TravelExploreIcon />
-                        </IconButton>
-                    </Tooltip>
-                )}
-
                 {!timeFilter && (
                     <Button
                         variant="outlined"
@@ -563,7 +542,7 @@ const MapsPage = () => {
                 ? <TrendsView runs={viewFilteredRuns} runPartnerMap={runPartnerMap} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
                     ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
-                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} showAggregatorCard={showAggregatorCard} />
+                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
             }
 
             <PickerDialog

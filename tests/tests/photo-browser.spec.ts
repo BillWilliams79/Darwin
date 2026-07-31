@@ -50,10 +50,8 @@ test.describe('Photo Browser', () => {
         const count = await firstCard.count();
         if (count > 0) {
             // Navigate to detail view for the first run
-            // Click the card body (not the photo/menu button) to go to detail.
-            // Scoped to route-card: the aggregator card (req #3158) is also a
-            // MuiCard and renders FIRST when toggled on, but has no navigation.
-            const card = page.locator('[data-testid="route-card"]').first();
+            // Click the card body (not the photo/menu button) to go to detail
+            const card = page.locator('.MuiCard-root').first();
             await card.click();
             await expect(page).toHaveURL(/\/maps\/\d+/);
             await expect(page.getByTestId('detail-photos-btn')).toBeVisible({ timeout: 10000 });
