@@ -801,7 +801,7 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {b.machineLabels.length > 0 && rowEl('Machines', batchMachineLabel(b))}
                 {rowEl('Launch', b.swarmStartCommand
                     ? <code style={{ fontSize: '0.85em' }}>{b.swarmStartCommand}</code>
-                    : 'no linked requirements — nothing to launch')}
+                    : (b.noLaunchReason || 'no linked requirements — nothing to launch'))}
             </div>
         );
     } else {
@@ -821,7 +821,18 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                     ? `${r.epic} (all: ${epicAll})` : r.epic)}
                 {r.feature && rowEl('Feature', (r.featureLabels || []).length > 1
                     ? `${r.feature} (all: ${featAll})` : r.feature)}
-                {rowEl('Reqs', r.reqIds.length ? r.reqIds.join(' ') : '—')}
+                {/* Tracking containers marked with a trailing † and named below
+                    (req #3123). The card answers the same question the plan
+                    table now answers — "this step links a requirement still in
+                    development, so why is it not Running?" — and leaving the
+                    SVG surface silent would make the derivation look broken to
+                    a reader who is right to check it. */}
+                {rowEl('Reqs', r.reqIds.length
+                    ? r.reqIds.map((id) => ((r.trackingReqIds || []).includes(id)
+                        ? `${id}†` : `${id}`)).join(' ')
+                    : '—')}
+                {(r.trackingReqIds || []).length > 0 && rowEl('† tracking',
+                    'container, not work — does not gate this step, not launched')}
                 {level === 'in' && rowEl('Cost',
                     // Same fmtCost the table's Cost column uses, on the same
                     // row.cost the engine attached — the two surfaces cannot

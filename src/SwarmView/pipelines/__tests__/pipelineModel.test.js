@@ -176,6 +176,183 @@ describe('deriveStepState — rule 1, state is derived never stored', () => {
     });
 });
 
+describe('the tracking exemption — a container is not work (req #3123)', () => {
+    const step = { id: 1, completed_at: null };
+    const stamped = { id: 1, completed_at: '2026-07-26T01:30:00' };
+    const work = (status, id = 9) => ({ id, requirement_status: status });
+    const container = (status, id = 8) => ({ id, requirement_status: status, tracking: 1 });
+
+    it('a container in development does NOT make a step running', () => {
+        // The whole bug: before the flag, this returned STEP_RUNNING and the
+        // step stayed there for the life of the plan.
+        expect(deriveStepState(step, [work('met'), container('development')]))
+            .toBe(STEP_DONE);
+    });
+
+    it('an ALL-container step derives from its own completed_at, exactly like a '
+        + 'req-less step — never running', () => {
+        expect(deriveStepState(step, [container('development')])).toBe(STEP_PENDING);
+        expect(deriveStepState(stamped, [container('development')])).toBe(STEP_DONE);
+        // Same two answers a step with no links at all gives, which is the point:
+        // subtracting the containers leaves nothing to derive from.
+        expect(deriveStepState(step, [])).toBe(STEP_PENDING);
+        expect(deriveStepState(stamped, [])).toBe(STEP_DONE);
+    });
+
+    it('a container never blocks a done, and never rescues a pending', () => {
+        expect(deriveStepState(step, [work('met'), container('met')])).toBe(STEP_DONE);
+        expect(deriveStepState(step, [work('approved'), container('met')]))
+            .toBe(STEP_PENDING);
+        // A container's own status is irrelevant in every direction.
+        expect(deriveStepState(step, [work('met'), container('approved')]))
+            .toBe(STEP_DONE);
+    });
+
+    it('the flag coerces NUMERICALLY, matching the Python readers — "0" is WORK, '
+        + 'not a container', () => {
+        // Boolean("0") is true, so a bare truthiness check would read a
+        // stringified zero as a container and stop a real requirement from
+        // gating its step. That is the one input class where this function could
+        // disagree with the pre-#3123 derivation, and with the Python engines
+        // (_is_tracking / is_tracking, both int()-based).
+        for (const t of [1, true, '1', 2, '2']) {
+            expect(deriveStepState(step, [{ id: 8, requirement_status: 'development', tracking: t }]))
+                .toBe(STEP_PENDING);
+        }
+        for (const t of [0, false, null, undefined, '', '0', 'false', ' ', 'x']) {
+            expect(deriveStepState(step, [{ id: 8, requirement_status: 'development', tracking: t }]))
+                .toBe(STEP_RUNNING);
+        }
+    });
+
+    it('a container has no opinion about the MACHINE a step runs on — it runs '
+        + 'nowhere, and the machine set is a LAUNCH parameter', () => {
+        const model = {
+            steps: [{ id: 1, completed_at: null }],
+            stepRequirements: [
+                { step_fk: 1, requirement_fk: 500 },
+                { step_fk: 1, requirement_fk: 600 },
+            ],
+            stepDeps: [],
+            requirements: [
+                { id: 500, requirement_status: 'approved', machine_fk: null },
+                { id: 600, requirement_status: 'development', machine_fk: 3, tracking: 1 },
+            ],
+            features: [], epics: [], machines: [{ id: 3, title: 'WSL' }],
+        };
+        expect(machineLabels(model.steps[0], model).labels).toEqual(['Any']);
+        const [row] = buildPlanRows(model);
+        expect(row.machineLabel).toBe('Any');
+    });
+
+    it('regression: a container\'s machine pin must not split a launch batch', () => {
+        // Before the machineLabels filter, these two launch-identical steps had
+        // different launchKeys — the batch vanished, and with it the letter and
+        // the /swarm-start command. Reachable only since the exemption, because a
+        // step linking a container used to derive Running and never reach
+        // pendingGroups at all.
+        const model = {
+            steps: [
+                { id: 1, completed_at: '2026-07-26T01:30:00' },
+                { id: 2, completed_at: null },
+                { id: 3, completed_at: null },
+            ],
+            stepRequirements: [
+                { step_fk: 2, requirement_fk: 500 },
+                { step_fk: 2, requirement_fk: 600 },
+                { step_fk: 3, requirement_fk: 501 },
+            ],
+            stepDeps: [
+                { step_fk: 2, dep_step_fk: 1, time_at: null },
+                { step_fk: 3, dep_step_fk: 1, time_at: null },
+            ],
+            requirements: [
+                { id: 500, requirement_status: 'approved', machine_fk: null },
+                { id: 501, requirement_status: 'approved', machine_fk: null },
+                { id: 600, requirement_status: 'development', machine_fk: 3, tracking: 1 },
+            ],
+            features: [], epics: [], machines: [{ id: 3, title: 'WSL' }],
+        };
+        const ordered = displayOrder(buildPlanRows(model));
+        const [batch] = launchBatches(ordered.rows);
+        expect(batch).toBeDefined();
+        expect(batch.stepIds).toEqual([2, 3]);
+        expect(batch.swarmStartArgs).toEqual([500, 501]);
+        expect(batch.machineLabels).toEqual(['Any']);
+    });
+
+    it('fixture step 19 — the recorded divergence — now derives done, and it is '
+        + 'the MIXED case: two work reqs met, one container in development', () => {
+        const rows = buildPlanRows(SUBSTRATE_REBUILD_MODEL);
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const step19 = byId.get(19);
+        expect(step19.reqIds).toEqual([3080, 3083, 3105]);
+        expect(step19.trackingReqIds).toEqual([3083]);
+        // The container really is still in development — the fixture is not
+        // fudged to make the arithmetic work.
+        const req3083 = SUBSTRATE_REBUILD_MODEL.requirements.find((r) => r.id === 3083);
+        expect(req3083.requirement_status).toBe('development');
+        expect(step19.state).toBe(STEP_DONE);
+    });
+
+    it('every fixture step still reproduces its PLAN-JSON state — 100%, with the '
+        + 'container carrying its REAL status', () => {
+        const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
+        const diverged = PLAN_JSON_ROWS
+            .filter((r) => byId.get(Number(r.step)).state !== PLAN_STATE[r.state])
+            .map((r) => r.step);
+        expect(diverged).toEqual([]);
+    });
+
+    it('reqIds stays COMPLETE so the table links and the cost rollup see every '
+        + 'requirement; only trackingReqIds marks the containers', () => {
+        const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
+        // Cost must still union #3083's sessions — the work happened.
+        expect(byId.get(19).reqIds).toContain(3083);
+        // And no other fixture step claims a container.
+        const withTracking = [...byId.values()]
+            .filter((r) => r.trackingReqIds.length).map((r) => r.id);
+        expect(withTracking).toEqual([19]);
+    });
+
+    it('rule 8: a container is never a /swarm-start argument', () => {
+        // Two pending steps sharing a gate, one of which links a container.
+        const rows = [
+            row(1, STEP_DONE),
+            { ...row(2, STEP_PENDING, [1], { reqIds: [100, 200] }), trackingReqIds: [200] },
+            { ...row(3, STEP_PENDING, [1], { reqIds: [300] }), trackingReqIds: [] },
+        ];
+        const [batch] = launchBatches(displayOrder(rows).rows);
+        expect(batch.swarmStartArgs).toEqual([100, 300]);
+        expect(batch.swarmStartCommand).toBe('/swarm-start 100 300');
+        expect(condensationProposals(rows)[0].requirementIds).toEqual([100, 300]);
+    });
+
+    it('rule 8: a batch whose ONLY requirements are containers emits no command, '
+        + 'never an argument-less one', () => {
+        const rows = [
+            row(1, STEP_DONE),
+            { ...row(2, STEP_PENDING, [1], { reqIds: [200] }), trackingReqIds: [200] },
+            { ...row(3, STEP_PENDING, [1], { reqIds: [201] }), trackingReqIds: [201] },
+        ];
+        const [batch] = launchBatches(displayOrder(rows).rows);
+        expect(batch.swarmStartArgs).toEqual([]);
+        expect(batch.swarmStartCommand).toBeNull();
+    });
+
+    it('rule 10 is NOT filtered: a container still contributes its epic/feature '
+        + 'and machine labels', () => {
+        const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
+        const step19 = byId.get(19);
+        // #3080 and #3083 both sit under feature 112 (Swarm Orchestration
+        // Feature); dropping the container would take the count 2 -> 1 and let
+        // #3105's cross-epic label tie and win on first appearance.
+        expect(step19.epic).toBe('Swarm Orchestration Feature');
+        expect(step19.epicLabels.map((e) => e.title))
+            .toEqual(['Swarm Orchestration Feature', 'Swarm Substrate Rebuild']);
+    });
+});
+
 describe('verifyOrder — each invariant caught on a seeded bad input', () => {
     it('invariant 1 (topology): a row before its dependency is caught', () => {
         const a = row(1, STEP_DONE);
