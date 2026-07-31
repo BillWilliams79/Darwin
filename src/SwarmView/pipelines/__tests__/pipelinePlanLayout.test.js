@@ -188,6 +188,68 @@ describe('chain lanes with cross-column reservation', () => {
     });
 });
 
+describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => {
+    // The live plan that forced both rules (user directive, 2026-07-30): four
+    // roots, two d1 siblings off root 47, a penultimate step gating on five of
+    // them, a capstone gating on the penultimate alone. The POC layout parked
+    // 50 under 49 and drew every convergent arc through the main chain's beads.
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 6, epic: 'Mapping Aggregator Card',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+    const rows = [
+        mk(47, []), mk(48, [47]), mk(49, []), mk(50, [47]),
+        mk(51, []), mk(52, []), mk(53, [48, 49, 50, 51, 52]), mk(54, [53]),
+    ];
+    const layout = computePlanLayout(rows, []);
+    const n = (id) => layout.nodes.get(id);
+
+    it('keeps the main chain straight on one lane', () => {
+        expect(n(48).lane).toBe(n(47).lane);
+        expect(n(53).lane).toBe(n(48).lane);
+        expect(n(54).lane).toBe(n(53).lane);
+    });
+
+    it('slots the second d1 sibling ADJACENT to its parent chain via lane insertion', () => {
+        // 50 may not share a lane with 48 (cell clash) nor with 49/51/52 —
+        // each of those still owes an arc PAST column 1 to step 53, and parking
+        // 50 on any of their lanes puts its bead on that arc's horizontal run.
+        // Nor may it be banished below them: dep-adjacent insertion opens a
+        // fresh lane directly under the parent, pushing the unrelated roots
+        // down one row each.
+        expect(n(50).lane).not.toBe(n(48).lane);
+        for (const feeder of [49, 51, 52]) {
+            expect(n(50).lane).not.toBe(n(feeder).lane);
+            expect(n(50).lane).toBeLessThan(n(feeder).lane);
+        }
+        expect(n(50).lane).toBe(n(47).lane + 1);
+    });
+
+    it('routes the convergent arcs LATE, on their own source lanes', () => {
+        const arcFrom = (fromId, toId) => layout.arcs.find(
+            (a) => a.fromId === fromId && a.toId === toId);
+        for (const feeder of [49, 51, 52]) {
+            const arc = arcFrom(feeder, 53);
+            expect(arc.route).toBe('late');
+            expect(arc.y1).toBe(n(feeder).y); // horizontal runs at the SOURCE lane
+        }
+    });
+
+    it('no arc horizontal run passes through an unrelated bead', () => {
+        for (const arc of layout.arcs) {
+            const hy = arc.straight || arc.route === 'late' ? arc.y1 : arc.y2;
+            for (const row of rows) {
+                if (row.id === arc.fromId || row.id === arc.toId) continue;
+                const node = n(row.id);
+                if (node.y !== hy) continue;
+                const onRun = node.x > arc.x1 && node.x < arc.x2;
+                expect(onRun).toBe(false);
+            }
+        }
+    });
+});
+
 describe('zero label overlap — all four layout/label combinations', () => {
     for (const opts of COMBOS) {
         const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
