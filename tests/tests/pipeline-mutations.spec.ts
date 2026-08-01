@@ -36,8 +36,10 @@ import {
 // the browser half — one definition of "what the plan means", exercised twice.
 //
 // ── Isolation ───────────────────────────────────────────────────────────────
-// One throwaway pipeline, found-or-created by a fixed title so darwin_dev never
-// accumulates more than one, wiped clean at the start of every run.
+// One throwaway pipeline, found-or-created by a fixed title, hard-deleted via
+// delete_pipeline (req #3134) in afterAll. The find-or-wipe path in beforeAll is
+// the recovery case for a run killed before afterAll could run — normally there
+// is nothing to find, because the previous run deleted the row on its way out.
 
 const PLAN_TITLE = 'e2e-3118 mutation replay (throwaway)';
 const REQ_PREFIX = 'e2e-3118-mutation';
@@ -253,14 +255,29 @@ test.describe('Swarm Orchestration — 8-case mutation replay via MCP', () => {
     test.afterAll(async () => {
         test.setTimeout(600_000);
         try {
-            await wipePlan();
-            for (const id of createdRequirementIds) {
-                try { await devTool('delete_requirement', { id }); } catch { /* best-effort */ }
+            // delete_pipeline (req #3134) hard-deletes the plan in one call — no
+            // wipePlan() first. The plan still carries whatever steps/links/deps
+            // the last mutation case left wired (this suite never re-strips
+            // them), so this IS the acceptance case for the tool's two-phase
+            // path: it must succeed on a plan with internal step-to-step
+            // dependencies rather than surfacing a raw 1451. The plan never
+            // leaves `draft` anywhere in this suite, so the delete is legal.
+            try {
+                const deleted = await devTool<{ deleted: boolean; id: number }>(
+                    'delete_pipeline', { id: pipelineId });
+                expect(deleted.deleted, 'delete_pipeline echo').toBe(true);
+                expect(deleted.id).toBe(pipelineId);
+            } finally {
+                // The requirement sweep must run whether or not the delete above
+                // succeeded (it needs the plan's links gone to succeed either
+                // way) — but a delete FAILURE must still fail this test. That
+                // assertion is the acceptance case (a regression in the
+                // two-phase path must be caught here, not swallowed), so it is
+                // deliberately NOT wrapped in a try/catch of its own.
+                for (const id of createdRequirementIds) {
+                    try { await devTool('delete_requirement', { id }); } catch { /* best-effort */ }
+                }
             }
-            // There is no delete_pipeline tool — the row itself survives by
-            // design. Park it as `aborted` so it can never be mistaken for live
-            // work, and reuse it next run.
-            await devTool('update_pipeline', { id: pipelineId, pipeline_status: 'aborted' });
         } finally {
             await stopDevMcp();
         }
