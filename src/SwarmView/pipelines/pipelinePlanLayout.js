@@ -499,6 +499,15 @@ export const PLAN_VIZ_FONT = {
 
 export const BEAD_RADIUS = BEAD_R;
 
+// The bead's invisible HIT circle, slightly larger than the bead so a small
+// target stays easy to point at. It lives here rather than as a literal in the
+// renderer because req #3213 made it an INVARIANT: the label hit regions are
+// pushed above these circles, so a label rect that reached into a DIFFERENT
+// step's hit circle would silently take ownership of it and answer with the
+// wrong step's card. The layout tests assert that clearance, and a test can
+// only assert the number the renderer actually uses.
+export const BEAD_HIT_RADIUS = BEAD_R + 5;
+
 // ── Step width (req #3168, "UI option for step width") ──────────────────────
 // A MULTIPLIER on the computed column width, never a replacement for it. The
 // column width is the zero-overlap contract's first half: it is derived from the

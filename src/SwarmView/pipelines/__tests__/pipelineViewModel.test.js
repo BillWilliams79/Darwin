@@ -23,6 +23,7 @@ import {
     stepDescription,
     formatTimeGate,
     formatTimeGates,
+    PLAN_REQUIREMENT_FIELDS,
 } from '../pipelineViewModel';
 import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from '../pipelineModel';
 import {
@@ -99,6 +100,39 @@ describe('buildPipelineModel — scoping whole-table reads to one pipeline', () 
         const m = buildPipelineModel();
         expect(m.pipeline).toBeNull();
         expect(m.steps).toEqual([]);
+    });
+});
+
+// The projection is a STRING handed to a fetch layer that puts it in its cache
+// key, so a column dropped from it fails as an undefined on a hover card and
+// nowhere else — there is no type to catch it. Assert the columns each consumer
+// depends on, by the fact each one answers.
+describe('PLAN_REQUIREMENT_FIELDS — the one shared projection', () => {
+    const fields = () => PLAN_REQUIREMENT_FIELDS.split(',');
+
+    it('carries the execution settings the hover card renders (req #3213 D5)', () => {
+        expect(fields()).toEqual(expect.arrayContaining(
+            ['coordination_type', 'ai_model', 'effort']));
+    });
+
+    it('still carries what the plan surface already derived from it', () => {
+        // Identity + the title the card now leads with (D4), status for the
+        // colour scales, the two FKs label derivation walks, `tracking` for the
+        // container rule (req #3123) and the two stamps the time axis is built
+        // from (req #3201).
+        expect(fields()).toEqual(expect.arrayContaining([
+            'id', 'title', 'requirement_status', 'machine_fk', 'feature_fk',
+            'tracking', 'started_at', 'completed_at',
+        ]));
+    });
+
+    it('names no column twice and carries no blob column (req #3078)', () => {
+        const f = fields();
+        expect(new Set(f).size).toBe(f.length);
+        expect(f).not.toContain('description');
+        // A projection is one comma-joined list; whitespace would travel into
+        // the query string and the cache key alike.
+        for (const name of f) expect(name).toBe(name.trim());
     });
 });
 
