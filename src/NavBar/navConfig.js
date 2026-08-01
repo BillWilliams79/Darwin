@@ -13,6 +13,7 @@ import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import LanIcon from '@mui/icons-material/Lan';
+import LayersIcon from '@mui/icons-material/Layers';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BusinessIcon from '@mui/icons-material/Business';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -72,6 +73,14 @@ export const NAV_LINKS = [
     // (Epic > Feature > Story, sequenced into steps), and above Sessions because
     // plan views carry no session data at all (req #3080 design rule 9).
     { path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm' },
+    // Req #3139 — the Epics editor. An L2 SIBLING of Pipelines, not a child of
+    // it: an epic is not a lifecycle record OF a pipeline the way Starts are of
+    // a Session (req #3209's nesting rule), it is the tier the plan is composed
+    // FROM (design rule 10 walks requirement -> feature -> epic for a step's
+    // label). It sits directly under Pipelines because that is where the plan
+    // hierarchy is read from, and above Sessions for the same reason Pipelines
+    // is — plan views carry no session data at all (req #3080 design rule 9).
+    { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
     // Req #3209 — Sessions is the first L2 item with L3 children. Starts,
     // Completes and Undos are lifecycle records OF a session, not peers of it,
     // so they nest underneath rather than sitting as siblings. They keep their
