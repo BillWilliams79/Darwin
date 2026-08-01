@@ -28,6 +28,7 @@ import {
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
+    RULER_H, computeRuler, slotTickText,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -1950,7 +1951,14 @@ const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
     { now: '2026-07-28T12:00:00Z' });
 const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
     { timeAxis: timedPlan.timeAxis });
-const timedSubstratePlan = orderedPlan(buildPipelineModel(TIMED_SUBSTRATE), { now: NOW });
+// NO `buildPipelineModel` here, and that is the whole point of this line.
+// SUBSTRATE_REBUILD_MODEL is a MODEL, not a raw payload — line 34 feeds it to
+// `orderedPlan` directly — and its steps carry no `pipeline_fk`, so rebuilding
+// it filtered all 34 rows away and every plan-scale test below ran on an EMPTY
+// plan, asserting nothing. Shipped that way with req #3201; found in the #3207
+// review, which is when it mattered: these are the tests that prove the ruler
+// did not break the zero-overlap contract at scale.
+const timedSubstratePlan = orderedPlan(TIMED_SUBSTRATE, { now: NOW });
 const colOfStep = (layout, id) => layout.nodes.get(id).depth;
 
 // ── Epic focus (req #3204) ──────────────────────────────────────────────────
@@ -2379,6 +2387,23 @@ describe('time axis — review regressions', () => {
 });
 
 describe('time axis — the zero-overlap contract still holds at plan scale', () => {
+    // THE GUARD ON THE GUARD. Every assertion below is a for-all over
+    // `layout.labels`, and a for-all over nothing passes. This block ran on an
+    // empty plan from req #3201 until the #3207 review caught it, so the
+    // preconditions are asserted rather than assumed: PLAN SCALE is the point of
+    // these tests, and "plan scale" is a claim about the data, not the code.
+    it('runs on a real, multi-slot, multi-band plan — not on an empty one', () => {
+        expect(timedSubstratePlan.rows.length)
+            .toBe(SUBSTRATE_REBUILD_MODEL.steps.length);
+        const layout = computePlanLayout(timedSubstratePlan.rows,
+            timedSubstratePlan.batches, { timeAxis: timedSubstratePlan.timeAxis });
+        expect(layout.empty).toBe(false);
+        expect(layout.slots.length).toBeGreaterThan(2);
+        expect(layout.bands.length).toBeGreaterThan(1);
+        expect(layout.labels.filter((l) => l.kind === 'slot').length)
+            .toBeGreaterThan(1);
+    });
+
     for (const combo of COMBOS) {
         const name = `${combo.reqLayout}/${combo.stepLabel}`;
         const layout = computePlanLayout(timedSubstratePlan.rows, timedSubstratePlan.batches,
@@ -2415,4 +2440,237 @@ describe('time axis — the zero-overlap contract still holds at plan scale', ()
             }
         });
     }
+});
+
+// ── The TIME RULER (req #3207) ─────────────────────────────────────────────
+// #3201 ordered the columns by date and drew nothing; this is the strip that
+// makes them READABLE as dates. Two claims are load-bearing and both are
+// asserted from layout OUTPUT rather than from the inputs:
+//
+//   1. the ruler's rects are ordinary `layout.labels` entries, so the
+//      zero-overlap contract in all four reqLayout × stepLabel combinations
+//      already covers them — no second, untested class of text;
+//   2. the reserved height is UNCONDITIONAL, so no level, plan shape or label
+//      mode relayouts the plan and zoom stays a pure transform.
+describe('time ruler (req #3207)', () => {
+    const rulerLabels = (layout) => layout.labels.filter((l) => l.kind === 'slot');
+
+    it('emits one ruler slot per axis slot, in the same order', () => {
+        expect(timedLayout.ruler.slots.map((s) => s.key))
+            .toEqual(timedLayout.slots.map((s) => s.key));
+        expect(timedLayout.ruler.slots.map((s) => s.origin))
+            .toEqual(timedLayout.slots.map((s) => s.origin));
+    });
+
+    it('gives every slot a strictly increasing, gapless x-extent covering the world', () => {
+        const rs = timedLayout.ruler.slots;
+        expect(rs[0].x).toBeLessThanOrEqual(timedLayout.colX[0]);
+        for (let i = 1; i < rs.length; i++) {
+            expect(rs[i].x).toBeGreaterThan(rs[i - 1].x);
+            // A slot ends exactly where the next begins: the columns BETWEEN
+            // two origins belong to the earlier slot, so a region bounded by
+            // its own origin column would draw a five-column day one column
+            // wide.
+            expect(rs[i - 1].x + rs[i - 1].w).toBeCloseTo(rs[i].x, 6);
+        }
+        const last = rs[rs.length - 1];
+        expect(last.x + last.w).toBeLessThanOrEqual(timedLayout.width);
+    });
+
+    it('puts every step inside the x-extent of its OWN slot', () => {
+        // The one claim a reader makes from the strip: this bead is under this
+        // date. It is a property of two independently-derived numbers (the
+        // slot's origin column and the step's column), so it is worth checking.
+        for (const r of timedPlan.rows) {
+            const s = timedLayout.ruler.slots[timedLayout.slotOf.get(r.id)];
+            const n = timedLayout.nodes.get(r.id);
+            expect(n.x).toBeGreaterThanOrEqual(s.x);
+            expect(n.x).toBeLessThanOrEqual(s.x + s.w);
+        }
+    });
+
+    it('labels the dated slots as calendar days and the future slot as future', () => {
+        const texts = timedLayout.ruler.slots.map((s) => s.label);
+        expect(texts).toEqual([
+            "Jul 25 '26", 'Jul 26', 'Jul 27', 'Jul 28', 'future',
+        ]);
+        expect(timedLayout.ruler.futureX)
+            .toBe(timedLayout.ruler.slots[timedLayout.ruler.slots.length - 1].x);
+    });
+
+    it('carries the calendar GAP so adjacent columns two days apart can say so', () => {
+        // Slots are dense in COLUMNS and sparse in TIME. Every gap here is 1
+        // (consecutive days); the gapped case gets its own plan below.
+        const gaps = timedLayout.ruler.slots.filter((s) => s.kind === 'dated')
+            .map((s) => s.gapDays);
+        expect(gaps).toEqual([null, 1, 1, 1]);
+    });
+
+    it('measures a real gap in DAYS, not in slots', () => {
+        const gapped = {
+            ...TIMED_MODEL,
+            requirements: TIMED_MODEL.requirements.map((r) => (r.id === 102
+                // 102 was 07-26. Push it past the plan's last day (07-28) to
+                // 07-31, so the ruler's final two dated slots are ADJACENT
+                // columns three calendar days apart — the sparse-in-time,
+                // dense-in-columns case the requirement names.
+                ? { ...r, completed_at: '2026-07-31T09:00:00' } : r)),
+        };
+        const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-08-01T12:00:00Z' });
+        const L = computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis });
+        const days = L.ruler.slots.filter((s) => s.kind === 'dated');
+        const gap = days.find((s) => s.day === '2026-07-31');
+        expect(gap).toBeDefined();
+        // Its predecessor on the AXIS is 07-28, not 07-30: the distance is
+        // measured in calendar days between the two slots that are actually
+        // adjacent, which is the whole point — a slot-count would say 1.
+        expect(days[days.indexOf(gap) - 1].day).toBe('2026-07-28');
+        expect(gap.gapDays).toBe(3);
+        // …and the FIRST dated slot has no predecessor to have skipped
+        // anything, so it reports null rather than a fabricated 0.
+        expect(days[0].gapDays).toBeNull();
+    });
+
+    it('disambiguates a year boundary rather than drawing two identical dates', () => {
+        const spanning = {
+            ...TIMED_MODEL,
+            requirements: TIMED_MODEL.requirements.map((r) => {
+                if (r.id === 101) return { ...r, completed_at: '2025-07-25T09:00:00' };
+                if (r.id === 107) return { ...r, completed_at: '2025-07-25T10:00:00' };
+                if (r.id === 102) return { ...r, completed_at: '2026-07-25T09:00:00' };
+                return r;
+            }),
+        };
+        const p = orderedPlan(buildPipelineModel(spanning), { now: '2026-07-28T12:00:00Z' });
+        const L = computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis });
+        const days = L.ruler.slots.filter((s) => s.kind === 'dated');
+        expect(days[0].label).toBe("Jul 25 '25");
+        // The same calendar day one year on must NOT render as a second bare
+        // 'Jul 25' — two identical labels on one axis is the lie the ruler
+        // exists to prevent.
+        const y26 = days.find((s) => s.day === '2026-07-25');
+        expect(y26.label).toBe("Jul 25 '26");
+        expect(new Set(days.map((s) => s.label)).size).toBe(days.length);
+    });
+
+    it('degrades by THINNING labels, never by overlapping them', () => {
+        // A 200-slot axis on columns too narrow to carry 200 dates. The greedy
+        // pass must drop labels; what it may never do is emit two that meet.
+        const slots = Array.from({ length: 200 }, (_, i) => ({
+            key: `1:2026-01-${String((i % 28) + 1).padStart(2, '0')}`,
+            kind: 'dated',
+            day: `2026-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+            origin: i,
+        }));
+        const colW = slots.map(() => 22);
+        const colX = [];
+        { let acc = 66; for (const w of colW) { colX.push(acc + w / 2); acc += w; } }
+        const ruler = computeRuler(slots, colX, colW, 66 + 200 * 22 + 54);
+        const shown = ruler.slots.filter((s) => s.showLabel);
+        expect(shown.length).toBeGreaterThan(0);
+        expect(shown.length).toBeLessThan(slots.length);   // it really thinned
+        for (let i = 1; i < shown.length; i++) {
+            expect(shown[i].labelX)
+                .toBeGreaterThanOrEqual(shown[i - 1].labelX + shown[i - 1].labelW);
+        }
+    });
+
+    it('always labels the FUTURE tick, displacing a date if it has to', () => {
+        // The boundary a plan is opened to find. Built so the future slot's
+        // origin sits a few px past a dated one — the exact case the greedy
+        // left-to-right pass would otherwise drop.
+        const slots = [
+            { key: '1:2026-01-01', kind: 'dated', day: '2026-01-01', origin: 0 },
+            { key: '1:2026-01-02', kind: 'dated', day: '2026-01-02', origin: 1 },
+            { key: '2:future', kind: 'future', day: null, origin: 2 },
+        ];
+        const colW = [200, 8, 200];
+        const colX = [];
+        { let acc = 66; for (const w of colW) { colX.push(acc + w / 2); acc += w; } }
+        const ruler = computeRuler(slots, colX, colW, 66 + 408 + 54);
+        const fut = ruler.slots[2];
+        expect(fut.showLabel).toBe(true);
+        // …and nothing it displaced is still drawn on top of it.
+        for (const s of ruler.slots) {
+            if (s === fut || !s.showLabel) continue;
+            const meets = s.labelX < fut.labelX + fut.labelW
+                && fut.labelX < s.labelX + s.labelW;
+            expect(meets).toBe(false);
+        }
+    });
+
+    it('keeps the last tick inside the world it is measured against', () => {
+        for (const l of rulerLabels(timedLayout)) {
+            expect(l.x).toBeGreaterThanOrEqual(0);
+            expect(l.x + l.w).toBeLessThanOrEqual(timedLayout.width);
+        }
+    });
+
+    it('puts the ruler text in `labels`, so the overlap contract covers it', () => {
+        // The requirement's own acceptance constraint. Not a separate class of
+        // text with its own private checks.
+        expect(rulerLabels(timedLayout).length)
+            .toBe(timedLayout.ruler.slots.filter((s) => s.showLabel).length);
+        for (const l of rulerLabels(timedLayout)) {
+            expect(l.h).toBeGreaterThan(0);
+            expect(l.w).toBeGreaterThan(0);
+            expect(l.prose).toBe(false);   // generated from a date, not stored prose
+        }
+        assertNoLabelOverlap(timedLayout, 'timed plan with ruler');
+    });
+
+    it('never lets a ruler tick reach a band, a bead or any other label', () => {
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+                { ...opts, timeAxis: timedPlan.timeAxis });
+            assertNoLabelOverlap(layout, `${opts.reqLayout} × ${opts.stepLabel} + ruler`);
+            for (const l of rulerLabels(layout)) {
+                // Above every band, by construction: the reservation is what
+                // the first band's y is offset by.
+                expect(l.y + l.h).toBeLessThanOrEqual(layout.bands[0].y);
+                for (const n of layout.nodes.values()) {
+                    expect(rectsOverlap(l, beadRect(n))).toBe(false);
+                }
+            }
+        }
+    });
+
+    it('reserves its height UNCONDITIONALLY — a level or mode change never relayouts', () => {
+        // Zoom is a pure transform (pipelinePlanLayout deviation 2). The ruler
+        // takes the same room in every combination, on a timed plan and on an
+        // untimed one, so nothing a reader can toggle moves a bead because of
+        // the strip.
+        const heights = new Set();
+        for (const opts of COMBOS) {
+            heights.add(computePlanLayout(timedPlan.rows, timedPlan.batches,
+                { ...opts, timeAxis: timedPlan.timeAxis }).ruler.h);
+            heights.add(computePlanLayout(plan.rows, plan.batches, opts).ruler.h);
+        }
+        expect(heights.size).toBe(1);
+        expect([...heights][0]).toBe(RULER_H);
+        // …and it is genuinely charged: the first band sits below it.
+        expect(timedLayout.bands[0].y).toBeGreaterThanOrEqual(RULER_H);
+    });
+
+    it('degenerates honestly with no time axis: one slot, labelled undated', () => {
+        // The no-timeAxis path is a real path (computeTimeColumns' degenerate
+        // case), and a plan with no dates must not render a blank strip that
+        // reads as a rendering fault.
+        const untimed = computePlanLayout(plan.rows, plan.batches);
+        expect(untimed.ruler.slots).toHaveLength(1);
+        expect(untimed.ruler.slots[0].kind).toBe('unknown');
+        expect(untimed.ruler.slots[0].label).toBe('undated');
+        expect(untimed.ruler.slots[0].showLabel).toBe(true);
+        expect(untimed.ruler.futureX).toBeNull();
+        assertNoLabelOverlap(untimed, 'untimed plan with ruler');
+    });
+
+    it('returns an INERT ruler for the empty plan rather than omitting it', () => {
+        const empty = computePlanLayout([], []);
+        expect(empty.ruler).toEqual({ h: RULER_H, slots: [], futureX: null });
+    });
+
+    it('renders a tick with no # — the production directive covers generated text', () => {
+        for (const l of rulerLabels(timedLayout)) expect(l.text).not.toContain('#');
+    });
 });

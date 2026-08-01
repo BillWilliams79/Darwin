@@ -23,6 +23,29 @@ export const useShowClosedStore = create(
             sessionStatusFilter: DEFAULT_SESSION_STATUSES,
             sessionMachineFilter: DEFAULT_SESSION_MACHINES,
 
+            // req #3180 — the requirements TABLE's pipeline filter. ON hides every
+            // requirement a pipeline STEP carries, leaving the residue: work
+            // nobody has scheduled. Note which question it answers — STEP
+            // association (a `pipeline_step_requirements` row, "is this
+            // scheduled"), NOT epic association ("does this belong to a body of
+            // work"), which a requirement can carry while sitting in no plan at
+            // all. Exposing that gap is the point of the ON state.
+            //
+            // A CONTROL, not an automatic exclusion, because on a BROWSE page
+            // both populations are legitimate to look at and only the user knows
+            // which they want. The surfaces that OFFER a launch (SwarmStartCard,
+            // /swarm-start's auto-discovery) exclude unconditionally instead —
+            // there, showing an ineligible launch is a defect, not a preference.
+            //
+            // OFF is today's behaviour, so no persist version bump is needed: an
+            // older persisted blob simply lacks the key and zustand's default
+            // merge leaves this `false` in place.
+            hidePipelinedRequirements: false,
+            toggleHidePipelinedRequirements: () =>
+                set((state) => ({
+                    hidePipelinedRequirements: !state.hidePipelinedRequirements,
+                })),
+
             toggleRequirementStatus: (status) =>
                 set((state) => {
                     const current = state.requirementStatusFilter;

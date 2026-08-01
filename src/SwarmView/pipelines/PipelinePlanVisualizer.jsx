@@ -703,20 +703,28 @@ export default function PipelinePlanVisualizer({
     // Every label kind asks this and nothing else, and the container publishes
     // the answer as `data-drawn`. Two reasons, both learned here:
     //
-    //   · The canvas is a bitmap, so "Overview now draws step labels" is
-    //     otherwise unfalsifiable — a screenshot at L1 looks the same whether the
-    //     labels are there or not unless you already have the other version to
+    //   · The canvas is a bitmap, so "Overview omits step labels" is otherwise
+    //     unfalsifiable — a screenshot at L1 looks the same whether the labels
+    //     are there or not unless you already have the other version to
     //     compare against, and a test that pins L1 twice and compares proves
     //     nothing. Same argument as `data-transform`, which exists because a pan
     //     is only observable as changed pixels.
     //   · The three early returns it replaces were three places to get the ladder
     //     wrong, and the attribute would have been a fourth.
     //
-    // STEP LABELS DRAW AT EVERY LEVEL (user directive 2026-08-01) — Overview used
-    // to be beads and arcs with nothing naming them, which is the one level a
-    // reader opens to see the shape of a plan.
+    // STEP LABELS ARE GATED LIKE REQUIREMENT MARKS (req #3221) — a step name is
+    // per-step detail the same as a requirement id, so it shares that gate
+    // rather than drawing unconditionally. This does not clear Overview down to
+    // bare beads and arcs: the ruler's slot ticks, the batch letters and the
+    // epic band names are drawn elsewhere in this component and are not asked
+    // through `drawsKind` at all, so they keep drawing at every level — the
+    // `return true` fallback below exists for THEM, not as a default nobody
+    // reaches. This gate is draw-only: `computePlanLayout` reserves the step
+    // label's rect at every level regardless (the zero-overlap invariant is
+    // asserted against it unconditionally), so hiding it here never moves
+    // anything else.
     const drawsKind = useCallback((kind) => {
-        if (kind === 'req') return level !== 'out';
+        if (kind === 'step' || kind === 'req') return level !== 'out';
         if (kind === 'title') return level === 'in';
         return true;
     }, [level]);
@@ -860,6 +868,61 @@ export default function PipelinePlanVisualizer({
         }
     });
 
+    // ── The time ruler (req #3207) ──────────────────────────────────────────
+    // Drawn AFTER the band washes and BEFORE the arcs and beads: the rules and
+    // the future tint are background furniture that must sit over the band fill
+    // (a 6% wash would otherwise swallow them) and under everything a reader
+    // actually reads. The label TEXT is not here — it rides `layout.labels` as
+    // `kind: 'slot'` so the zero-overlap contract covers it, and is drawn in the
+    // label loop below with every other piece of text on the surface.
+    {
+        const R = layout.ruler || { h: 0, slots: [], futureX: null };
+        // The FUTURE REGION, first, so the rules draw on top of its edge. A rule
+        // alone says where the boundary is; it does not say which side of it has
+        // not happened yet.
+        if (R.futureX != null && R.futureX < layout.width) {
+            worldNodes.push(
+                <Rect key="ruler-future" x={R.futureX} y={0}
+                      width={layout.width - R.futureX} height={layout.height}
+                      fill={P.wire} opacity={0.07} listening={false} />);
+        }
+        // The strip's baseline — what makes the ticks read as one ruler rather
+        // than as a row of unrelated marks.
+        worldNodes.push(
+            <Line key="ruler-baseline"
+                  points={[0, R.h - 2, layout.width, R.h - 2]}
+                  stroke={P.line} strokeWidth={1} opacity={0.7}
+                  listening={false} />);
+        R.slots.forEach((s, i) => {
+            // A GAPPED boundary is DASHED and brighter. Slots are dense in
+            // COLUMNS but sparse in TIME — 07-28 and 07-31 are adjacent columns
+            // three days apart — and the dashes are how the ruler says so
+            // without spending a second label on it. `gapDays` is null on the
+            // first dated slot and on the undated/future ones, where there is no
+            // predecessor to have skipped anything.
+            const gapped = s.gapDays != null && s.gapDays > 1;
+            // The first slot's rule would land in the left gutter, where it
+            // marks nothing: there is no earlier slot for it to divide from.
+            if (i > 0) {
+                worldNodes.push(
+                    <Line key={`ruler-rule-${s.key}`}
+                          points={[s.x, 6, s.x, layout.height - 6]}
+                          stroke={gapped ? P.dim : P.line} strokeWidth={1}
+                          dash={gapped ? [5, 5] : undefined}
+                          opacity={gapped ? 0.5 : 0.55} listening={false} />);
+            }
+            // The tick itself, in the strip, at every slot — including the ones
+            // whose LABEL was thinned away. The tick is 1px of geometry and can
+            // never collide, so a degraded ruler still shows every boundary it
+            // has; only the dates thin out.
+            worldNodes.push(
+                <Line key={`ruler-tick-${s.key}`}
+                      points={[s.x, R.h - 9, s.x, R.h - 2]}
+                      stroke={P.dim} strokeWidth={1} opacity={0.8}
+                      listening={false} />);
+        });
+    }
+
     layout.arcs.forEach((arc, i) => {
         if (arc.straight) {
             worldNodes.push(
@@ -989,6 +1052,20 @@ export default function PipelinePlanVisualizer({
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
+        } else if (label.kind === 'slot') {
+            // The FUTURE tick is the accent: it names the tinted REGION beside
+            // it rather than a boundary, and it is the mark the plan is most
+            // often opened to find. A DATE and an UNDATED tick are both dim —
+            // `undated` is the absence of a claim, and giving it the accent
+            // would make a plan with no timestamps read as a plan that is
+            // entirely in the future, which is the opposite claim.
+            const accented = label.slotKind === 'future';
+            worldNodes.push(
+                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
+                      fontSize={F.slot} fontFamily={MONO}
+                      fill={accented ? P.accent : P.dim}
+                      opacity={accented ? 0.9 : 0.95}
+                      listening={false} />);
         } else if (label.kind === 'epic') {
             // Drawn as an HTML overlay below, not in the world — see
             // `floatingEpics`. Nothing is pushed here.
@@ -1043,6 +1120,14 @@ export default function PipelinePlanVisualizer({
                  // evidence than the key ever was: it is what the canvas actually
                  // drew rather than a second thing derived from the same flag.
                  data-batch-boxes={layout.batchBoxes.length}
+                 // `slots,labelled` — the time ruler (req #3207), published for
+                 // the same reason the batch-box count is: canvas geometry is
+                 // otherwise only observable as pixels, and the DEGRADATION rule
+                 // is the half that a screenshot cannot distinguish from a plan
+                 // that simply has fewer days. The two numbers differing IS the
+                 // proof that thinning ran.
+                 data-ruler={`${layout.ruler.slots.length},${
+                     layout.ruler.slots.filter((s) => s.showLabel).length}`}
                  data-level={level}
                  data-drawn={drawnKinds}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure

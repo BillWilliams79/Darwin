@@ -660,6 +660,34 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // regression in either.
         });
 
+    test('PIPE-10b: the time ruler draws a tick per slot, thinning labels not overlapping them',
+        async ({ page }) => {
+            // Req #3207. Same device and same reasoning as `data-batch-boxes`
+            // above: the ruler is canvas geometry, so the DOM carries what the
+            // canvas actually drew rather than a second thing derived from the
+            // same flag.
+            //
+            // TWO numbers, because the DEGRADATION rule is the half a screenshot
+            // cannot check. A pixel diff cannot tell a ruler that thinned three
+            // dates away from a plan that simply had three fewer days; `slots`
+            // against `labelled` can, and their being EQUAL here is itself the
+            // assertion — these fixtures are short enough that nothing should
+            // thin, so a labelled count below the slot count would mean the pass
+            // is firing where there is room.
+            for (const pipelineId of [fixture.batchPipelineId, fixture.mainPipelineId]) {
+                const p = pipelineId === fixture.batchPipelineId ? batchPlan : plan;
+                const L = computePlanLayout(p.rows, p.batches,
+                    { ...PLAN_VIEW_OPTIONS, timeAxis: p.timeAxis || null });
+                expect(L.ruler.slots.length).toBeGreaterThan(0);
+                const labelled = L.ruler.slots.filter(
+                    (s: { showLabel: boolean }) => s.showLabel).length;
+
+                await openPlanVisualizer(page, pipelineId);
+                await expect(page.getByTestId('pipeline-plan-visualizer'))
+                    .toHaveAttribute('data-ruler', `${L.ruler.slots.length},${labelled}`);
+            }
+        });
+
     test('PIPE-11: bead, requirement and epic click targets navigate', async ({ page }) => {
         // The BATCH plan, on purpose. Canvas hit targets are world-space and the
         // stage is fit to width, so the screen-space tolerance is
@@ -1304,7 +1332,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(reqScale).toBeVisible();
         });
 
-    // ── PIPE-16: step labels at every level, and the L1/L2/L3/Auto selector ──
+    // ── PIPE-16: what's drawn is gated by level, and the L1/L2/L3/Auto selector ──
 
     test('PIPE-16: the level selector pins what is DRAWN without moving the camera',
         async ({ page }) => {
@@ -1358,25 +1386,28 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(container).toHaveAttribute('data-level', 'mid');
             await expect(chip).not.toContainText('pinned');
 
-            // 4. STEP LABELS DRAW AT EVERY LEVEL, Overview included (user
-            //    directive 2026-08-01). The canvas is a bitmap, so the component
-            //    publishes which label kinds it drew — `data-drawn`, the same
+            // 4. STEP/REQ/TITLE ARE GATED, EACH ON ITS OWN CONDITION (req #3221).
+            //    `data-drawn` only ever enumerates these three kinds — the ruler's
+            //    slot ticks, the batch letters and the epic band names are NOT
+            //    level-gated and draw at every level regardless (see `drawsKind`'s
+            //    `return true` fallback), so this attribute proves the ladder for
+            //    the three kinds it tracks, not "Overview draws nothing" in
+            //    absolute terms. The canvas is a bitmap, so the component
+            //    publishes which of the three it drew — `data-drawn`, the same
             //    device as `data-transform` beside it and for the same reason: a
-            //    screenshot at Overview looks identical whether the labels are
+            //    screenshot at Overview looks identical whether the step label is
             //    there or not unless you already hold the other version, so a
             //    pixel comparison here would prove nothing.
             //
-            //    The ladder itself is asserted whole, because "step at every
-            //    level" is only meaningful next to the kinds that ARE gated.
-            const drawnAt = async (lvl: string) => {
+            //    The ladder itself is asserted whole, because "gated at L1" is
+            //    only meaningful next to the kinds that draw at every level.
+            const drawnAt = async (lvl: string, expected: string, message: string) => {
                 await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
-                return container.getAttribute('data-drawn');
+                await expect(container, message).toHaveAttribute('data-drawn', expected);
             };
-            expect(await drawnAt('1'), 'Overview draws step labels').toBe('step');
-            expect(await drawnAt('2'), 'Plan adds the requirement marks')
-                .toBe('step,req');
-            expect(await drawnAt('3'), 'Detail adds the per-step title slot')
-                .toBe('step,req,title');
+            await drawnAt('1', '', 'Overview draws none of the three gated kinds');
+            await drawnAt('2', 'step,req', 'Plan adds the step name and requirement marks');
+            await drawnAt('3', 'step,req,title', 'Detail adds the per-step title slot');
             // And the plan really has step labels to draw, or the attribute
             // above would be describing an empty set.
             const layout = computePlanLayout(plan.rows, plan.batches,
