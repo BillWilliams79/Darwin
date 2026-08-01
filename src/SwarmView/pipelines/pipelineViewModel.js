@@ -51,9 +51,14 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 // two stamps have to travel with the projection. They are two DATETIME columns
 // on rows already being read; the blob columns req #3078 keeps out of list
 // reads are a different thing entirely.
+// `ai_model` / `effort` (req #3213) answer HOW the work will be executed, which
+// is the half of a requirement the hover card could not answer at all. They join
+// `coordination_type`, which was already here, for the same reason `started_at`
+// did: two short enum columns on rows this projection is already reading, so the
+// card widens an existing whole-table read rather than adding a call.
 export const PLAN_REQUIREMENT_FIELDS =
     'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking,'
-    + 'started_at,completed_at';
+    + 'ai_model,effort,started_at,completed_at';
 
 /**
  * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.

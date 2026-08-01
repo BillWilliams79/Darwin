@@ -98,10 +98,17 @@ import {
 } from './pipelineViewModel';
 import { fmtCost } from './pipelineModel';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
+// The autonomy / model / effort words the rest of the UI uses (req #3213 D5).
+// The card renders a requirement's execution settings through the SAME helpers
+// the swarm datacard and the detail grids do — a raw column value on one
+// surface and a label on another is two vocabularies for one fact.
+import { formatCoordination } from '../../CalendarFC/timeSeriesSizes';
+import { aiModelLabel } from '../modelChipStyles';
+import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips, epicFocusTransform,
-    PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS,
+    PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
@@ -249,9 +256,15 @@ export default function PipelinePlanVisualizer({
     // column it hangs under, so putting names on the surface either shrinks them
     // to nothing or blows the layout apart. The name belongs on demand.
     // From the SAME light projection the page already read; no extra fetch.
+    // Since req #3213 it also carries HOW the work runs — autonomy, model and
+    // effort. Same projection, same pass, three more fields off rows already in
+    // hand; see PLAN_REQUIREMENT_FIELDS for why widening it costs no read.
     const reqInfo = useMemo(
         () => new Map((model?.requirements || [])
-            .map((r) => [r.id, { title: r.title, status: r.requirement_status }])),
+            .map((r) => [r.id, {
+                title: r.title, status: r.requirement_status,
+                coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
+            }])),
         [model]);
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -983,13 +996,34 @@ export default function PipelinePlanVisualizer({
                 )}
             </Group>);
         // Hit target on top of the bead (and above any batch box under it).
+        // Its radius is a LAYOUT constant since req #3213 — the label hit
+        // regions below are pushed above these circles, so the clearance
+        // between the two is an invariant the layout tests assert.
         worldNodes.push(
-            <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_RADIUS + 5}
+            <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_HIT_RADIUS}
                     fill="transparent"
                     onMouseEnter={(e) => { cursorPointer(e, true); showStepCard(row, e); }}
                     onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                     onActivate={() => onStepFocus?.(row.id)} />);
     });
+
+    // ── Hover regions on the TEXT (req #3213 D1/D2) ─────────────────────────
+    // The words are the larger, more obvious target than the bead beside them,
+    // and until now they did not listen at all — so hovering a step name fell
+    // THROUGH to the dashed batch rectangle underneath and produced the batch
+    // card where a step card was wanted. The batch box is pushed before this
+    // loop, so every region added here is already above it: the topmost, most
+    // specific listening element wins and the rectangle stays the fallback for
+    // empty space inside its own bounds.
+    //
+    // The region is the label's OWN world rect — the exact x/y/w/h
+    // pipelinePlanLayout exports and the zero-overlap invariant already sweeps.
+    // A hit target grown past its text is precisely how that invariant gets
+    // broken silently, so nothing here is larger than the words it covers. The
+    // TEXT stays `listening={false}`: one node answers for one label.
+    const labelHit = (key, label, handlers) => (
+        <Rect key={key} x={label.x} y={label.y} width={label.w} height={label.h}
+              fill="transparent" {...handlers} />);
 
     layout.labels.forEach((label, i) => {
         if (!drawsKind(label.kind)) return;
@@ -998,6 +1032,23 @@ export default function PipelinePlanVisualizer({
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.label} fontFamily={MONO} fill={P.text}
                       listening={false} />);
+            // HOVER ONLY — deliberately NOT the bead's third handler (review
+            // finding). The bead's hit circle also carries `onActivate`, which
+            // switches the whole page to Table mode and, because the visualizer
+            // unmounts, discards the reader's pan and zoom. Mirroring it here
+            // would grow the click-to-leave surface from 0.22% of the world to
+            // 1.25% — measured on the live 97-step plan — and make the step
+            // name the largest click target on the canvas, while the manual
+            // hit-test tolerates 4px of drag before it stops calling a gesture
+            // a click. D1 asks for the CARD; a click on the words did nothing
+            // before this change and still does nothing.
+            const row = rowById.get(label.stepId);
+            if (row) {
+                worldNodes.push(labelHit(`lblhit-${i}`, label, {
+                    onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(row, e); },
+                    onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+                }));
+            }
         } else if (label.kind === 'req') {
             // ONE resolver decides this, and the same one feeds the key below —
             // see pipelinePlanLayout's colour-language block. Applied on the SAME
@@ -1052,6 +1103,26 @@ export default function PipelinePlanVisualizer({
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
+            // The reserved title slot is the step's own name in a second place
+            // (req #3213 D2): it is drawn over the batch box like the step
+            // label, so leaving it silent would put the batch card under half
+            // the text belonging to a step.
+            //
+            // THIS BRANCH IS FOR A NON-DEFAULT CONFIGURATION, honestly stated
+            // (review finding): the layout emits `kind: 'title'` only when
+            // `stepLabel !== 'title'`, and PipelineDetail — the sole mount site
+            // — pins `stepLabel = 'title'`, so the step label already IS the
+            // name and this slot is empty on the shipped page. It is added
+            // anyway for the same reason the `<Text>` above it exists: the
+            // layout module supports the combination and the renderer must not
+            // be the half that doesn't. Hover only, matching the step label.
+            const titleRow = rowById.get(label.stepId);
+            if (titleRow) {
+                worldNodes.push(labelHit(`lblhit-${i}`, label, {
+                    onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(titleRow, e); },
+                    onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+                }));
+            }
         } else if (label.kind === 'slot') {
             // The FUTURE tick is the accent: it names the tinted REGION beside
             // it rather than a boundary, and it is the mark the plan is most
@@ -1074,6 +1145,16 @@ export default function PipelinePlanVisualizer({
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.batch} fontFamily={MONO} fill={P.batch}
                       listening={false} />);
+            // The letter names the box, so it answers with the box's card (req
+            // #3213 D2 acceptance). It sits in the band's header strip, which
+            // is often ABOVE the box's top edge — the leader line below exists
+            // exactly because of that gap — so this is not a duplicate of the
+            // rectangle's own hover but the only way to reach a batch by its
+            // name.
+            worldNodes.push(labelHit(`lblhit-${i}`, label, {
+                onMouseEnter: (e) => { cursorPointer(e, true); showBatchCard(label.letter, e); },
+                onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+            }));
             if (label.leader) {
                 worldNodes.push(
                     <Line key={`lbl-${i}-leader`}
@@ -1194,7 +1275,16 @@ export default function PipelinePlanVisualizer({
                                 ev.preventDefault();     // Space must not scroll
                                 focusEpic(e.band);
                             }}
-                            title={`Fit “${e.text}” to the view`}
+                            // NAMES WHAT THE CLICK DOES (req #3213 D6). The
+                            // chip body has focused the band since req #3204 —
+                            // only this tooltip still described the old
+                            // navigate-away behaviour, and a control that
+                            // silently does one of two plausible things is
+                            // worse than either. The chip's two controls each
+                            // name themselves: the body zooms, the ↗ below
+                            // opens the features view, and both say so.
+                            title="Zoom pipeline epic"
+                            aria-label={`Zoom pipeline epic ${e.text}`}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
@@ -1531,12 +1621,35 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
         // an id alone cannot tell you. Deliberately not on the canvas — see the
         // reqInfo comment. Requirement status is the requirement's OWN field, not
         // the step state derived from it, so it is shown verbatim.
+        //
+        // THE NAME LEADS AND THE NUMBER IS A FIELD (req #3213 D4). It was
+        // exactly inverted — a bare id as the heading with the title labelled
+        // beneath it — so the card led with the one thing the reader had just
+        // pointed at and already knew. An identifier is data; the step card
+        // below now reads the same way, which is the other half of the fix.
+        //
+        // Autonomy / model / effort (D5) answer HOW the work will be executed,
+        // not merely what it is called, and every one of them goes through the
+        // shared label helper rather than printing a column value.
         const info = card.info || {};
         body = (
             <div className="ts-datacard">
-                <div className="ts-datacard-title">{card.reqId}</div>
-                {rowEl('Name', info.title || '(untitled)')}
+                <div className="ts-datacard-title">{info.title || '(untitled)'}</div>
+                {rowEl('Requirement', card.reqId)}
                 {rowEl('Status', info.status || 'unknown')}
+                {/* ONE missing-value policy across the three (review finding).
+                    `aiModelLabel`/`effortLabel` fall back to Opus/High on
+                    unknown input, and their own comments justify that by the
+                    NULL backfill — but those columns are NOT NULL with exactly
+                    those defaults, so a fallback reached HERE can only mean the
+                    projection did not carry the field. That is a plausible
+                    WRONG answer with no visual tell, which is worse than no
+                    answer; `formatCoordination` in the line above already says
+                    '—' for the same condition. The row stays present either
+                    way, so the card still answers all four questions. */}
+                {rowEl('Autonomy', formatCoordination(info.coordination))}
+                {rowEl('Model', info.model ? aiModelLabel(info.model) : '—')}
+                {rowEl('Effort', info.effort ? effortLabel(info.effort) : '—')}
             </div>
         );
     } else if (card.kind === 'batch') {
@@ -1566,7 +1679,13 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
         const featAll = (r.featureLabels || []).map((l) => l.title).join(' · ');
         body = (
             <div className="ts-datacard">
-                <div className="ts-datacard-title">Step {r.id} — {r.title || '(untitled)'}</div>
+                {/* NAME ALONE in the heading, id as the first field (req #3213
+                    D3). The heading used to concatenate the two, which made the
+                    step card and the requirement card read in opposite orders;
+                    they now agree — a name on top, identifiers among the
+                    attributes. */}
+                <div className="ts-datacard-title">{r.title || '(untitled)'}</div>
+                {rowEl('Step', r.id)}
                 {rowEl('State', stepStateLabel(r.state))}
                 {rowEl('Run', runLabel(r.run))}
                 {rowEl('Deps', depText)}
@@ -1603,10 +1722,15 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
     }
 
     return (
-        <div ref={cardRef} className="ts-shared-tooltip" style={{
-            position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20,
-            pointerEvents: 'none',
-        }}>
+        // `data-kind` is what makes D2 assertable (req #3213): "the card that
+        // appears belongs to the thing being pointed at" is a claim about WHICH
+        // card, and the three read too similarly to tell apart by text alone.
+        <div ref={cardRef} className="ts-shared-tooltip"
+             data-testid="pipeline-viz-datacard" data-kind={card.kind}
+             style={{
+                 position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20,
+                 pointerEvents: 'none',
+             }}>
             {body}
         </div>
     );
