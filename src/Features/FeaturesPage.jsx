@@ -9,7 +9,7 @@
 //   - Coverage dot (green ≥1 link / red 0 links) computed client-side
 
 import { useState, useMemo, useContext, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
@@ -71,6 +71,7 @@ export default function FeaturesPage() {
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
+    const navigate = useNavigate();
 
     const [view, setView] = useViewPreference(VIEW_KEY, 'cards');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -249,10 +250,17 @@ export default function FeaturesPage() {
                 </ToggleButtonGroup>
 
                 {epicFilter !== null && (
+                    // Req #3139 — the chip is now the way BACK to the epic that
+                    // filtered this view. Clicking the body opens the Epics
+                    // editor; the ✕ keeps its original job of clearing the
+                    // filter, and MUI routes the delete icon's click to
+                    // onDelete alone, so the two never fire together.
                     <Chip size="small" color="secondary"
                           label={`Epic: ${epics.find(e => e.id === epicFilter)?.title || epicFilter}`}
+                          onClick={() => navigate('/swarm/epics')}
+                          title="Open the Epics editor"
                           onDelete={clearEpicFilter}
-                          sx={{ flexShrink: 0 }}
+                          sx={{ flexShrink: 0, cursor: 'pointer' }}
                           data-testid="epic-filter-chip" />
                 )}
 

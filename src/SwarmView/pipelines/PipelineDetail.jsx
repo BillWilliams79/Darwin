@@ -61,6 +61,7 @@ import {
     useAllRequirements,
     useAllSessionCostRollups,
     useMachines,
+    useOrchestrationClaims,
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
@@ -72,6 +73,8 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
+import { claimForPipeline, holderView } from './orchestrationHolder';
+import { readFocusStepParam } from './pipelineStepLink';
 import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_REQ_VIEW, DEFAULT_STEP_WIDTH,
@@ -353,15 +356,29 @@ export default function PipelineDetail() {
     const requestedMode = searchParams.get('mode');
     const linkMode = PIPELINE_DETAIL_MODES.some(
         (m) => m.value === requestedMode && !m.disabled) ? requestedMode : null;
+    // ── `?step=` makes ONE STEP addressable (req #3140) ──────────────────────
+    // The receiving end of the Steps editor's row link, and the same handshake a
+    // bead click already uses: seed `focusStepId`, and the table scrolls to and
+    // highlights that row. `pipelineStepLink.js` owns both halves of the
+    // contract so the writer and this reader cannot drift on the key.
+    const linkStepId = readFocusStepParam(searchParams);
+    // A named step FORCES the table, overriding `?mode=` when the two disagree.
+    // Only the table consumes `focusStepId` — the visualizer has beads, not rows,
+    // and ignores the prop entirely — so honoring `?mode=plan&step=7` as written
+    // would land the reader on a plan with nothing highlighted and nothing to say
+    // why. Naming a row is the more specific request, so it wins.
+    const linkView = linkStepId != null ? 'table' : linkMode;
 
-    const [focusStepId, setFocusStepId] = useState(null);
-    const [modeOverride, setModeOverride] = useState(linkMode);
-    // Re-seeds when the LINK changes — a new `?mode=` or a different plan — and at
-    // no other time, so a manual pick below is never resurrected by a re-render.
+    const [focusStepId, setFocusStepId] = useState(linkStepId);
+    const [modeOverride, setModeOverride] = useState(linkView);
+    // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, or a
+    // different plan — and at no other time, so a manual pick below is never
+    // resurrected by a re-render. A link with no `?step=` clears the focus, which
+    // is what keeps a stale highlight from surviving an unrelated navigation.
     useEffect(() => {
-        setModeOverride(linkMode);
-        setFocusStepId(null);
-    }, [linkMode, pipelineId]);
+        setModeOverride(linkView);
+        setFocusStepId(linkStepId);
+    }, [linkView, linkStepId, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -392,6 +409,17 @@ export default function PipelineDetail() {
         useAllEpics(creatorFk);
     const { data: machines = [], isLoading: machinesLoading, isError: machinesError } =
         useMachines(creatorFk);
+
+    // Req #3224 — the durable orchestration reservation on THIS plan. One more
+    // bounded list read of a table holding one row per reserved scope, so the
+    // count still grows with the number of TABLES this page draws on and never
+    // with the number of steps in the plan (this file's header invariant).
+    //
+    // Deliberately NOT in `isLoading`: it feeds an OPTIONAL chip whose absence
+    // means "nobody is orchestrating this", which is also the right reading
+    // while the read is in flight. Gating the plan on live process state would
+    // make an unreachable ops table a blank plan page.
+    const { data: orchestrationClaims = EMPTY } = useOrchestrationClaims(creatorFk);
 
     // Req #3117 — the Cost column, from TWO more bounded list reads. Deliberately
     // NOT in `isLoading` below: cost is not an ordering input (see the comment
@@ -441,6 +469,13 @@ export default function PipelineDetail() {
         () => orderedPlan(model, { now: new Date(), costIndex }),
         [model, costIndex]);
     const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
+
+    // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
+    // and weaker claim ("a slice of this plan is being orchestrated") and is the
+    // epics page's answer, not this header's.
+    const orchestrationHolder = useMemo(
+        () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
+        [orchestrationClaims, pipeline?.id, machines]);
 
     // Every distinct machine the plan's steps actually touch, derived from the
     // requirements (design rule 10's level). Sorted for a stable chip.
@@ -655,6 +690,28 @@ export default function PipelineDetail() {
                     spread is on every step's hover card; on the title row they
                     were two more things between the plan's name and the reader.
                     The description button is what remains, and it is last. */}
+
+                {/* req #3224 — WHO is orchestrating this plan, from WHERE.
+                    Deliberately kept despite the directive above, and the reason
+                    it does not reoffend is that it is CONDITIONAL: it renders
+                    only while a reservation is actually held, so the ordinary
+                    row is byte-identical to today's. It is also not a duplicate
+                    of anything — the status chip was removed because the list
+                    page already carried it, while this fact appears nowhere else
+                    on this page and is exactly what a user opening a plan
+                    somebody else is running needs to see first. */}
+                {orchestrationHolder && (
+                    <Tooltip title={orchestrationHolder.title}>
+                        <Chip
+                            size="small"
+                            color={orchestrationHolder.stale ? 'warning' : 'success'}
+                            variant={orchestrationHolder.stale ? 'outlined' : 'filled'}
+                            label={`Orchestrated by ${orchestrationHolder.label}`}
+                            sx={{ flexShrink: 0 }}
+                            data-testid="pipeline-detail-holder"
+                        />
+                    </Tooltip>
+                )}
                 {/* Req #3179 — the description, at the RIGHT END of the row,
                     exactly where the Telemetry page keeps its Glossary
                     (ContextPage.jsx). The icon reports whether there is anything

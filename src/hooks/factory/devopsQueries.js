@@ -358,6 +358,45 @@ export const agentTelemetryRowDocs = createEntityQueries({
 
 // `id:desc` — newest plan first on the list page. Carries creator_fk (in
 // Lambda-Rest CREATOR_FK_TABLES) so the generic passthrough scopes it server-side.
+// ---------------------------------------------------------------------------
+// orchestration_claims (req #3224) — WHO is orchestrating WHAT, from WHERE.
+//
+// **DELIBERATELY NOT `ops: true`, unlike `dev_servers`**, and the difference is
+// the JOIN. `dev_servers` is matched against `window.location.port` — a fact
+// that belongs to no database — so pinning it to production is coherent. Every
+// consumer of THIS table joins `pipeline_fk` / `epic_fk` against rows from
+// `pipelines` and `epics`, which follow the dev/prod split (req #2683). Pinning
+// only one side of that join reads a PRODUCTION `pipeline_fk` and looks it up
+// among DEV plan ids: `darwin_dev` carries fixture pipelines at the same low
+// ids, so a dev browser would render "Orchestrated by <machine> · 2h 05m" on a
+// plan nobody is orchestrating, and show nothing for the plan that is. Wrong on
+// the surface Manual UI Review is performed on is the worst place to be wrong.
+//
+// ACCEPTED CONSEQUENCE, identical to the one req #2827 took for the other ops
+// tables: a DEV browser cannot see a live PRODUCTION reservation — it sees
+// `darwin_dev` claims, which is normally none. In production `darwinUri` IS
+// `/darwin`, so production behaviour is exactly the intended one. Understating
+// ("nobody is orchestrating") is the safe error; naming the wrong plan's holder
+// is not.
+//
+// The whole table is a handful of rows (one per RESERVED SCOPE, and a scope is
+// a plan or one of its epics), so the page fetches it unfiltered ONCE and joins
+// client-side. That keeps the request count a function of the number of TABLES
+// a page draws on, never of the number of plans on it — the same invariant
+// PipelineDetail states in its header.
+//
+// `epic_key` is a VIRTUAL generated column carrying the UNIQUE key; it is
+// deliberately not projected, because `epic_fk` is the column with meaning and
+// a second copy of it on the wire would invite a join against the wrong one.
+export const orchestrationClaims = createEntityQueries({
+    entity: 'orchestration_claims',
+    defaultFields:
+        'id,pipeline_fk,epic_fk,machine_fk,terminal_pid,engine_pid,polls,' +
+        'claimed_at,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'claimed_at:asc',
+});
+
 export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:

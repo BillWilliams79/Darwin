@@ -59,6 +59,8 @@ import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
 import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
 import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
+import EpicsPage from './Epics/EpicsPage';
+import StepsPage from './Steps/StepsPage';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -164,6 +166,25 @@ root.render(
                     <Route path="swarm/pipeline/:id" element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
                                                          </AuthenticatedRoute>} />
+                    {/* Epics editor (req #3139) — the top tier of Epic > Feature
+                        > Story, sited beside the pipeline routes because an epic
+                        is what a plan is made of. */}
+                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
+                                                             <EpicsPage />
+                                                         </AuthenticatedRoute>} />
+                    {/* Steps editor (req #3140) — the members of a plan, sited
+                        beside the pipeline routes for the same reason Epics is.
+                        Every row deep-links back to "swarm/pipeline/:id" with
+                        ?mode=table&step=<id>, which is the plan surface these
+                        steps are otherwise only visible on. */}
+                    <Route path="swarm/steps" element= {<AuthenticatedRoute>
+                                                             <StepsPage />
+                                                         </AuthenticatedRoute>} />
+                    {/* Features editor (req #3217) — the middle tier of Epic >
+                        Feature > Story and the third plan editor, so it belongs to
+                        the block above rather than to the validate routes below it.
+                        The route is unchanged and predates the requirement (#2380);
+                        what #3217 added is the formal nav entry that reaches it. */}
                     <Route path="swarm/features" element= {<AuthenticatedRoute>
                                                              <FeaturesPage />
                                                          </AuthenticatedRoute>} />

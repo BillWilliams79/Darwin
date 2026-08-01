@@ -3,7 +3,7 @@ import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -864,6 +864,11 @@ export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;
 // hook would be dead code that quietly invites that regression back.
 export const useAllPipelines                = pipelines.useAll;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
+// Req #3224 — live orchestration reservations: who is orchestrating what, from
+// where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
+// epic_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
+// rows and never grows with the size of a plan.
+export const useOrchestrationClaims         = orchestrationClaims.useAll;
 export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
 

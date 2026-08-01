@@ -28,6 +28,7 @@ import {
     useAllPipelines,
     useAllRequirements,
     useMachines,
+    useOrchestrationClaims,
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
@@ -130,6 +131,17 @@ export default function PipelinesPage() {
     const { data: requirements = [], isLoading: reqsLoading } =
         useAllRequirements(creatorFk, { fields: PLAN_REQUIREMENT_FIELDS });
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
+    // req #3224 — the durable orchestration reservation. ONE unfiltered list
+    // read (a handful of rows: one per reserved scope), joined client-side, so
+    // the request count still grows with the number of TABLES this page draws
+    // on and never with the number of plans on it.
+    //
+    // Deliberately NOT in `isLoading`. Every other read below feeds a NUMBER OR
+    // A LABEL that would render wrong before it arrives; this one feeds an
+    // OPTIONAL badge whose absence means "not orchestrated", which is also the
+    // correct reading while it is in flight. Gating the whole page on live
+    // process state would make an unreachable ops table a blank plans page.
+    const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
 
     // Every read that feeds a NUMBER OR A LABEL gates the spinner. `pipelines` is
     // one row and resolves first; the requirements read is the whole table and
@@ -218,6 +230,7 @@ export default function PipelinesPage() {
                         pipelines={filtered}
                         summaries={summaries}
                         machines={machines}
+                        claims={orchestrationClaims}
                         timezone={timezone}
                         onOpen={open}
                         hiddenStatusCounts={hiddenStatusCounts}
@@ -227,6 +240,7 @@ export default function PipelinesPage() {
                         pipelines={filtered}
                         summaries={summaries}
                         machines={machines}
+                        claims={orchestrationClaims}
                         onOpen={open}
                         hiddenStatusCounts={hiddenStatusCounts}
                     />
