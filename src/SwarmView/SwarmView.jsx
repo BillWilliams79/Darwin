@@ -36,6 +36,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import BubbleChartIcon from '@mui/icons-material/BubbleChart';
@@ -74,6 +75,12 @@ const SwarmView = () => {
     const setWorkingProject = useWorkingProjectStore(s => s.setWorkingProject);
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     const toggleRequirementStatus = useShowClosedStore(s => s.toggleRequirementStatus);
+    // req #3180 — Table view only. The requirements BROWSE page is the one place
+    // where both populations (scheduled / unscheduled) are legitimate to look at,
+    // so pipeline membership is a user CONTROL here rather than the automatic
+    // exclusion the launch-offering surfaces apply.
+    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
+    const toggleHidePipelined = useShowClosedStore(s => s.toggleHidePipelinedRequirements);
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
     // Model/Effort column display preference (req #3029) — surfaced in the gear
@@ -315,6 +322,36 @@ const SwarmView = () => {
                                 onToggle={toggleRequirementStatus}
                                 testId="requirement-status-filter"
                             />
+                        )}
+                        {/* req #3180 — the label names the question it answers:
+                            PIPELINE STEP association ("is this scheduled"), not
+                            epic association ("does this belong to a body of
+                            work"). A requirement can carry a feature, and so an
+                            epic, while sitting in no plan at all; a label that
+                            didn't distinguish them would be read as answering
+                            whichever one the user had in mind. */}
+                        {/* `!drill` for the same reason the status chips carry it:
+                            a Trends drill-down bypasses both filters, so leaving
+                            the control on screen would show an ON toggle that is
+                            not applying. */}
+                        {view === 'table' && !drill && (
+                            <Tooltip title={hidePipelined
+                                ? 'Showing only requirements NO pipeline step carries — click to show all'
+                                : 'Hide requirements carried by a pipeline step'}>
+                                <IconButton
+                                    size="small"
+                                    onClick={toggleHidePipelined}
+                                    color={hidePipelined ? 'primary' : 'default'}
+                                    aria-label={hidePipelined
+                                        ? 'Show requirements carried by a pipeline step'
+                                        : 'Hide requirements carried by a pipeline step'}
+                                    aria-pressed={hidePipelined}
+                                    data-testid="hide-pipelined-toggle"
+                                    sx={{ flexShrink: 0 }}
+                                >
+                                    <AccountTreeIcon />
+                                </IconButton>
+                            </Tooltip>
                         )}
                         {view === 'cards' && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
