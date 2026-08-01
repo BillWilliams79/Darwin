@@ -25,8 +25,8 @@
 // navigates to /swarm/features?epic=<id>, the same target the plan visualizer's
 // epic chip ↗ uses (req #3119). The features view's epic chip links back here.
 
-import { useContext, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
@@ -125,6 +125,7 @@ export default function EpicsPage() {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
@@ -266,6 +267,36 @@ export default function EpicsPage() {
         setFormSortOrder(row.sort_order == null ? '' : String(row.sort_order));
         setDialogOpen(true);
     };
+
+    // Deep-link via ?id=<id> (req #3234): the requirement detail page's Epic
+    // linkage box links here. A flat DataGrid has no per-row route to land on,
+    // so "click through to it" means open the same edit dialog the Edit icon
+    // opens — the page's own presentation of one epic's full detail (title,
+    // description, category) that a grid row cannot show. Mirrors the
+    // `?epic=<id>` param FeaturesPage already reads from this page's own
+    // Features-count link. Fires once per param (autoOpenedIdRef) and clears
+    // the param on success so reopening the dialog and hitting Back doesn't
+    // re-trigger it; an id with no matching row is silently ignored — the
+    // grid still renders normally rather than blocking on a bad link.
+    const autoOpenedIdRef = useRef(null);
+    useEffect(() => {
+        // Gated on the PAGE's loading flag, not `epicsLoading` alone (code review,
+        // req #3234): the dialog this opens needs `categoryOptions`, which is built
+        // from `categories` — opening it while that read is still in flight put a
+        // real category id into a Select with no matching MenuItem yet.
+        if (isLoading) return;
+        const raw = searchParams.get('id');
+        if (!raw || !/^\d+$/.test(raw.trim())) return;
+        const targetId = Number(raw.trim());
+        if (autoOpenedIdRef.current === targetId) return;
+        const target = epics.find(e => e.id === targetId);
+        if (!target) return;
+        autoOpenedIdRef.current = targetId;
+        openEdit(target);
+        const next = new URLSearchParams(searchParams);
+        next.delete('id');
+        setSearchParams(next, { replace: true });
+    }, [isLoading, epics, searchParams]);
 
     const handleSubmit = async () => {
         const title = formTitle.trim();
