@@ -460,13 +460,27 @@ export async function seedPipelineFixture(idToken: string,
                 category_fk: categoryId, project_fk: projectId,
                 requirement_status: 'swarm_ready', coordination_type: 'deployed',
                 machine_fk: machineIdOf.get(2), feature_fk: featureIdOf.get(112),
+                // EXPLICIT, and deliberately NOT the schema defaults (req #3213).
+                // An insert that omits these lands '' through the gateway, not
+                // 'opus'/'high' — measured — so a card asserted against the
+                // defaults would be asserting the renderer's fallback rather
+                // than a value that travelled. 'sonnet'/'xhigh' can only appear
+                // on PIPE-19's card if the widened projection carried them.
+                ai_model: 'sonnet', effort: 'xhigh',
             }, idToken);
             created.requirements.push(reqId);
             batchRequirementIds.push(reqId);
             batchRequirements.push({
-                id: reqId, requirement_status: 'swarm_ready',
+                // `title` carries because the hover card RENDERS it (req #3213
+                // D4 — the requirement name is the card's heading). The engine
+                // ignores it, so it was omitted while nothing read it; a model
+                // that silently disagrees with the row it seeded is a test that
+                // asserts `undefined` and calls it a pass.
+                id: reqId, title: `${stamp}-batch-${label}`,
+                requirement_status: 'swarm_ready',
                 machine_fk: machineIdOf.get(2)!, feature_fk: featureIdOf.get(112)!,
                 coordination_type: 'deployed',
+                ai_model: 'sonnet', effort: 'xhigh',
             });
 
             const stepId = await insert('pipeline_steps', {

@@ -13,7 +13,7 @@ import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel } from '../../konvaSwarmModel';
 import {
-    computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS,
+    computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, EPIC_CHIP_CHAR_W,
@@ -356,6 +356,42 @@ describe('zero label overlap — all four layout/label combinations', () => {
             }));
             check(wide, [], `wide-outer-columns (${name})`);
         });
+
+        // ── The two invariants req #3213's hover regions RIDE ON ────────────
+        // The renderer now draws a transparent hit Rect at each step/title/
+        // batch label's own rect, pushed ABOVE both the bead hit circles and
+        // the dashed batch boxes. Neither of the clearances that makes that
+        // safe was asserted anywhere (review finding): the sweep above checks
+        // labels against the BEAD at radius 10, but ownership is decided at the
+        // HIT circle's 15. Both were measured clean when they shipped; what
+        // these two tests buy is that they stay that way.
+        it(`no label rect reaches into another step's bead hit circle (${name})`, () => {
+            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            // Rect × CIRCLE, not rect × bbox: the corner of a bounding box is
+            // 4.4px outside the circle it encloses, which is the whole margin
+            // being asserted.
+            const hits = (label, n) => {
+                const cx = Math.max(label.x, Math.min(n.x, label.x + label.w));
+                const cy = Math.max(label.y, Math.min(n.y, label.y + label.h));
+                return Math.hypot(n.x - cx, n.y - cy) < BEAD_HIT_RADIUS;
+            };
+            for (const label of layout.labels) {
+                // Only the kinds that carry a hit region. A 'req' label is a
+                // listening Text and has always been drawn over its own column.
+                if (!['step', 'title', 'batch'].includes(label.kind)) continue;
+                for (const [stepId, n] of layout.nodes) {
+                    // Its OWN bead may share a pixel of the ring — same step,
+                    // same card, so the reading cannot be wrong.
+                    if (label.stepId === stepId) continue;
+                    if (hits(label, n)) {
+                        throw new Error(`${name}: ${label.kind} label `
+                            + `${JSON.stringify(label)} intrudes on step ${stepId}'s `
+                            + `hit circle at (${n.x}, ${n.y})`);
+                    }
+                }
+            }
+        });
+
     }
 
     it('emits one req label per linked requirement, none prefixed with #', () => {
@@ -464,6 +500,42 @@ describe('launch-batch box geometry', () => {
         expect(inSomeBox(m3)).toBe(true);
         expect(inSomeBox(outsider)).toBe(false);
         expect(layout.labels.filter((l) => l.kind === 'batch')).toHaveLength(1);
+    });
+
+    // ── D2's acceptance, in geometry (req #3213) ────────────────────────────
+    // "Verify the batch card is still reachable by hovering the box itself."
+    // The step / title / batch label hit regions are drawn ABOVE the dashed
+    // rectangle, so the rectangle only stays reachable while they leave some of
+    // its face uncovered — and nothing asserted that. Grid-sampled rather than
+    // computed as a rectangle union: the union routine would be more code than
+    // the property it checks. Run over the batched plan, because the Substrate
+    // fixture deliberately produces ZERO boxes (see the first test above) and
+    // this test would be silently vacuous on it.
+    it('keeps a hoverable interior in every batch box, in all four combinations', () => {
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, opts);
+            expect(layout.batchBoxes.length).toBeGreaterThan(0);
+            const covers = layout.labels.filter(
+                (l) => l.kind === 'step' || l.kind === 'title' || l.kind === 'batch');
+            for (const box of layout.batchBoxes) {
+                let free = 0;
+                let total = 0;
+                for (let i = 0; i < 40; i++) {
+                    for (let j = 0; j < 40; j++) {
+                        const px = box.x + (box.width * (i + 0.5)) / 40;
+                        const py = box.y + (box.height * (j + 0.5)) / 40;
+                        total++;
+                        if (!covers.some((l) => px >= l.x && px <= l.x + l.w
+                            && py >= l.y && py <= l.y + l.h)) free++;
+                    }
+                }
+                // A deliberately loose floor — measured 81-89% free on the live
+                // plan. It fails on a REGRESSION, not on a nudge.
+                expect(free / total,
+                    `batch ${box.letter} interior covered (${opts.reqLayout} × ${opts.stepLabel})`)
+                    .toBeGreaterThan(0.5);
+            }
+        }
     });
 
     it('segments a MULTI-COLUMN batch per column rather than drawing one wide rect', () => {

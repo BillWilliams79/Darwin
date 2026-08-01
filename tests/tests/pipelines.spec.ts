@@ -30,9 +30,15 @@ import {
     rowMachineLabel,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
 import {
-    computePlanLayout, REQ_LINE_H, K_READABLE,
+    computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
     epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
+// PIPE-19 asserts the Autonomy row against the label table the card renders
+// through, not against a hand-copied string — the point of D5 is that the card
+// shows the UI's word for a coordination type and never the raw column.
+import { COORDINATION_LABELS } from '../../src/CalendarFC/timeSeriesSizes.js';
+import { aiModelLabel } from '../../src/SwarmView/modelChipStyles.js';
+import { effortLabel } from '../../src/SwarmView/effortChipStyles.js';
 
 // UTC so the seeded naive timestamps and the rendered ones agree on any host.
 test.use({ timezoneId: 'UTC' });
@@ -1469,5 +1475,170 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(asTitles.width).toBe(asIds.width);
             const lanes = asIds.bands.reduce((sum, b) => sum + b.sub, 0);
             expect(asTitles.height - asIds.height).toBe(lanes * REQ_LINE_H);
+        });
+
+    // ── PIPE-19: the hover datacards (req #3213) ───────────────────────────
+    //
+    // The whole of #3213's acceptance is a HOVER claim — "hovering a step name,
+    // a bead, a requirement number, a batch box and an epic chip each produces
+    // the card for the thing under the cursor, first try, with no dead zones
+    // and no wrong card" — and no test at any level asserted a datacard before
+    // this one. The unit suite can only prove the GEOMETRY leaves room; which
+    // card actually appears is a question about Konva's hit graph and the order
+    // the renderer pushes its nodes, and only a browser can answer it.
+    test('PIPE-19: every hover target answers with its own card, and the cards lead with a name',
+        async ({ page }) => {
+            // The BATCH plan, because half of what is under test is D2 — a step
+            // name drawn OVER a dashed batch rectangle must beat it — and the
+            // Substrate plan draws no boxes at all.
+            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+                { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
+            const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const box = (await canvas.boundingBox())!;
+            // Same world-to-screen frame PIPE-11 derives, and for the same
+            // reason: read the component's own transform rather than assuming
+            // fit-to-width. Hovering never navigates, so one frame serves the
+            // whole test.
+            const [tx, ty, k] = (await container.getAttribute('data-transform'))!
+                .split(',').map(Number);
+            const at = (x: number, y: number) =>
+                ({ x: box.x + tx + x * k, y: box.y + ty + y * k });
+            const mid = (l: { x: number; y: number; w: number; h: number }) =>
+                at(l.x + l.w / 2, l.y + l.h / 2);
+
+            const card = page.getByTestId('pipeline-viz-datacard');
+            /** Hover a screen point and read the card that appears. */
+            const hover = async (pt: { x: number; y: number }) => {
+                // Off-target first: without it a card left over from the
+                // previous hover satisfies the wait and the test passes on a
+                // stale reading rather than a new one.
+                await page.mouse.move(box.x + 2, box.y + box.height - 2);
+                await expect(card).toHaveCount(0, { timeout: 5000 });
+                await page.mouse.move(pt.x, pt.y);
+                await expect(card).toBeVisible({ timeout: 5000 });
+                return card.evaluate((el) => ({
+                    kind: el.getAttribute('data-kind'),
+                    title: el.querySelector('.ts-datacard-title')!.textContent!.trim(),
+                    rows: Object.fromEntries(
+                        Array.from(el.querySelectorAll('.ts-datacard-row')).map((r) => [
+                            r.querySelector('.ts-datacard-key')!.textContent!.trim(),
+                            (r.querySelector('.ts-datacard-key')!
+                                .nextElementSibling?.textContent ?? '').trim(),
+                        ])),
+                }));
+            };
+
+            // ── D1 + D2: the step NAME, and it must beat the box beneath it ──
+            // Chosen as a label that genuinely OVERLAPS a batch rectangle where
+            // the plan offers one, so the assertion is about competition rather
+            // than about empty canvas.
+            const stepLabels = layout.labels.filter(
+                (l: { kind: string }) => l.kind === 'step') as Array<
+                    { x: number; y: number; w: number; h: number; stepId: number }>;
+            expect(stepLabels.length, 'the plan draws step labels').toBeGreaterThan(0);
+            const overBox = stepLabels.find((l) => layout.batchBoxes.some(
+                (b: { x: number; y: number; width: number; height: number }) =>
+                    l.x < b.x + b.width && b.x < l.x + l.w
+                    && l.y < b.y + b.height && b.y < l.y + l.h));
+            const stepLabel = overBox ?? stepLabels[0];
+            const stepRow = batchPlan.rows.find(
+                (r: { id: number }) => r.id === stepLabel.stepId)!;
+            const stepCard = await hover(mid(stepLabel));
+            expect(stepCard.kind,
+                overBox
+                    ? 'a step name drawn over a batch box answers with the STEP card'
+                    : 'a step name answers with the step card').toBe('step');
+            // D3 — the NAME alone is the heading and the id is a field. The
+            // heading used to be `Step <id> — <title>`, so asserting the title
+            // is the whole string is what pins the split.
+            expect(stepCard.title).toBe(stepRow.title);
+            expect(stepCard.rows.Step).toBe(String(stepRow.id));
+
+            // The BEAD still answers with the same card — the name did not take
+            // the hover away from the mark it was added beside.
+            const node = layout.nodes.get(stepLabel.stepId) as { x: number; y: number };
+            const beadCard = await hover(at(node.x, node.y));
+            expect(beadCard.kind).toBe('step');
+            expect(beadCard.title).toBe(stepRow.title);
+
+            // ── D4 + D5: the requirement mark ───────────────────────────────
+            const reqLabel = layout.labels.find(
+                (l: { kind: string }) => l.kind === 'req') as
+                { x: number; y: number; w: number; h: number; reqId: number };
+            expect(reqLabel, 'the plan draws requirement marks').toBeTruthy();
+            const seeded = fixture.models.batch.requirements.find(
+                (r: { id: number }) => r.id === reqLabel.reqId)!;
+            const reqCard = await hover(mid(reqLabel));
+            expect(reqCard.kind).toBe('req');
+            // The TITLE leads and the number is a field — exactly inverted from
+            // what shipped before #3213.
+            expect(reqCard.title).toBe(seeded.title);
+            expect(reqCard.rows.Requirement).toBe(String(reqLabel.reqId));
+            expect(reqCard.rows.Status).toBe(seeded.requirement_status);
+            // Autonomy is the end-to-end proof that the projection reaches the
+            // card: it is seeded PER REQUIREMENT, so a wrong or missing field
+            // cannot coincide with the fixture's value.
+            expect(reqCard.rows.Autonomy).toBe(COORDINATION_LABELS[
+                seeded.coordination_type as keyof typeof COORDINATION_LABELS]);
+            // Model and Effort are the two columns PLAN_REQUIREMENT_FIELDS
+            // gained. The fixture seeds them explicitly and OFF the defaults, so
+            // these two assertions can only pass if the widened projection
+            // travelled: a dropped column renders '—', and the label helpers'
+            // own fallbacks are 'Opus' and 'High'. Neither is what is asserted.
+            expect(reqCard.rows.Model).toBe(aiModelLabel(seeded.ai_model));
+            expect(reqCard.rows.Model).toBe('Sonnet');
+            expect(reqCard.rows.Effort).toBe(effortLabel(seeded.effort));
+            expect(reqCard.rows.Effort).toBe('XHigh');
+
+            // ── D2 acceptance: the batch stays reachable, both ways ─────────
+            const batchBox = layout.batchBoxes[0] as
+                { x: number; y: number; width: number; height: number; letter: string };
+            expect(batchBox, 'the batch plan draws a box').toBeTruthy();
+            // By its LETTER — the label sits in the band header strip, often
+            // above the box's own top edge, so this is not the same target.
+            const batchLabel = layout.labels.find(
+                (l: { kind: string; letter?: string }) =>
+                    l.kind === 'batch' && l.letter === batchBox.letter) as
+                { x: number; y: number; w: number; h: number };
+            expect(await hover(mid(batchLabel))).toMatchObject({ kind: 'batch' });
+            // And by the BOX ITSELF — at a point inside it that no label covers,
+            // found rather than assumed, because a hard-coded corner would drift
+            // with the layout.
+            const covers = layout.labels.filter(
+                (l: { kind: string }) => ['step', 'title', 'batch'].includes(l.kind));
+            let free: { x: number; y: number } | null = null;
+            for (let i = 1; i < 12 && !free; i++) {
+                for (let j = 1; j < 12 && !free; j++) {
+                    const px = batchBox.x + (batchBox.width * i) / 12;
+                    const py = batchBox.y + (batchBox.height * j) / 12;
+                    const covered = covers.some(
+                        (l: { x: number; y: number; w: number; h: number }) =>
+                            px >= l.x && px <= l.x + l.w && py >= l.y && py <= l.y + l.h);
+                    // Not on a bead either — that is the step's hit circle, and
+                    // it is legitimately above the box.
+                    const onBead = [...layout.nodes.values()].some(
+                        (n: { x: number; y: number }) =>
+                            Math.hypot(n.x - px, n.y - py) < BEAD_HIT_RADIUS + 2);
+                    if (!covered && !onBead) free = { x: px, y: py };
+                }
+            }
+            expect(free, 'the batch box keeps an uncovered interior').toBeTruthy();
+            expect(await hover(at(free!.x, free!.y))).toMatchObject({ kind: 'batch' });
+
+            // ── D6: the epic chip names what its click does ─────────────────
+            const epicBand = layout.bands.find(
+                (b: { epicId: number | null }) => b.epicId != null) as
+                { epicId: number; epic: string };
+            const chip = page.getByTestId(`pipeline-viz-epic-${epicBand.epicId}`);
+            await expect(chip).toHaveAttribute('title', 'Zoom pipeline epic');
+            // The accessible name still carries WHICH epic — a tooltip that
+            // named only the gesture would be a regression for a screen reader.
+            await expect(chip).toHaveAttribute(
+                'aria-label', `Zoom pipeline epic ${epicBand.epic}`);
+            // …and the ↗ beside it still names itself distinctly, which is what
+            // makes the chip two controls rather than one ambiguous one.
+            await expect(page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`))
+                .toHaveAttribute('title', `Open “${epicBand.epic}” in the features view`);
         });
 });
