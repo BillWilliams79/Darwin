@@ -80,7 +80,52 @@ export const PLAN_VIZ_PALETTE = {
 };
 
 // Epic band palette (POC EPAL) — band index cycles through it.
-export const EPIC_PALETTE = ['#7c4dff', '#00897b', '#c2185b', '#f57c00', '#3949ab', '#5d4037'];
+//
+// RETUNED (req #3219, user directive 2026-08-01): the POC's brown (`#5d4037`)
+// read as dirt on the dark panel, not as a colour, and is gone outright. Orange
+// and indigo were re-judged in situ rather than kept on the strength of the
+// first three: `#f57c00` measured a passable 6.39:1 against the panel
+// (`PLAN_VIZ_PALETTE.panel`, `#111b2b`) but stayed mid-luminance for a fully
+// saturated warm hue, which is exactly the "clears the floor yet still reads
+// muddy" case the warm-hue guard below exists to catch; `#3949ab` measured only
+// 2.23:1, "low separation from the panel" made concrete. Both are replaced with
+// brighter, more separated values at the same hue family — orange stays orange,
+// indigo stays indigo — plus two further entries (cyan, magenta) so the palette
+// covers the live epic count (7 on pipeline 2, measured 2026-08-01) with no
+// wraparound collision. Purple, teal and pink measured "fine" and are kept
+// verbatim. Every entry, at whatever length this array grows to, is enforced by
+// the 'epic band palette' guard in pipelinePlanLayout.test.js — see that suite
+// for the thresholds and the one-line reason behind each.
+//
+// POSITIONAL, DELIBERATELY IMPERMANENT (req #3219's second half — "decide
+// whether a colour should be STABLE per epic"): this palette answers "what
+// colour is band position N", never "what colour is epic X". Colour is
+// assigned AFTER the bands are sorted into DERIVED-START order (below), so an
+// epic's colour is a function of where it currently sits in that stack — it
+// moves when an earlier epic starts, finishes, or a new one is added ahead of
+// it. That was already true before this requirement (see the "Colour AFTER the
+// sort" comment at the assignment site) and is kept rather than replaced with a
+// stored or hashed per-epic colour, because a hash collides exactly when it
+// matters most: two epics landing on the same slot is the one failure this
+// surface cannot afford, and only a positional cycle over a palette at least as
+// long as the band count can GUARANTEE zero collisions. A stored colour would
+// fix identity at the cost of a schema field and a fallback path for every epic
+// that predates it, for a question ("what colour IS epic X") this surface does
+// not currently ask anywhere — the chip, the legend and the band all read the
+// SAME band's colour, never one epic's colour recalled from a past render. If
+// a future surface needs epic-X-is-always-blue, that is the point to add
+// stored colour; today it would be speculative machinery for a fact nothing
+// reads.
+export const EPIC_PALETTE = [
+    '#7c4dff', // purple — kept, measured fine
+    '#00897b', // teal — kept, measured fine
+    '#c2185b', // pink — kept, measured fine
+    '#ff9152', // orange — replaces #f57c00 (6.39:1, warm-floor fail); 7.75:1
+    '#6979f8', // indigo — replaces #3949ab (2.23:1, "low separation"); 4.68:1
+    '#00b8d4', // cyan — replaces brown's slot; 7.25:1, distinct from teal
+    '#aa00ff', // magenta (hue 280°) — new 7th slot, closest neighbour ΔE 26.4
+               // from purple, entry 0
+];
 
 // ════════════════════════════════════════════════════════════════════════════
 // THE COLOUR LANGUAGE (req #3168, user directives 2026-08-01)
