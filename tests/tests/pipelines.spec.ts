@@ -1332,7 +1332,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(reqScale).toBeVisible();
         });
 
-    // ── PIPE-16: step labels at every level, and the L1/L2/L3/Auto selector ──
+    // ── PIPE-16: what's drawn is gated by level, and the L1/L2/L3/Auto selector ──
 
     test('PIPE-16: the level selector pins what is DRAWN without moving the camera',
         async ({ page }) => {
@@ -1386,25 +1386,28 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(container).toHaveAttribute('data-level', 'mid');
             await expect(chip).not.toContainText('pinned');
 
-            // 4. STEP LABELS DRAW AT EVERY LEVEL, Overview included (user
-            //    directive 2026-08-01). The canvas is a bitmap, so the component
-            //    publishes which label kinds it drew — `data-drawn`, the same
+            // 4. STEP/REQ/TITLE ARE GATED, EACH ON ITS OWN CONDITION (req #3221).
+            //    `data-drawn` only ever enumerates these three kinds — the ruler's
+            //    slot ticks, the batch letters and the epic band names are NOT
+            //    level-gated and draw at every level regardless (see `drawsKind`'s
+            //    `return true` fallback), so this attribute proves the ladder for
+            //    the three kinds it tracks, not "Overview draws nothing" in
+            //    absolute terms. The canvas is a bitmap, so the component
+            //    publishes which of the three it drew — `data-drawn`, the same
             //    device as `data-transform` beside it and for the same reason: a
-            //    screenshot at Overview looks identical whether the labels are
+            //    screenshot at Overview looks identical whether the step label is
             //    there or not unless you already hold the other version, so a
             //    pixel comparison here would prove nothing.
             //
-            //    The ladder itself is asserted whole, because "step at every
-            //    level" is only meaningful next to the kinds that ARE gated.
-            const drawnAt = async (lvl: string) => {
+            //    The ladder itself is asserted whole, because "gated at L1" is
+            //    only meaningful next to the kinds that draw at every level.
+            const drawnAt = async (lvl: string, expected: string, message: string) => {
                 await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
-                return container.getAttribute('data-drawn');
+                await expect(container, message).toHaveAttribute('data-drawn', expected);
             };
-            expect(await drawnAt('1'), 'Overview draws step labels').toBe('step');
-            expect(await drawnAt('2'), 'Plan adds the requirement marks')
-                .toBe('step,req');
-            expect(await drawnAt('3'), 'Detail adds the per-step title slot')
-                .toBe('step,req,title');
+            await drawnAt('1', '', 'Overview draws none of the three gated kinds');
+            await drawnAt('2', 'step,req', 'Plan adds the step name and requirement marks');
+            await drawnAt('3', 'step,req,title', 'Detail adds the per-step title slot');
             // And the plan really has step labels to draw, or the attribute
             // above would be describing an empty set.
             const layout = computePlanLayout(plan.rows, plan.batches,
