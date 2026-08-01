@@ -69,6 +69,12 @@ let epics;
 let features;
 let categories;
 let loading;
+// req #3224 — live orchestration reservations and the machines that name them.
+// Mocked alongside the other three so this file's REST-call assertions stay
+// exact: an unmocked hook would fire two real GETs through the mocked client
+// and land in every `restCalls` comparison below.
+let orchestrationClaims;
+let machines;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -77,6 +83,8 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllFeatures: () => ({ data: features, isLoading: loading.features }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
+        useOrchestrationClaims: () => ({ data: orchestrationClaims }),
+        useMachines: () => ({ data: machines }),
     };
 });
 
@@ -147,6 +155,8 @@ beforeEach(() => {
         { id: 9, title: 'Unordered', description: null, category_fk: 577, closed: 0, sort_order: null, create_ts: '2026-07-31 02:38:14' },
         { id: 7, title: 'Retired', description: null, category_fk: 1, closed: 1, sort_order: 2, create_ts: '2026-07-31 10:43:32' },
     ];
+    orchestrationClaims = [];
+    machines = [{ id: 4, title: 'Mac mini', hostname: 'mac-mini' }];
     features = [
         { id: 10, title: 'f1', epic_fk: 4 },
         { id: 11, title: 'f2', epic_fk: 4 },
@@ -238,6 +248,50 @@ describe('EpicsPage — connection to the features view', () => {
         mount();
         click(node('epic-features-link-9'));
         expect(navigations).toEqual(['/swarm/features?epic=9']);
+    });
+});
+
+// req #3224 — the Darwin UI names the holder of every reserved scope. Here that
+// is the epic's OWN reservation; a whole-plan orchestrator also owns this epic's
+// steps, but knowing which plans an epic is seated in costs three more
+// whole-table reads, so the plan surfaces answer that case and this one answers
+// exactly what it can answer.
+describe('EpicsPage — orchestration holder (req #3224)', () => {
+    it('shows nothing when no reservation covers the epic', () => {
+        mount();
+        // An em-dash, not an empty chip: "nobody is orchestrating this" is a
+        // real answer and it has to be legible as one.
+        expect(node('epic-holder-4')).toBeNull();
+        expect(node('cell-orchestrated_by-4').textContent).toBe('—');
+    });
+
+    it('names the machine and how long it has been held', () => {
+        orchestrationClaims = [{
+            id: 1, pipeline_fk: 2, epic_fk: 4, machine_fk: 4,
+            terminal_pid: 41234, engine_pid: 55012, polls: 12,
+            claimed_at: '2026-08-01 10:00:00',
+            update_ts: new Date(Date.now() - 30_000).toISOString().slice(0, 19).replace('T', ' '),
+        }];
+        mount();
+        const chip = node('epic-holder-4');
+        expect(chip).not.toBeNull();
+        expect(chip.textContent).toContain('Mac mini');
+        // ...and only that epic. A reservation is scoped, not global.
+        expect(node('epic-holder-2')).toBeNull();
+    });
+
+    it('marks a reservation whose orchestrator stopped heartbeating as stale', () => {
+        orchestrationClaims = [{
+            id: 1, pipeline_fk: 2, epic_fk: 4, machine_fk: 4,
+            terminal_pid: 41234, engine_pid: 55012, polls: 12,
+            claimed_at: '2026-08-01 10:00:00',
+            update_ts: '2026-08-01 10:00:00',        // long past the threshold
+        }];
+        mount();
+        // A stale claim is the most interesting row on this surface — it is a
+        // scope blocked by an orchestrator that died — so it is FLAGGED, never
+        // hidden and never shown as live.
+        expect(node('epic-holder-4').textContent).toContain('stale');
     });
 });
 

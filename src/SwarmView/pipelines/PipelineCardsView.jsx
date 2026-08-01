@@ -13,15 +13,17 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from './pipelineViewModel';
+import { claimForPipeline, holderView } from './orchestrationHolder';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
-export default function PipelineCardsView({ pipelines, summaries, machines, onOpen,
-    hiddenStatusCounts = [] }) {
+export default function PipelineCardsView({ pipelines, summaries, machines, claims = [],
+    onOpen, hiddenStatusCounts = [] }) {
     if (!pipelines.length) {
         // "No pipelines yet" is a claim about the DATA, and it is false whenever
         // a status filter is what emptied the view — the page's own accounting
@@ -41,6 +43,8 @@ export default function PipelineCardsView({ pipelines, summaries, machines, onOp
             {pipelines.map((p) => {
                 const s = summaries.get(p.id) || EMPTY_SUMMARY;
                 const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+                // req #3224 — the whole-plan reservation, if one is held.
+                const holder = holderView(claimForPipeline(claims, p.id), machines);
                 return (
                     <Card key={p.id} variant="outlined" data-testid={`pipeline-card-${p.id}`}>
                         <CardActionArea onClick={() => onOpen(p.id)}>
@@ -72,6 +76,21 @@ export default function PipelineCardsView({ pipelines, summaries, machines, onOp
                                           label={machineTitle(p.machine_fk, machines)} />
                                     <Chip size="small" variant="outlined"
                                           label={`${s.total} step${s.total === 1 ? '' : 's'}`} />
+                                    {/* req #3224 — a card says WHO is
+                                        orchestrating this plan and from where,
+                                        so a user can tell it is running on the
+                                        other machine without leaving the page.
+                                        Absent when nobody holds it: an empty
+                                        chip would be a claim, not a blank. */}
+                                    {holder && (
+                                        <Tooltip title={holder.title}>
+                                            <Chip size="small"
+                                                  color={holder.stale ? 'warning' : 'success'}
+                                                  variant={holder.stale ? 'outlined' : 'filled'}
+                                                  label={holder.label}
+                                                  data-testid={`pipeline-card-holder-${p.id}`} />
+                                        </Tooltip>
+                                    )}
                                 </Stack>
 
                                 {/* Progress is the done fraction of a derived state —

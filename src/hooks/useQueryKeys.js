@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -74,6 +74,12 @@ export const pipelineKeys = pipelines.keys;
 export const pipelineStepKeys = pipelineSteps.keys;
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const pipelineStepDepKeys = pipelineStepDeps.keys;
+
+// Req #3224 — the durable orchestration reservation. Its own cache entry rather
+// than a slice of the pipelines one: it is LIVE process state on a separate
+// refresh cadence, and folding it into the plan read would make every plan
+// render depend on it.
+export const orchestrationClaimKeys = orchestrationClaims.keys;
 
 // Req #3117 — the plan page's Cost column, from two more bounded list reads.
 // `sessionCostRollupKeys.all` shares the `['swarm_sessions', creator]` PREFIX

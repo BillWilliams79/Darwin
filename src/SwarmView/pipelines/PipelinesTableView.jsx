@@ -13,11 +13,13 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { formatDateTime } from '../../utils/dateFormat';
 import { pipelineStatusChipProps, PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from './pipelineViewModel';
+import { claimForPipeline, holderView } from './orchestrationHolder';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
@@ -41,19 +43,26 @@ function PipelinesNoRowsOverlay({ hiddenStatusCounts = [] }) {
     );
 }
 
-export default function PipelinesTableView({ pipelines, summaries, machines, timezone, onOpen,
-    hiddenStatusCounts = [] }) {
+export default function PipelinesTableView({ pipelines, summaries, machines, claims = [],
+    timezone, onOpen, hiddenStatusCounts = [] }) {
     const rows = useMemo(() => pipelines.map((p) => {
         const s = summaries.get(p.id) || EMPTY_SUMMARY;
+        // req #3224 — the WHOLE-PLAN reservation only. An epic-scoped one is the
+        // epics page's answer; showing it here would say a plan is orchestrated
+        // when a slice of it is, which is a different and weaker claim.
+        const holder = holderView(claimForPipeline(claims, p.id), machines);
         return {
             ...p,
             machine_label: machineTitle(p.machine_fk, machines),
+            orchestrated_by: holder ? holder.label : '',
+            orchestrated_title: holder ? holder.title : '',
+            orchestrated_stale: holder ? holder.stale : false,
             step_count: s.total,
             done_count: s.done,
             running_count: s.running,
             pending_count: s.pending,
         };
-    }), [pipelines, summaries, machines]);
+    }), [pipelines, summaries, machines, claims]);
 
     const columns = useMemo(() => [
         { field: 'id', headerName: 'ID', width: 80, type: 'number' },
@@ -77,6 +86,27 @@ export default function PipelinesTableView({ pipelines, summaries, machines, tim
             ),
         },
         { field: 'machine_label', headerName: 'Machine', width: 150 },
+        {
+            // req #3224 — WHO is orchestrating this plan, from WHERE. An empty
+            // cell is a real answer ("nobody"), so it renders as an em-dash
+            // rather than a chip nobody can read.
+            field: 'orchestrated_by',
+            headerName: 'Orchestrated by',
+            width: 190,
+            renderCell: (params) => (params.value ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                    <Tooltip title={params.row.orchestrated_title}>
+                        <Chip size="small" label={params.value}
+                              color={params.row.orchestrated_stale ? 'warning' : 'success'}
+                              variant={params.row.orchestrated_stale ? 'outlined' : 'filled'}
+                              data-testid={`pipelines-holder-${params.row.id}`} />
+                    </Tooltip>
+                </Box>
+            ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%',
+                            color: 'text.secondary' }}>—</Box>
+            )),
+        },
         { field: 'step_count', headerName: 'Steps', width: 90, type: 'number' },
         { field: 'done_count', headerName: 'Complete', width: 110, type: 'number' },
         { field: 'running_count', headerName: 'Running', width: 100, type: 'number' },
