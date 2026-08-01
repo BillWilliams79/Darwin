@@ -17,6 +17,13 @@
 // surprise. All four states are asserted; if a later change flips any of them, this
 // file says so.
 //
+// Req #3236 — Epics, Features and Steps now nest as CLOSED-by-default L3 children
+// of Pipelines. That is a second reason a link correct in NAV_LINKS could still be
+// invisible: the toggle matrix below needs the cluster OPEN to see the row at all,
+// so `mount()` defaults `initialPath` to a child route — landing there auto-opens
+// the parent (the same mechanism req #3209 shipped for Sessions) — rather than to
+// '/swarm'. A dedicated test below pins the closed-by-default state itself.
+//
 // The remaining tests pin invariants the move must not break — one row not two, the
 // right row highlighted, present on mobile — rather than the move itself.
 
@@ -61,7 +68,7 @@ function stubDesktop(isDesktop = true) {
     });
 }
 
-function mount({ profile, initialPath = '/swarm' } = {}) {
+function mount({ profile, initialPath = '/swarm/features' } = {}) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -199,5 +206,46 @@ describe('NavBarSidebar — Features nav entry (req #3217)', () => {
         const labels = [...document.body.querySelectorAll('.MuiBottomNavigationAction-root')]
             .map(el => el.textContent);
         expect(labels.filter(l => l.includes('Features'))).toHaveLength(1);
+    });
+});
+
+// Req #3236 — Epics, Features and Steps nest as CLOSED-by-default L3 children of
+// Pipelines. These pin the two behaviors that are new here and that the tests
+// above lean on implicitly by mounting on a child route: the cluster starts
+// closed, and landing directly on ANY of the three children opens it (not just
+// Features, which the rest of this file happens to exercise).
+describe('NavBarSidebar — Pipelines cluster L3 nesting (req #3236)', () => {
+    it('starts the Pipelines cluster closed when landing away from it', () => {
+        mount({ profile: BOTH_GROUPS_ON, initialPath: '/swarm' });
+        expect(document.body.querySelector('a[href="/swarm/pipelines"]')).not.toBeNull();
+        expect(document.body.querySelector('a[href="/swarm/epics"]')).toBeNull();
+        expect(featureLinks()).toHaveLength(0);
+        expect(document.body.querySelector('a[href="/swarm/steps"]')).toBeNull();
+    });
+
+    it.each([
+        ['/swarm/epics'],
+        ['/swarm/features'],
+        ['/swarm/steps'],
+    ])('auto-opens the whole cluster landing directly on %s', (childPath) => {
+        mount({ profile: BOTH_GROUPS_ON, initialPath: childPath });
+        expect(document.body.querySelector('a[href="/swarm/epics"]')).not.toBeNull();
+        expect(featureLinks()).toHaveLength(1);
+        expect(document.body.querySelector('a[href="/swarm/steps"]')).not.toBeNull();
+    });
+
+    it('renders the icon-only collapsed rail with children flattened, same as Sessions', () => {
+        // Icon-only mode has no room for a +/- toggle, so children render flat
+        // right after their parent regardless of expanded state (the same
+        // behavior Sessions already relies on — no second mechanism for this
+        // cluster).
+        mount({ profile: BOTH_GROUPS_ON, initialPath: '/swarm' });
+        act(() => {
+            document.body.querySelector('[data-testid="navbar-collapse-toggle"]').click();
+        });
+        expect(document.body.querySelector('a[href="/swarm/epics"]')).not.toBeNull();
+        expect(featureLinks()).toHaveLength(1);
+        expect(document.body.querySelector('a[href="/swarm/steps"]')).not.toBeNull();
+        expect(document.body.querySelector(`[data-testid^="nav-expand-toggle-"]`)).toBeNull();
     });
 });
