@@ -53,7 +53,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllEpics, useAllFeatures, useAllCategories, ALL_ROWS } from '../hooks/useDataQueries';
+import { useAllEpics, useAllFeatures, useAllCategories, useMachines, useOrchestrationClaims, ALL_ROWS } from '../hooks/useDataQueries';
+import { claimsForEpic, holderView } from '../SwarmView/pipelines/orchestrationHolder';
 import { epicKeys, featureKeys, sessionKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
@@ -136,6 +137,13 @@ export default function EpicsPage() {
         useAllFeatures(creatorFk, { closed: ALL_ROWS });
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
+    // req #3224 — which epics are being orchestrated, from where. Deliberately
+    // NOT in `isLoading`: it feeds an OPTIONAL badge whose absence means "not
+    // orchestrated", which is the right reading while it is in flight too.
+    const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
+    // machines are what turn a machine_fk into a name; the page already has none
+    // of its own, so this is the one read the badge adds beyond the claims.
+    const { data: machines = [] } = useMachines(creatorFk);
 
     // Every read that feeds a NUMBER OR A LABEL gates the spinner (the
     // PipelinesPage rule). The three reads resolve independently: gating on
@@ -206,13 +214,30 @@ export default function EpicsPage() {
         // sort_order to the TOP in ascending order, which puts brand-new,
         // unordered epics above the ordered plan.
         return [...visible]
-            .map(e => ({ ...e, feature_count: featureCountByEpic[e.id] || 0 }))
+            .map(e => {
+                // THE EPIC'S OWN reservation only. A WHOLE-PLAN orchestrator
+                // also owns this epic's steps, but knowing which plans an epic
+                // is seated in means walking epic -> features -> requirements ->
+                // step links, and that is three more whole-table reads for a
+                // badge. The plan surfaces answer the whole-plan case directly,
+                // so this page answers the question it can answer exactly —
+                // hence the empty `pipelineIds`.
+                const holder = holderView(claimsForEpic(orchestrationClaims, e.id, [])[0],
+                                          machines);
+                return {
+                    ...e,
+                    feature_count: featureCountByEpic[e.id] || 0,
+                    orchestrated_by: holder ? holder.label : '',
+                    orchestrated_title: holder ? holder.title : '',
+                    orchestrated_stale: holder ? holder.stale : false,
+                };
+            })
             .sort((a, b) => {
                 const ao = a.sort_order == null ? Infinity : a.sort_order;
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [epics, closedFilter, featureCountByEpic]);
+    }, [epics, closedFilter, featureCountByEpic, orchestrationClaims, machines]);
 
     const invalidateEpics = () =>
         queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
@@ -384,6 +409,22 @@ export default function EpicsPage() {
                     {params.value}
                 </Box>
             ),
+        },
+        {
+            // req #3224 — is this epic being SWARM-ORCHESTRATED right now, and
+            // from which machine. An empty cell is a real answer, so it renders
+            // as an em-dash rather than an unreadable empty chip.
+            field: 'orchestrated_by', headerName: 'Orchestrated by', width: 180,
+            renderCell: (params) => (params.value ? (
+                <Tooltip title={params.row.orchestrated_title}>
+                    <Chip size="small" label={params.value}
+                          color={params.row.orchestrated_stale ? 'warning' : 'success'}
+                          variant={params.row.orchestrated_stale ? 'outlined' : 'filled'}
+                          data-testid={`epic-holder-${params.row.id}`} />
+                </Tooltip>
+            ) : (
+                <Box sx={{ color: 'text.secondary' }}>—</Box>
+            )),
         },
         {
             field: 'sort_order', headerName: 'Order', width: 90, type: 'number',
