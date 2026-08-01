@@ -16,23 +16,22 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
 import { pipelineStatusChipProps } from './pipelineChipStyles';
-import { machineTitle } from './pipelineViewModel';
+import { machineTitle, pipelinesEmptyMessage } from './pipelineViewModel';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
 export default function PipelineCardsView({ pipelines, summaries, machines, onOpen,
-    filtered = false }) {
+    hiddenStatusCounts = [] }) {
     if (!pipelines.length) {
         // "No pipelines yet" is a claim about the DATA, and it is false whenever
         // a status filter is what emptied the view — the page's own accounting
         // line says "0 of 2" two inches above it. Distinguish the two; an empty
-        // result the user caused should say so, and say how to undo it.
+        // result the user caused should say so, and name WHICH statuses it hid
+        // (req #3220) rather than pointing at a since-removed "All" chip.
         return (
             <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
                         data-testid="pipelines-cards-empty">
-                {filtered
-                    ? 'No pipelines match this status filter — choose All to see them.'
-                    : 'No pipelines yet.'}
+                {pipelinesEmptyMessage(hiddenStatusCounts)}
             </Typography>
         );
     }
