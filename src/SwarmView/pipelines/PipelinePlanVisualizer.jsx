@@ -87,6 +87,7 @@ import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 // never fights the animation.
 import 'd3-transition';
 
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -233,7 +234,7 @@ function KeyGroup({ title, children, first = false }) {
 }
 
 export default function PipelinePlanVisualizer({
-    plan, model, pipeline, timezone, onStepFocus,
+    plan, model, pipeline, timezone, onStepFocus, focusEpicId,
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
@@ -840,12 +841,17 @@ export default function PipelinePlanVisualizer({
     //
     // Stores NOTHING. `band` comes from the layout the caller is already
     // rendering, the transform goes to d3, and the callback returns.
+    // Returns whether it actually moved the camera — false on every guard above
+    // (no container/behaviour yet, or a band that can't be fit). The req #3235
+    // mount-time effect below needs that signal: without it, a transient
+    // zero-size container would be recorded as "already focused" and the deep
+    // link would silently never apply once the canvas actually became ready.
     const focusEpic = useCallback((band) => {
         const el = containerEl;
         const zb = zoomRef.current;
-        if (!el || !zb) return;
+        if (!el || !zb) return false;
         const tr = epicFocusTransform(layout, band, size, kDefault);
-        if (!tr) return;
+        if (!tr) return false;
         // The world is about to slide out from under any open datacard, exactly
         // as it does on a pan.
         setCard(null);
@@ -860,7 +866,61 @@ export default function PipelinePlanVisualizer({
                 if (focusSeqRef.current === seq) focusingRef.current = false;
             })
             .call(zb.transform, zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
+        return true;
     }, [containerEl, layout, size, kDefault]);
+
+    // Req #3235 — the mount-time end of the `?epic=` deep link: land on the
+    // SAME centered/zoomed view a band-header click produces, through the
+    // SAME zoom behaviour (`focusEpic`, never a direct transform write — the
+    // behaviour owns its own transform, and setting state alone would snap
+    // back on the next wheel or drag).
+    //
+    // If the plan is still loading, this component has not mounted yet
+    // (PipelineDetail's `isLoading` gate) — nothing here can fire against an
+    // empty canvas. What CAN still be empty at mount is the container's own
+    // size (the ResizeObserver hasn't measured yet) and the zoom behaviour
+    // (attached by the effect above, in the same commit but strictly earlier
+    // in hook order); `focusEpic`'s own guards return false for both, so this
+    // effect simply retries on the next render that changes one of its
+    // dependencies rather than marking a no-op "applied".
+    //
+    // `epicFocusAppliedRef` KEYS ON THE MEASURED SIZE TOO, not just the
+    // (pipeline, epic) pair (code review finding) — the panel is sized TWICE
+    // at mount (the `calc(100vh - 260px)` fallback in the JSX below, then
+    // again once `measureAvailH` resolves), and that second resize re-runs
+    // the `resetView` effect above (its deps include `size.h`), whose
+    // cleanup INTERRUPTS an in-flight focus transition and snaps the camera
+    // back to the default view — after which this effect, unkeyed on size,
+    // would see its own stale "applied" mark and never retry. Folding the
+    // measured size into the key means that second resize (and any later
+    // real one) invalidates the earlier mark and reapplies the focus, landing
+    // AFTER `resetView` in the same commit because both effects react to the
+    // same size change and this one is declared later in hook order. A
+    // genuine later browser resize reapplying the focus for the same reason
+    // matches `resetView`'s own existing contract, which already discards
+    // whatever view the reader was on whenever the container resizes.
+    const epicFocusAppliedRef = useRef(null);
+    useEffect(() => {
+        if (focusEpicId == null) return;
+        const key = `${pipeline?.id}:${focusEpicId}:${size.w}x${size.h}`;
+        if (epicFocusAppliedRef.current === key) return;
+        const band = layout.bands.find((b) => b.epicId === focusEpicId);
+        if (!band) return;
+        if (focusEpic(band)) epicFocusAppliedRef.current = key;
+    }, [focusEpicId, pipeline?.id, size, layout, focusEpic]);
+
+    // Req #3235 code review — the resolved pipeline can legitimately hold no
+    // band for this epic: the resolver answers "which pipeline hosts any of
+    // this epic's requirements", but a band is keyed on each STEP's DOMINANT
+    // epic (design rule 10), so an epic that never dominates a step of the
+    // resolved pipeline has no band here even though the resolution was
+    // correct. By the time this component has mounted, PipelineDetail's
+    // `isLoading` gate has already cleared and `layout` is final — so a miss
+    // here is a terminal fact, not a still-loading one, and needs to say so
+    // rather than silently landing on the default view (the dead-link outcome
+    // the requirement text rules out, arrived at from the other direction).
+    const focusEpicNotOnPlan = focusEpicId != null
+        && !layout.bands.some((b) => b.epicId === focusEpicId);
 
     if (!rows.length) {
         return (
@@ -1227,6 +1287,16 @@ export default function PipelinePlanVisualizer({
     return (
         <Box>
             <OrderViolationsAlert plan={plan} />
+
+            {/* Req #3235 — the `?epic=` deep link named an epic no band on THIS
+                plan carries (see focusEpicNotOnPlan above). Saying so beats a
+                default view with no explanation for why nothing focused. */}
+            {focusEpicNotOnPlan && (
+                <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
+                       data-testid="pipeline-viz-epic-not-on-plan">
+                    That epic isn&apos;t shown on this plan — none of its steps are here.
+                </Alert>
+            )}
 
             {/* The layout toggles moved into the page header row (req #3119).
                 What stays with the canvas is the LEGEND — it describes the marks
