@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllEpics } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -95,6 +95,22 @@ const SwarmSessionDetail = () => {
         const r = allRequirements.find(req => String(req.id) === String(requirementId));
         return r ? r.title : null;
     }, [requirementId, allRequirements]);
+
+    // req #3186 — orchestration attribution. The ids are COLUMNS on the session
+    // row (stamped once at link time), so this resolves titles only, from two
+    // page-level list reads that are cached and shared with the pipelines pages.
+    // Deriving the ids instead would cost six reads and a client-side join per
+    // session, which is the fan-out design rule 5 forbids.
+    const { data: pipelines = [] } = useAllPipelines(profile?.userName);
+    const { data: epics = [] } = useAllEpics(profile?.userName);
+    const pipelineTitle = React.useMemo(() => {
+        if (session?.pipeline_fk == null) return null;
+        return pipelines.find(p => p.id === session.pipeline_fk)?.title ?? null;
+    }, [pipelines, session?.pipeline_fk]);
+    const epicTitle = React.useMemo(() => {
+        if (session?.epic_fk == null) return null;
+        return epics.find(e => e.id === session.epic_fk)?.title ?? null;
+    }, [epics, session?.epic_fk]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -266,6 +282,49 @@ const SwarmSessionDetail = () => {
                  right-column companion, so they span the full width and don't wrap in a
                  narrow column. Dev Servers rides along as another full-width detail. --- */}
             <Box sx={{ mb: 3 }}>
+                {/* req #3186 — which pipeline / which epic this session was
+                     advancing. Full-width rather than in the aligned two-column
+                     block above so the four-row Requirement↔Started alignment
+                     that block documents stays intact. Rendered only when
+                     stamped: NULL is a real answer (work outside any plan), not
+                     a missing value, and an em-dash row for it would be noise on
+                     every ad-hoc session. */}
+                {session.pipeline_fk != null &&
+                    <Box sx={{ mb: 1 }} data-testid="session-pipeline">
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Pipeline</Typography>
+                        <Typography variant="body2" component="div">
+                            <Chip label={`#${session.pipeline_fk}`} size="small" variant="outlined"
+                                  onClick={() => navigate(`/swarm/pipeline/${session.pipeline_fk}`)}
+                                  sx={{ cursor: 'pointer', mr: 1 }}
+                                  data-testid="session-pipeline-chip" />
+                            {pipelineTitle &&
+                                <Typography component="span" variant="body2">
+                                    — {pipelineTitle}
+                                </Typography>
+                            }
+                        </Typography>
+                    </Box>
+                }
+
+                {session.epic_fk != null &&
+                    <Box sx={{ mb: 1 }} data-testid="session-epic">
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Epic</Typography>
+                        <Typography variant="body2" component="div">
+                            {/* No epic detail route exists, so this is a label
+                                 chip and not a link — a dead click is worse than
+                                 an honest static chip. */}
+                            <Chip label={`#${session.epic_fk}`} size="small" variant="outlined"
+                                  sx={{ mr: 1 }}
+                                  data-testid="session-epic-chip" />
+                            {epicTitle &&
+                                <Typography component="span" variant="body2">
+                                    — {epicTitle}
+                                </Typography>
+                            }
+                        </Typography>
+                    </Box>
+                }
+
                 {session.task_name &&
                     <Box sx={{ mb: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Task Name</Typography>

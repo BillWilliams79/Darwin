@@ -78,9 +78,18 @@ export const devServers = createEntityQueries({
 // `tokens_at_last_transition` baseline is intentionally OMITTED (engine-only,
 // never read by the UI). The detail view fetches the full single row, so it gets
 // phase_tokens regardless of this projection.
+// ---------------------------------------------------------------------------
+// Req #3186 — `pipeline_fk` / `epic_fk` (orchestration attribution) join the
+// projection. Two NULL-able INTs, and their whole purpose is to let a page
+// showing MANY sessions label each one's pipeline/epic from the row it already
+// fetched; leaving them out would force the six-read walk the columns exist to
+// remove. The gateway validates every `fields=` name against the live table and
+// 400s the WHOLE read on an unknown one, so this projection may only widen once
+// migration 20260801020944 has been applied to the database this build talks to.
+// ---------------------------------------------------------------------------
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
-    'worktree_path,machine_fk,started_at,completed_at,last_transition_at,' +
+    'worktree_path,machine_fk,pipeline_fk,epic_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';

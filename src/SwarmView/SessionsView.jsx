@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime, formatDate } from '../utils/dateFormat';
@@ -82,6 +82,26 @@ const getSessionColumns = (navigate, timezone) => [
         renderCell: (params) => renderRequirementCell(params.value, navigate),
     },
     { field: 'title',        headerName: 'Title',       width: 250 },
+    {
+        // req #3186 — which pipeline this session was advancing. `pipeline_fk`
+        // is a COLUMN on the session row, so this column costs the grid nothing;
+        // the title is resolved client-side from the already-cached pipelines
+        // list, exactly as Machine resolves its name. NULL is a real answer
+        // (work outside any plan) and renders as an em-dash.
+        field: 'pipeline_title',
+        headerName: 'Pipeline',
+        width: 150,
+        renderCell: (params) => params.row.pipeline_fk != null
+            ? <Chip label={params.value || `#${params.row.pipeline_fk}`} size="small"
+                    variant="outlined"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/swarm/pipeline/${params.row.pipeline_fk}`);
+                    }}
+                    sx={{ cursor: 'pointer' }}
+                    data-testid={`session-pipeline-${params.row.id}`} />
+            : '—',
+    },
     {
         // req #2943 — which machine ran this session. Name resolved client-side
         // from the machines query cache; NULL / unresolved renders em-dash.
@@ -253,6 +273,16 @@ const SessionsView = () => {
     const { data: devServersData } = useDevServers(profile?.userName);
     const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
     const { data: machinesData } = useMachines(profile?.userName);
+    // req #3186 — pipeline id → title for the Pipeline column. ONE bounded list
+    // read for the whole grid, shared with the /swarm/pipelines pages via the
+    // same query cache; the per-row id is already on the session.
+    const { data: pipelinesData } = useAllPipelines(profile?.userName);
+
+    const pipelineTitleById = useMemo(() => {
+        const map = {};
+        (pipelinesData || []).forEach(p => { map[p.id] = p.title; });
+        return map;
+    }, [pipelinesData]);
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -326,6 +356,7 @@ const SessionsView = () => {
             dev_server_port: devServerMap[s.id] || null,
             swarm_start_fk: swarmStartBySession[s.id] || null,
             machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
+            pipeline_title: s.pipeline_fk != null ? (pipelineTitleById[s.pipeline_fk] ?? null) : null,
           }))
         : null;
 
