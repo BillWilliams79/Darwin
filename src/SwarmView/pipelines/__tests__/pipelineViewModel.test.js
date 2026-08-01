@@ -13,6 +13,8 @@ import {
     planRenderRows,
     pipelineSummary,
     pipelineSummaries,
+    hiddenPipelineStatusCounts,
+    pipelinesEmptyMessage,
     machineTitle,
     rowMachineLabel,
     batchMachineLabel,
@@ -334,6 +336,63 @@ describe('pipelineSummary / pipelineSummaries', () => {
 
     it('handles no pipelines at all', () => {
         expect(pipelineSummaries().size).toBe(0);
+    });
+});
+
+describe('hiddenPipelineStatusCounts — req #3220 empty-state naming', () => {
+    const PIPES = [
+        { id: 1, pipeline_status: 'active' },
+        { id: 2, pipeline_status: 'active' },
+        { id: 3, pipeline_status: 'draft' },
+        { id: 4, pipeline_status: 'paused' },
+        { id: 5, pipeline_status: 'completed' },
+        { id: 6, pipeline_status: 'completed' },
+    ];
+
+    it('names only hidden statuses that actually have matching pipelines', () => {
+        expect(hiddenPipelineStatusCounts(PIPES, ['active', 'draft', 'paused']))
+            .toEqual([{ status: 'completed', count: 2 }]);
+    });
+
+    it('returns nothing when every status is selected', () => {
+        expect(hiddenPipelineStatusCounts(PIPES, [
+            'draft', 'active', 'paused', 'completed', 'aborted',
+        ])).toEqual([]);
+    });
+
+    it('omits a hidden status with zero matching pipelines — nothing to explain', () => {
+        // 'aborted' is excluded from the filter but no pipeline is aborted, so
+        // naming it would not answer "why is this empty".
+        expect(hiddenPipelineStatusCounts(PIPES, ['active', 'draft', 'paused', 'completed']))
+            .toEqual([]);
+    });
+
+    it('orders results by PIPELINE_STATUS_VALUES, not by filter or input order', () => {
+        // completed sorts before aborted in the lifecycle order even though the
+        // fixture lists an aborted-heavy set first.
+        const pipes = [
+            { id: 1, pipeline_status: 'aborted' },
+            { id: 2, pipeline_status: 'completed' },
+        ];
+        expect(hiddenPipelineStatusCounts(pipes, []))
+            .toEqual([{ status: 'completed', count: 1 }, { status: 'aborted', count: 1 }]);
+    });
+
+    it('handles no pipelines and no filter', () => {
+        expect(hiddenPipelineStatusCounts(undefined, undefined)).toEqual([]);
+    });
+});
+
+describe('pipelinesEmptyMessage — req #3220', () => {
+    it('says "no pipelines yet" when nothing is hidden', () => {
+        expect(pipelinesEmptyMessage([])).toBe('No pipelines yet.');
+    });
+
+    it('names hidden statuses and their counts', () => {
+        expect(pipelinesEmptyMessage([
+            { status: 'paused', count: 1 },
+            { status: 'completed', count: 2 },
+        ])).toBe('No pipelines match this filter — hidden: paused (1), completed (2).');
     });
 });
 
