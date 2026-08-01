@@ -71,6 +71,31 @@ test.describe('Navigation', () => {
     await page.getByRole('menuitem', { name: /categories/i }).click();
     await expect(page).toHaveURL(/\/categoryedit/);
 
+    // Scoped to the sidebar so a page-body link of the same name can't satisfy
+    // an assertion below — used by both the Pipelines and Sessions L3 checks.
+    const navbar = page.locator('.app-navbar');
+
+    // Navigate to Pipelines
+    await page.getByRole('link', { name: /pipelines/i }).click();
+    await expect(page).toHaveURL(/\/swarm\/pipelines/);
+
+    // Req #3236 — Epics, Features and Steps nest under Pipelines the same way
+    // Sessions' L3s nest under it (req #3209): hidden until the +/- is clicked.
+    // Assert absent first so a regression that renders them unconditionally
+    // still fails here.
+    const epicsLink = navbar.getByRole('link', { name: /^epics$/i });
+    await expect(epicsLink).toHaveCount(0);
+    await page.getByTestId('nav-expand-toggle-swarm-pipelines').click();
+    // Wait explicitly rather than leaning on Playwright's actionability check to
+    // ride out MUI's Collapse timeout="auto" animation.
+    await expect(epicsLink).toHaveCount(1);
+    await epicsLink.click();
+    await expect(page).toHaveURL(/\/swarm\/epics/);
+
+    // Collapsing hides them again — the toggle is not one-way.
+    await page.getByTestId('nav-expand-toggle-swarm-pipelines').click();
+    await expect(epicsLink).toHaveCount(0);
+
     // Navigate to Sessions
     await page.getByRole('link', { name: /sessions/i }).click();
     await expect(page).toHaveURL(/\/swarm\/sessions/);
@@ -78,8 +103,6 @@ test.describe('Navigation', () => {
     // Req #3209 — Sessions is an expandable L2: its L3s (Starts / Completes /
     // Undos) are hidden until the +/- is clicked. Assert they are absent first,
     // so a regression that renders them unconditionally still fails here.
-    // Scoped to the sidebar so a page-body link of the same name can't satisfy it.
-    const navbar = page.locator('.app-navbar');
     const startsLink = navbar.getByRole('link', { name: /^starts$/i });
     await expect(startsLink).toHaveCount(0);
     await page.getByTestId('nav-expand-toggle-swarm-sessions').click();

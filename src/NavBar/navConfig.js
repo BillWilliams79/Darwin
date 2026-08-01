@@ -69,44 +69,24 @@ export const NAV_LINKS = [
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
     { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
-    // Req #3114 — Swarm Orchestration: durable multi-requirement execution plans.
-    // Sits directly under Requirements because a pipeline is the layer ABOVE them
-    // (Epic > Feature > Story, sequenced into steps), and above Sessions because
-    // plan views carry no session data at all (req #3080 design rule 9).
-    { path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm' },
-    // Req #3139 — the Epics editor. An L2 SIBLING of Pipelines, not a child of
-    // it: an epic is not a lifecycle record OF a pipeline the way Starts are of
-    // a Session (req #3209's nesting rule), it is the tier the plan is composed
-    // FROM (design rule 10 walks requirement -> feature -> epic for a step's
-    // label). It sits directly under Pipelines because that is where the plan
-    // hierarchy is read from, and above Sessions for the same reason Pipelines
-    // is — plan views carry no session data at all (req #3080 design rule 9).
-    { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
-    // Req #3217 — the Features editor, the last page of feature 37 "Plan Editors".
-    // The page itself already existed (/swarm/features, req #2380); what it lacked
-    // was a formal entry. It was filed under SWARM VALIDATE, a group gated behind
-    // `app_swarm_validate`, which ships DISABLED — so of the three tiers of Epic >
-    // Feature > Story, the middle one was the only one whose nav entry sat outside
-    // the plan group, behind a toggle a user had to go find before the page existed
-    // for them. MOVED here, never duplicated: two rows for one path would both
-    // light up as active and appear twice in the mobile bottom nav (the
-    // no-duplicate-paths invariant in navConfig.test.js pins it).
-    //
-    // Between Epics and Steps because the cluster reads top-down as the plan
-    // hierarchy — Epic > Feature (design rule 10 walks requirement → feature →
-    // epic for a step's label) — and feature 37 enumerates its own pages in that
-    // order. Steps therefore moves to Pipelines + 3; Epics keeps the Pipelines + 1
-    // slot #3139 pinned. FactCheckIcon is deliberately kept: it is the icon this
-    // page has always carried, and the entry moving is not the page changing.
-    { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
-    // Req #3140 — the Steps editor, the second page of feature 37 "Plan Editors"
-    // to ship. A SIBLING for the same reason Epics is: req #3209's nesting is for
-    // lifecycle records OF a thing, and a step is a MEMBER of a plan, not a record
-    // about one. It sits after Epics rather than displacing it because the cluster
-    // reads top-down as the plan itself (Pipelines) and then what it is composed
-    // of — and because #3139 pinned Epics at Pipelines + 1.
-    { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
-    // Req #3209 — Sessions is the first L2 item with L3 children. Starts,
+    // Req #3236 — Epics, Features and Steps are the plan's own entities (Epic >
+    // Feature > Step, sequenced into a pipeline's steps — design rule 10 walks
+    // that chain for a step's label), so they nest as L3 children of Pipelines
+    // rather than standing beside it as L2 siblings. Reuses the collapsible L3
+    // mechanism req #3209 shipped for Sessions verbatim — no second mechanism.
+    // Order is hierarchy order (Epic, then Feature, then Step), not the order
+    // the pages happened to ship in (#3139 Epics, #3140 Steps, #3217 Features).
+    // FactCheckIcon/LayersIcon/LinearScaleIcon are unchanged: the entries moved,
+    // not the pages, so each keeps the icon it always carried.
+    {
+        path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm',
+        children: [
+            { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
+            { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
+            { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
+        ],
+    },
+    // Req #3209 — Sessions is an L2 item with L3 children. Starts,
     // Completes and Undos are lifecycle records OF a session, not peers of it,
     // so they nest underneath rather than sitting as siblings. They keep their
     // own routes; only their position in the nav tree changed.

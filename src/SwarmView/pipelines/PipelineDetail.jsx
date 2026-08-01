@@ -75,6 +75,7 @@ import {
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { claimForPipeline, holderView } from './orchestrationHolder';
 import { readFocusStepParam } from './pipelineStepLink';
+import { readFocusEpicParam } from './pipelineEpicLink';
 import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_REQ_VIEW, DEFAULT_STEP_WIDTH,
@@ -371,23 +372,43 @@ export default function PipelineDetail() {
     // highlights that row. `pipelineStepLink.js` owns both halves of the
     // contract so the writer and this reader cannot drift on the key.
     const linkStepId = readFocusStepParam(searchParams);
+    // ── `?epic=` makes ONE EPIC'S LOCATION addressable (req #3235) ───────────
+    // The receiving end of the requirement page's epic-box "view on plan" link.
+    // An epic band only exists in the visualizer, so a named epic FORCES the
+    // Plan mode the same way a named step forces the Table — but a `?step=`
+    // is more specific than a `?epic=` (a step names one row; an epic is a
+    // whole band a step already belongs to), so if a link somehow carried
+    // both, the step wins. `pipelineEpicLink.js` owns both halves of this
+    // contract, same split as the step link.
+    const linkEpicId = readFocusEpicParam(searchParams);
     // A named step FORCES the table, overriding `?mode=` when the two disagree.
     // Only the table consumes `focusStepId` — the visualizer has beads, not rows,
     // and ignores the prop entirely — so honoring `?mode=plan&step=7` as written
     // would land the reader on a plan with nothing highlighted and nothing to say
     // why. Naming a row is the more specific request, so it wins.
-    const linkView = linkStepId != null ? 'table' : linkMode;
+    const linkView = linkStepId != null ? 'table' : (linkEpicId != null ? 'plan' : linkMode);
 
     const [focusStepId, setFocusStepId] = useState(linkStepId);
+    // Req #3235 code review — `?epic=` needs the SAME transient-override
+    // treatment as `?step=`, not the raw searchParams value passed straight
+    // through: without a state copy, a manual mode pick can never clear it
+    // (nothing owns it to clear), so picking Table then Plan again — or
+    // navigating in-place from one `?epic=` link to another, which
+    // `pipelineId`'s own comment below notes this component survives without
+    // remounting — would keep re-focusing (or silently drop) a link the
+    // reader already left behind.
+    const [focusEpicId, setFocusEpicId] = useState(linkEpicId);
     const [modeOverride, setModeOverride] = useState(linkView);
-    // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, or a
-    // different plan — and at no other time, so a manual pick below is never
-    // resurrected by a re-render. A link with no `?step=` clears the focus, which
-    // is what keeps a stale highlight from surviving an unrelated navigation.
+    // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, a new
+    // `?epic=`, or a different plan — and at no other time, so a manual pick
+    // below is never resurrected by a re-render. A link with no `?step=`/
+    // `?epic=` clears the focus, which is what keeps a stale highlight (or a
+    // stale camera focus) from surviving an unrelated navigation.
     useEffect(() => {
         setModeOverride(linkView);
         setFocusStepId(linkStepId);
-    }, [linkView, linkStepId, pipelineId]);
+        setFocusEpicId(linkEpicId);
+    }, [linkView, linkStepId, linkEpicId, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -395,6 +416,7 @@ export default function PipelineDetail() {
     const handleModeChange = useCallback((_e, v) => {
         if (v == null) return;
         setFocusStepId(null);
+        setFocusEpicId(null);
         setModeOverride(null);
         setMode(v);
     }, [setMode]);
@@ -815,6 +837,7 @@ export default function PipelineDetail() {
                 24px instead of leaving a gap. */}
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId} onStepFocus={onStepFocus}
+                             focusEpicId={focusEpicId}
                              costError={!!costError}
                              showCost={showCost}
                              reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
