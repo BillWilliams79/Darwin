@@ -1,14 +1,15 @@
-import React, { useContext, useState, useMemo, useEffect } from 'react';
+import React, { useContext, useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
-    NAV_GROUPS, NAV_LINKS, PROFILE_LINK,
+    NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
+    loadExpandedItems, persistExpandedItems, toggleItemExpanded,
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
@@ -34,6 +35,11 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+// Req #3209 — boxed +/- marks an ITEM that expands. Deliberately not the
+// ExpandLess/ExpandMore chevrons above: those already mean "group header", and
+// reusing them would make the two nav levels indistinguishable at a glance.
+import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined';
+import IndeterminateCheckBoxOutlinedIcon from '@mui/icons-material/IndeterminateCheckBoxOutlined';
 
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
@@ -65,6 +71,17 @@ const NavBarSidebar = () => {
     }, [collapsedGroups]);
     const toggleGroup = (id) => {
         setCollapsedGroups((prev) => toggleGroupCollapsed(prev, id));
+    };
+
+    // Per-item expanded state (req #3209). An L2 nav item that declares
+    // `children` starts CLOSED and reveals its L3s when the +/- is clicked.
+    // Same persistence shape as the group map, separate storage key.
+    const [expandedItems, setExpandedItems] = useState(loadExpandedItems);
+    useEffect(() => {
+        persistExpandedItems(expandedItems);
+    }, [expandedItems]);
+    const toggleItem = (path) => {
+        setExpandedItems((prev) => toggleItemExpanded(prev, path));
     };
 
     // Dev-only: surface this dev server's terminal_number in the sidebar InfoBlock.
@@ -107,11 +124,17 @@ const NavBarSidebar = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [profile]
     );
+    // The nav TREE: top-level items only, each possibly carrying `children`.
+    // A child is visible exactly when its parent is, so filtering the top level
+    // is sufficient (req #3209).
     const visibleLinks = useMemo(() =>
         NAV_LINKS.filter(l => isGroupEnabled(l.group)),
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [profile]
     );
+    // The same links FLATTENED — used wherever every reachable route must
+    // appear in one sequence (mobile bottom nav, active-index lookup).
+    const flatVisibleLinks = useMemo(() => flattenNavLinks(visibleLinks), [visibleLinks]);
 
     const isActive = (path) => {
         // Group-index links (/swarm, /agents) own sub-routes that share their
@@ -122,6 +145,31 @@ const NavBarSidebar = () => {
         return location.pathname.startsWith(path);
     };
 
+    // Landing on an L3 route (a bookmark, a redirect, a page link) opens its
+    // parent once, so the active item is never invisible. Done as a state write
+    // rather than a derived force-open so the +/- stays user-controlled
+    // afterwards — closing the parent while sitting on a child page is a
+    // legitimate thing to want.
+    //
+    // The trigger is ARRIVAL in a subtree, not every pathname change inside it.
+    // Detail routes like /swarm/swarm-starts/:id are ordinary navigation (click
+    // a row in the Starts grid), and keying purely on pathname would re-open a
+    // parent the user had just deliberately closed. The ref remembers which
+    // parent was last auto-opened; re-entering after leaving opens it again.
+    const autoOpenedParentRef = useRef(null);
+    useEffect(() => {
+        const parent = NAV_LINKS.find(l =>
+            l.children?.some(c => location.pathname.startsWith(c.path))
+        );
+        const parentPath = parent?.path ?? null;
+        if (autoOpenedParentRef.current === parentPath) return;
+        autoOpenedParentRef.current = parentPath;
+        if (!parentPath) return;
+        // Returning `prev` unchanged when the flag is already set keeps the
+        // persist effect from re-firing (req #3209).
+        setExpandedItems(prev => (prev[parentPath] ? prev : { ...prev, [parentPath]: true }));
+    }, [location.pathname]);
+
     const handleBikeClick = () => setProfileDialogOpen(true);
     const handleProfileDialogClose = () => setProfileDialogOpen(false);
 
@@ -129,7 +177,9 @@ const NavBarSidebar = () => {
         <ProfileDialog open={profileDialogOpen} onClose={handleProfileDialogClose} />
     );
 
-    const renderNavItem = (link, showText) => {
+    // `indent` shifts an L3 child in under its parent; `reserveRight` leaves
+    // room for the absolutely-positioned +/- toggle on a parent row (req #3209).
+    const renderNavItem = (link, showText, { indent = false, reserveRight = false } = {}) => {
         const Icon = link.icon;
         const active = isActive(link.path);
         // Dev Servers greys out when its (ephemeral) table is empty — visual only,
@@ -144,7 +194,8 @@ const NavBarSidebar = () => {
                     bgcolor: active ? BG_ACTIVE : 'transparent',
                     borderRight: active ? `3px solid ${ACCENT}` : '3px solid transparent',
                     py: 0.6,
-                    px: showText ? 1.5 : 1,
+                    pl: showText ? (indent ? 3.5 : 1.5) : 1,
+                    pr: showText ? (reserveRight ? 4 : 1.5) : 1,
                     minHeight: 36,
                     opacity: greyed ? 0.4 : 1,
                     justifyContent: showText ? 'initial' : 'center',
@@ -174,6 +225,81 @@ const NavBarSidebar = () => {
             <Tooltip key={link.path} title={link.label} placement="right">
                 {button}
             </Tooltip>
+        );
+    };
+
+    // Render one L2 item, plus its L3 children when it has any (req #3209).
+    //
+    // Icon-only mode has no room for a label, let alone a toggle, so children
+    // render flat right after the parent — the same way group headers vanish
+    // and their links flatten when the sidebar collapses. Every route stays
+    // one click away in both modes.
+    const renderNavTreeItem = (link, showText) => {
+        const children = link.children ?? [];
+        if (!children.length) return renderNavItem(link, showText);
+        if (!showText) {
+            return (
+                <React.Fragment key={link.path}>
+                    {renderNavItem(link, showText)}
+                    {children.map(child => renderNavItem(child, showText))}
+                </React.Fragment>
+            );
+        }
+
+        const expanded = !!expandedItems[link.path];
+        const toggleLabel = `${expanded ? 'Collapse' : 'Expand'} ${link.label}`;
+        const slug = link.path.split('/').filter(Boolean).join('-');
+        const subListId = `nav-sublist-${slug}`;
+        return (
+            <React.Fragment key={link.path}>
+                {/* The toggle is a SIBLING of the link, positioned over the row's
+                    right edge, not a descendant of it: a <button> nested inside
+                    the ListItemButton's <a> is invalid markup and swallows the
+                    click ambiguously. Overlaying keeps the active row's tint and
+                    accent edge-border unbroken across the full width.
+                    The trade-off is that the row's own :hover stops firing once
+                    the pointer is over the toggle (it isn't an ancestor of it),
+                    so the wrapper re-applies the highlight — otherwise the row
+                    visibly un-highlights as you reach for the control. */}
+                <Box sx={{
+                    position: 'relative',
+                    '&:hover .MuiListItemButton-root': { bgcolor: 'rgba(255,255,255,0.08)' },
+                }}>
+                    {renderNavItem(link, showText, { reserveRight: true })}
+                    <Tooltip title={toggleLabel} placement="right">
+                        <IconButton
+                            onClick={() => toggleItem(link.path)}
+                            size="small"
+                            data-testid={`nav-expand-toggle-${slug}`}
+                            aria-label={toggleLabel}
+                            aria-expanded={expanded}
+                            aria-controls={subListId}
+                            sx={{
+                                position: 'absolute',
+                                right: 6,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                p: 0.25,
+                                color: ACCENT,
+                                '&:hover': { bgcolor: 'rgba(233,30,99,0.12)' },
+                            }}
+                        >
+                            {expanded
+                                ? <IndeterminateCheckBoxOutlinedIcon sx={{ fontSize: 16 }} />
+                                : <AddBoxOutlinedIcon sx={{ fontSize: 16 }} />
+                            }
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+                <Collapse in={expanded} timeout="auto" unmountOnExit>
+                    {/* `unmountOnExit` means the region only exists while open,
+                        so `aria-controls` resolves exactly when there is
+                        something to point at. */}
+                    <List id={subListId} disablePadding component="div">
+                        {children.map(child => renderNavItem(child, showText, { indent: true }))}
+                    </List>
+                </Collapse>
+            </React.Fragment>
         );
     };
 
@@ -301,10 +427,10 @@ const NavBarSidebar = () => {
                                             )}
                                             {hasHeader ? (
                                                 <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
-                                                    {groupLinks.map((link) => renderNavItem(link, showText))}
+                                                    {groupLinks.map((link) => renderNavTreeItem(link, showText))}
                                                 </Collapse>
                                             ) : (
-                                                groupLinks.map((link) => renderNavItem(link, showText))
+                                                groupLinks.map((link) => renderNavTreeItem(link, showText))
                                             )}
                                         </React.Fragment>
                                     );
@@ -388,8 +514,11 @@ const NavBarSidebar = () => {
         );
     }
 
-    // ── Mobile: top bar with bicycle + bottom nav ──
-    const bottomNavValue = visibleLinks.findIndex(l => isActive(l.path));
+    // ── Mobile: top bar with bottom nav ──
+    // Bottom nav is a flat strip with no room for a disclosure control, so it
+    // uses the FLATTENED link list — L3 items sit alongside their parent rather
+    // than hiding behind it (req #3209).
+    const bottomNavValue = flatVisibleLinks.findIndex(l => isActive(l.path));
 
     return (
         <>
@@ -428,7 +557,7 @@ const NavBarSidebar = () => {
                 <BottomNavigation
                     value={bottomNavValue >= 0 ? bottomNavValue : false}
                     onChange={(_, newValue) => {
-                        navigate(visibleLinks[newValue].path);
+                        navigate(flatVisibleLinks[newValue].path);
                     }}
                     sx={{
                         bgcolor: '#111',
@@ -442,7 +571,7 @@ const NavBarSidebar = () => {
                         },
                     }}
                 >
-                    {visibleLinks.map((link) => {
+                    {flatVisibleLinks.map((link) => {
                         const Icon = link.icon;
                         // Mirror the desktop grey-out for an empty Dev Servers table (req #3005).
                         const greyed = link.path === '/devservers' && devServersEmpty;
