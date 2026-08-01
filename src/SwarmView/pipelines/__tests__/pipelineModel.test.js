@@ -59,6 +59,12 @@ function row(id, state, deps = [], opts = {}) {
         id,
         state,
         run: opts.run || 'auto',
+        // req #3188 — the launch key's epic term is the epic ID, not the title,
+        // so a targeted case that means to exercise the epic partition must set
+        // `epicId`. `epic` alone is a display label here: buildPlanRows always
+        // emits both, and the POC-parity fixtures below carry titles only
+        // because the archived plan had no epic ids to carry.
+        epicId: opts.epicId !== undefined ? opts.epicId : null,
         epic: opts.epic !== undefined ? opts.epic : null,
         feature: opts.feature !== undefined ? opts.feature : null,
         reqIds: opts.reqIds || [],
@@ -517,13 +523,17 @@ describe('the four named POC ordering regressions (req #3080 rule 3)', () => {
 
 describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
     it('letters batches in display order with the exact /swarm-start args', () => {
+        // Step 2 is PENDING, not done, and that is load-bearing since req #3188:
+        // the key's gate term is the REMAINING gate, so with step 2 also closed
+        // both pairs would have an empty gate and correctly become ONE batch —
+        // and this test would have stopped testing lettering across two.
         const stored = [
             row(1, STEP_DONE),
-            row(2, STEP_DONE, [1]),
-            // batch on gate 2 (deeper stream → launches first)
+            row(2, STEP_PENDING, [1]),
+            // batch behind the still-OPEN gate 2 (deeper stream → launches first)
             row(10, STEP_PENDING, [2], { reqIds: [3115, 3116], machines: ['Mac mini'] }),
             row(11, STEP_PENDING, [2], { reqIds: [3117], machines: ['Mac mini'] }),
-            // batch on gate 1
+            // batch whose gate 1 is already closed → remaining gate empty
             row(20, STEP_PENDING, [1], { reqIds: [3113], machines: ['Mac mini'] }),
             row(21, STEP_PENDING, [1], { reqIds: [3114], machines: ['Mac mini'] }),
         ];
@@ -538,7 +548,44 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
         expect(batches[0].swarmStartCommand).toBe('/swarm-start 3115 3116 3117');
         expect(batches[1].letter).toBe('B');
         expect(batches[1].stepIds).toEqual([20, 21]);
+        expect(batches[1].gateStepIds).toEqual([]);
         expect(batches[1].swarmStartCommand).toBe('/swarm-start 3113 3114');
+    });
+
+    it('groups two steps whose gates differ ONLY in already-done deps (req #3188)', () => {
+        // DEFECT 2. Step 10's gate is step 1, which is Complete; step 11 has no
+        // gate at all. Their REMAINING gates are both empty, so they become
+        // eligible at the same instant and are one launch unit — under the raw
+        // dep set they hashed apart and the engine emitted two /swarm-start
+        // commands where the batching model says one.
+        const stored = [
+            row(1, STEP_DONE),
+            row(10, STEP_PENDING, [1], { reqIds: [7], epicId: 1 }),
+            row(11, STEP_PENDING, [], { reqIds: [8], epicId: 1 }),
+        ];
+        const batches = launchBatches(displayOrder(stored).rows);
+        expect(batches).toHaveLength(1);
+        expect(batches[0].stepIds.slice().sort()).toEqual([10, 11]);
+        expect(batches[0].gateStepIds).toEqual([]);
+        expect(batches[0].swarmStartArgs.slice().sort()).toEqual([7, 8]);
+        // …and the merged step keeps the RECORD of what gated each member.
+        const [proposal] = condensationProposals(stored);
+        expect(proposal.depStepIds).toEqual([1]);
+        expect(proposal.remainingDepStepIds).toEqual([]);
+    });
+
+    it('still splits when the remaining gates differ (req #3188)', () => {
+        // The other direction, in the same terms: step 1 is Complete and step 2
+        // is not, so step 10 has an empty remaining gate and step 11 does not.
+        // The fix WIDENS the grouping; it does not dissolve it.
+        const stored = [
+            row(1, STEP_DONE),
+            row(2, STEP_PENDING),
+            row(10, STEP_PENDING, [1], { reqIds: [7], epicId: 1 }),
+            row(11, STEP_PENDING, [2], { reqIds: [8], epicId: 1 }),
+        ];
+        expect(launchBatches(displayOrder(stored).rows)).toEqual([]);
+        expect(condensationProposals(stored)).toEqual([]);
     });
 
     it('run mode, machine set, and time gates all split batches', () => {
@@ -552,16 +599,82 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
         expect(launchBatches(displayOrder(stored).rows)).toEqual([]);
     });
 
-    it('a batch may cross epics — grouping ignores labels (rule 10)', () => {
+    it('never MANUFACTURES a cross-epic batch — the group partitions by epic '
+       + '(req #3188)', () => {
+        // THIS TEST USED TO ASSERT THE OPPOSITE, citing rule 10's "a launch unit
+        // may legitimately cross epics". That permission is about a step that
+        // ALREADY spans epics — what the dominant-label tiebreak exists to
+        // resolve — and never licensed MERGING two cleanly-owned steps into one.
+        // Req #3184 made epic -> orchestrator a function: one epic, one Primary,
+        // and "two orchestrators can never select the same requirement for
+        // launch". A merged row hands one epic's requirements to the other
+        // epic's Primary, and the losing epic's work leaves its owner's slice
+        // silently. Measured live on pipeline 2 (2026-08-01): one group held
+        // four epic-6 steps together with six epic-7 steps.
         const stored = [
             row(1, STEP_DONE),
-            row(10, STEP_PENDING, [1], { epic: 'Substrate', reqIds: [7] }),
-            row(11, STEP_PENDING, [1], { epic: 'Application', reqIds: [8] }),
+            row(10, STEP_PENDING, [1], { epicId: 1, epic: 'Substrate', reqIds: [7] }),
+            row(11, STEP_PENDING, [1], { epicId: 2, epic: 'Application', reqIds: [8] }),
+        ];
+        expect(launchBatches(displayOrder(stored).rows)).toEqual([]);
+    });
+
+    it('partitions a shared key into one batch PER epic, keeping the same-epic '
+       + 'subsets (req #3188)', () => {
+        // The fix PARTITIONS; it does not suppress. On the live nine-step
+        // proposal that means two good proposals, not zero.
+        const stored = [
+            row(1, STEP_DONE),
+            row(10, STEP_PENDING, [1], { epicId: 1, epic: 'Substrate', reqIds: [7] }),
+            row(11, STEP_PENDING, [1], { epicId: 1, epic: 'Substrate', reqIds: [8] }),
+            row(12, STEP_PENDING, [1], { epicId: 2, epic: 'Application', reqIds: [9] }),
+            row(13, STEP_PENDING, [1], { epicId: 2, epic: 'Application', reqIds: [10] }),
         ];
         const batches = launchBatches(displayOrder(stored).rows);
+        expect(batches).toHaveLength(2);
+        expect(batches.map((b) => b.stepIds)).toEqual([[10, 11], [12, 13]]);
+        expect(batches.map((b) => b.epicId)).toEqual([1, 2]);
+        expect(batches.map((b) => b.swarmStartArgs)).toEqual([[7, 8], [9, 10]]);
+    });
+
+    it('a step that ALREADY spans epics keys under its DOMINANT one (rule 10)', () => {
+        // Rule 10's permission, preserved: step 12 links requirements from both
+        // epics, derives epic 1 as dominant, and joins epic 1's batch. The
+        // partition is by DOMINANT label — it does not refuse anything
+        // multi-epic, which would have been the over-correction.
+        const model = {
+            steps: [
+                { id: 10, title: 'a', run: 'auto', completed_at: null },
+                { id: 11, title: 'b', run: 'auto', completed_at: null },
+                { id: 12, title: 'spans both', run: 'auto', completed_at: null },
+            ],
+            stepRequirements: [
+                { step_fk: 10, requirement_fk: 70 },
+                { step_fk: 11, requirement_fk: 71 },
+                { step_fk: 12, requirement_fk: 72 },
+                { step_fk: 12, requirement_fk: 73 },
+                { step_fk: 12, requirement_fk: 74 },
+            ],
+            stepDeps: [],
+            requirements: [
+                { id: 70, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
+                { id: 71, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
+                { id: 72, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
+                { id: 73, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
+                { id: 74, requirement_status: 'approved', feature_fk: 2, machine_fk: null },
+            ],
+            features: [{ id: 1, title: 'F1', epic_fk: 1 }, { id: 2, title: 'F2', epic_fk: 2 }],
+            epics: [{ id: 1, title: 'E1' }, { id: 2, title: 'E2' }],
+            machines: [],
+        };
+        const rows = buildPlanRows(model);
+        const spanning = rows.find((r) => r.id === 12);
+        expect(spanning.epicId).toBe(1);
+        expect(spanning.epicLabels.map((e) => e.id)).toEqual([1, 2]);
+        const batches = launchBatches(displayOrder(rows).rows);
         expect(batches).toHaveLength(1);
-        expect(batches[0].stepIds).toEqual([10, 11]);
-        expect(batches[0].swarmStartArgs).toEqual([7, 8]);
+        expect(batches[0].stepIds).toEqual([10, 11, 12]);
+        expect(batches[0].epicId).toBe(1);
     });
 });
 
@@ -579,6 +692,7 @@ describe('condensationProposals — rule 2 proposals, UI decides', () => {
             stepIds: [10, 11],
             requirementIds: [7, 8],
             depStepIds: [1],
+            remainingDepStepIds: [],
             run: 'auto',
             machineLabels: ['Mac mini'],
         });
@@ -590,6 +704,68 @@ describe('condensationProposals — rule 2 proposals, UI decides', () => {
             row(10, STEP_PENDING, [1], { reqIds: [7] }),
             row(11, STEP_PENDING, [2], { reqIds: [8] }),
         ])).toEqual([]);
+    });
+
+    it('NEVER proposes a merge spanning more than one dominant epic, and offers '
+       + 'the same-epic subsets instead (req #3188)', () => {
+        // The live defect, reduced: one proposal held four epic-6 steps and six
+        // epic-7 steps. Acting on it would have handed one epic's requirements
+        // to the other epic's Primary. The required behaviour is to PARTITION,
+        // not to suppress — the bad proposal becomes two good ones.
+        const rows = [
+            row(1, STEP_DONE),
+            row(55, STEP_PENDING, [1], { epicId: 6, epic: 'Mapping', reqIds: [3201] }),
+            row(57, STEP_PENDING, [1], { epicId: 6, epic: 'Mapping', reqIds: [3202] }),
+            row(70, STEP_PENDING, [1], { epicId: 7, epic: 'Backlog', reqIds: [3203] }),
+            row(71, STEP_PENDING, [1], { epicId: 7, epic: 'Backlog', reqIds: [3204] }),
+        ];
+        const proposals = condensationProposals(rows);
+        expect(proposals).toHaveLength(2);
+        expect(proposals.map((p) => p.stepIds)).toEqual([[55, 57], [70, 71]]);
+        expect(proposals.map((p) => p.epicId)).toEqual([6, 7]);
+        expect(proposals.map((p) => p.requirementIds))
+            .toEqual([[3201, 3202], [3203, 3204]]);
+    });
+
+    it('no proposal over the Substrate Rebuild fixture resolves more than one '
+       + 'dominant epic — the invariant, over real plan data (req #3188)', () => {
+        // Pinned rather than observed once. The fixture's own shape is not the
+        // point: the assertion is a PROPERTY of every proposal the engine can
+        // emit from it, and it is stated over the full model rather than over a
+        // constructed pair, so a future change to the fixture cannot quietly
+        // stop exercising it.
+        //
+        // Two model variants, because the stock fixture's nearest pair differs
+        // in run mode and yields no proposal at all: flipping step 43 to auto
+        // produces the first genuine batch in the Substrate data.
+        const variants = [
+            SUBSTRATE_REBUILD_MODEL,
+            {
+                ...SUBSTRATE_REBUILD_MODEL,
+                steps: SUBSTRATE_REBUILD_MODEL.steps.map(
+                    (s) => (s.id === 43 ? { ...s, run: 'auto' } : s)),
+            },
+        ];
+        let seen = 0;
+        for (const model of variants) {
+            const rows = buildPlanRows(model);
+            const byId = new Map(rows.map((r) => [r.id, r]));
+            for (const proposal of condensationProposals(rows)) {
+                seen += 1;
+                const epics = new Set(
+                    proposal.stepIds.map((id) => byId.get(id).epicId));
+                expect(epics.size, `proposal ${proposal.stepIds}`).toBe(1);
+                expect([...epics][0]).toBe(proposal.epicId);
+            }
+            // Same invariant on the launch batches, from the same rows.
+            for (const batch of launchBatches(displayOrder(rows).rows)) {
+                const epics = new Set(batch.stepIds.map((id) => byId.get(id).epicId));
+                expect(epics.size, `batch ${batch.letter}`).toBe(1);
+                expect([...epics][0]).toBe(batch.epicId);
+            }
+        }
+        // A vacuous pass is not a pass: at least one proposal must have existed.
+        expect(seen).toBeGreaterThan(0);
     });
 });
 
@@ -797,13 +973,21 @@ describe('code-review hardenings (2026-07-26)', () => {
     });
 
     it('batch letters continue Excel-style past Z (batch 27 → AA)', () => {
+        // 27 batches split on MACHINE, not on gate. Since req #3188 the key's
+        // gate term is the REMAINING gate, and all 27 gate steps are Complete —
+        // so keying the split on the gate would collapse every pair into one
+        // 54-member batch and this test would letter one batch, not 27. The
+        // subject here is the lettering, so the split moves to the term that
+        // still distinguishes them.
         const stored = [];
         for (let g = 1; g <= 27; g++) {
             stored.push(row(g, STEP_DONE));
         }
         for (let g = 1; g <= 27; g++) {
-            stored.push(row(100 + g * 2, STEP_PENDING, [g], { reqIds: [1000 + g] }));
-            stored.push(row(101 + g * 2, STEP_PENDING, [g], { reqIds: [2000 + g] }));
+            stored.push(row(100 + g * 2, STEP_PENDING, [g],
+                { reqIds: [1000 + g], machines: [`M${g}`] }));
+            stored.push(row(101 + g * 2, STEP_PENDING, [g],
+                { reqIds: [2000 + g], machines: [`M${g}`] }));
         }
         const batches = launchBatches(displayOrder(stored).rows);
         expect(batches).toHaveLength(27);

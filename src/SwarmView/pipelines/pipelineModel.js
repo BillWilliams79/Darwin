@@ -97,9 +97,13 @@
 //
 // @typedef {Object} LaunchBatch
 // @property {string} letter             A = launches first (display order)
-// @property {string} key                canonical (dep set, time gates, run, machines)
+// @property {string} key                canonical (epic, REMAINING gate, time gates,
+//                                       run, machines) — req #3188
 // @property {number[]} stepIds          display order
-// @property {number[]} gateStepIds
+// @property {?number} epicId            the ONE dominant epic every member shares
+// @property {?string} epic
+// @property {number[]} gateStepIds      the REMAINING (unsatisfied) step gate — shared
+//                                       by every member by construction (req #3188)
 // @property {string[]} timeDeps
 // @property {('auto'|'manual')} run
 // @property {string[]} machineLabels
@@ -113,11 +117,16 @@
 //
 // @typedef {Object} CondensationProposal  rule 2 — proposal only; UI decides
 // @property {number[]} stepIds
+// @property {?number} epicId                  the ONE dominant epic every member
+// @property {?string} epic                    shares (req #3188)
 // @property {number[]} requirementIds         launchable only (rule 8)
 // @property {number[]} trackingRequirementIds containers — carried over on a merge,
 //                                             never launched (req #3123)
-// @property {number[]} depStepIds
-// @property {string[]} timeDeps
+// @property {number[]} depStepIds             the UNION of the members' step gates —
+//                                             what the MERGED step must carry
+// @property {number[]} remainingDepStepIds    the unsatisfied subset, shared by every
+//                                             member by construction (req #3188)
+// @property {string[]} timeDeps               union, same reasoning as depStepIds
 // @property {('auto'|'manual')} run
 // @property {string[]} machineLabels
 // @property {string} reason
@@ -425,22 +434,78 @@ function idCmp(a, b) {
     return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
 }
 
-// Canonical launch-unit identity: identical (dep set + time gates, run mode,
-// machine set) — the batch key of rules 2 and 8. Time gates are part of the
-// gate; machine set comes from the requirement-derived labels.
-function launchKey(row) {
-    const deps = [...new Set(depIdsOf(row))].sort(idCmp).join(',');
+// The step gate that is still UNSATISFIED: the deps whose row is not done
+// (req #3188). A dep missing from the row set counts as unsatisfied — the safe
+// direction, and verifyOrder reports it as `dangling-dependency` separately.
+//
+// @param {PlanRow} row
+// @param {Map<number, PlanRow>} byId
+// @returns {number[]}  in the row's own dep order
+export function remainingGate(row, byId) {
+    return depIdsOf(row).filter((d) => {
+        const dep = byId.get(d);
+        return !dep || dep.state !== STEP_DONE;
+    });
+}
+
+// Canonical launch-unit identity: identical (dominant epic, REMAINING step gate,
+// time gates, run mode, machine set) — the batch key of rules 2 and 8. Machine
+// set comes from the requirement-derived labels.
+//
+// EPIC IS A TERM IN THE KEY (req #3188). Rule 10 gives a step exactly ONE
+// dominant epic, and req #3184's concurrency model makes epic -> orchestrator a
+// function: one epic, one Primary, and two orchestrators can never select the
+// same requirement for launch. A batch spanning two epics therefore hands one
+// epic's requirements to the other epic's Primary, and the losing epic's work
+// silently leaves its owner's slice. Measured on live pipeline 2 (2026-08-01,
+// 68 steps): ONE group held steps 55/57/59/60 (epic 6, Mapping Aggregator Card)
+// together with 70/71/72/73/74/85 (epic 7, Swarm Backlog) — ten steps, two
+// epics, rendered to the user as a single condensation suggestion.
+//
+// Rule 10's "a launch unit may legitimately cross epics" is about a step that
+// ALREADY spans epics — which is what the dominant-label tiebreak exists to
+// resolve — and is not licence to MANUFACTURE one out of steps that are each
+// cleanly owned. Partitioning at the KEY rather than at either consumer is what
+// makes launchBatches, condensationProposals, displayOrder's batch clustering
+// and verifyOrder's contiguity check agree by construction.
+//
+// The epic ID, not the title — unlike machineLabels, whose title/id split is the
+// one deliberate divergence from pipeline_derive.py. Both engines carry the id,
+// so keying on it adds no second divergence, and two epics sharing a title stay
+// correctly apart.
+//
+// THE GATE TERM IS THE REMAINING GATE, NOT THE RAW DEP SET (req #3188). Two
+// pending steps whose gates differ only in deps that are already done become
+// eligible at the SAME INSTANT and can genuinely launch together; keying on the
+// raw set hashed them apart and emitted two /swarm-start commands where the
+// batching model says one. The remaining gate is a function of PLAN STATE ALONE,
+// so this module stays pure and the same plan always renders the same way.
+//
+// TIME GATES STAY RAW, deliberately. Deciding whether a time gate has passed
+// needs a clock, and a clock in the batch key would make the partition — and
+// therefore display order and the batch-contiguity invariant — a function of
+// wall time: the same unmutated plan would render differently at two instants,
+// which is a worse instability than the one this fix removes. A time gate is
+// also a scheduled gate the plan author wrote; two steps carrying different ones
+// are different launch units by intent until both pass.
+function launchKey(row, byId) {
+    const epic = row.epicId != null ? row.epicId : '';
+    const deps = [...new Set(remainingGate(row, byId))].sort(idCmp).join(',');
     const times = [...(row.timeDeps || [])].sort().join(',');
     const machines = [...(row.machineLabels || [])].sort().join(',');
-    return `${deps}|${times}|${row.run || 'auto'}|${machines}`;
+    return `${epic}|${deps}|${times}|${row.run || 'auto'}|${machines}`;
 }
 
 // Pending launch groups keyed by launchKey; only groups of >=2 form a batch.
+// The row set is needed to resolve the remaining gate, so it is indexed here
+// once rather than by every caller — every caller already passes the FULL row
+// set, which is what makes the key self-contained.
 function pendingGroups(rows) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
     const groups = new Map();
     for (const r of rows) {
         if (r.state !== STEP_PENDING) continue;
-        const k = launchKey(r);
+        const k = launchKey(r, byId);
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(r);
     }
@@ -848,23 +913,30 @@ function launchableReqIds(row) {
     return (row.reqIds || []).filter((id) => !tracking.has(id));
 }
 
-// Rules 2 + 8: pending steps sharing an identical (dep set + time gates, run,
-// machine set) launch together in ONE /swarm-start. Batches of >=2 steps get a
-// letter — A launches first — following display order, and each carries the
-// EXACT /swarm-start argument list (requirement ids in display order, tracking
-// containers excluded). A batch with nothing launchable — req-less gate steps,
-// or steps linked only to containers — has no launchable command:
-// swarmStartCommand is null, never an argument-less string.
+// Rules 2 + 8: pending steps sharing an identical (dominant epic, remaining step
+// gate + time gates, run, machine set) launch together in ONE /swarm-start.
+// Batches of >=2 steps get a letter — A launches first — following display
+// order, and each carries the EXACT /swarm-start argument list (requirement ids
+// in display order, tracking containers excluded). A batch with nothing
+// launchable — req-less gate steps, or steps linked only to containers — has no
+// launchable command: swarmStartCommand is null, never an argument-less string.
+//
+// `gateStepIds` is the REMAINING gate (req #3188), which every member shares by
+// construction now that it is the key's gate term. It is also the better answer
+// for the banner it renders into: a batch that is eligible NOW reports no step
+// gate rather than naming deps that closed long ago, and one that is still
+// waiting names exactly what it waits on.
 //
 // @param {PlanRow[]} orderedRows  display order (letters follow it)
 // @returns {LaunchBatch[]}
 export function launchBatches(orderedRows) {
+    const byId = new Map(orderedRows.map((r) => [r.id, r]));
     const groups = pendingGroups(orderedRows);
     const batches = [];
     const seen = new Set();
     for (const r of orderedRows) {
         if (r.state !== STEP_PENDING) continue;
-        const k = launchKey(r);
+        const k = launchKey(r, byId);
         const members = groups.get(k);
         if (members.length < 2 || seen.has(k)) continue;
         seen.add(k);
@@ -877,7 +949,9 @@ export function launchBatches(orderedRows) {
             letter: batchLetter(batches.length),
             key: k,
             stepIds: members.map((m) => m.id),
-            gateStepIds: [...depIdsOf(members[0])].sort(idCmp),
+            epicId: members[0].epicId != null ? members[0].epicId : null,
+            epic: members[0].epic != null ? members[0].epic : null,
+            gateStepIds: [...new Set(remainingGate(members[0], byId))].sort(idCmp),
             timeDeps: [...(members[0].timeDeps || [])].sort(),
             run: members[0].run || 'auto',
             machineLabels: labels,
@@ -900,13 +974,25 @@ export function launchBatches(orderedRows) {
 }
 
 // Rule 2: A STEP IS A SWARM-START (LAUNCH UNIT). Pending steps sharing an
-// identical (gate, run, machine) tuple are proposed for condensation into ONE
-// multi-requirement step. Proposal objects only — the UI decides presentation.
-// Order: first appearance in the given rows.
+// identical (epic, remaining gate, run, machine) tuple are proposed for
+// condensation into ONE multi-requirement step. Proposal objects only — the UI
+// decides presentation. Order: first appearance in the given rows.
+//
+// THIS LIVES IN THE VIEWER AND NOT IN `pipeline_derive.py` — a decision, not an
+// oversight (req #3188, extending req #3184's ruling). It is an advisory with no
+// server consumer: the Pipeline Engine acts on eligibility and launch batches,
+// never on a suggestion. Porting it would be speculative code, which is exactly
+// the cost a second implementation cannot carry. What COULD have drifted — the
+// pendingGroups/launchKey partition it shares with launchBatches — is not
+// viewer-only: it is already dual-implemented and pinned by the shared
+// conformance corpus through launch_batches, so a proposal inherits the epic
+// partition and the remaining-gate key by construction rather than by a copy
+// somebody has to remember to update.
 //
 // @param {PlanRow[]} rows  any order
 // @returns {CondensationProposal[]}
 export function condensationProposals(rows) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
     const proposals = [];
     for (const [, members] of pendingGroups(rows)) {
         if (members.length < 2) continue;
@@ -915,10 +1001,23 @@ export function condensationProposals(rows) {
         for (const m of members) {
             for (const l of m.machineLabels || []) if (!labels.includes(l)) labels.push(l);
         }
-        const gate = depIdsOf(first).length
-            ? `steps ${[...depIdsOf(first)].sort(idCmp).join(', ')}` : 'no step gate';
+        // UNION, not members[0]'s copy. Under the remaining-gate key (req #3188)
+        // members may hold DIFFERENT raw dep sets that merely agree on what is
+        // still unsatisfied, and a caller acting on this proposal builds the
+        // merged step from these ids: taking one member's set would silently
+        // drop another member's already-satisfied dep edge and erase the plan's
+        // record of what gated that work. The union is identical to the old
+        // value whenever the members' raw sets agree, which is every case the
+        // previous key could produce.
+        const depStepIds = [...new Set(members.flatMap(depIdsOf))].sort(idCmp);
+        const timeDeps = [...new Set(members.flatMap((m) => m.timeDeps || []))].sort();
+        const remaining = [...new Set(remainingGate(first, byId))].sort(idCmp);
+        const gate = remaining.length
+            ? `steps ${remaining.join(', ')}` : 'no remaining step gate';
         proposals.push({
             stepIds: members.map((m) => m.id),
+            epicId: first.epicId != null ? first.epicId : null,
+            epic: first.epic != null ? first.epic : null,
             // Tracking containers excluded for the same reason as in
             // launchBatches: a condensed step's requirement set is what the
             // merged /swarm-start would launch. They are reported SEPARATELY
@@ -928,13 +1027,15 @@ export function condensationProposals(rows) {
             requirementIds: members.flatMap(launchableReqIds),
             trackingRequirementIds: [...new Set(
                 members.flatMap((m) => m.trackingReqIds || []))],
-            depStepIds: [...depIdsOf(first)].sort(idCmp),
-            timeDeps: [...(first.timeDeps || [])].sort(),
+            depStepIds,
+            remainingDepStepIds: remaining,
+            timeDeps,
             run: first.run || 'auto',
             machineLabels: labels,
-            reason: `steps ${members.map((m) => m.id).join(', ')} share the same gate ` +
-                `(${gate}), run mode '${first.run || 'auto'}' and machine set — ` +
-                'candidates to condense into one multi-requirement step (design rule 2)',
+            reason: `steps ${members.map((m) => m.id).join(', ')} share the same ` +
+                `remaining gate (${gate}), epic (${first.epic || 'none'}), run mode ` +
+                `'${first.run || 'auto'}' and machine set — candidates to condense ` +
+                'into one multi-requirement step (design rule 2)',
         });
     }
     return proposals;

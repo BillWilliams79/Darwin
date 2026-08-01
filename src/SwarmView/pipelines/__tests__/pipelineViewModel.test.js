@@ -201,7 +201,12 @@ describe('launch batches (design rule 8)', () => {
     });
 
     it('names the gate and the run mode the banner prints', () => {
-        expect(plan.batches[0].gateStepIds).toEqual([1]);
+        // The REMAINING gate since req #3188, and step 1 carries a completed_at
+        // stamp — so the honest banner text is "no step gate", not "steps 1".
+        // The batch is eligible NOW; naming a dep that closed on 2026-07-01
+        // read as something still holding it back.
+        expect(plan.batches[0].gateStepIds).toEqual([]);
+        expect(plan.batches[0].epicId).toBe(11);
         expect(plan.batches[0].run).toBe('auto');
         expect(plan.batches[0].machineLabels).toEqual(['Mac mini']);
     });
