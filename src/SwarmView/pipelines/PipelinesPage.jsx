@@ -13,9 +13,7 @@ import { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
-import Stack from '@mui/material/Stack';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
@@ -33,17 +31,69 @@ import {
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
+import ChipFilter from '../../Components/ChipFilter';
 import PipelineCardsView from './PipelineCardsView';
 import PipelinesTableView from './PipelinesTableView';
-import { pipelineStatusChipProps, PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
-import { PLAN_REQUIREMENT_FIELDS, pipelineSummaries } from './pipelineViewModel';
+import {
+    pipelineStatusChipProps,
+    DEFAULT_PIPELINE_STATUSES,
+    PIPELINE_STATUS_VALUES,
+} from './pipelineChipStyles';
+import {
+    PLAN_REQUIREMENT_FIELDS,
+    pipelineSummaries,
+    hiddenPipelineStatusCounts,
+} from './pipelineViewModel';
 
 const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines-view';
+
+// req #3220 — per-tab only (sessionStorage), matching useViewPreference's own
+// per-tab-first rationale (memory/view-switchable-pages.md). Needed because the
+// default is no longer "show everything": before this feature, losing the
+// filter on a click-into-detail-and-back was harmless (it reset to null, i.e.
+// every pipeline). Now it resets to a NARROWER set, so silently forgetting a
+// chip the user turned back on (e.g. re-enabling `completed` to look at one)
+// would re-hide it the moment they navigate back — the exact class of surprise
+// this requirement's default-set discussion was worried about.
+const STATUS_FILTER_STORAGE_KEY = 'darwin-swarm-pipelines-status-filter';
+
+function readStoredStatusFilter() {
+    try {
+        const raw = sessionStorage.getItem(STATUS_FILTER_STORAGE_KEY);
+        if (raw == null) return null; // nothing stored yet — caller falls back to the default
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return null;
+        // A stored [] is a legal, intentional "show nothing" (ChipFilter's own
+        // contract: empty is never auto-corrected back to a default). `[]` is
+        // truthy in JS, so the caller's `|| DEFAULT_PIPELINE_STATUSES` only
+        // fires when nothing was stored at all, never on a real empty choice.
+        return parsed.filter((v) => PIPELINE_STATUS_VALUES.includes(v));
+    } catch {
+        return null;
+    }
+}
+
+function writeStoredStatusFilter(statuses) {
+    try {
+        sessionStorage.setItem(STATUS_FILTER_STORAGE_KEY, JSON.stringify(statuses));
+    } catch {
+        // Safari private mode / quota exceeded — in-memory state still updates.
+    }
+}
 
 const VIEWS = [
     { value: 'cards', label: 'Cards', icon: ViewModuleIcon },
     { value: 'table', label: 'Table', icon: TableChartIcon },
 ];
+
+// req #3220 — fixed vocabulary, so options are module-level, same pattern as
+// SwarmView's requirementStatusOptions. Colors come from pipelineStatusChipProps,
+// not the ChipFilter palette.
+const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
+    value: status,
+    label: status,
+    chipProps: pipelineStatusChipProps(status),
+}));
 
 export default function PipelinesPage() {
     const navigate = useNavigate();
@@ -53,7 +103,21 @@ export default function PipelinesPage() {
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
     const activeView = normalizeView(view, VIEWS);
-    const [statusFilter, setStatusFilter] = useState(null);
+    // req #3220 — multi-select via the shared ChipFilter, not the old nullable
+    // single value. Nothing outside this page reads the filter, so a Zustand
+    // store would still be ceremony without a second consumer — but the value
+    // itself is now worth surviving a click-into-detail-and-back (see the
+    // STATUS_FILTER_STORAGE_KEY comment above), so it's seeded from and
+    // written through to sessionStorage rather than living purely in memory.
+    const [statusFilter, setStatusFilter] = useState(
+        () => readStoredStatusFilter() || DEFAULT_PIPELINE_STATUSES);
+    const toggleStatus = (status) => setStatusFilter((current) => {
+        const next = current.includes(status)
+            ? current.filter((s) => s !== status)
+            : [...current, status];
+        writeStoredStatusFilter(next);
+        return next;
+    });
 
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
     const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
@@ -81,9 +145,13 @@ export default function PipelinesPage() {
         [pipelines, steps, stepRequirements, requirements]);
 
     const filtered = useMemo(
-        () => (statusFilter === null
-            ? pipelines
-            : pipelines.filter((p) => p.pipeline_status === statusFilter)),
+        () => pipelines.filter((p) => statusFilter.includes(p.pipeline_status)),
+        [pipelines, statusFilter]);
+
+    // Named for the empty state (req #3220 acceptance) rather than a boolean —
+    // "a filter is active" doesn't say WHICH statuses vanished.
+    const hiddenStatusCounts = useMemo(
+        () => hiddenPipelineStatusCounts(pipelines, statusFilter),
         [pipelines, statusFilter]);
 
     const open = (id) => navigate(`/swarm/pipeline/${id}`);
@@ -119,33 +187,16 @@ export default function PipelinesPage() {
                     ))}
                 </ToggleButtonGroup>
 
-                {/* Shared control — filters BOTH views (R4/R5). Local state is
-                    sufficient: nothing outside this page reads it, so a Zustand
-                    store would be ceremony without a second consumer. */}
-                <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}
-                       data-testid="pipelines-status-filter">
-                    <Chip label="All" size="small"
-                          onClick={() => setStatusFilter(null)}
-                          color={statusFilter === null ? 'primary' : 'default'}
-                          variant={statusFilter === null ? 'filled' : 'outlined'}
-                          sx={{ cursor: 'pointer' }}
-                          data-testid="pipelines-status-chip-all" />
-                    {PIPELINE_STATUS_VALUES.map((v) => {
-                        const selected = statusFilter === v;
-                        const props = pipelineStatusChipProps(v);
-                        return (
-                            <Chip key={v} label={v} size="small"
-                                  onClick={() => setStatusFilter(v)}
-                                  variant={selected ? 'filled' : 'outlined'}
-                                  sx={{ cursor: 'pointer',
-                                         ...(selected && props.sx ? props.sx : {}),
-                                         ...(!selected && props.sx
-                                             ? { borderColor: props.sx.bgcolor, opacity: 0.75 }
-                                             : {}) }}
-                                  data-testid={`pipelines-status-chip-${v}`} />
-                        );
-                    })}
-                </Stack>
+                {/* Shared control — filters BOTH views (R4/R5). Multi-select via
+                    the standardized ChipFilter (req #3220), not a second
+                    hand-rolled implementation of it. */}
+                <ChipFilter
+                    options={pipelineStatusOptions}
+                    selected={statusFilter}
+                    onToggle={toggleStatus}
+                    testId="pipelines-status-filter"
+                    chipTestIdPrefix="pipelines-status-chip"
+                />
 
                 {/* Accounting line counts the WHOLE dataset, with the filtered
                     subset named separately (V7). The call-to-action names what
@@ -169,6 +220,7 @@ export default function PipelinesPage() {
                         machines={machines}
                         timezone={timezone}
                         onOpen={open}
+                        hiddenStatusCounts={hiddenStatusCounts}
                     />
                 ) : (
                     <PipelineCardsView
@@ -176,7 +228,7 @@ export default function PipelinesPage() {
                         summaries={summaries}
                         machines={machines}
                         onOpen={open}
-                        filtered={statusFilter !== null}
+                        hiddenStatusCounts={hiddenStatusCounts}
                     />
                 )}
             </Box>

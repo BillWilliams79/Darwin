@@ -72,10 +72,18 @@ export const NAV_LINKS = [
     // (Epic > Feature > Story, sequenced into steps), and above Sessions because
     // plan views carry no session data at all (req #3080 design rule 9).
     { path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm' },
-    { path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm' },
-    { path: '/swarm/swarm-starts', label: 'Starts', icon: RocketLaunchIcon, group: 'swarm' },
-    { path: '/swarm/swarm-completes', label: 'Completes', icon: CheckCircleIcon, group: 'swarm' },
-    { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
+    // Req #3209 — Sessions is the first L2 item with L3 children. Starts,
+    // Completes and Undos are lifecycle records OF a session, not peers of it,
+    // so they nest underneath rather than sitting as siblings. They keep their
+    // own routes; only their position in the nav tree changed.
+    {
+        path: '/swarm/sessions', label: 'Sessions', icon: HubIcon, group: 'swarm',
+        children: [
+            { path: '/swarm/swarm-starts', label: 'Starts', icon: RocketLaunchIcon, group: 'swarm' },
+            { path: '/swarm/swarm-completes', label: 'Completes', icon: CheckCircleIcon, group: 'swarm' },
+            { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
+        ],
+    },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
@@ -93,6 +101,17 @@ export const NAV_LINKS = [
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testruns', label: 'Test Runs', icon: PlayCircleIcon, group: 'swarm-validate' },
 ];
+
+// Flatten a nav-link list to parent-then-children order (req #3209). Any
+// consumer that needs "every reachable link" — the mobile bottom nav, a route
+// audit — must go through this rather than reading NAV_LINKS directly, or it
+// silently loses the L3s. Depth is deliberately one level: the nav tree is
+// Group > Item > Sub-item and nothing calls for a third.
+export function flattenNavLinks(links) {
+    return links.flatMap(link => (
+        link.children?.length ? [link, ...link.children] : [link]
+    ));
+}
 
 export const PROFILE_LINK = { path: '/profile', label: 'Profile', icon: PedalBikeIcon };
 

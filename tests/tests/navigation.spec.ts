@@ -75,6 +75,24 @@ test.describe('Navigation', () => {
     await page.getByRole('link', { name: /sessions/i }).click();
     await expect(page).toHaveURL(/\/swarm\/sessions/);
 
+    // Req #3209 — Sessions is an expandable L2: its L3s (Starts / Completes /
+    // Undos) are hidden until the +/- is clicked. Assert they are absent first,
+    // so a regression that renders them unconditionally still fails here.
+    // Scoped to the sidebar so a page-body link of the same name can't satisfy it.
+    const navbar = page.locator('.app-navbar');
+    const startsLink = navbar.getByRole('link', { name: /^starts$/i });
+    await expect(startsLink).toHaveCount(0);
+    await page.getByTestId('nav-expand-toggle-swarm-sessions').click();
+    // Wait explicitly rather than leaning on Playwright's actionability check to
+    // ride out MUI's Collapse timeout="auto" animation.
+    await expect(startsLink).toHaveCount(1);
+    await startsLink.click();
+    await expect(page).toHaveURL(/\/swarm\/swarm-starts/);
+
+    // Collapsing hides them again — the toggle is not one-way.
+    await page.getByTestId('nav-expand-toggle-swarm-sessions').click();
+    await expect(startsLink).toHaveCount(0);
+
     // Navigate to Dev Servers
     await page.getByRole('link', { name: /dev servers/i }).click();
     await expect(page).toHaveURL(/\/devservers/);
