@@ -306,6 +306,15 @@ export default function PipelineDetail() {
     // (`onEffectiveLevel={setEffectiveLevel}`). Display only: nothing is derived
     // from it, so a late first report cannot change what is drawn.
     const [effectiveLevel, setEffectiveLevel] = useState(null);
+    // Req #3216 — Reset joins the header's zoom controls (it used to float
+    // over the canvas in the bottom-right corner). The click has to reach
+    // across the page/panel boundary, so this is `resetViewNonce`,
+    // KonvaBuildCanvas's own device (`BuildVisualizerPage.jsx`
+    // `handleResetView`): a number that only ever increments, watched by an
+    // effect inside the visualizer. 0 is the initial render, deliberately
+    // never fired at.
+    const [resetViewNonce, setResetViewNonce] = useState(0);
+    const handleResetView = useCallback(() => setResetViewNonce((n) => n + 1), []);
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -681,6 +690,30 @@ export default function PipelineDetail() {
                                 </ToggleButton>
                             </ToggleButtonGroup>
                         </Tooltip>
+                        {/* Req #3216 — Reset joins the zoom control group here,
+                            out of the bottom-right corner of the canvas it used
+                            to float in. FACTORY DEFAULT, not the readable
+                            landing scale the page opens on: one click always
+                            shows the whole plan's vertical extent, from any
+                            pan or zoom. Width re-centres on every change (it
+                            rescales every column), and does so onto WHICHEVER
+                            of the two scales is currently active — see
+                            `recenterModeRef` in PipelinePlanVisualizer.jsx —
+                            so clicking Width right after Reset keeps showing
+                            the whole plan instead of snapping back to the
+                            readable scale out from under its own neighbour. */}
+                        <Tooltip title={'Reset — fully zoomed out, the whole '
+                            + "plan's vertical extent visible"}>
+                            <Button
+                                size="small"
+                                className="cal-toggle-btn"
+                                variant="outlined"
+                                onClick={handleResetView}
+                                data-testid="pipeline-viz-reset"
+                            >
+                                Reset
+                            </Button>
+                        </Tooltip>
                     </>
                 )}
 
@@ -789,6 +822,7 @@ export default function PipelineDetail() {
                              levelPref={planLevelPref}
                              onChangeLevelPref={setLevelPref}
                              onEffectiveLevel={setEffectiveLevel}
+                             resetViewNonce={resetViewNonce}
                              />
         </Box>
     );

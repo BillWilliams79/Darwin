@@ -22,7 +22,10 @@
 //              cost read failed — a mode showing cost must say so rather than
 //              print em-dashes, which read as "no cost recorded". Every plan row
 //              already carries its own total on `row.cost`, so a mode needs no
-//              cost data of its own.
+//              cost data of its own. `resetViewNonce` (req #3216) is the
+//              header's Reset control reaching into the mode's own pan/zoom
+//              state, a number that only ever increments; ignored by any mode
+//              with no camera of its own.
 //   disabled   optional — renders a disabled ToggleButton (rule V1: a
 //              not-yet-built view is disabled, never omitted, so the group holds
 //              its width)

@@ -585,23 +585,25 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     test('PIPE-09: zoom crosses all three semantic levels and redraws each time',
         async ({ page }) => {
             const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
-            const chip = page.getByTestId('pipeline-viz-zoom-level');
             const container = page.getByTestId('pipeline-plan-visualizer');
             const scale = async () =>
                 Number((await container.getAttribute('data-transform'))!.split(',')[2]);
             const box = (await canvas.boundingBox())!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
-            // Fit-to-width is ratio 1 → 'mid' → "Plan" (konvaSwarmModel's
-            // semanticLevel, the same ladder the swarm canvas uses).
-            await expect(chip).toContainText('Plan');
+            // Fit-to-width is ratio 1 → 'mid' (konvaSwarmModel's semanticLevel,
+            // the same ladder the swarm canvas uses). `data-level` is what the
+            // bottom-right status chip used to say in words before it was
+            // deleted outright (req #3216 D2) — the canvas still publishes the
+            // fact, just not as a permanent caption over the plan.
+            await expect(container).toHaveAttribute('data-level', 'mid');
             const kMid = await scale();
             const atMid = await canvas.screenshot();
 
             // ratio < 0.5 → 'out'. d3-zoom's wheel factor is 2^(-deltaY/500),
             // so +800 more than halves; scaleExtent clamps at ratio 0.25.
             for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 800);
-            await expect(chip).toContainText('Overview');
+            await expect(container).toHaveAttribute('data-level', 'out');
             const kOut = await scale();
             expect(kOut).toBeLessThan(kMid);
             const atOut = await canvas.screenshot();
@@ -610,7 +612,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
             // ratio >= 1.9 → 'in'; clamps at 8.
             for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -800);
-            await expect(chip).toContainText('Detail');
+            await expect(container).toHaveAttribute('data-level', 'in');
             const kIn = await scale();
             expect(kIn).toBeGreaterThan(kMid);
             const atIn = await canvas.screenshot();
@@ -1082,20 +1084,24 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 'the view row is gone, not hidden').toHaveCount(0);
             for (const id of ['pipeline-detail-mode-toggle', 'pipeline-title',
                 'pipeline-accounting', 'pipeline-viz-stepwidth-toggle',
-                'pipeline-viz-colorkey-toggle', 'pipeline-description-btn']) {
+                'pipeline-viz-colorkey-toggle', 'pipeline-viz-reset',
+                'pipeline-description-btn']) {
                 await expect(page.locator(`[data-testid="pipeline-header-row"]`
                     + ` [data-testid="${id}"]`), `${id} is on the one row`)
                     .toHaveCount(1);
             }
-            // What the 2026-08-01 directives took OFF this row, asserted as gone
-            // rather than merely unlisted — an element that quietly came back
-            // would otherwise re-crowd the row with nothing to notice it by.
-            // The `Reqs:` and `Step:` controls were removed outright; the level
-            // selector MOVED INTO THE KEY on the canvas, so it is absent here and
-            // present there (PIPE-16 owns that half).
+            // What the 2026-08-01 directives (and req #3216) took OFF this row
+            // or off the canvas entirely, asserted as gone rather than merely
+            // unlisted — an element that quietly came back would otherwise
+            // re-crowd the row, or the canvas corner, with nothing to notice
+            // it by. The `Reqs:` and `Step:` controls were removed outright;
+            // the level selector MOVED INTO THE KEY on the canvas, so it is
+            // absent here and present there (PIPE-16 owns that half); the
+            // status chip (zoom level name, "pinned", the drag/scroll hint)
+            // was DELETED, not moved — nowhere replaces it, by design (D2).
             for (const id of ['pipeline-viz-reqlayout-toggle',
                 'pipeline-viz-steplabel-toggle', 'pipeline-status-chip',
-                'pipeline-machine-chip']) {
+                'pipeline-machine-chip', 'pipeline-viz-zoom-level']) {
                 await expect(page.getByTestId(id), `${id} is gone`).toHaveCount(0);
             }
             await expect(page.locator('[data-testid="pipeline-header-row"]'
@@ -1196,18 +1202,58 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    cannot creep back in.
             await expect(page.getByTestId('pipeline-viz-next-steps')).toHaveCount(0);
 
-            // 4. Reset returns the view to the default scale after a pan.
+            // 4. Reset is the FACTORY DEFAULT (req #3216 D1), not a return to
+            //    the readable landing scale: fully zoomed out, the whole
+            //    plan's vertical extent visible, from any pan OR zoom — "reset
+            //    that lands somewhere the user still has to zoom out from is
+            //    not reset" (the requirement's own words). It also moved into
+            //    the header's zoom control group, out of the canvas's
+            //    bottom-right corner it used to float in — the click below
+            //    reaches the same test id in its new home with no locator
+            //    change (D1 acceptance: "re-point anything asserting on the
+            //    reset button at its new home").
             const canvas = container.locator('canvas').first();
             const box = (await canvas.boundingBox())!;
+            const worldH = async () => Number(
+                (await container.getAttribute('data-world'))!.split(',')[1]);
             const atDefault = (await container.getAttribute('data-transform'))!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
-            await page.mouse.move(box.x + box.width / 2 - 200, box.y + box.height / 2,
+            await page.mouse.move(box.x + box.width / 2 - 200, box.y + box.height / 2 - 150,
                 { steps: 10 });
             await page.mouse.up();
-            await expect(container).not.toHaveAttribute('data-transform', atDefault);
+            for (let i = 0; i < 2; i++) await page.mouse.wheel(0, -400);   // zoom IN too
+            await expect(container, 'the pan/zoom actually moved the view')
+                .not.toHaveAttribute('data-transform', atDefault);
             await page.getByTestId('pipeline-viz-reset').click();
-            await expect(container).toHaveAttribute('data-transform', atDefault);
+            const [rx, ry, rk] = (await container.getAttribute('data-transform'))!
+                .split(',').map(Number);
+            expect(rx, 'reset re-centres the world origin to the panel (x)').toBeCloseTo(0, 1);
+            expect(ry, 'reset re-centres the world origin to the panel (y)').toBeCloseTo(0, 1);
+            // THE ACCEPTANCE BAR ITSELF, not a proxy for it: the whole
+            // vertical extent must be ON SCREEN at the scale reset lands on,
+            // the exact property `kDefault` (fit-to-width floored for
+            // legibility) does not guarantee on a tall plan.
+            expect(rk * (await worldH()),
+                "reset shows the plan's whole vertical extent, nothing left to "
+                + 'zoom out for').toBeLessThanOrEqual(box.height + 1);
+
+            // 4b. Reset's neighbour in the same header group must not undo
+            //     it (code review finding on req #3216): Width re-centres on
+            //     every change because it rescales every column, and before
+            //     this was fixed that re-centre was hard-coded to the
+            //     readable landing scale — so clicking Width right after
+            //     Reset silently snapped the camera back to a view that may
+            //     no longer show the whole plan. The fit-to-height property
+            //     Width does not touch (only column width changes, not band
+            //     height) must survive the click.
+            await widthToggle.locator('button[value="medium"]').click();
+            const [, , rk2] = (await container.getAttribute('data-transform'))!
+                .split(',').map(Number);
+            expect(rk2 * (await worldH()),
+                'Width must recentre onto the SAME factory-default view Reset '
+                + 'landed on, not the readable landing scale')
+                .toBeLessThanOrEqual(box.height + 1);
 
             // 5. And the panel still clips — the rails are an overlay, not a
             //    scrollbar, so the PIPE-08 directive is untouched by them.
@@ -1345,11 +1391,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await page.setViewportSize({ width: 1800, height: 1000 });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
             const container = page.getByTestId('pipeline-plan-visualizer');
-            const chip = page.getByTestId('pipeline-viz-zoom-level');
             const control = page.getByTestId('pipeline-viz-level-control');
 
             // 1. It is the Build Visualizer's control, reused — same shape, same
             //    labels, same Auto-is-a-position behaviour, one component.
+            //    `aria-pressed` on its own chips is what NAMES the pinned state
+            //    (req #3216 D2 — the status chip that used to restate it in
+            //    words, "· pinned", was deleted outright; this control was
+            //    already the thing a reader pins or clears a level FROM, so
+            //    removing the caption removed no signal without another home).
             await expect(control).toBeVisible();
             await expect(control).toContainText('Detail:');
             for (const id of ['auto', '1', '2', '3']) {
@@ -1358,8 +1408,6 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(page.getByTestId('pipeline-viz-level-auto'))
                 .toHaveAttribute('aria-pressed', 'true');
             await expect(container).toHaveAttribute('data-level', 'mid');
-            await expect(chip).toContainText('Plan');
-            await expect(chip).not.toContainText('pinned');
 
             // 2. PINNING CHANGES WHAT IS DRAWN, NOT WHERE THE CAMERA IS. The
             //    transform must be byte-identical across a pin — that is the
@@ -1371,8 +1419,6 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(page.getByTestId('pipeline-viz-level-1'))
                 .toHaveAttribute('aria-pressed', 'true');
             await expect(container).toHaveAttribute('data-level', 'out');
-            await expect(chip).toContainText('Overview');
-            await expect(chip, 'a pinned level says so').toContainText('pinned');
             expect(await container.getAttribute('data-transform'),
                 'pinning a level must not move the camera').toBe(before);
             const atOut = await canvas.screenshot();
@@ -1380,8 +1426,9 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 'pinning redraws the canvas at the new level').not.toBe(0);
 
             await page.getByTestId('pipeline-viz-level-3').click();
+            await expect(page.getByTestId('pipeline-viz-level-3'))
+                .toHaveAttribute('aria-pressed', 'true');
             await expect(container).toHaveAttribute('data-level', 'in');
-            await expect(chip).toContainText('Detail');
             expect(await container.getAttribute('data-transform')).toBe(before);
 
             // 3. Clicking the pinned level again returns to Auto — the Build
@@ -1389,8 +1436,9 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await page.getByTestId('pipeline-viz-level-3').click();
             await expect(page.getByTestId('pipeline-viz-level-auto'))
                 .toHaveAttribute('aria-pressed', 'true');
+            await expect(page.getByTestId('pipeline-viz-level-3'))
+                .toHaveAttribute('aria-pressed', 'false');
             await expect(container).toHaveAttribute('data-level', 'mid');
-            await expect(chip).not.toContainText('pinned');
 
             // 4. STEP/REQ/TITLE ARE GATED, EACH ON ITS OWN CONDITION (req #3221).
             //    `data-drawn` only ever enumerates these three kinds — the ruler's
