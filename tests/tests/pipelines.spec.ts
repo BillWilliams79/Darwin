@@ -660,6 +660,34 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // regression in either.
         });
 
+    test('PIPE-10b: the time ruler draws a tick per slot, thinning labels not overlapping them',
+        async ({ page }) => {
+            // Req #3207. Same device and same reasoning as `data-batch-boxes`
+            // above: the ruler is canvas geometry, so the DOM carries what the
+            // canvas actually drew rather than a second thing derived from the
+            // same flag.
+            //
+            // TWO numbers, because the DEGRADATION rule is the half a screenshot
+            // cannot check. A pixel diff cannot tell a ruler that thinned three
+            // dates away from a plan that simply had three fewer days; `slots`
+            // against `labelled` can, and their being EQUAL here is itself the
+            // assertion — these fixtures are short enough that nothing should
+            // thin, so a labelled count below the slot count would mean the pass
+            // is firing where there is room.
+            for (const pipelineId of [fixture.batchPipelineId, fixture.mainPipelineId]) {
+                const p = pipelineId === fixture.batchPipelineId ? batchPlan : plan;
+                const L = computePlanLayout(p.rows, p.batches,
+                    { ...PLAN_VIEW_OPTIONS, timeAxis: p.timeAxis || null });
+                expect(L.ruler.slots.length).toBeGreaterThan(0);
+                const labelled = L.ruler.slots.filter(
+                    (s: { showLabel: boolean }) => s.showLabel).length;
+
+                await openPlanVisualizer(page, pipelineId);
+                await expect(page.getByTestId('pipeline-plan-visualizer'))
+                    .toHaveAttribute('data-ruler', `${L.ruler.slots.length},${labelled}`);
+            }
+        });
+
     test('PIPE-11: bead, requirement and epic click targets navigate', async ({ page }) => {
         // The BATCH plan, on purpose. Canvas hit targets are world-space and the
         // stage is fit to width, so the screen-space tolerance is
