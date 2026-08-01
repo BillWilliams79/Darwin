@@ -59,6 +59,7 @@ import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
 import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
 import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
+import EpicsPage from './Epics/EpicsPage';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -163,6 +164,12 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/pipeline/:id" element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
+                                                         </AuthenticatedRoute>} />
+                    {/* Epics editor (req #3139) — the top tier of Epic > Feature
+                        > Story, sited beside the pipeline routes because an epic
+                        is what a plan is made of. */}
+                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
+                                                             <EpicsPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/features" element= {<AuthenticatedRoute>
                                                              <FeaturesPage />

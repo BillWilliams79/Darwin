@@ -60,6 +60,43 @@ describe('navConfig — Sessions sub-items', () => {
     });
 });
 
+// Req #3139 — the Epics editor is an L2 entry directly under Pipelines. The
+// spec is positional ("goes where pipelines L2 is"), so position is what these
+// pin: a later nav edit that appends Epics to the end of the swarm group would
+// satisfy every other assertion in this file and still be wrong.
+describe('navConfig — Epics editor placement (req #3139)', () => {
+    const EPICS_PATH = '/swarm/epics';
+    const PIPELINES_PATH = '/swarm/pipelines';
+
+    it('registers Epics as an L2 link in the swarm group', () => {
+        const epics = NAV_LINKS.find(l => l.path === EPICS_PATH);
+        expect(epics).toBeDefined();
+        expect(epics.group).toBe('swarm');
+        expect(epics.label).toBe('Epics');
+        expect(epics.icon).toBeTruthy();
+    });
+
+    it('places Epics immediately after Pipelines', () => {
+        const paths = NAV_LINKS.map(l => l.path);
+        expect(paths.indexOf(EPICS_PATH)).toBe(paths.indexOf(PIPELINES_PATH) + 1);
+    });
+
+    it('keeps Epics a SIBLING of Pipelines, never a child of it', () => {
+        // An epic is not a lifecycle record OF a pipeline the way Starts are of
+        // a Session, so it must not acquire req #3209's nesting.
+        const epics = NAV_LINKS.find(l => l.path === EPICS_PATH);
+        expect(epics.children).toBeUndefined();
+        NAV_LINKS.forEach(parent => {
+            expect((parent.children ?? []).map(c => c.path)).not.toContain(EPICS_PATH);
+        });
+    });
+
+    it('leaves Requirements as the swarm group\'s first link', () => {
+        // Same HomePage-redirect invariant the Sessions block above pins.
+        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe('/swarm');
+    });
+});
+
 describe('flattenNavLinks', () => {
     it('emits each parent immediately followed by its children', () => {
         const flat = flattenNavLinks([
