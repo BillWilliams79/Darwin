@@ -21,7 +21,7 @@
 // a different hat.
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
@@ -72,6 +72,12 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
+import SemanticLevelControl from '../../Components/SemanticLevelControl';
+import {
+    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_REQ_VIEW, DEFAULT_STEP_WIDTH,
+    PLAN_LEVEL_NUMBER, REQ_VIEWS, isStepWidth, normalizeColorKey,
+    normalizePlanLevelPref, normalizeReqView, reqViewOptions,
+} from './pipelinePlanLayout';
 import {
     PLAN_REQUIREMENT_FIELDS,
     buildCostIndex,
@@ -266,15 +272,57 @@ export default function PipelineDetail() {
     useEffect(() => { setDescriptionOpen(false); }, [pipelineId]);
     // Defaults vertical + title (user directive 2026-07-31); a persisted
     // preference still wins — useViewPreference only falls back to these.
-    const [reqLayoutPref, setReqLayoutPref] = useViewPreference(
-        'darwin-pipeline-viz-req-layout', 'vertical');
-    const [stepLabelPref, setStepLabelPref] = useViewPreference(
-        'darwin-pipeline-viz-step-label', 'title');
+    //
+    // The `Reqs:` and `Step:` PREFERENCES went with their controls (user
+    // directive 2026-08-01). Requirement marks are always the vertical stack and
+    // the step label is always the title, so these are constants now — declared
+    // here, once, rather than threaded as literals through the render.
+    //
+    // The stored keys are deliberately NOT read any more: a reader who had
+    // `horizontal` pinned gets the vertical stack like everyone else, which is
+    // the point of removing the choice. Nothing writes them, so they simply go
+    // stale in localStorage.
+    const reqLayout = 'vertical';
     const [colorKeyPref, setColorKeyPref] = useViewPreference(
-        'darwin-pipeline-viz-color-key', 'state');
-    const reqLayout = reqLayoutPref === 'vertical' ? 'vertical' : 'horizontal';
-    const stepLabel = stepLabelPref === 'title' ? 'title' : 'id';
-    const colorKey = colorKeyPref === 'machine' ? 'machine' : 'state';
+        'darwin-pipeline-viz-color-key', DEFAULT_COLOR_KEY);
+    // Req #3168 — the user's own control over column width. Defaults to
+    // `compact`, which is the identity factor: an existing reader's plan is
+    // pixel-for-pixel what it was until they ask for something wider.
+    const [stepWidthPref, setStepWidthPref] = useViewPreference(
+        'darwin-pipeline-viz-step-width', DEFAULT_STEP_WIDTH);
+    // Req #3168 — the semantic-level selector, the Build Visualizer's control
+    // (user directive: "show me the L1, L2, L3 and Auto selector used
+    // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
+    // like every other view preference, and normalized the same way — the value
+    // comes from localStorage.
+    const [levelPref, setLevelPref] = useViewPreference(
+        'darwin-pipeline-viz-level', DEFAULT_PLAN_LEVEL_PREF);
+    const planLevelPref = normalizePlanLevelPref(levelPref);
+    // The level the CANVAS is rendering, reported back so the control can softly
+    // mark it while on Auto — the same handshake BuildVisualizerPage uses
+    // (`onEffectiveLevel={setEffectiveLevel}`). Display only: nothing is derived
+    // from it, so a late first report cannot change what is drawn.
+    const [effectiveLevel, setEffectiveLevel] = useState(null);
+    // The step label is always the TITLE, and the requirement marks always
+    // reserve room for their TITLE — the renderer draws the id inside that box
+    // at L1/L2 and the title itself at L3 (see the `idText` note in
+    // pipelinePlanLayout.js). Reserving at every level is what keeps a zoom
+    // change a pure transform instead of a relayout.
+    const stepLabel = 'title';
+    const reqLabel = 'title';
+    // ── The colour key is TRI-STATE (req #3168, user directive 2026-08-01) ──
+    // `state` · `machine` · `none`. `normalizeColorKey` is `Object.hasOwn`-based
+    // for the same reason `isStepWidth` is: the value comes from localStorage, so
+    // "constructor" is a reachable string that resolves to an inherited function,
+    // and this one is handed to Konva as a text `fill`. A stored value written
+    // before this change ('state' / 'machine') still normalizes to itself, so an
+    // existing reader's plan opens exactly as it did.
+    const colorKey = normalizeColorKey(colorKeyPref);
+    // `isStepWidth`, not a truthiness lookup: this value comes from
+    // localStorage, so `"constructor"` is a reachable string and it resolves to
+    // an inherited function — truthy, and a factor that turns every column width
+    // into NaN and the canvas blank with no error to see.
+    const stepWidth = isStepWidth(stepWidthPref) ? stepWidthPref : DEFAULT_STEP_WIDTH;
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
@@ -284,8 +332,36 @@ export default function PipelineDetail() {
     // Table their default everywhere (review finding). Picking a mode by hand
     // persists it as usual and clears both the override and the focus, so a
     // stale highlight never survives an unrelated visit to the table.
+    // ── `?mode=` makes the SURFACE addressable, not just the page (req #3168) ──
+    // Which panel this page shows is a persisted PREFERENCE, so the route alone
+    // names a plan and not a view of it: `/swarm/pipeline/2` opens the Table for
+    // anyone whose stored mode says Table, including every first-time visitor
+    // (`DEFAULT_PIPELINE_DETAIL_MODE`). That makes the visualizer unlinkable —
+    // there is no URL that reliably lands on it — which is a real gap for a dev
+    // server deep link, a bug report, or a link pasted into a review.
+    //
+    // It seeds the SAME transient override the bead-click handshake uses, and for
+    // the same reason: a link asks to see one thing once. It must not rewrite what
+    // the user chose as their default (the `normalizeView` doctrine — never let an
+    // external condition overwrite uncommitted user intent). Picking a mode by
+    // hand clears the override, so the link is inert from that moment on even
+    // though the query string is still in the address bar.
+    const [searchParams] = useSearchParams();
+    // Validated against the mode list, never trusted: an unknown `?mode=xyz` is a
+    // typo, and falling through to `null` leaves the stored preference in charge
+    // rather than selecting nothing in the toggle group.
+    const requestedMode = searchParams.get('mode');
+    const linkMode = PIPELINE_DETAIL_MODES.some(
+        (m) => m.value === requestedMode && !m.disabled) ? requestedMode : null;
+
     const [focusStepId, setFocusStepId] = useState(null);
-    const [modeOverride, setModeOverride] = useState(null);
+    const [modeOverride, setModeOverride] = useState(linkMode);
+    // Re-seeds when the LINK changes — a new `?mode=` or a different plan — and at
+    // no other time, so a manual pick below is never resurrected by a re-render.
+    useEffect(() => {
+        setModeOverride(linkMode);
+        setFocusStepId(null);
+    }, [linkMode, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -434,14 +510,28 @@ export default function PipelineDetail() {
                 <Typography variant="body2" color="text.primary">{pipeline.title}</Typography>
             </Breadcrumbs>
 
-            {/* ONE header row (req #3119): mode switch, name, the accounting line
-                immediately right of the name, then the active mode's controls,
-                the status chips and — since req #3179 — the description button.
-                Everything the plan used to stack above itself now shares this
-                line, and with the description gone from the column this row is
-                the LAST piece of chrome between the breadcrumb and the panel,
-                which is what leaves room for a full-height canvas below. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
+            {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
+                "the title of the visualizer, it became three rows for seemingly
+                no reason." Earlier in req #3168 this was split into a PIPELINE
+                bar and a VIEW bar, on a reading of "navbar seprate for pipeline
+                and its data types". The user looked at the result against
+                darwin.one and rejected it: with the breadcrumb above, the split
+                reads as three rows of chrome before any plan.
+
+                So this is production's single row again, in production's order —
+                mode switch first and left, the plan's identity, the accounting
+                line, a spacer, the active mode's own controls, then the status
+                and machine chips and the description button at the right end.
+                The controls added since (Width, the colour tri-state, the
+                semantic-level selector) join the mode's group rather than
+                claiming a row.
+
+                MEASURED: in Plan mode this row wraps to a second line below
+                ~2180px of viewport, and to a third below ~1290px. It is a
+                `flexWrap: 'wrap'` row and always was — every assertion written
+                against it is deliberately WRAP-INVARIANT for that reason, and
+                nothing here is shrunk to chase a single line. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
                         mb: 1 }}
                  data-testid="pipeline-header-row">
                 <ToggleButtonGroup
@@ -494,62 +584,79 @@ export default function PipelineDetail() {
                     </Button>
                 ) : (
                     <>
-                        <ToggleButtonGroup value={reqLayout} exclusive size="small"
-                                           onChange={(_e, v) => v && setReqLayoutPref(v)}
-                                           data-testid="pipeline-viz-reqlayout-toggle">
-                            <ToggleButton value="horizontal" className="cal-toggle-btn">
-                                Reqs: Horizontal
-                            </ToggleButton>
-                            <ToggleButton value="vertical" className="cal-toggle-btn">
-                                Reqs: Vertical
-                            </ToggleButton>
+                        {/* The `Reqs:` and `Step:` controls were REMOVED on the
+                            user's directive (2026-08-01): requirement marks are
+                            always the vertical stack and the step label is always
+                            the title, so both controls had one useful position
+                            each and spent header width saying so. The layout
+                            module still takes both parameters and still proves
+                            every combination — a control is a product decision,
+                            not a reason to delete a tested code path. */}
+                        {/* Req #3168 — column width, the one piece of the plan's
+                            geometry a reader could not influence. It only ever
+                            WIDENS (see STEP_WIDTH_FACTORS): a narrower column
+                            than the content needs would push requirement marks
+                            out of their own slab, which is the zero-overlap
+                            contract the layout module proves. */}
+                        <ToggleButtonGroup value={stepWidth} exclusive size="small"
+                                           onChange={(_e, v) => v && setStepWidthPref(v)}
+                                           data-testid="pipeline-viz-stepwidth-toggle">
+                            <Tooltip title="Column width — compact">
+                                <ToggleButton value="compact" className="cal-toggle-btn">
+                                    Width: S
+                                </ToggleButton>
+                            </Tooltip>
+                            <Tooltip title="Column width — medium">
+                                <ToggleButton value="medium" className="cal-toggle-btn">
+                                    M
+                                </ToggleButton>
+                            </Tooltip>
+                            <Tooltip title="Column width — wide">
+                                <ToggleButton value="wide" className="cal-toggle-btn">
+                                    L
+                                </ToggleButton>
+                            </Tooltip>
                         </ToggleButtonGroup>
-                        <ToggleButtonGroup value={stepLabel} exclusive size="small"
-                                           onChange={(_e, v) => v && setStepLabelPref(v)}
-                                           data-testid="pipeline-viz-steplabel-toggle">
-                            <ToggleButton value="id" className="cal-toggle-btn">
-                                Step: ID
-                            </ToggleButton>
-                            <ToggleButton value="title" className="cal-toggle-btn">
-                                Step: Title
-                            </ToggleButton>
-                        </ToggleButtonGroup>
-                        {/* Machine colours the REQUIREMENT IDS, not the beads —
-                            the bead's fill is derived state and stays that. */}
-                        <ToggleButtonGroup value={colorKey} exclusive size="small"
-                                           onChange={(_e, v) => v && setColorKeyPref(v)}
-                                           data-testid="pipeline-viz-colorkey-toggle">
-                            <ToggleButton value="state" className="cal-toggle-btn">
-                                State
-                            </ToggleButton>
-                            <ToggleButton value="machine" className="cal-toggle-btn">
-                                Machine
-                            </ToggleButton>
-                        </ToggleButtonGroup>
+                        {/* The colour key for the REQUIREMENT MARKS, never the
+                            beads — the bead's fill is derived STEP state and
+                            stays that (the one-fact-one-channel-one-level rule
+                            in pipelinePlanLayout.js).
+
+                            THREE POSITIONS FROM TWO BUTTONS. MUI's exclusive
+                            group already fires `onChange(_, null)` when the
+                            selected button is clicked again; the old handler
+                            (`v && setPref(v)`) swallowed exactly that event.
+                            `value={null}` renders BOTH buttons unpressed, so the
+                            control reports the third position honestly instead of
+                            lying about one of the other two.
+                            `useViewPreference.changeView` ignores null, so the
+                            string 'none' is what gets stored. */}
+                        <Tooltip title={'Colour the requirement marks — click the '
+                            + 'selected button again for none'}>
+                            <ToggleButtonGroup
+                                value={colorKey === 'none' ? null : colorKey}
+                                exclusive size="small"
+                                onChange={(_e, v) => setColorKeyPref(v == null ? 'none' : v)}
+                                data-testid="pipeline-viz-colorkey-toggle">
+                                <ToggleButton value="state" className="cal-toggle-btn">
+                                    State
+                                </ToggleButton>
+                                <ToggleButton value="machine" className="cal-toggle-btn">
+                                    Machine
+                                </ToggleButton>
+                            </ToggleButtonGroup>
+                        </Tooltip>
                     </>
                 )}
 
-                <Chip size="small" label={pipeline.pipeline_status}
-                      {...pipelineStatusChipProps(pipeline.pipeline_status)}
-                      data-testid="pipeline-status-chip" />
-                {/* The machine chip reports what the PLAN ACTUALLY SPANS, not
-                    just `pipelines.machine_fk` (req #3119). The stored field is a
-                    single id, and the live Substrate plan runs 25 steps on the
-                    Mac mini, 6 on the WSL box and 8 unpinned — so a bare "Mac
-                    mini" here read as "this plan is Mac-mini only", which is how
-                    the discrepancy was noticed. One machine still prints its
-                    name; more prints the count and names them on hover. */}
-                <Tooltip title={planMachines.length > 1
-                    ? `Steps run on: ${planMachines.join(', ')}` : ''}>
-                    <Chip size="small" variant="outlined"
-                          label={planMachines.length > 1
-                              ? `${planMachines.length} machines`
-                              : (planMachines[0] || machineTitle(pipeline.machine_fk, machines))}
-                          data-testid="pipeline-machine-chip" />
-                </Tooltip>
-
-                {/* Req #3179 — the description, at the RIGHT END of the title
-                    row, exactly where the Telemetry page keeps its Glossary
+                {/* The status chip and the machine chip were REMOVED on the
+                    user's directive (2026-08-01). Plan status is already on the
+                    Pipelines list this page is reached from, and the machine
+                    spread is on every step's hover card; on the title row they
+                    were two more things between the plan's name and the reader.
+                    The description button is what remains, and it is last. */}
+                {/* Req #3179 — the description, at the RIGHT END of the row,
+                    exactly where the Telemetry page keeps its Glossary
                     (ContextPage.jsx). The icon reports whether there is anything
                     behind it: coloured when the plan has a goal, muted when it
                     does not, so an empty description is visible without opening
@@ -621,6 +728,10 @@ export default function PipelineDetail() {
                              costError={!!costError}
                              showCost={showCost}
                              reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
+                             stepWidth={stepWidth} reqLabel={reqLabel}
+                             levelPref={planLevelPref}
+                             onChangeLevelPref={setLevelPref}
+                             onEffectiveLevel={setEffectiveLevel}
                              />
         </Box>
     );

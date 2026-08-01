@@ -13,6 +13,15 @@
 // stage fills a fixed container (production directive: no visible horizontal
 // scrollbar).
 //
+// ── The scroll pane (req #3168) ────────────────────────────────────────────
+// That directive stands, and the panel still has no scrollbar of any kind. What
+// it gained is the two properties a scroll pane has and free pan does not:
+// BOUNDED translation (d3's translateExtent — the plan cannot be dragged off the
+// panel and lost). The overlay scroll rails that shipped alongside it were
+// REMOVED on the user's directive (2026-08-01): the bound plus the `reset view`
+// control are what keep the plan reachable, and a thumb on a canvas that pans by
+// transform was chrome restating what the pan already shows.
+//
 // Level-of-detail via the SAME semanticLevel() the swarm canvas uses, so the
 // three depth levels feel identical. Mapping (worker judgment, documented per
 // the requirement):
@@ -29,6 +38,20 @@
 // The POC page's palette (dark navy panel, mono type, EPAL epic colors, teal
 // batch accent) renders verbatim in both app themes — the directive is to keep
 // THIS page's look, not the swarm canvas's day-row language.
+//
+// THE PANEL HAS NO LIGHT MODE, and that is load-bearing rather than incidental
+// (req #3168). `PLAN_VIZ_PALETTE` is a fixed dark set and this container's
+// background is `P.panel` (#111b2b) under both Darwin themes, so every colour
+// decision on this surface is made against ONE known background. A
+// theme-conditional colour here could never fire; writing one would be dead code
+// claiming to handle a case that does not exist. Near-white `P.text` is
+// therefore the whole answer to "neutral" — there is no black variant.
+//
+// The colour LANGUAGE itself — which channel encodes what, at which level, what
+// animates, and the rule that stops two channels claiming one meaning — is
+// documented and decided in `pipelinePlanLayout.js`, because it is pure and
+// because the on-screen KEY below has to render exactly what the canvas draws.
+// This file draws the language; it does not define it.
 //
 // ── Data discipline ────────────────────────────────────────────────────────
 // Requirement-centric: every mark derives from plan rows + hierarchy (design
@@ -49,6 +72,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
+import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import { semanticLevel } from '../konvaSwarmModel';
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
@@ -57,8 +81,13 @@ import { fmtCost } from './pipelineModel';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
-    computePlanLayout, beadStyle,
+    computePlanLayout, beadStyle, placeEpicChips,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS,
+    K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
+    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
+    buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
+    DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
+    PLAN_LEVEL_NUMBER,
 } from './pipelinePlanLayout';
 import '../../CalendarFC/swarmVisualizer.css';
 
@@ -66,16 +95,58 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 const LEVEL_NAME = { out: 'Overview', mid: 'Plan', in: 'Detail' };
 
-// Legend swatch — a colored dot (or ring) in the POC vocabulary.
-function LegendDot({ fill, ring, dashed, label }) {
+// The three requirement-mark colour scales, in the order they are reserved.
+// Every one is rendered every time (hidden when not live) so the key's footprint
+// is the MAX of the three and therefore constant — see the key's own comment.
+const REQ_KEY_SCALES = ['state', 'machine', 'none'];
+
+// Interactive chrome layered OVER the canvas (req #3168): the key and the
+// reset button. Both d3-zoom's gesture filter and the manual click hit-test
+// reject anything originating inside one, so a control can never double as a
+// pan gesture or as a click on the bead beneath it.
+const CHROME_SELECTOR = '[data-viz-chrome]';
+
+// The panel colour at the chip's declared opacity (req #3168 user directive:
+// 40% transparent). Derived from the ONE palette entry rather than written as a
+// second literal, so a palette change cannot leave the chip a different shade of
+// the same intent.
+const rgba = (hex, a) => {
+    const n = parseInt(hex.replace('#', ''), 16);
+    /* eslint-disable no-bitwise */
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+    /* eslint-enable no-bitwise */
+};
+
+// Key swatch — a colored dot (or ring) in the POC vocabulary. `text` renders the
+// swatch as a glyph instead, which is how the requirement-id channel is shown:
+// that channel colours TYPE, and a dot would misrepresent it as another bead.
+function LegendDot({ fill, ring, dashed, text, label, animated }) {
     return (
         <Stack direction="row" spacing={0.5} alignItems="center">
-            <Box sx={{
-                width: 10, height: 10, flexShrink: 0,
-                borderRadius: dashed ? '3px' : '50%',
-                bgcolor: fill || 'transparent',
-                border: ring ? `2px ${dashed ? 'dashed' : 'solid'} ${ring}` : 'none',
-            }} />
+            {text ? (
+                <Box sx={{ width: 12, flexShrink: 0, fontFamily: MONO, fontSize: 10,
+                            fontWeight: 700, lineHeight: 1, color: fill, textAlign: 'center' }}>
+                    {text}
+                </Box>
+            ) : (
+                <Box sx={{
+                    width: 10, height: 10, flexShrink: 0,
+                    borderRadius: dashed ? '3px' : '50%',
+                    bgcolor: fill || 'transparent',
+                    border: ring ? `2px ${dashed ? 'dashed' : 'solid'} ${ring}` : 'none',
+                    // The key SHOWS the motion it describes rather than only
+                    // naming it — the two animated marks are the two questions
+                    // this page exists to answer, and a static swatch beside the
+                    // word "pulses" makes the reader match prose to a moving
+                    // thing 400px away. Same curves as the canvas
+                    // (PLAN_VIZ pulse ~480ms, halo ~900ms), so the key and the
+                    // plan visibly share a rhythm.
+                    ...(animated ? {
+                        animation: `${animated} ${animated === 'pipeKeyPulse' ? '0.96s' : '1.8s'}`
+                            + ' ease-in-out infinite',
+                    } : null),
+                }} />
+            )}
             <Typography variant="caption" sx={{ color: P.dim, whiteSpace: 'nowrap' }}>
                 {label}
             </Typography>
@@ -83,35 +154,53 @@ function LegendDot({ fill, ring, dashed, label }) {
     );
 }
 
-// Machine colours for the requirement ids (req #3119) — the high-contrast
-// ecosystem pairing (user directive 2026-07-27): each machine reads as its
-// PLATFORM at a glance, so the two are told apart by association rather than by
-// consulting a key.
-//
-// Keyed on `machines.platform`, NOT on position in the plan's machine list. A
-// positional palette makes a machine's colour depend on which OTHER machines a
-// plan happens to use, so the Mac mini would be one colour on a two-machine plan
-// and another on a three-machine one — and the whole value of an ecosystem
-// pairing is that it is the same everywhere.
-const MACHINE_MAC_COLOR = '#FF5F56';       // Apple traffic-light red
-const MACHINE_WINDOWS_COLOR = '#0078D4';   // Microsoft blue
-const MACHINE_ANY_COLOR = '#8fa4c4';       // no pin — not a machine
-// A machine outside the pairing still has to be distinguishable, so it takes a
-// hue that is neither ecosystem colour.
-const MACHINE_FALLBACK_PALETTE = ['#8ce99a', '#c8a2ff', '#6ee7e7', '#ffb86b', '#f78ca0'];
+// The requirement channel's swatch: THE WORD IS THE SWATCH (user directive
+// 2026-08-01 — "instead just list the statuses and make them their color").
+// A dot beside a name spends width on a mark the canvas does not draw for this
+// channel; the canvas colours TYPE, so the key colours type. It is also strictly
+// more information per pixel — the reader matches the colour AND reads what it
+// means in one glyph run — which is what let the key lose two rows without
+// losing anything it said.
+function LegendWord({ color, label }) {
+    return (
+        <Typography variant="caption"
+                    sx={{ color, fontFamily: MONO, fontWeight: 700, fontSize: 10.5,
+                           lineHeight: 1.35, whiteSpace: 'nowrap' }}>
+            {label}
+        </Typography>
+    );
+}
 
-// Which ecosystem a MACHINE ROW belongs to. Colour is resolved per machine id —
-// the requirement carries `machine_fk` and that id decides the colour — but the
-// id itself says nothing about the ecosystem, so the machine record does.
-// `platform` first because it is the field that means this; hostname/title only
-// as a backstop, since a machine registered without a platform would otherwise
-// silently drop out of the pairing into a fallback hue.
-function machineEcosystem(machine) {
-    const hay = `${machine?.platform || ''} ${machine?.title || ''} ${machine?.hostname || ''}`
-        .toLowerCase();
-    if (/darwin|mac|osx|os x/.test(hay)) return 'mac';
-    if (/wsl|win32|windows|cygwin|msys|mchp/.test(hay)) return 'windows';
-    return null;
+// The key's own section heading — dim, uppercase, and narrow, so a section costs
+// the corner ~54px rather than a row of its own.
+// ONE SHAPE FOR EVERY SECTION (user directive 2026-08-01: "the key is a
+// disaster… beautify"). What made it read as a jumble was that its three
+// sections were three different objects: a caption sitting INLINE with its
+// entries on two of them, MUI chips in a different type scale on the third, and
+// the entries wrapping around the captions at the cap width so nothing lined up.
+//
+// Now every section is the same two lines — an uppercase caption on its own
+// baseline, then its row, left-aligned to a single edge — separated by a
+// hairline. Uniformity is the whole treatment: three sections that look alike
+// read as one key, and the eye stops re-parsing each row.
+function KeyGroup({ title, children, first = false }) {
+    return (
+        <Stack direction="column" spacing={0.3} useFlexGap
+               sx={{ pt: first ? 0 : 0.6, mt: first ? 0 : 0.15,
+                      borderTop: first ? 'none' : `1px solid ${P.line}66` }}>
+            <Typography variant="caption"
+                        sx={{ color: P.dim, opacity: 0.7, whiteSpace: 'nowrap',
+                               fontSize: 9, lineHeight: 1,
+                               letterSpacing: '0.11em', fontWeight: 600,
+                               textTransform: 'uppercase' }}>
+                {title}
+            </Typography>
+            <Stack direction="row" spacing={1.1} alignItems="center"
+                   flexWrap="nowrap" useFlexGap>
+                {children}
+            </Stack>
+        </Stack>
+    );
 }
 
 export default function PipelinePlanVisualizer({
@@ -119,7 +208,9 @@ export default function PipelinePlanVisualizer({
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
-    reqLayout = 'vertical', stepLabel = 'title', colorKey = 'state',
+    reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
+    stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
+    onEffectiveLevel, onChangeLevelPref,
 }) {
     const navigate = useNavigate();
 
@@ -138,49 +229,61 @@ export default function PipelinePlanVisualizer({
         () => new Map((model?.requirements || [])
             .map((r) => [r.id, { title: r.title, status: r.requirement_status }])),
         [model]);
+    // The requirement TITLE lookup, when that mark is showing (req #3168). Built
+    // from `reqInfo`, which the hover card already needed — so the option costs
+    // no extra read and no extra pass over the model. Passed as an ARGUMENT
+    // rather than attached to the engine's rows; the reasoning is on
+    // `reqLabelText` in the layout module.
+    const reqTitles = useMemo(
+        () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
     const layout = useMemo(
-        () => computePlanLayout(rows, plan.batches || [], { reqLayout, stepLabel }),
-        [rows, plan.batches, reqLayout, stepLabel]);
+        () => computePlanLayout(rows, plan.batches || [], {
+            reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
+        }),
+        [rows, plan.batches, reqLayout, stepLabel, stepWidth, reqLabel, reqTitles]);
 
-    // ── Machine identity on the REQUIREMENT IDS (req #3119) ─────────────────
-    // Machine rides the requirement ids, never the bead: the bead's fill already
-    // carries derived state (rule 1), and repainting it would trade that reading
-    // for this one. Colour + weight, so the distinction survives at small sizes.
-    //
-    // Colour comes from the machine's PLATFORM, so it is the same on every plan.
-    const machineView = useMemo(() => {
-        const reqMachine = new Map((model?.requirements || [])
-            .map((r) => [r.id, r.machine_fk == null ? null : r.machine_fk]));
-        const machineById = new Map((model?.machines || []).map((m) => [m.id, m]));
-        const titleById = new Map((model?.machines || []).map((m) => [m.id, m.title]));
-        const used = [...new Set([...reqMachine.values()].filter((v) => v != null))]
-            .sort((a, b) => a - b);
-        let fallbackNext = 0;
-        const colorById = new Map(used.map((id) => {
-            const eco = machineEcosystem(machineById.get(id));
-            if (eco === 'mac') return [id, MACHINE_MAC_COLOR];
-            if (eco === 'windows') return [id, MACHINE_WINDOWS_COLOR];
-            const c = MACHINE_FALLBACK_PALETTE[fallbackNext % MACHINE_FALLBACK_PALETTE.length];
-            fallbackNext += 1;
-            return [id, c];
-        }));
-        const anyPresent = [...reqMachine.values()].some((v) => v == null);
-        return {
-            colorOf: (reqId) => {
-                const m = reqMachine.get(reqId);
-                return m == null ? MACHINE_ANY_COLOR : (colorById.get(m) || MACHINE_ANY_COLOR);
-            },
-            legend: [
-                ...used.map((id) => ({
-                    key: id, color: colorById.get(id),
-                    label: titleById.get(id) || `Machine ${id}`,
-                })),
-                ...(anyPresent
-                    ? [{ key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' }] : []),
-            ],
-        };
-    }, [model]);
-    const byMachine = colorKey === 'machine';
+    // ── The REQUIREMENT-ID channel (req #3119, tri-state req #3168) ─────────
+    // Whatever the key, it rides the requirement ids and never the bead: the
+    // bead's fill already carries derived STEP state (rule 1), and repainting it
+    // would trade that reading for this one. The full colour language, and the
+    // one-fact-one-channel-one-level rule it turns on, is documented in
+    // pipelinePlanLayout.js — which is also where every colour below is decided,
+    // so the canvas and the on-screen key cannot drift apart.
+    const machineView = useMemo(
+        () => buildMachineColorView({
+            requirements: model?.requirements, machines: model?.machines,
+        }), [model]);
+    // Normalized HERE as well as in the page (review discipline): the prop is a
+    // persisted preference travelling through a component boundary, and a
+    // visualizer rendered from anywhere else must not be able to receive a
+    // localStorage string this file then hands to Konva as a `fill`.
+    const activeColorKey = normalizeColorKey(colorKey);
+    // The statuses this plan actually contains — the key lists only these, which
+    // is what stops a seven-entry scale from taking the corner the epic chips
+    // need. Derived from the SAME map the hover card reads; no extra pass over
+    // the model.
+    const planStatuses = useMemo(() => {
+        const seen = new Set();
+        for (const row of rows) {
+            for (const reqId of row.reqIds || []) seen.add(reqInfo.get(reqId)?.status);
+        }
+        return seen;
+    }, [rows, reqInfo]);
+    // ALL THREE scales, always, not just the live one. The key stacks them in one
+    // grid cell to reserve a footprint that cannot move when the colour mode does
+    // (user directive: "when I select machine view the key gets too small"), and
+    // a cell can only be sized by children that exist. Same module and same
+    // resolver as the canvas — the key is a rendering of the language, never a
+    // second copy of it.
+    const reqKeyScales = useMemo(() => Object.fromEntries(
+        REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
+            colorKey: scale,
+            statuses: planStatuses,
+            machineLegend: machineView.legend,
+        }).entries])), [planStatuses, machineView]);
+    // Expanded by default — see the key's own comment below for why this is
+    // component state and not a persisted preference.
+    const [keyOpen, setKeyOpen] = useState(true);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -188,6 +291,18 @@ export default function PipelinePlanVisualizer({
     // a ref would never re-run and the canvas would stay blank forever (review
     // finding). A ref callback re-fires every effect when the node appears.
     const [containerEl, setContainer] = useState(null);
+    // The key is a floating overlay in the panel's top-right corner, and the
+    // epic chips clamp into the same corner whenever a band's header strip
+    // reaches it — so the two collided, with the key on top and the epic name
+    // unreadable underneath (req #3168, "epic title collisions"). Its rect is
+    // MEASURED rather than assumed, and measuring is what lets the key GROW into
+    // the complete vocabulary without anyone re-tuning a constant: its size
+    // depends on the live colour key (a status scale filtered to the plan, or one
+    // entry per machine), on whether a batch box is drawn, and on whether the
+    // reader has collapsed it. Any hard-coded keep-out would be wrong on most
+    // plans in one direction or the other.
+    const [legendEl, setLegendEl] = useState(null);
+    const [legendSize, setLegendSize] = useState(null);
     const stageRef = useRef(null);
     const layerRef = useRef(null);
     const zoomRef = useRef(null);
@@ -207,6 +322,22 @@ export default function PipelinePlanVisualizer({
         setSize({ w: containerEl.clientWidth, h: containerEl.clientHeight });
         return () => ro.disconnect();
     }, [containerEl]);
+
+    useLayoutEffect(() => {
+        if (!legendEl) { setLegendSize(null); return undefined; }
+        const ro = new ResizeObserver((entries) => {
+            const cr = entries[0]?.contentRect;
+            if (cr) {
+                setLegendSize({
+                    w: Math.round(legendEl.offsetWidth),
+                    h: Math.round(legendEl.offsetHeight),
+                });
+            }
+        });
+        ro.observe(legendEl);
+        setLegendSize({ w: legendEl.offsetWidth, h: legendEl.offsetHeight });
+        return () => ro.disconnect();
+    }, [legendEl]);
 
     // The canvas fills whatever is left below it, MEASURED (req #3119). A
     // `calc(100vh - Npx)` constant — which is what the swarm canvas can afford,
@@ -258,20 +389,87 @@ export default function PipelinePlanVisualizer({
     }, [measureAvailH]);
 
     // Fit-to-width base scale — the POC page rendered the whole plan across the
-    // panel; kBase is that view, and semanticLevel(curK / kBase) matches the
-    // swarm canvas's ratio semantics exactly.
-    const kBase = size.w > 0 ? size.w / layout.width : 0.7;
-    const curK = transform ? transform.k : kBase;
-    const level = semanticLevel(kBase > 0 ? curK / kBase : 1);
+    // panel; kFit is that view.
+    const kFit = size.w > 0 ? size.w / layout.width : 0.7;
+
+    // ── The DEFAULT view is the readable one, not the whole one (req #3168) ──
+    // Fit-to-width is the right OVERVIEW and the wrong DEFAULT. It is a scale
+    // divided by plan size, so the bigger the plan the smaller the type — and the
+    // live 64-step plan opens at a k where the requirement ids are a few pixels
+    // tall. The page's whole job is reading a plan, and it was arriving unreadable
+    // on exactly the plans that need it.
+    //
+    // K_READABLE is derived from the smallest required text (the req ids) and an
+    // 11px floor; see pipelinePlanLayout. On a plan that already fits at a legible
+    // size this is inert — kFit wins and nothing about the old view changes.
+    const kDefault = Math.max(kFit, K_READABLE);
+    const curK = transform ? transform.k : kDefault;
+    // THE LEVEL LADDER RE-ANCHORS ON THE DEFAULT, not on the fit (req #3168).
+    // semanticLevel() takes a RATIO, and the ratio means "how far in from where
+    // you started". Leaving the denominator at kFit while the default moved would
+    // open a large plan at 'Detail' and a small one at 'Plan' — the same gesture
+    // reporting a different level for no reason the reader can see. Anchoring on
+    // kDefault keeps "the view you land on" = 'Plan' at every plan size, which is
+    // the contract PIPE-09 asserts.
+    // ── Auto, or PINNED (req #3168) ─────────────────────────────────────────
+    // `KonvaBuildCanvas`'s own line, in this canvas's vocabulary:
+    // `pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`. Pinning changes
+    // what is DRAWN and never where the camera is — no transform is touched, so
+    // a pinned reader can still pan and zoom freely and PIPE-09's wheel ladder is
+    // untouched while the selector sits on Auto.
+    const pinnedLevel = pinnedLevelOf(levelPref);
+    const autoLevelName = semanticLevel(kDefault > 0 ? curK / kDefault : 1);
+    const level = pinnedLevel || autoLevelName;
 
     // The d3-zoom behavior (KonvaSwarmCanvas pattern).
     useEffect(() => {
         const el = containerEl;
         if (!el || size.w === 0) return undefined;
         const sel = select(el);
+        // ── Bounded pan — the "scroll pane" half of req #3168 ────────────────
+        // An unbounded pan can carry the entire plan off the panel, and the only
+        // way back is a mode switch (nothing on the surface re-fits). A scroll
+        // pane cannot do that, and that is the property being asked for.
+        //
+        // A CUSTOM `constrain`, not `translateExtent`. The extent is a world-space
+        // rectangle fixed at construction, so the overshoot it grants is measured
+        // in world units and therefore GROWS ON SCREEN as you zoom in: a slack of
+        // half a viewport at kDefault is half a viewport at kDefault and four
+        // viewports at the 8× ceiling, i.e. the bound quietly stops binding at
+        // exactly the zoom where the plan is easiest to lose (review finding).
+        // Reading the live k in `constrain` states the rule in the units the rule
+        // is actually about — HALF A PANEL of overshoot, at every scale — and
+        // deletes the slack arithmetic entirely.
+        //
+        // The `Math.min(0, …)` / `Math.max(0, …)` is what keeps the DEFAULT view
+        // (world origin at the panel's top-left) legal on a plan smaller than the
+        // panel. Without it the bound would force a re-centre on the very first
+        // transform, moving the world frame that the E2E click maths reads as
+        // `screen = world × k + t`.
+        const bound = (t) => {
+            const loX = Math.min(0, size.w / 2 - t.k * layout.width);
+            const loY = Math.min(0, size.h / 2 - t.k * layout.height);
+            const x = Math.min(Math.max(t.x, loX), Math.max(0, size.w / 2));
+            const y = Math.min(Math.max(t.y, loY), Math.max(0, size.h / 2));
+            return (x === t.x && y === t.y) ? t : t.translate((x - t.x) / t.k,
+                (y - t.y) / t.k);
+        };
         const zb = d3zoom()
-            .scaleExtent([kBase * 0.25, kBase * 8])
-            .filter((ev) => (ev.type === 'wheel' ? true : !ev.button))
+            .scaleExtent([Math.min(kFit, kDefault) * 0.25, kDefault * 8])
+            .constrain(bound)
+            // A DRAG that starts on the key or the reset button belongs to
+            // that control (req #3168). Rejecting it HERE rather than calling
+            // stopPropagation on the control's React handler is the only version
+            // that works: d3's listener is bound to this container and fires on
+            // the way up, long before React's delegated handler at the document
+            // root gets a look.
+            //
+            // A WHEEL is never rejected. The key and the reset chip sit over the
+            // canvas, and excluding them from zoom too made a scroll with the
+            // cursor over one do nothing at all, which reads as the page having
+            // frozen (review finding).
+            .filter((ev) => (ev.type === 'wheel' ? true
+                : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR))))
             .clickDistance(5)
             .on('zoom', (ev) => {
                 const tr = ev.transform;
@@ -298,16 +496,22 @@ export default function PipelinePlanVisualizer({
         if (sc) sc.style.cursor = 'grab';
         zoomRef.current = zb;
         return () => { sel.on('.zoom', null); };
-    }, [containerEl, size.w, size.h, kBase]);
+    }, [containerEl, size.w, size.h, kFit, kDefault, layout.width, layout.height]);
 
-    // Fit the plan on first size and whenever a layout toggle changes the world
-    // dimensions wholesale (the POC re-rendered from scratch on those toggles).
-    useEffect(() => {
+    // Reset to the default view on first size and whenever a layout toggle
+    // changes the world dimensions wholesale (the POC re-rendered from scratch on
+    // those toggles). `stepWidth` joins that list for the same reason the other
+    // two are on it: it rescales every column, so the previous pan lands
+    // somewhere unrelated on the new geometry.
+    const resetView = useCallback(() => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
-        select(el).call(zb.transform, zoomIdentity.scale(kBase));
-    }, [containerEl, size.w, size.h, kBase, reqLayout, stepLabel]);
+        select(el).call(zb.transform, zoomIdentity.scale(kDefault));
+    }, [containerEl, size.w, kDefault]);
+    useEffect(() => {
+        resetView();
+    }, [resetView, size.h, reqLayout, stepLabel, stepWidth, reqLabel]);
 
     // Manual DOM click hit-test: d3-zoom owns the pointer gesture, so a
     // non-drag click is resolved against the stage and fired as the Konva
@@ -317,6 +521,10 @@ export default function PipelinePlanVisualizer({
         if (!el) return undefined;
         const onDown = (e) => { downRef.current = { x: e.clientX, y: e.clientY }; };
         const onClick = (e) => {
+            // Same exclusion as the zoom filter: the key and the reset button
+            // are chrome over the canvas, and resolving a click through one of
+            // them would fire whichever bead it happens to be lying on top of.
+            if (e.target?.closest?.(CHROME_SELECTOR)) return;
             const d = downRef.current;
             if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
             const stage = stageRef.current;
@@ -344,18 +552,105 @@ export default function PipelinePlanVisualizer({
     // completed pipeline.
     const hasRunning = useMemo(
         () => rows.some((r) => r.state === STEP_RUNNING), [rows]);
+    // The next steps — the ones the engine says are launchable right now. Their
+    // halo breathes on the SAME animation as the running pulse (req #3168): a
+    // second Konva.Animation on one Layer would redraw it twice per frame for no
+    // extra information, and the two marks stay distinguishable because they are
+    // driven on different curves — the running bead fades to 45%, the halo only
+    // to 25% and half as fast, so a running step and a next step never read as
+    // the same rhythm.
+    // Whether ANY step is launchable — that is all the animation needs. There was
+    // a bottom-left readout naming the ids too; removed on the user's directive
+    // (2026-08-01), so nothing builds the list any more. The halo is the whole
+    // mark: it says which steps, on the steps themselves.
+    const hasNext = useMemo(
+        () => rows.some((r) => eligibleStepIds.has(r.id)), [rows, eligibleStepIds]);
     useEffect(() => {
         const layer = layerRef.current;
-        if (!layer || !hasRunning) return undefined;
-        const anim = new Konva.Animation((frame) => {
-            const op = 0.45 + 0.55 * Math.abs(Math.sin((frame?.time || 0) / 480));
-            layer.find('.pulse-bead').forEach((n) => n.opacity(op));
+        if (!layer || (!hasRunning && !hasNext)) return undefined;
+        // The node sets are found ONCE per effect run, not per frame. Every
+        // change that can add or remove one of these nodes lands in this
+        // dependency list — `rows` is a fresh array on each refetch and both
+        // flags derive from it — so the lists cannot go stale, and the animation
+        // stops walking a ~2000-node layer twice every frame.
+        const pulseNodes = hasRunning ? layer.find('.pulse-bead') : [];
+        const haloNodes = hasNext ? layer.find('.next-halo') : [];
+        // `performance.now()`, not the frame's own clock: `frame.time` restarts
+        // at zero every time this effect re-runs, and it re-runs on every
+        // refetch — so both marks visibly snapped to their minimum opacity on
+        // each poll. A wall clock makes the phase continuous across restarts.
+        const anim = new Konva.Animation(() => {
+            const time = performance.now();
+            const op = 0.45 + 0.55 * Math.abs(Math.sin(time / 480));
+            for (const n of pulseNodes) n.opacity(op);
+            const halo = 0.25 + 0.75 * Math.abs(Math.sin(time / 900));
+            for (const n of haloNodes) n.opacity(halo);
         }, layer);
         anim.start();
-        return () => { anim.stop(); };
-    }, [rows, hasRunning, size.w]);
+        // RESTORE what the animation wrote imperatively. react-konva only writes
+        // props it observes CHANGING, and it never saw `opacity` on these nodes —
+        // so a bead that stops Running keeps whatever opacity the last frame left
+        // it at, permanently, and renders semi-transparent until something
+        // remounts it. Resetting the nodes this animation actually touched fixes
+        // it regardless of what their names have since become.
+        //
+        // ONLY the nodes that have STOPPED qualifying. React has already
+        // committed the new props by the time a cleanup runs, so a node that is
+        // still Running still carries its name — and resetting it here would
+        // flash it to full opacity for the one frame before the replacement
+        // animation's first tick. Every refetch re-runs this effect (`rows` is a
+        // fresh array), so that flash would be a visible tic on every poll.
+        return () => {
+            anim.stop();
+            let dirty = false;
+            for (const n of pulseNodes) {
+                if (n.hasName('pulse-bead')) continue;
+                n.opacity(1);
+                dirty = true;
+            }
+            for (const n of haloNodes) {
+                if (n.hasName('next-halo')) continue;
+                n.opacity(NEXT_HALO_OPACITY);
+                dirty = true;
+            }
+            // A layer detached from its stage (this component unmounting) still
+            // accepts batchDraw and still schedules a frame for it — a wasted rAF
+            // holding a dead layer. Nothing to redraw is also a reason not to.
+            if (dirty && layer.getStage()) layer.batchDraw();
+        };
+    }, [rows, hasRunning, hasNext, size.w]);
 
-    const t = transform || { x: 0, y: 0, k: kBase };
+    // ── The level ladder, as ONE predicate ──────────────────────────────────
+    // Every label kind asks this and nothing else, and the container publishes
+    // the answer as `data-drawn`. Two reasons, both learned here:
+    //
+    //   · The canvas is a bitmap, so "Overview now draws step labels" is
+    //     otherwise unfalsifiable — a screenshot at L1 looks the same whether the
+    //     labels are there or not unless you already have the other version to
+    //     compare against, and a test that pins L1 twice and compares proves
+    //     nothing. Same argument as `data-transform`, which exists because a pan
+    //     is only observable as changed pixels.
+    //   · The three early returns it replaces were three places to get the ladder
+    //     wrong, and the attribute would have been a fourth.
+    //
+    // STEP LABELS DRAW AT EVERY LEVEL (user directive 2026-08-01) — Overview used
+    // to be beads and arcs with nothing naming them, which is the one level a
+    // reader opens to see the shape of a plan.
+    const drawsKind = useCallback((kind) => {
+        if (kind === 'req') return level !== 'out';
+        if (kind === 'title') return level === 'in';
+        return true;
+    }, [level]);
+    const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
+
+    // Report the level actually being rendered so the toolbar's selector can
+    // softly mark it while on Auto — BuildVisualizerPage's `onEffectiveLevel`
+    // handshake. In an EFFECT, not during render: this calls a setState on the
+    // PARENT, and doing that in a child's render body is the React warning that
+    // ends in a cross-component update loop.
+    useEffect(() => { onEffectiveLevel?.(level); }, [level, onEffectiveLevel]);
+
+    const t = transform || { x: 0, y: 0, k: kDefault };
 
     const cursorPointer = useCallback((e, on) => {
         const stage = e?.target?.getStage?.();
@@ -392,8 +687,6 @@ export default function PipelinePlanVisualizer({
         );
     }
 
-    const hasBatchBoxes = layout.batchBoxes.length > 0;
-
     // ── Floating epic labels (req #3119, prototype item 3) ──────────────────
     // The epic name rides its band's top edge, CLAMPS to the top of the viewport
     // while any part of the band is visible, and slides away only as the band's
@@ -406,71 +699,34 @@ export default function PipelinePlanVisualizer({
     // keeps the world purely a function of the layout. `pointerEvents: 'none'` on
     // the strip so it never eats a drag-pan; the label itself re-enables them so
     // the epic stays clickable (production directive).
-    const LABEL_H = 20;      // the HTML chip's own height, in SCREEN px
-    const CHAR_W = 7.3;      // 12px bold mono, for the width estimate
-    const floatingEpics = layout.bands.map((band) => {
-        // Band geometry in SCREEN space.
-        const top = t.y + band.y * t.k;
-        const bottom = t.y + (band.y + band.height) * t.k;
-        const headerBottom = t.y + (band.y + band.headerH) * t.k;
-        const left = t.x + 2 * t.k;
-        const right = t.x + (layout.width - 2) * t.k;
-        // Off-screen on EITHER axis means no label. Vertical alone was not
-        // enough: panning far right leaves a band's rectangle entirely to the
-        // left of the panel, and clamping x into a rectangle that is off-screen
-        // puts the label off-screen with it — correct, but it should simply not
-        // render. (Caught by the pan sweep, which found three labels at negative
-        // x after a -1100px drag.)
-        if (bottom < 0 || top > size.h) return null;
-        if (right < 0 || left > size.w) return null;
+    //
+    // THE PLACEMENT ITSELF MOVED OUT (req #3168) to pipelinePlanLayout's
+    // `placeEpicChips` — every other rectangle on this surface is decided by a
+    // pure function precisely so that overlap is testable, and the chips were the
+    // one exception. They were also the one thing on the page still colliding:
+    // with each other when the band header shrinks below the chip's fixed screen
+    // height, and with the legend they clamp underneath in the top-right corner.
+    // Both are now avoided by the same displacement pass, and both are asserted
+    // in vitest over a swept transform rather than by eye.
+    //
+    // The chip's METRICS come from the layout module too (`EPIC_CHIP_H`,
+    // `EPIC_CHIP_CHAR_W`), and are deliberately not passed from here: this file
+    // carried its own character width, it was a leftover from the 12px chip that
+    // never moved with req #3119's +25% type scale, and a displacement pass
+    // reading a 22%-short width declares chips clear of things they overlap.
+    // The sx block below is the other half of that contract — its `fontSize` and
+    // padding must stay in step with the module's constants.
+    const floatingEpics = placeEpicChips({
+        bands: layout.bands,
+        transform: t,
+        viewport: size,
+        worldWidth: layout.width,
+        keepOut: legendSize
+            ? { x: size.w - 10 - legendSize.w, y: 8, w: legendSize.w, h: legendSize.h }
+            : null,
+    });
 
-        // VERTICAL: confined to the band's HEADER STRIP, never into lane space.
-        //
-        // The strip is the only part of the epic rectangle that holds no step
-        // content, so this is what "must not overlap another swim lane's text"
-        // reduces to. It also keeps the label inside its own rectangle at both
-        // ends, which a plain viewport clamp did not: a band whose bottom edge
-        // had scrolled just past the top of the view still parked its label at
-        // the viewport top, i.e. below its own band.
-        //
-        // The label is sized in SCREEN px while the header is reserved in WORLD
-        // px — that mismatch is the actual cause of the overlap. At fit zoom
-        // (k≈0.67) a 40+14pxworld header is only ~36px on screen, and the label is
-        // 20 of them; zoom out further and the strip becomes shorter than the
-        // label, so the clamp below pins to the strip's TOP and lets it extend
-        // over the band's own first lane rather than over a neighbouring band.
-        const minY = top + 3;
-        const maxY = Math.max(minY, headerBottom - LABEL_H - 2);
-        const y = Math.min(Math.max(4, minY), maxY);
-        // WHOLLY on screen or not at all. Testing only the label's TOP left a
-        // band whose header strip ends 2px above the panel floor rendering a
-        // label that hung 2px past it.
-        if (y < 0 || y + LABEL_H > size.h) return null;
-
-        // HORIZONTAL: inside the band rectangle too, so a pan never leaves the
-        // label hanging in the margin beside the plan it labels.
-        const estW = band.epic.length * CHAR_W + 18;
-        // Confine to the part of the band that is BOTH inside the rectangle and
-        // on screen. When the band has scrolled far enough that its visible
-        // sliver is narrower than the label, there is no honest position left:
-        // clamping to the rectangle alone hangs the label off the panel edge
-        // (measured at x=-40 after a -1200px drag), and clamping to the panel
-        // alone puts it outside the rectangle. Hide it instead — the band is
-        // leaving anyway.
-        const visLeft = Math.max(0, left);
-        const visRight = Math.min(size.w, right);
-        if (visRight - visLeft < estW + 12) return null;
-        const x = Math.min(Math.max(visLeft + 6, left + 6), right - estW - 6);
-
-        return {
-            key: band.key == null ? 'none' : band.key,
-            epicId: band.epicId,
-            text: band.epic,
-            color: band.color,
-            x,
-            y,
-        };
-    }).filter(Boolean);
+    const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
 
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
@@ -530,6 +786,19 @@ export default function PipelinePlanVisualizer({
         const n = layout.nodes.get(row.id);
         if (!n) return;
         const style = beadStyle(row, eligibleStepIds.has(row.id));
+        // ── Highlight for next steps (req #3168) ────────────────────────────
+        // Drawn BEFORE the bead so the halo sits under it, and at EVERY zoom
+        // level including 'out' — a 2.5px ring is the only thing that used to
+        // mark a launchable step, and at Overview it is a pixel of a green that
+        // the Complete fill already owns. The one question a plan view is opened
+        // to answer should be answerable at the level you open it in.
+        if (style.next) {
+            worldNodes.push(
+                <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
+                        radius={NEXT_HALO_RADIUS} stroke={P.eligibleRing}
+                        strokeWidth={NEXT_HALO_STROKE} opacity={NEXT_HALO_OPACITY}
+                        dash={NEXT_HALO_DASH} listening={false} />);
+        }
         worldNodes.push(
             <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
                 <Circle x={n.x} y={n.y} radius={BEAD_RADIUS}
@@ -550,33 +819,50 @@ export default function PipelinePlanVisualizer({
     });
 
     layout.labels.forEach((label, i) => {
+        if (!drawsKind(label.kind)) return;
         if (label.kind === 'step') {
-            if (level === 'out') return;
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.label} fontFamily={MONO} fill={P.text}
                       listening={false} />);
         } else if (label.kind === 'req') {
-            if (level === 'out') return;
+            // ONE resolver decides this, and the same one feeds the key below —
+            // see pipelinePlanLayout's colour-language block. Applied on the SAME
+            // node in both requirement layouts: the SVG prototype coloured only
+            // the horizontal one, because a `text { fill }` CSS rule beat the
+            // attribute on <text> but never reached its <tspan> children. Konva
+            // has no tspans, so the cause cannot recur here; the symptom is
+            // asserted against both layouts anyway.
+            //
+            // The 2026-07-27 directive that made these ids white stands and is
+            // satisfied by the TRI-STATE, not overridden by it: neutral is a
+            // real position of the control, and a colour appears only when a
+            // reader turns a key on and the key is on screen naming the scale.
+            // What that directive rejected was an unlabelled colour reading as
+            // the STEP's status; `state` here is the REQUIREMENT's own status,
+            // which is the fact the bead's aggregate was derived from.
+            const rs = reqIdStyle({
+                colorKey: activeColorKey,
+                status: reqInfo.get(label.reqId)?.status,
+                machineColor: machineView.colorOf(label.reqId),
+            });
+            // ── ID at L1/L2, TITLE at L3 (user directive 2026-08-01: "L3 can
+            //    have the req titles on by default") ────────────────────────
+            // The LAYOUT always reserved the title's box (`idText` in
+            // pipelinePlanLayout.js) and the renderer picks which text goes in
+            // it, so crossing a level changes what is drawn and never where
+            // anything is — the invariant that a zoom is a pure transform. The
+            // id is centred on the same point and strictly narrower, so it
+            // cannot leave a box the title already fits.
+            const showTitle = level === 'in' && label.idText != null;
+            const reqText = showTitle ? label.text : (label.idText ?? label.text);
+            const reqX = showTitle ? label.x
+                : label.x + (label.w - (label.idW ?? label.w)) / 2;
             worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
+                <Text key={`lbl-${i}`} x={reqX} y={label.y} text={reqText}
                       fontSize={F.req} fontFamily={MONO}
-                      // Machine colour + bold on the ids themselves. Applied on
-                      // the SAME node in both requirement layouts — the SVG
-                      // prototype coloured only the horizontal one, because a
-                      // `text { fill }` CSS rule beat the attribute on <text> but
-                      // never reached its <tspan> children. Konva has no tspans,
-                      // so the cause cannot recur here; the symptom is asserted
-                      // against both layouts anyway.
-                      // WHITE by default, machine colour when that key is on
-                      // (user directive 2026-07-27). A requirement number is an
-                      // identifier, and colouring it was reading as a status —
-                      // status already lives in the bead's fill and the row
-                      // highlight, which is where it belongs. The palette's
-                      // `req` blue is retained for anything that wants it, but
-                      // the id itself no longer carries a second signal.
-                      fill={byMachine ? machineView.colorOf(label.reqId) : P.text}
-                      fontStyle={byMachine ? 'bold' : 'normal'}
+                      fill={rs.fill}
+                      fontStyle={rs.bold ? 'bold' : 'normal'}
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       // Carry the plan's identity so the requirement page's Back
@@ -589,7 +875,6 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id } }
                               : undefined)} />);
         } else if (label.kind === 'title') {
-            if (level !== 'in') return;
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.title} fontFamily={MONO} fill={P.dim}
@@ -632,12 +917,30 @@ export default function PipelinePlanVisualizer({
                 purpose as the `pipeline-viz-zoom-level` chip beside it. */}
             <Box ref={setContainer} data-testid="pipeline-plan-visualizer"
                  data-transform={`${t.x.toFixed(2)},${t.y.toFixed(2)},${t.k.toFixed(4)}`}
+                 // The WORLD the transform is applied to, for the same reason
+                 // the transform itself is published: it is otherwise only
+                 // observable as changed pixels, and pixels also change when a
+                 // bead pulses. The step-width control's whole effect is on this
+                 // number — it used to be read off the scroll rail's thumb, and
+                 // the rails were removed on the user's directive (2026-08-01).
+                 data-world={`${Math.round(layout.width)},${Math.round(layout.height)}`}
+                 // Same device as `data-transform`, for the same reason and now
+                 // carrying the same duty (req #3168). The dashed batch box is
+                 // canvas geometry, so the only DOM proof it was drawn used to be
+                 // the legend's conditional batch key — and the user directive to
+                 // strip the key back to step marks + the requirement scale
+                 // removed that proxy. Publishing the COUNT is strictly better
+                 // evidence than the key ever was: it is what the canvas actually
+                 // drew rather than a second thing derived from the same flag.
+                 data-batch-boxes={layout.batchBoxes.length}
+                 data-level={level}
+                 data-drawn={drawnKinds}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
-                 // verbatim. It only fits because the page header collapsed to
-                 // one row: the toggles, the accounting line and the legend all
-                 // left this column, and req #3179 took the description with
-                 // them. Nothing but the breadcrumb and that one header row is
-                 // now above this Box.
+                 // verbatim. The height is MEASURED (`availH` above) rather than
+                 // subtracted from a list of known chrome, which is what lets the
+                 // page above change shape — req #3179 removed the description
+                 // block, req #3168 split the header into a pipeline bar and a
+                 // view bar — without this Box ever being told.
                  //
                  // `mx`/`mb: -3` (req #3156) cancel PipelineDetail's ancestor
                  // `p: 3` on the sides/bottom only — top stays, since `availH`
@@ -676,18 +979,24 @@ export default function PipelinePlanVisualizer({
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
-                                height: 24, lineHeight: '17px',
+                                // The height and font the placement pass MEASURED
+                                // — both come back from `placeEpicChips`, because
+                                // it now scales the chip to fit its own epic lane
+                                // at low zoom (req #3168). Drawing at any other
+                                // size means the collision maths decided against a
+                                // box that is not on screen.
+                                height: e.h, lineHeight: 1,
                                 display: 'flex', alignItems: 'center',
-                                // +25% with the band-label metric in the layout
-                                // (PLAN_VIZ_FONT.epic / CHW_EPIC) — this chip is
-                                // an HTML overlay, so it does not inherit them.
-                                fontFamily: MONO, fontSize: 15, fontWeight: 700,
+                                fontFamily: MONO, fontSize: e.fontSize,
+                                fontWeight: 700,
                                 color: e.color,
-                                // OPAQUE, not a wash: the chip sits over the
-                                // canvas, and a translucent one let whatever is
-                                // behind it read through the epic name.
-                                background: P.panel,
-                                px: 0.9, py: 0.2, borderRadius: '5px',
+                                // 60% opaque (user directive 2026-08-01). It was
+                                // fully opaque, which read as a tile punched into
+                                // the plan; the band's own colour now tints
+                                // through while the name still wins over what it
+                                // crosses.
+                                background: chipBg,
+                                px: 0.9, py: 0, borderRadius: '5px',
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: e.epicId != null ? 'auto' : 'none',
@@ -699,44 +1008,207 @@ export default function PipelinePlanVisualizer({
                     ))}
                 </Box>
 
-                {/* Legend, floated into the panel so it costs the plan no height. */}
-                <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap"
+                {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
+                    "Have a common key displayed in the upper right", then a
+                    second pass on what it should hold: no "Key" heading, no
+                    small-print footer, no epic-band or launch-batch entries, the
+                    requirement group labelled simply "Requirement", each status
+                    or machine name drawn IN ITS OWN COLOUR rather than beside a
+                    sample id, and — the one with teeth — **one stable footprint
+                    across colour modes**.
+
+                    What is left is the two channels a reader is actually decoding
+                    on this canvas: the STEP marks, and the REQUIREMENT marks
+                    under whichever colour key is live. Every colour comes from
+                    the same pure module the canvas draws from, so the key cannot
+                    describe a colour the plan is not using.
+
+                    THE FOOTPRINT IS RESERVED, NOT MEASURED-AND-SET. The user's
+                    complaint was that "when I select machine view the key gets
+                    too small", so all three requirement scales are stacked in ONE
+                    grid cell with the inactive ones `visibility: hidden`. A
+                    hidden grid item still occupies its cell, so the cell is the
+                    MAX of the three and the box cannot change size when the mode
+                    does — declaratively, with no measurement, no ResizeObserver
+                    feedback loop, and no risk of a scale being clipped to a
+                    footprint that was reserved for a different one.
+
+                    IT IS STILL WIDTH-CAPPED. This element's measured rect is the
+                    keep-out `placeEpicChips` displaces the floating epic names
+                    around, and that displacement is horizontal only — so width is
+                    the whole cost and `PLAN_KEY_MAX_W` is the whole defence.
+                    Removing the plan-level rows made the key SHORTER, which costs
+                    the epic labels nothing either way.
+
+                    Collapse is LOCAL STATE, not a persisted preference: a stored
+                    one would need seeding in the E2E fixture and could arrive
+                    collapsed from another session. Every visit opens with the key
+                    shown, which is what "displayed in the upper right" asks. */}
+                <Stack direction="column" spacing={0}
                        useFlexGap
+                       ref={setLegendEl}
                        data-testid="pipeline-viz-legend"
-                       sx={{ position: 'absolute', top: 8, right: 10,
-                              background: 'rgba(13, 20, 32, 0.82)',
-                              px: 1, py: 0.4, borderRadius: '10px',
-                              pointerEvents: 'none', userSelect: 'none', maxWidth: '70%' }}>
-                    {byMachine ? (
-                        machineView.legend.map((m) => (
-                            <LegendDot key={m.key} fill={m.color} label={m.label} />
-                        ))
-                    ) : (
+                       sx={{ position: 'absolute', top: 10, right: 12,
+                              // A panel, not a wash: opaque enough that the plan
+                              // never reads through the key's own type, with a
+                              // soft edge so it sits ON the canvas rather than
+                              // being cut out of it.
+                              background: 'rgba(13, 20, 32, 0.94)',
+                              backdropFilter: 'blur(2px)',
+                              px: 1.25, py: 0.9, borderRadius: '10px',
+                              border: `1px solid ${P.line}`,
+                              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+                              pointerEvents: 'none', userSelect: 'none',
+                              maxWidth: PLAN_KEY_MAX_W,
+                              '@keyframes pipeKeyPulse': {
+                                  '0%, 100%': { opacity: 1 },
+                                  '50%': { opacity: 0.45 },
+                              },
+                              '@keyframes pipeKeyBreathe': {
+                                  '0%, 100%': { opacity: 1 },
+                                  '50%': { opacity: 0.25 },
+                              } }}>
+                    {/* No heading (user directive), so the collapse control is
+                        the only chrome. ABSOLUTE, in the panel's own top-right
+                        corner: in the flow it was a lone button on a line of its
+                        own, which is most of what made the key look unfinished.
+                        The sections keep their left edge and the control floats
+                        clear of them. */}
+                    <Box component="button" type="button"
+                         onClick={() => setKeyOpen((v) => !v)}
+                         data-viz-chrome="legend"
+                         data-testid="pipeline-viz-legend-toggle"
+                         aria-expanded={keyOpen}
+                         aria-label={keyOpen ? 'Collapse the key' : 'Expand the key'}
+                         sx={{ pointerEvents: 'auto', cursor: 'pointer',
+                                position: 'absolute', top: 3, right: 4,
+                                width: 15, height: 15, p: 0,
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center',
+                                fontFamily: MONO, fontSize: 11, lineHeight: 1,
+                                color: P.dim, background: 'transparent',
+                                border: 'none', borderRadius: '4px',
+                                opacity: 0.55,
+                                '&:hover': { opacity: 1, color: P.accent } }}>
+                        {keyOpen ? '−' : '+'}
+                    </Box>
+
+                    {keyOpen && (
                         <>
-                            <LegendDot fill={P.doneFill} label="Complete" />
-                            <LegendDot fill={P.runningFill} label="Running" />
-                            <LegendDot fill={P.pendingFill} ring="#5b7293" label="Scheduled" />
-                            <LegendDot ring={P.manualRing} label="Manual" />
-                            <LegendDot ring={P.eligibleRing} label="eligible now" />
+                            {/* THE LEVEL SELECTOR, inside the key (user
+                                directive 2026-08-01). It belongs here on the
+                                key's own terms: everything else in this box says
+                                what a mark MEANS, and the level says which marks
+                                are drawn at all — the same subject. It also gets
+                                the control off a header row that had grown to
+                                2303px of natural content.
+
+                                `pointerEvents: 'auto'` and `data-viz-chrome`
+                                because the key is otherwise inert: the box
+                                ignores the pointer so it can never swallow a
+                                drag-pan, and the two gesture filters reject
+                                anything starting on chrome. */}
+                            <Box data-viz-chrome="level"
+                                 sx={{ pointerEvents: 'auto', alignSelf: 'flex-start' }}>
+                                <SemanticLevelControl
+                                    // NUMBER, not the level string.
+                                    // `pinnedLevelOf` answers "which semantic
+                                    // level is pinned" ('out'|'mid'|'in') — the
+                                    // canvas's vocabulary. The shared control
+                                    // speaks `null | 1 | 2 | 3`, deliberately
+                                    // ignorant of what a level MEANS, so handing
+                                    // it 'out' leaves every chip unpressed and
+                                    // the control silently reports Auto.
+                                    pinnedLevel={levelPref === 'auto'
+                                        ? null : Number(levelPref)}
+                                    effectiveLevel={PLAN_LEVEL_NUMBER[level] ?? null}
+                                    onChangePinnedLevel={(lvl) => onChangeLevelPref?.(
+                                        lvl == null ? 'auto' : String(lvl))}
+                                    testIdPrefix="pipeline-viz"
+                                />
+                            </Box>
+
+                            {/* THE STEP channel. Running and next-up carry live
+                                motion in the key itself, because naming a rhythm
+                                in words is not the same as showing it. */}
+                            <KeyGroup title="step">
+                                <LegendDot fill={P.doneFill} label="Complete" />
+                                <LegendDot fill={P.runningFill} label="Running"
+                                           animated="pipeKeyPulse" />
+                                <LegendDot fill={P.pendingFill} ring="#5b7293"
+                                           label="Scheduled" />
+                                <LegendDot ring={P.manualRing} label="Manual" />
+                                {/* "next up" and not "eligible now" because the
+                                    mark answers the question in the plan's own
+                                    words: these are the steps that run next. */}
+                                <LegendDot ring={P.eligibleRing} label="next up"
+                                           animated="pipeKeyBreathe" />
+                            </KeyGroup>
+
+                            {/* THE REQUIREMENT channel — all three scales in ONE
+                                grid cell so the footprint cannot move when the
+                                colour key does. The swatch IS the word: each name
+                                is drawn in its own colour, which is exactly what
+                                the canvas does to the marks themselves. */}
+                            <Box sx={{ display: 'grid' }}
+                                 data-testid="pipeline-viz-legend-reqscale">
+                                {REQ_KEY_SCALES.map((scale) => {
+                                    const active = scale === activeColorKey;
+                                    return (
+                                        <Box key={scale}
+                                             data-testid={`pipeline-viz-legend-scale-${scale}`}
+                                             aria-hidden={!active}
+                                             sx={{ gridArea: '1 / 1',
+                                                    visibility: active ? 'visible' : 'hidden' }}>
+                                            <KeyGroup title="requirement">
+                                                {reqKeyScales[scale].map((e) => (
+                                                    <LegendWord key={e.key} color={e.color}
+                                                                label={e.label} />
+                                                ))}
+                                            </KeyGroup>
+                                        </Box>
+                                    );
+                                })}
+                            </Box>
                         </>
-                    )}
-                    {/* Batch key ONLY when a batch box is actually drawn —
-                        production directive, kept from the POC. */}
-                    {hasBatchBoxes && (
-                        <Box data-testid="pipeline-viz-batch-legend">
-                            <LegendDot ring={P.batch} dashed
-                                       label="launch batch = one /swarm-start" />
-                        </Box>
                     )}
                 </Stack>
 
-                <Box sx={{ position: 'absolute', bottom: 8, right: 10, fontSize: 11,
-                            color: P.dim, background: 'rgba(0,0,0,0.45)',
-                            px: 1, py: 0.25, borderRadius: '10px',
-                            pointerEvents: 'none', userSelect: 'none' }}
-                     data-testid="pipeline-viz-zoom-level">
-                    {LEVEL_NAME[level]} · drag to pan · scroll to zoom
-                </Box>
+                {/* `data-viz-chrome` on the WRAPPER, not just the button: the
+                    6px flex gap between the two chips is inside this Stack and
+                    over the canvas, so a mousedown that landed in it started a
+                    pan from what looks like a control. */}
+                <Stack direction="row" spacing={0.75} alignItems="center"
+                       data-viz-chrome="hud"
+                       sx={{ position: 'absolute', bottom: 15, right: 10 }}>
+                    {/* The way home from a pan (req #3168). A bounded pan keeps
+                        the plan reachable; this makes getting back one click
+                        rather than a hunt, and it is also the only way back to
+                        the default SCALE after a zoom. */}
+                    <Box component="button" type="button" onClick={resetView}
+                         data-viz-chrome="reset"
+                         data-testid="pipeline-viz-reset"
+                         sx={{ fontSize: 11, fontFamily: MONO, color: P.text,
+                                background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
+                                border: `1px solid ${P.line}`, borderRadius: '10px',
+                                px: 1, py: 0.25, userSelect: 'none',
+                                '&:hover': { color: P.accent, borderColor: P.accent } }}>
+                        reset view
+                    </Box>
+                    <Box sx={{ fontSize: 11,
+                                color: P.dim, background: 'rgba(0,0,0,0.45)',
+                                px: 1, py: 0.25, borderRadius: '10px',
+                                pointerEvents: 'none', userSelect: 'none' }}
+                         data-testid="pipeline-viz-zoom-level">
+                        {/* `· pinned` is `KonvaBuildCanvas`'s own wording, kept
+                            verbatim so a reader who knows one canvas knows this
+                            one. It matters more here than there: pinning does not
+                            move the camera, so without this the chip would name a
+                            level the zoom disagrees with and read as a bug. */}
+                        {LEVEL_NAME[level]}{pinnedLevel ? ' · pinned' : ''}
+                        {' · drag to pan · scroll to zoom'}
+                    </Box>
+                </Stack>
 
                 {card && (
                     <PlanDataCard card={card} timezone={timezone} level={level}
