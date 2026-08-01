@@ -82,13 +82,29 @@ export const NAV_LINKS = [
     // hierarchy is read from, and above Sessions for the same reason Pipelines
     // is — plan views carry no session data at all (req #3080 design rule 9).
     { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
-    // Req #3140 — the Steps editor, the third page of feature 37 "Plan Editors"
-    // and the last of the Pipelines > Epics > Steps L2 cluster. A SIBLING for the
-    // same reason Epics is: req #3209's nesting is for lifecycle records OF a
-    // thing, and a step is a MEMBER of a plan, not a record about one. It sits
-    // after Epics rather than displacing it because the cluster reads top-down as
-    // the plan itself (Pipelines) and then what it is composed of — and because
-    // #3139 pinned Epics at Pipelines + 1.
+    // Req #3217 — the Features editor, the last page of feature 37 "Plan Editors".
+    // The page itself already existed (/swarm/features, req #2380); what it lacked
+    // was a formal entry. It was filed under SWARM VALIDATE, a group gated behind
+    // `app_swarm_validate`, which ships DISABLED — so of the three tiers of Epic >
+    // Feature > Story, the middle one was the only one whose nav entry sat outside
+    // the plan group, behind a toggle a user had to go find before the page existed
+    // for them. MOVED here, never duplicated: two rows for one path would both
+    // light up as active and appear twice in the mobile bottom nav (the
+    // no-duplicate-paths invariant in navConfig.test.js pins it).
+    //
+    // Between Epics and Steps because the cluster reads top-down as the plan
+    // hierarchy — Epic > Feature (design rule 10 walks requirement → feature →
+    // epic for a step's label) — and feature 37 enumerates its own pages in that
+    // order. Steps therefore moves to Pipelines + 3; Epics keeps the Pipelines + 1
+    // slot #3139 pinned. FactCheckIcon is deliberately kept: it is the icon this
+    // page has always carried, and the entry moving is not the page changing.
+    { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
+    // Req #3140 — the Steps editor, the second page of feature 37 "Plan Editors"
+    // to ship. A SIBLING for the same reason Epics is: req #3209's nesting is for
+    // lifecycle records OF a thing, and a step is a MEMBER of a plan, not a record
+    // about one. It sits after Epics rather than displacing it because the cluster
+    // reads top-down as the plan itself (Pipelines) and then what it is composed
+    // of — and because #3139 pinned Epics at Pipelines + 1.
     { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
     // Req #3209 — Sessions is the first L2 item with L3 children. Starts,
     // Completes and Undos are lifecycle records OF a session, not peers of it,
@@ -114,7 +130,22 @@ export const NAV_LINKS = [
     // Req #3031 — persisted actual-token telemetry of the agents pattern;
     // labelled "Telemetry" (renamed from "Context" req #3065).
     { path: '/agents/context', label: 'Telemetry', icon: DataUsageIcon, group: 'agents' },
-    { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm-validate' },
+    // Features moved out of this group to the plan-editor cluster above (req
+    // #3217). No page below navigates to /swarm/features, so nothing here lost a
+    // link.
+    //
+    // A link belongs to exactly one group, and a group's toggle decides whether it
+    // renders at all, so the move is a TRADE and not a pure gain. Measured across
+    // the four toggle states: Swarm on / Validate off went from hidden to visible
+    // (the case that matters — `app_swarm_validate` ships 0, so before this the
+    // entry was dead for anyone who had not gone looking for the toggle), and
+    // Swarm OFF / Validate on went the other way, from visible to hidden. Accepted
+    // deliberately: this requirement reclassifies Features as a PLAN entity, the
+    // middle tier of Epic > Feature > Story, so hiding it with the plan group is
+    // the classification behaving correctly rather than a leak. The route still
+    // resolves in that state; it is the nav row that is absent.
+    // NavBarSidebar.featuresNav.test.jsx pins all four states so the trade cannot
+    // be reversed silently.
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testruns', label: 'Test Runs', icon: PlayCircleIcon, group: 'swarm-validate' },
