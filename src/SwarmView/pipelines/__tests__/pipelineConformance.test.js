@@ -163,6 +163,13 @@ function observe(wireModel, now) {
     const observedBatches = batches.map((b) => ({
         letter: b.letter,
         step_ids: [...b.stepIds],
+        // req #3188 — the ONE dominant epic every member shares. Asserted, not
+        // merely produced: "no batch spans more than one epic" is the fix's
+        // first acceptance criterion, and a partition nothing observes can
+        // regress in silence. Both engines key the epic on its ID, so this is a
+        // plain comparison rather than another bucket count.
+        epic_id: b.epicId,
+        // The REMAINING (unsatisfied) gate since req #3188, not the raw dep set.
         gate_step_ids: [...b.gateStepIds],
         time_deps: [...b.timeDeps],
         run: b.run,

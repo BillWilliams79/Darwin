@@ -183,9 +183,13 @@ function CondensationAlert({ proposals }) {
 // /swarm-start argument list — the launch unit is explicit, not implied by
 // adjacency.
 function BatchBannerRow({ batch, colSpan, timezone }) {
+    // The REMAINING gate since req #3188 — the deps that are still open, which
+    // every member shares. So the empty case is "nothing left", not "never had
+    // one": a batch behind a Complete gate is launchable NOW, and printing the
+    // dep that closed weeks ago read as something still holding it back.
     const gate = batch.gateStepIds.length
         ? `steps ${batch.gateStepIds.join(', ')}`
-        : 'no step gate';
+        : 'no remaining step gate';
     // Through the SAME formatter the Depends-on cell uses. This banner printed
     // the raw wire value — UTC, microseconds included — while the row eight lines
     // below showed the localized one, for the same instant.

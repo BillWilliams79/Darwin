@@ -22,9 +22,17 @@
 //     column widths account for whichever is drawn. Zero label overlap holds in
 //     all four combinations BY CONSTRUCTION, and the exported label rects let
 //     tests assert it rather than trust it.
-//   - Launch-batch dashed boxes around batch-mates (identical gate + run +
-//     machines — the engine's launchKey). Identical dep sets mean identical
-//     depth, so a batch is one column; a box may legitimately span epic bands.
+//   - Launch-batch dashed boxes around batch-mates (identical epic + remaining
+//     gate + run + machines — the engine's launchKey), drawn as ONE SEGMENT PER
+//     (BAND, COLUMN). Both axes matter and for different reasons. Since req
+//     #3188 the key carries the dominant epic — the same field these bands are
+//     keyed on — so an ENGINE-PRODUCED box always sits in exactly one BAND; that
+//     segmentation stays as a tested defence, because this module takes rows and
+//     batches as arguments and cannot know they were derived together. The
+//     COLUMN axis is the live one: #3188 also keys on the REMAINING gate, so a
+//     step gated by an already-Complete dep and a gate-less step are one launch
+//     unit at different dependency depths. A rect spanning either axis would
+//     enclose a non-member, which is the review finding this shape exists for.
 //
 // Two deliberate deviations from the POC, both documented for the PR:
 //   1. Band header height 40 (POC 34): the POC's epic label and a lane-0 step
@@ -591,26 +599,49 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         }
     }
 
-    // ── Launch-batch boxes (identical gate ⇒ identical column) ──────────────
-    // One box SEGMENT per epic band the batch touches, not one tall rect: a
-    // single rect spanning bands would also enclose whatever unrelated band
-    // lies between two members (review finding) — a user would read a
+    // ── Launch-batch boxes ─────────────────────────────────────────────────
+    // One box SEGMENT per (epic band, column) the batch touches, not one rect:
+    // a single rect spanning either axis also encloses whatever unrelated band
+    // or column lies between two members (review finding) — a user would read a
     // non-member as launching in the batch. Segments share the letter and the
     // hover payload, so the launch unit stays one visible thing.
+    //
+    // Since req #3188 an engine-produced batch cannot span BANDS (the launch key
+    // and the band key are both the dominant epic); that half is kept as a
+    // DEFENCE on an argument this module does not derive — see the module
+    // header. The COLUMN half is live and reachable: #3188 keys on the remaining
+    // gate, so batch-mates legitimately sit at different dependency depths.
     const batchBoxes = [];
     for (const b of safeBatches) {
         const members = (b.stepIds || []).map((id) => nodes.get(id)).filter(Boolean);
         if (members.length < 2) continue;
-        const d = members[0].depth;
-        const w = Math.max((colW[d] || 110) - 8, 56);
-        const x = members[0].x - w / 2;
-        const byBand = new Map();
+        // ONE SEGMENT PER (BAND, COLUMN) — req #3188 made the column half of that
+        // load-bearing, and getting it wrong is the SAME defect the band half was
+        // built for, on the other axis. Until #3188 batch-mates shared a raw dep
+        // set, so they shared a depth, so one column and one x/width for the
+        // whole batch was sound. Now they share the REMAINING gate: a step gated
+        // by an already-Complete dep and a step with no gate at all are one
+        // launch unit at DIFFERENT depths. Measured on the corpus's own
+        // `batch-groups-on-remaining-gate` case — batch A is [3, 5, 2] with 3
+        // and 5 at depth 0 and 2 at depth 1 — a single-column box left member 2
+        // outside it and enclosed the unrelated Complete step 1.
+        const byCell = new Map();
         for (const n of members) {
-            if (!byBand.has(n.bandIndex)) byBand.set(n.bandIndex, []);
-            byBand.get(n.bandIndex).push(n);
+            const cell = `${n.bandIndex}|${n.depth}`;
+            if (!byCell.has(cell)) byCell.set(cell, []);
+            byCell.get(cell).push(n);
         }
-        [...byBand.keys()].sort((p, q) => p - q).forEach((bandIndex, i) => {
-            const ms = byBand.get(bandIndex);
+        // Band first, then column: the letter goes on the FIRST segment, and the
+        // plan reads top-to-bottom before left-to-right.
+        const cells = [...byCell.keys()].sort((p, q) => {
+            const [pb, pd] = p.split('|').map(Number);
+            const [qb, qd] = q.split('|').map(Number);
+            return (pb - qb) || (pd - qd);
+        });
+        for (const cell of cells) {
+            const ms = byCell.get(cell);
+            const [bandIndex, depth] = cell.split('|').map(Number);
+            const w = Math.max((colW[depth] || 110) - 8, 56);
             const yTop = Math.min(...ms.map((n) => n.y)) - 40;
             const yBot = Math.max(...ms.map((n) => {
                 const row = byId.get(n.id);
@@ -620,11 +651,14 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             }));
             batchBoxes.push({
                 letter: b.letter, stepIds: ms.map((n) => n.id),
-                batchStepIds: b.stepIds, x, y: yTop,
+                batchStepIds: b.stepIds, x: ms[0].x - w / 2, y: yTop,
                 width: w, height: yBot - yTop,
-                bandIndex, topSegment: i === 0,
+                // `(bandIndex, depth)` identifies the segment — the renderer's
+                // React key, since `letter` alone stopped being unique per box
+                // when a batch acquired more than one segment (req #3188).
+                bandIndex, depth,
             });
-        });
+        }
     }
 
     // ── Label rectangles — every piece of text the canvas draws, as world
@@ -704,14 +738,23 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             x: 12, y: band.y + 6, w: band.epic.length * CHW_EPIC, h: 16,
         });
     }
-    // Batch letters live in the reserved header strip of the top segment's
-    // band — below the epic label (ends at band.y+19), above lane 0's step
-    // label (starts at band.y + headerH − 16 = band.y + 40 with the extended
-    // header) — so the letter can never collide with either, whatever the epic
-    // title length. Letters sharing a band stagger rightward.
+    // Batch letters live in the reserved header strip of a segment's band —
+    // below the epic label (ends at band.y+19), above lane 0's step label
+    // (starts at band.y + headerH − 16 = band.y + 40 with the extended header)
+    // — so the letter can never collide with either, whatever the epic title
+    // length. Letters sharing a band stagger rightward.
+    //
+    // EVERY SEGMENT IS LABELLED, not just the first (req #3188). While a batch
+    // could only segment across BANDS — which the engine can no longer produce
+    // at all — one letter for the whole batch read as one launch unit stacked
+    // vertically. Column segments sit SIDE BY SIDE and are reachable on any plan
+    // where mates share only their remaining gate, and an unlabelled dashed box
+    // beside a labelled one reads as a second, anonymous batch. Repeating
+    // "batch A" is the honest rendering: both boxes ARE batch A. The stagger
+    // loop already keeps two letters in one band apart, and segments in
+    // different columns start far enough apart that it rarely has to.
     const placedLetters = new Map(); // bandIndex -> [{x, w}]
     for (const box of batchBoxes) {
-        if (!box.topSegment) continue;
         const text = `batch ${box.letter}`;
         const w = text.length * 6;
         const band = bands[box.bandIndex];
