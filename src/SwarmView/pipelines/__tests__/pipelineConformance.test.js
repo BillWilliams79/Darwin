@@ -125,26 +125,13 @@ function observe(wireModel, now) {
             state: row.state,
             epic_id: row.epicId,
             feature_id: row.featureId,
-            // THE ONE PLACE THIS ADAPTER RECONSTRUCTS RATHER THAN RENAMES, and it
-            // is compensating for a real asymmetry: `pipeline_derive.py` publishes
-            // `label_inherited` as a first-class row field and `buildPlanRows`
-            // does not — its label object carries `inherited: true` internally but
-            // drops it when it builds the PlanRow.
-            //
-            // The reconstruction below is EXACT, not a heuristic.
-            // `dominantLabels` derives its dominant id FROM the tally it also
-            // returns, so an own label implies a non-empty set; the inheritance
-            // clause deliberately empties both sets on a borrowed label ("this
-            // step spans nothing — it borrowed one label from upstream"). So
-            // "has a dominant label AND empty label sets" is true of inherited
-            // rows and of nothing else.
-            //
-            // FILED AS REQ #3192. If that requirement exposes the flag directly,
-            // read it here instead and delete this comment — reconstruction is a
-            // liability that only earns its place while the field is missing.
-            label_inherited: (row.epicId != null || row.featureId != null)
-                && (row.epicLabels || []).length === 0
-                && (row.featureLabels || []).length === 0,
+            // A RENAME since req #3192, which is the point: this adapter used to
+            // RECONSTRUCT the flag from "has a dominant label AND both label sets
+            // are empty" because `buildPlanRows` computed `inherited` and then
+            // dropped it. The reconstruction was exact and still wrong to have —
+            // the one place either adapter did anything beyond renaming a key, in
+            // the harness whose whole job is to not be a third implementation.
+            label_inherited: row.labelInherited,
             epic_label_ids: labelIds(row.epicLabels),
             feature_label_ids: labelIds(row.featureLabels),
             req_ids: [...(row.reqIds || [])],

@@ -263,8 +263,9 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * cell renderers need.
  *
  * A banner is emitted immediately before the FIRST member of its batch in display
- * order — the engine guarantees batch-mates are contiguous, and verifyOrder
- * complains loudly when they are not, so one banner per batch is always correct.
+ * order. One banner per batch is always correct: the banner names its own
+ * members, so it stays readable even on the split described at the foot of this
+ * comment.
  *
  * Epic/Feature "render once per contiguous group" is computed over STEP rows
  * only: a banner between two rows of the same epic must not restart the group,
@@ -276,11 +277,21 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * (epic 9003 and feature 9012 are both titled "Swarm Orchestration Feature").
  * The engine exposes both ids, so there is no reason to compare display strings.
  *
- * NOTE on batch banners: exactly one banner is emitted per batch because the
- * engine keeps batch-mates contiguous. When contiguity DOES break, verifyOrder()
- * raises `batch-contiguity` and the page renders it loudly — but the banner will
- * span the intervening non-member row, which carries no member edge. That is the
- * violation being visible, not a second failure.
+ * NOTE on batch banners: a banner CAN span a non-member row, and since req #3192
+ * that no longer implies a violation is on screen to explain it.
+ *
+ * Design rule 3 orders its criteria — topological, THEN state bands — so a
+ * Running step that gates a Scheduled batch-mate is TRAPPED between two members
+ * of that batch and no ordering separates them. `verifyOrder` used to report the
+ * forced case as `batch-contiguity`; it now excuses exactly the splits that are
+ * forced, so this render is the ordinary appearance of a legitimate plan.
+ *
+ * It reads correctly without the alert: the banner names its own members
+ * (`steps 1 3`), and the intervening row gets no `batchLetter` — there is no
+ * batch COLUMN, so what that changes is the row's left-border accent, which
+ * falls through to its state colour instead of the dashed batch-member edge. An
+ * AVOIDABLE split still raises `batch-contiguity` and the page still renders it
+ * loudly — that one really is the ordering's fault.
  *
  * @param {Object} plan  from orderedPlan
  * @returns {Array<{kind: 'batch'|'step'}>}

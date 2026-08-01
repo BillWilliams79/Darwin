@@ -1128,3 +1128,173 @@ describe('cost aggregation (req #3117 server-side rollup)', () => {
         expect(fmtCost(cost.wallSecs, cost.tokens)).toBe('—');
     });
 });
+
+// ── req #3192 — the canonical time-gate grammar ──────────────────────────────
+
+describe('time gates parse an explicit canonical grammar', () => {
+    // `toEpochMs` is private, so these go through `eligibility`, which is the
+    // observable behaviour anyway: a gate either passes or it does not.
+    const gate = (timeAt, now) => eligibility(
+        { id: 1, state: STEP_PENDING, depIds: [], timeDeps: [timeAt] },
+        [{ id: 1, state: STEP_PENDING, depIds: [], timeDeps: [timeAt] }],
+        now);
+    const AFTER = '2026-07-31T00:00:00';
+
+    it('accepts every canonical spelling of the same instant', () => {
+        // Naive is UTC, never local — reading a no-offset datetime as local time
+        // would shift every gate by the machine's offset, and a gate seven hours
+        // early is a gate that is already satisfied.
+        for (const t of ['2026-07-30', '2026-07-30T00:00', '2026-07-30T00:00:00',
+            '2026-07-30 00:00:00', '2026-07-30T00:00:00Z', '2026-07-30T00:00:00z',
+            '2026-07-30T00:00:00+00:00', '2026-07-30T05:00:00+05:00',
+            '2026-07-29T19:00:00-05:00', '2026-07-30T00:00:00.123']) {
+            expect(gate(t, AFTER), `${t} must pass a later clock`).toBe(true);
+            expect(gate(t, '2026-07-29T00:00:00'), `${t} must not pass an earlier clock`)
+                .toBe(false);
+        }
+    });
+
+    it('rejects every spelling the two engines used to disagree on', () => {
+        // The req #3184 review probed 23 formats x 4 clocks and found 12
+        // disagreements IN BOTH DIRECTIONS: Date.parse took the first three,
+        // fromisoformat took the last four. Both engines now reject all of them,
+        // which is the safe direction — an unparseable gate read as PASSED
+        // launches work early.
+        for (const t of ['2026/07/30 00:00:00', '30 Jul 2026', '2026-07-30T24:00:00',
+            ' 2026-07-30T00:00:00 ', '20260730T000000', '2026-07-30T00:00:00Z ',
+            '2026-07-30T00:00:00+0000']) {
+            expect(gate(t, AFTER), `${t} is not canonical and must not pass`).toBe(false);
+        }
+    });
+
+    it('rejects out-of-range and non-calendar values instead of rolling them over', () => {
+        // Date.UTC and the UTC setters ROLL OVER: Feb 30 becomes March 2 and hour
+        // 24 becomes the next midnight — a gate silently moved to a different
+        // instant, on a plan nobody would look at twice.
+        for (const t of ['2026-02-30T00:00:00', '2026-13-01T00:00:00',
+            '2026-07-32T00:00:00', '2026-07-30T00:60:00', '2026-07-30T00:00:60',
+            '0000-01-01T00:00:00', '2026-07-30T00:00:00+99:00', '2026-7-30',
+            '2026-07-30T00:00:00.1234567', '', 'not-a-time']) {
+            expect(gate(t, AFTER), `${t} must not parse`).toBe(false);
+        }
+    });
+
+    it('rejects the classes where the two parsers nearly drifted apart', () => {
+        // Found by the req #3192 review: Python's `$` also matches before ONE
+        // trailing newline, and a `str` pattern's `\d` spans every Unicode Nd
+        // digit, so `_to_epoch` accepted these while this engine did not —
+        // measured as py=PASSED / js=not-eligible, the permissive side being the
+        // one that LAUNCHES. The Python regex now carries `\Z` and `re.ASCII`;
+        // this is the JS half of that pin.
+        for (const t of ['2026-07-30T00:00:00\n', '2026-07-30\n', '2026-07-30T00:00:00Z\n',
+            '\u0662\u0660\u0662\u0666-\u0660\u0667-\u0663\u0660',
+            '\uff12\uff10\uff12\uff16-\uff10\uff17-\uff13\uff10',
+            '2026-07-30T\u0660\u0660:00:00', '2026-07-30T00:00:00+\u0660\u0665:00']) {
+            expect(gate(t, AFTER), `${JSON.stringify(t)} must not parse`).toBe(false);
+        }
+    });
+
+    it('a non-finite clock or gate is not a passed gate', () => {
+        // Every comparison against NaN is false, so an unguarded NaN would read
+        // as EVERY GATE PASSED rather than as no answer.
+        expect(gate('2099-01-01T00:00:00', NaN)).toBe(false);
+        expect(gate('2099-01-01T00:00:00', Infinity)).toBe(false);
+        expect(gate(NaN, AFTER)).toBe(false);
+        expect(gate(Infinity, AFTER)).toBe(false);
+    });
+
+    it('an unreadable CLOCK is not a passed gate either', () => {
+        expect(gate('2026-07-30T00:00:00', '31 Jul 2026')).toBe(false);
+        expect(gate('2026-07-30T00:00:00', undefined)).toBe(false);
+    });
+
+    it('takes a Date or an epoch, and refuses anything else', () => {
+        expect(gate('2026-07-30T00:00:00', new Date(Date.UTC(2026, 6, 31)))).toBe(true);
+        expect(gate('2026-07-30T00:00:00', Date.UTC(2026, 6, 31))).toBe(true);
+        expect(gate('2026-07-30T00:00:00', new Date('nonsense'))).toBe(false);
+        expect(gate('2026-07-30T00:00:00', { at: 'now' })).toBe(false);
+        expect(gate(true, AFTER)).toBe(false);
+    });
+});
+
+// ── req #3192 — batch-contiguity is subordinate to topology ──────────────────
+
+describe('batch-contiguity reports only an AVOIDABLE split', () => {
+    // Rows fed to verifyOrder directly: these are statements about the INVARIANT,
+    // not about the order displayOrder happens to produce.
+    const row = (id, state, depIds = [], machine = 'M') => ({
+        id, state, depIds, timeDeps: [], epicId: 1, run: 'auto', machineLabels: [machine],
+    });
+    const contiguity = (rows) => verifyOrder(rows).filter((v) => v.invariant === 'batch-contiguity');
+
+    it('excuses a split whose interloper is TRAPPED between two members', () => {
+        // Step 2 depends on member 1 and outranks member 3 by band, so it sits
+        // between the two in every legal order. Design rule 3 orders its criteria
+        // — topological, THEN state bands — so dependency-first is correct here
+        // and reporting it is the crying-wolf failure mode rule 7 exists to avoid.
+        expect(contiguity([
+            row(1, STEP_PENDING), row(2, STEP_RUNNING, [1], 'OTHER'), row(3, STEP_PENDING),
+        ])).toEqual([]);
+    });
+
+    it('still reports when the interloper could have moved', () => {
+        // Same shape, Scheduled interloper: [1, 3, 2] keeps the batch together and
+        // breaks no rule. THIS is the regression the invariant was built for, and
+        // the relaxation must not swallow it.
+        expect(contiguity([
+            row(1, STEP_PENDING), row(2, STEP_PENDING, [1], 'OTHER'), row(3, STEP_PENDING),
+        ]).map((v) => v.stepIds)).toEqual([[1, 3]]);
+    });
+
+    it('one trapped interloper excuses the whole split', () => {
+        // Step 4 is trapped between members 1 and 5; step 3 is not. Reporting
+        // because of step 3 would report a split no ordering can remove.
+        expect(contiguity([
+            row(1, STEP_PENDING), row(3, STEP_PENDING, [], 'OTHER'),
+            row(4, STEP_RUNNING, [1], 'OTHER'), row(5, STEP_PENDING),
+        ])).toEqual([]);
+    });
+
+    it('needs BOTH sides pinned — a dependency alone is not a trap', () => {
+        // Step 2 must follow member 1, but nothing holds it above member 3.
+        // Testing only half the trap would excuse every split containing any
+        // dependency at all.
+        expect(contiguity([
+            row(1, STEP_PENDING), row(2, STEP_PENDING, [1], 'OTHER'), row(3, STEP_PENDING),
+        ])).not.toEqual([]);
+    });
+
+    it('a contiguous batch never reports, trapped rows or not', () => {
+        expect(contiguity([
+            row(1, STEP_RUNNING, [], 'OTHER'), row(2, STEP_PENDING), row(3, STEP_PENDING),
+        ])).toEqual([]);
+    });
+});
+
+// ── req #3192 — labelInherited is published, not reconstructed ───────────────
+
+describe('PlanRow.labelInherited', () => {
+    it('is true exactly on a step that BORROWED its label from a dependency', () => {
+        // Fixture step 7 ("Green Baseline") links no requirements, so rule 10
+        // gives it no label of its own and req #3119's inheritance clause lends it
+        // the label of the work it gates. Every step that derives its own label
+        // must read false, or the conformance harness's rename is a lie.
+        const rows = buildPlanRows(SUBSTRATE_REBUILD_MODEL);
+        const inherited = rows.filter((r) => r.labelInherited).map((r) => r.id);
+        expect(inherited).toEqual([7]);
+        const row7 = rows.find((r) => r.id === 7);
+        expect(row7.epicId).not.toBeNull();
+        // The borrowed label deliberately carries EMPTY label sets: those drive
+        // the "spans more than one epic" tooltip and this step spans nothing.
+        expect(row7.epicLabels).toEqual([]);
+        expect(row7.featureLabels).toEqual([]);
+    });
+
+    it('is a boolean on every row, never undefined', () => {
+        // The conformance corpus compares for FULL equality, so an undefined here
+        // would fail as a missing field rather than as a wrong answer.
+        for (const r of buildPlanRows(SUBSTRATE_REBUILD_MODEL)) {
+            expect(typeof r.labelInherited, `step ${r.id}`).toBe('boolean');
+        }
+    });
+});

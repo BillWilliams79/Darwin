@@ -74,6 +74,9 @@
 // @property {?string} feature
 // @property {{id: number, title: string}[]} epicLabels     full set, for tooltips
 // @property {{id: number, title: string}[]} featureLabels  full set, for tooltips
+// @property {boolean} labelInherited    req #3119 — the label was BORROWED from a
+//                                       dependency rather than derived from this
+//                                       step's own requirements (req #3192)
 // @property {string[]} machineLabels
 // @property {string} machineLabel      joined with ' / ', '—' when no requirements
 // @property {StepCost} [cost]          req #3117 — attached by orderedPlan when a
@@ -415,6 +418,13 @@ export function buildPlanRows(model) {
             feature: labels.feature,
             epicLabels: labels.epicLabels,
             featureLabels: labels.featureLabels,
+            // req #3192. The inheritance clause above already knows this; dropping
+            // it here forced the conformance adapter to RECONSTRUCT the flag from
+            // "has a dominant label AND both label sets are empty" — exact, but the
+            // one place either adapter did anything beyond renaming a key, and a
+            // drift-control harness that computes is a third implementation.
+            // `pipeline_derive.py` publishes the same field as `label_inherited`.
+            labelInherited: Boolean(labels.inherited),
             machineLabels: machines.labels,
             machineLabel: machines.label,
         };
@@ -827,38 +837,138 @@ export function verifyOrder(rows) {
         }
     }
 
-    // Invariant 3: launch-batch contiguity — batch-mates render as one block.
+    // Invariant 3: launch-batch contiguity — batch-mates render as one block,
+    // SUBORDINATE TO TOPOLOGY on exactly the terms banding is (req #3192).
+    //
+    // The relaxation above was applied to ONE of the two invariants that needs
+    // it. A Running step gating on a Scheduled one splits any batch the Scheduled
+    // one belongs to — forced by the very conflict invariant 2 excuses — and this
+    // one reported it anyway. That is the crying-wolf failure mode design rule 7
+    // exists to avoid, on the loud stdout channel pipeline_engine.py emits
+    // VIOLATION edges over.
+    //
+    // The split is FORCED when some interposed row is TRAPPED between two
+    // members: it must render below one and above another, so no ordering makes
+    // the batch contiguous. One trapped row is enough — it sits between two
+    // members in every legal order, whatever the other interlopers do. Trapped
+    // means pinned from both sides:
+    //   * below member A — Z transitively DEPENDS on A. (Banding cannot pin this
+    //     side: members are pending, the lowest band there is.)
+    //   * above member B — B depends on Z (topology), OR Z outranks B by band and
+    //     B is not a dependency of Z (banding, with the same escape invariant 2
+    //     uses where topology overrules it).
+    //
+    // Deliberately NOT a search for a contiguous ordering. The test is SOUND —
+    // everything it excuses really is forced — and admits it is not complete: a
+    // split with no single trapped row still reports, the safe direction for an
+    // invariant whose job is to catch the avoidable case.
+    const splitIsForced = (members) => {
+        const memberIds = new Set(members.map((m) => m.id));
+        const positions = members.map((m) => posn.get(m.id));
+        const lo = Math.min(...positions);
+        const hi = Math.max(...positions);
+        for (let i = lo + 1; i < hi; i++) {
+            const z = rows[i];
+            if (memberIds.has(z.id)) continue;
+            const zDeps = dependsOn(z.id);
+            let belowAMember = false;
+            for (let j = lo; j < i && !belowAMember; j++) {
+                if (memberIds.has(rows[j].id) && zDeps.has(rows[j].id)) belowAMember = true;
+            }
+            if (!belowAMember) continue;
+            for (let j = i + 1; j <= hi; j++) {
+                const below = rows[j];
+                if (!memberIds.has(below.id)) continue;
+                if (dependsOn(below.id).has(z.id)) return true;
+                if (bandOf(z) < bandOf(below) && !zDeps.has(below.id)) return true;
+            }
+        }
+        return false;
+    };
     for (const [key, members] of pendingGroups(rows)) {
         if (members.length < 2) continue;
         const positions = members.map((m) => posn.get(m.id));
-        if (Math.max(...positions) - Math.min(...positions) !== members.length - 1) {
-            violations.push({
-                invariant: 'batch-contiguity',
-                stepIds: members.map((m) => m.id),
-                message: `launch batch (${key}) not contiguous at rows ${positions.join(', ')}`,
-            });
-        }
+        if (Math.max(...positions) - Math.min(...positions) === members.length - 1) continue;
+        if (splitIsForced(members)) continue;
+        violations.push({
+            invariant: 'batch-contiguity',
+            stepIds: members.map((m) => m.id),
+            message: `launch batch (${key}) not contiguous at rows ${positions.join(', ')}`,
+        });
     }
     return violations;
 }
 
 // ── Eligibility ─────────────────────────────────────────────────────────────
 
+// THE CANONICAL TIME-GATE GRAMMAR, spelled out rather than delegated (req #3192).
+//
+//   YYYY-MM-DD                       date only -> UTC midnight
+//   YYYY-MM-DD(T| )HH:MM[:SS[.fff]]  naive -> UTC (Darwin timestamps ARE naive UTC)
+//   ...Z | ...z | ...±HH:MM          explicit designator/offset
+//
+// NOTHING ELSE PARSES, and that is the feature. `Date.parse` and Python's
+// `datetime.fromisoformat` both accept a grammar their implementers may widen:
+// fromisoformat's changed in 3.11, so `20260730T000000` and `2026-07-30T00:00:00+0000`
+// parse under the daemon's venv (3.13) and raise under a bare 3.9 — the SAME source
+// giving different ELIGIBILITY answers on different machines. Date.parse is worse:
+// its fallback path is explicitly implementation-defined and swallows `2026/07/30`
+// and `30 Jul 2026`. Measured across 23 formats x 4 clocks (req #3184 review), the
+// two engines disagreed on 12 combinations IN BOTH DIRECTIONS.
+//
+// A time gate decides whether work LAUNCHES. An unparseable gate one side reads as
+// passed starts work early, so this parse must not be a moving target: never
+// reintroduce `Date.parse`/`fromisoformat` here. `pipeline_derive.py::_to_epoch`
+// carries the identical regex and the identical component arithmetic.
+//
+// Out-of-range and non-calendar values (month 13, Feb 30, hour 24) are REJECTED,
+// not rolled over — `Date.UTC` would silently roll them into a different instant.
+//
+// A bare number is EPOCH MILLISECONDS here, the unit `Date.getTime()` speaks;
+// `_to_epoch` reads one as epoch SECONDS, the unit `datetime.timestamp()` speaks.
+// A raw number carries no unit, each engine reads it in its own, and both are
+// internally consistent — the one recorded divergence in this parse. It never
+// reaches production (`time_at` is a TIMESTAMP; both callers pass a clock
+// object), and `darwin-mcp/tests/conformance/timestamp_differential.py` reports
+// it every run so it cannot become folklore.
+const TIMESTAMP_RE =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?(Z|z|[+-]\d{2}:\d{2})?)?$/;
+
 function toEpochMs(t) {
     if (t == null) return null;
-    if (t instanceof Date) return t.getTime();
-    if (typeof t === 'number') return t;
-    // Darwin timestamps are NAIVE UTC ("2026-07-27T01:31:17" — no designator;
-    // MySQL's space-separated "2026-07-27 01:31:17" is the same value). Date.parse
-    // reads a no-offset datetime as LOCAL time, which would shift every time gate
-    // by the machine's UTC offset — normalize both naive forms to UTC explicitly.
-    let s = t;
-    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(t)
-            && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t)) {
-        s = `${t.replace(' ', 'T')}Z`;
+    if (t instanceof Date) {
+        const ms = t.getTime();
+        return Number.isNaN(ms) ? null : ms;
     }
-    const parsed = Date.parse(s);
-    return Number.isNaN(parsed) ? null : parsed;
+    if (typeof t === 'number') return Number.isFinite(t) ? t : null;
+    if (typeof t !== 'string') return null;
+    const m = TIMESTAMP_RE.exec(t);
+    if (!m) return null;
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    const hour = m[4] !== undefined ? Number(m[4]) : 0;
+    const minute = m[5] !== undefined ? Number(m[5]) : 0;
+    const second = m[6] !== undefined ? Number(m[6]) : 0;
+    // Sub-second precision is TRUNCATED to milliseconds on both sides, so a
+    // fractional gate cannot land the two engines on different sides of a clock.
+    const milli = m[7] !== undefined ? Number(`${m[7]}00`.slice(0, 3)) : 0;
+    if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31
+        || hour > 23 || minute > 59 || second > 59) return null;
+    // setUTCFullYear, not Date.UTC: the latter maps years 0-99 into 1900-1999.
+    const at = new Date(0);
+    at.setUTCFullYear(year, month - 1, day);
+    at.setUTCHours(hour, minute, second, milli);
+    // Round-trip: rejects Feb 30 and friends, which the setters roll over.
+    if (at.getUTCFullYear() !== year || at.getUTCMonth() !== month - 1
+        || at.getUTCDate() !== day) return null;
+    const zone = m[8];
+    if (!zone || zone === 'Z' || zone === 'z') return at.getTime();
+    const offsetHours = Number(zone.slice(1, 3));
+    const offsetMinutes = Number(zone.slice(4, 6));
+    if (offsetHours > 23 || offsetMinutes > 59) return null;
+    const offsetMs = (zone[0] === '-' ? -1 : 1) * (offsetHours * 60 + offsetMinutes) * 60000;
+    return at.getTime() - offsetMs;
 }
 
 // Rule 5 of memory/pipeline-plan-tracking.md: ELIGIBILITY IS COMPUTED, NEVER
