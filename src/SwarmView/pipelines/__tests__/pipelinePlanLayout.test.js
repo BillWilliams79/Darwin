@@ -373,12 +373,13 @@ describe('launch-batch box geometry', () => {
         expect(layout.batchBoxes).toEqual([]);
     });
 
-    // A genuine batch, with the two members' requirements under DIFFERENT
-    // epics: the batch renders one box SEGMENT per band (a single tall rect
-    // would also enclose whatever band lies between — review finding), and the
-    // same-gate manual step (not a batch-mate) stays outside every segment.
+    // A genuine batch — and since req #3188 its two members share an epic,
+    // because the engine's launch key includes the dominant epic and can no
+    // longer group across two. The same-gate MANUAL step is the non-member, and
+    // it sits in a second band so the plan still renders more than one.
     // Epic titles are deliberately LONG: the review found the batch letter
-    // colliding with a long epic label when both lived in the band header.
+    // colliding with a long epic label when both lived in the band header, and
+    // that collision is what the label-overlap combinations below still guard.
     const CROSS_EPIC_READS = {
         steps: [
             { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
@@ -402,8 +403,8 @@ describe('launch-batch box geometry', () => {
         ],
         requirements: [
             { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-            { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 102 },
-            { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
+            { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
+            { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 102 },
         ],
         features: [
             { id: 101, title: 'Wave One', epic_fk: 11 },
@@ -422,7 +423,7 @@ describe('launch-batch box geometry', () => {
         }),
         { now: NOW });
 
-    it('boxes every member via per-band segments and excludes non-members', () => {
+    it('boxes every member and excludes non-members', () => {
         expect(crossPlan.batches).toHaveLength(1);
         const layout = computePlanLayout(crossPlan.rows, crossPlan.batches);
         const inSomeBox = (n) => layout.batchBoxes.some((box) =>
@@ -432,20 +433,127 @@ describe('launch-batch box geometry', () => {
         const m2 = layout.nodes.get(2);
         const m3 = layout.nodes.get(3);
         const outsider = layout.nodes.get(4);
-        // Cross-band batch → one segment per member band, one letter overall.
-        expect(m2.bandIndex).not.toBe(m3.bandIndex);
-        expect(layout.batchBoxes).toHaveLength(2);
-        expect(layout.batchBoxes.filter((b) => b.topSegment)).toHaveLength(1);
+        // Since req #3188 an ENGINE-PRODUCED batch always sits in one band —
+        // bands key on `epicId` and so does the launch key — so one segment,
+        // one letter. The non-member is in another band entirely and must stay
+        // outside the box regardless.
+        expect(m2.bandIndex).toBe(m3.bandIndex);
+        expect(outsider.bandIndex).not.toBe(m2.bandIndex);
+        expect(layout.batchBoxes).toHaveLength(1);
+        // EVERY segment carries the letter (req #3188). One label for a
+        // batch that draws two side-by-side boxes leaves the second reading
+        // as an anonymous batch of its own.
+        expect(layout.labels.filter((l) => l.kind === 'batch'))
+            .toHaveLength(layout.batchBoxes.length);
         expect(inSomeBox(m2)).toBe(true);
         expect(inSomeBox(m3)).toBe(true);
         expect(inSomeBox(outsider)).toBe(false);
         expect(layout.labels.filter((l) => l.kind === 'batch')).toHaveLength(1);
     });
 
+    it('segments a MULTI-COLUMN batch per column rather than drawing one wide rect', () => {
+        // REQ #3188 REGRESSION. Batch-mates used to share a raw dep set and
+        // therefore a depth, so one column per batch was sound; keying on the
+        // REMAINING gate makes "gated by a Complete step" and "not gated at all"
+        // one launch unit at DIFFERENT depths. A single-column box then left a
+        // member outside itself and enclosed whatever unrelated bead sat in the
+        // column it did cover.
+        const reads = {
+            steps: [
+                { id: 1, pipeline_fk: 1, title: 'closed gate', run: 'auto', notes: null,
+                    completed_at: null },
+                { id: 2, pipeline_fk: 1, title: 'behind the closed gate', run: 'auto',
+                    notes: null, completed_at: null },
+                { id: 3, pipeline_fk: 1, title: 'no gate at all', run: 'auto',
+                    notes: null, completed_at: null },
+            ],
+            stepRequirements: [
+                { step_fk: 1, requirement_fk: 950 },
+                { step_fk: 2, requirement_fk: 951 },
+                { step_fk: 3, requirement_fk: 952 },
+            ],
+            stepDeps: [{ id: 1, step_fk: 2, dep_step_fk: 1, time_at: null }],
+            requirements: [
+                { id: 950, requirement_status: 'met', machine_fk: 2, feature_fk: 301 },
+                { id: 951, requirement_status: 'approved', machine_fk: 2, feature_fk: 301 },
+                { id: 952, requirement_status: 'approved', machine_fk: 2, feature_fk: 301 },
+            ],
+            features: [{ id: 301, title: 'F1', epic_fk: 31 }],
+            epics: [{ id: 31, title: 'Epic A' }],
+            machines: MACHINES,
+        };
+        const p = orderedPlan(buildPipelineModel({
+            pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
+            ...reads,
+        }), { now: NOW });
+        expect(p.batches).toHaveLength(1);
+        expect(p.batches[0].stepIds.slice().sort()).toEqual([2, 3]);
+
+        const layout = computePlanLayout(p.rows, p.batches);
+        const m2 = layout.nodes.get(2);
+        const m3 = layout.nodes.get(3);
+        const outsider = layout.nodes.get(1);
+        expect(m2.depth).not.toBe(m3.depth);
+        expect(layout.batchBoxes).toHaveLength(2);
+        // EVERY segment carries the letter (req #3188). One label for a
+        // batch that draws two side-by-side boxes leaves the second reading
+        // as an anonymous batch of its own.
+        expect(layout.labels.filter((l) => l.kind === 'batch'))
+            .toHaveLength(layout.batchBoxes.length);
+
+        const encloses = (box, n) => n.x > box.x && n.x < box.x + box.width
+            && n.y > box.y && n.y < box.y + box.height;
+        // Every member is inside SOME segment…
+        for (const member of [m2, m3]) {
+            expect(layout.batchBoxes.some((box) => encloses(box, member)),
+                `member ${member.id} must be boxed`).toBe(true);
+        }
+        // …and the Complete step sharing step 3's column is inside NONE.
+        for (const box of layout.batchBoxes) {
+            expect(encloses(box, outsider), 'the gate must stay outside').toBe(false);
+        }
+    });
+
+    it('segments a cross-band batch per band rather than drawing one tall rect', () => {
+        // THE GEOMETRY IS TESTED DIRECTLY, with a HAND-BUILT batch, because the
+        // engine can no longer produce this input: req #3188 put the dominant
+        // epic in the launch key, and bands key on the same field. That makes
+        // this branch defensive rather than reachable — computePlanLayout takes
+        // rows and batches as arguments and cannot know they were derived
+        // together, so a stale or hand-assembled batch must still not enclose a
+        // band it has no member in (the original review finding). Deleting the
+        // segmentation instead would trade a tested defence for an untested
+        // assumption about every caller, forever.
+        const batch = { letter: 'A', stepIds: [2, 4], swarmStartArgs: [900, 902] };
+        const layout = computePlanLayout(crossPlan.rows, [batch]);
+        const m2 = layout.nodes.get(2);
+        const m4 = layout.nodes.get(4);
+        expect(m2.bandIndex).not.toBe(m4.bandIndex);
+        expect(layout.batchBoxes).toHaveLength(2);
+        // EVERY segment carries the letter (req #3188). One label for a
+        // batch that draws two side-by-side boxes leaves the second reading
+        // as an anonymous batch of its own.
+        expect(layout.labels.filter((l) => l.kind === 'batch'))
+            .toHaveLength(layout.batchBoxes.length);
+        expect(layout.batchBoxes.map((b) => b.stepIds)).toEqual([[2], [4]]);
+        // The non-member sharing band 2's neighbourhood is never swallowed.
+        const outsider = layout.nodes.get(3);
+        for (const box of layout.batchBoxes) {
+            const inside = outsider.x > box.x && outsider.x < box.x + box.width
+                && outsider.y > box.y && outsider.y < box.y + box.height;
+            expect(inside).toBe(false);
+        }
+    });
+
     it('never encloses a bead from an unrelated band between two members', () => {
         // Review dataset: members in the first and third bands, a NON-member in
         // the band between them, all sharing the gate. The POC's single tall
         // rect read step 3 as launching in batch A; segments must not.
+        //
+        // The batch is HAND-BUILT for the same reason as the segmentation test
+        // above: since req #3188 the engine's launch key carries the dominant
+        // epic, so it can no longer emit a batch whose members sit in different
+        // bands. The geometry still has to survive one.
         const reads = {
             steps: [
                 { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
@@ -489,9 +597,13 @@ describe('launch-batch box geometry', () => {
                 ...reads,
             }),
             { now: NOW });
-        expect(p.batches).toHaveLength(1);
-        expect(p.batches[0].stepIds.sort()).toEqual([2, 4]);
-        const layout = computePlanLayout(p.rows, p.batches);
+        // Each of the three steps derives its own epic, so the engine correctly
+        // proposes NO batch at all — the input this geometry has to survive is
+        // constructed, not derived.
+        expect(p.batches).toEqual([]);
+        const batch = { letter: 'A', stepIds: [2, 4], swarmStartArgs: [900, 902] };
+        const layout = computePlanLayout(p.rows, [batch]);
+        expect(layout.batchBoxes).toHaveLength(2);
         const outsider = layout.nodes.get(3);
         for (const box of layout.batchBoxes) {
             const inside = outsider.x > box.x && outsider.x < box.x + box.width

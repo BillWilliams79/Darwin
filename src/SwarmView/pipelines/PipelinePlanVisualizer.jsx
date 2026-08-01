@@ -511,7 +511,14 @@ export default function PipelinePlanVisualizer({
         // Konva has no independent fill/stroke opacity — the POC's 4% wash and
         // 85% dashed edge are rgba colors on one Rect.
         worldNodes.push(
-            <Rect key={`batch-${box.letter}`} x={box.x} y={box.y}
+            // Keyed on the SEGMENT, not the batch. A letter was unique per box
+            // while a batch produced one segment per BAND and could never span
+            // two — but req #3188 made batch-mates share only their REMAINING
+            // gate, so one batch legitimately produces one segment per column
+            // and `batch-A` became a duplicate React key on every such plan.
+            // React warns and reserves the right to drop a child.
+            <Rect key={`batch-${box.letter}-${box.bandIndex}-${box.depth}`}
+                  x={box.x} y={box.y}
                   width={box.width} height={box.height} cornerRadius={10}
                   fill="rgba(74, 217, 200, 0.04)"
                   stroke="rgba(74, 217, 200, 0.85)" dash={[6, 4]} strokeWidth={1.2}
@@ -794,8 +801,10 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
             <div className="ts-datacard">
                 <div className="ts-datacard-title">Launch batch {b.letter}</div>
                 {rowEl('Steps', b.stepIds.join(' '))}
+                {/* The REMAINING gate since req #3188 — same wording as the
+                    plan table's banner, because the two are one plan. */}
                 {rowEl('Gate', b.gateStepIds.length
-                    ? `steps ${b.gateStepIds.join(', ')}` : 'no step gate')}
+                    ? `steps ${b.gateStepIds.join(', ')}` : 'no remaining step gate')}
                 {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
                 {rowEl('Run', runLabel(b.run))}
                 {b.machineLabels.length > 0 && rowEl('Machines', batchMachineLabel(b))}
