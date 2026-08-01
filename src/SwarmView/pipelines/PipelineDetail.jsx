@@ -72,6 +72,7 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
+import { readFocusStepParam } from './pipelineStepLink';
 import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_REQ_VIEW, DEFAULT_STEP_WIDTH,
@@ -353,15 +354,29 @@ export default function PipelineDetail() {
     const requestedMode = searchParams.get('mode');
     const linkMode = PIPELINE_DETAIL_MODES.some(
         (m) => m.value === requestedMode && !m.disabled) ? requestedMode : null;
+    // ── `?step=` makes ONE STEP addressable (req #3140) ──────────────────────
+    // The receiving end of the Steps editor's row link, and the same handshake a
+    // bead click already uses: seed `focusStepId`, and the table scrolls to and
+    // highlights that row. `pipelineStepLink.js` owns both halves of the
+    // contract so the writer and this reader cannot drift on the key.
+    const linkStepId = readFocusStepParam(searchParams);
+    // A named step FORCES the table, overriding `?mode=` when the two disagree.
+    // Only the table consumes `focusStepId` — the visualizer has beads, not rows,
+    // and ignores the prop entirely — so honoring `?mode=plan&step=7` as written
+    // would land the reader on a plan with nothing highlighted and nothing to say
+    // why. Naming a row is the more specific request, so it wins.
+    const linkView = linkStepId != null ? 'table' : linkMode;
 
-    const [focusStepId, setFocusStepId] = useState(null);
-    const [modeOverride, setModeOverride] = useState(linkMode);
-    // Re-seeds when the LINK changes — a new `?mode=` or a different plan — and at
-    // no other time, so a manual pick below is never resurrected by a re-render.
+    const [focusStepId, setFocusStepId] = useState(linkStepId);
+    const [modeOverride, setModeOverride] = useState(linkView);
+    // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, or a
+    // different plan — and at no other time, so a manual pick below is never
+    // resurrected by a re-render. A link with no `?step=` clears the focus, which
+    // is what keeps a stale highlight from surviving an unrelated navigation.
     useEffect(() => {
-        setModeOverride(linkMode);
-        setFocusStepId(null);
-    }, [linkMode, pipelineId]);
+        setModeOverride(linkView);
+        setFocusStepId(linkStepId);
+    }, [linkView, linkStepId, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
