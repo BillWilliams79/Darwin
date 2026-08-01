@@ -81,7 +81,7 @@ const MIN_WORLD_W = 1180;       // POC viewBox floor
 const CHW_LABEL = 10.05;        // px per mono char at font 16.5 (step label)
 const CHW_REQ = 8.4;            // px per mono char at font 13.75 (req ids)
 const CHW_TITLE = 5.8;          // px per mono char at font 9.5 (the title slot)
-const CHW_EPIC = 9.15;          // px per mono char at font 15 (epic band label)
+export const CHW_EPIC = 9.15;   // px per mono char at font 15 (epic band label)
 const BEAD_R = 10;
 const BAND_HEADER = 46;         // deviation 1 (POC 34) + type-scale headroom
 const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
@@ -825,6 +825,142 @@ export function beadStyle(row, eligible) {
         ringWidth: row.run === 'manual' || eligible ? 2.5 : 1.5,
         pulse: running,
         check: done,
+    };
+}
+
+// ── Epic focus geometry (req #3204) ─────────────────────────────────────────
+// Clicking an epic's name fits that epic's steps to the viewport. This is pure
+// geometry over a layout that is already computed, so it lives beside the
+// layout rather than in the component: the component's job is to hand the
+// resulting {x, y, k} to the d3-zoom BEHAVIOR, and nothing else.
+//
+// IT IS NOT A MODE. Nothing here is remembered — the two functions below take
+// a band and return a transform, and the caller retains neither.
+
+// Margin left on all four sides, in SCREEN px. Screen, not world: it is
+// subtracted from the viewport BEFORE the scale is chosen, so the whitespace is
+// the same handful of pixels whether the fit lands at k=0.2 or k=2. A world-space
+// pad would shrink to nothing on a wide epic and swallow the view on a narrow one.
+export const FOCUS_PAD = 44;
+// The zoom behavior's scale extent, as multiples of kBase (the fit-to-width
+// scale). Exported so the component's `scaleExtent` call, the focus clamp and
+// the tests all read ONE pair of numbers instead of three copies.
+export const ZOOM_MIN_RATIO = 0.25;
+export const ZOOM_MAX_RATIO = 8;
+// The focus ceiling and floor, in the same units. The ceiling exists because
+// "as close as possible" on a one-step epic is absurd magnification; 2.6 is
+// past SEMANTIC_IN_MIN (1.9), so a small epic lands on the Detail level, which
+// is the level a reader focusing on one epic wants.
+//
+// The clamp is NOT a belt-and-braces duplicate of the behavior's own extent.
+// `zoom.transform` applies what it is given VERBATIM — unlike `scaleTo` /
+// `translateBy` it never calls `constrain`, so nothing re-clamps this at write
+// time (verified against d3-zoom 3.0.0's source). What it does do is clamp the
+// NEXT wheel gesture against `scaleExtent`, so an out-of-extent k here would
+// look fine until the user's first scroll and then jump. Hence: the clamp is
+// load-bearing, and it has to agree with the extent — which is why both now
+// come from the constants above.
+export const FOCUS_MAX_RATIO = 2.6;
+export const FOCUS_MIN_RATIO = ZOOM_MIN_RATIO;
+
+/**
+ * The world-space rectangle an epic band occupies.
+ *
+ * Vertically: the band's own extent, which the layout already computed
+ * (`band.y` → `band.y + band.height`, header strip included — the epic name
+ * lives there and belongs inside its own fit).
+ *
+ * Horizontally: everything the band's OWN steps DRAW, not the whole plan's
+ * width. That is the union of
+ *   - the columns those steps occupy (min depth → max depth), and
+ *   - the beads and every label belonging to those steps.
+ *
+ * The second term is not redundant. Since req #3119 a step label is CENTRED on
+ * its column and sized to `staggerBudget()` — its own column plus 40% of the
+ * narrower neighbour on each side — so a label in the band's first or last
+ * column legitimately draws OUTSIDE the column extent. Fitting to columns alone
+ * clips it, and does so worst in the production default view (`vertical` +
+ * `title`, PipelineDetail.jsx), where the labels are longest. Measured on the
+ * live plan before this was fixed: the rightmost title of one band landed 7px
+ * PAST the viewport edge with the pad supposedly reserving 44.
+ *
+ * Batch boxes are deliberately not consulted: `computePlanLayout` sizes them at
+ * `colW[depth] - 8`, so they can never exceed the column extent already taken.
+ *
+ * Non-contiguous columns are spanned rather than skipped: an epic with steps at
+ * depth 0 and depth 4 wants both on screen, and there is no meaningful fit that
+ * omits the middle.
+ *
+ * Reads only `band.stepIds`, `layout.nodes` and `layout.labels`, so it makes no
+ * assumption about the ORDER of `layout.bands` (req #3201 changes that order
+ * and introduces per-band horizontal origins).
+ *
+ * @returns {{x:number,y:number,w:number,h:number}|null} null when the band has
+ *   no placed steps or the layout has no columns — the caller must not fit.
+ */
+export function bandFitRect(layout, band) {
+    if (!layout || !band || !layout.nodes || !Array.isArray(layout.colX)) return null;
+    if (!(band.height > 0) || !Number.isFinite(band.y)) return null;
+    const ids = new Set(band.stepIds || []);
+    let left = Infinity;
+    let right = -Infinity;
+    const span = (a, b) => {
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+        if (a < left) left = a;
+        if (b > right) right = b;
+    };
+    for (const id of ids) {
+        const n = layout.nodes.get(id);
+        if (!n || !Number.isFinite(n.depth)) continue;
+        // The column, and the bead drawn in it.
+        span(layout.colX[n.depth] - layout.colW[n.depth] / 2,
+             layout.colX[n.depth] + layout.colW[n.depth] / 2);
+        span(n.x - BEAD_R, n.x + BEAD_R);
+    }
+    if (right <= left) return null;
+    // Every label this band's steps draw — step titles/ids, requirement ids and
+    // the reserved title slot all carry `stepId`. The epic label does not, and
+    // must not: it renders as an HTML overlay pinned to the viewport, not in the
+    // world, so its world x=12 would drag every band's fit back to the gutter.
+    for (const l of (layout.labels || [])) {
+        if (l.stepId == null || !ids.has(l.stepId)) continue;
+        span(l.x, l.x + (l.w || 0));
+    }
+    if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return null;
+    return { x: left, y: band.y, w: right - left, h: band.height };
+}
+
+/**
+ * The {x, y, k} that centres `band` in a `size.w` × `size.h` viewport with
+ * FOCUS_PAD screen px of margin on all four sides.
+ *
+ * The scale is the tighter of the two axis fits, clamped into the behavior's
+ * scale extent; the translation then centres the rect, which spends the slack
+ * on the non-binding axis as equal margin rather than piling it on one side.
+ *
+ * @returns {{x:number,y:number,k:number}|null} null when there is nothing
+ *   sensible to fit (no viewport yet, no columns, degenerate band).
+ */
+export function epicFocusTransform(layout, band, size, kBase) {
+    const rect = bandFitRect(layout, band);
+    if (!rect) return null;
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    if (!(w > 0) || !(h > 0) || !(kBase > 0)) return null;
+    // A viewport narrower than twice the pad has no room for the margin at all.
+    // `max(half, minus-the-pad)` rather than a conditional: the conditional has
+    // a cliff at exactly 2 × FOCUS_PAD where one pixel of growth changes the
+    // available width from 88 to 1 and zooms out ~88×. Never reachable in
+    // production (the panel has `minHeight: 480`), but a discontinuity that
+    // sharp is a trap for the next caller, not a saved branch.
+    const availW = Math.max(w * 0.5, w - 2 * FOCUS_PAD);
+    const availH = Math.max(h * 0.5, h - 2 * FOCUS_PAD);
+    const kFit = Math.min(availW / rect.w, availH / rect.h);
+    const k = Math.min(Math.max(kFit, kBase * FOCUS_MIN_RATIO), kBase * FOCUS_MAX_RATIO);
+    return {
+        x: w / 2 - (rect.x + rect.w / 2) * k,
+        y: h / 2 - (rect.y + rect.h / 2) * k,
+        k,
     };
 }
 

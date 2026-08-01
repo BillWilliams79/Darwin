@@ -29,7 +29,9 @@ import {
     orderedPlan,
     rowMachineLabel,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
-import { computePlanLayout } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
+import {
+    computePlanLayout, epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
+} from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
 
 // UTC so the seeded naive timestamps and the rendered ones agree on any host.
 test.use({ timezoneId: 'UTC' });
@@ -104,19 +106,32 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     // `addInitScript` accumulates and re-runs in registration order on every
     // navigation, so re-registering only when the requested mode CHANGES keeps
     // the last writer correct without stacking a copy per goto.
+    // `viz` defaults to the pair the coordinate maths needs, but is a PARAMETER
+    // since req #3204: PipelineDetail.jsx defaults the two visualizer
+    // preferences to `vertical` + `title`, so a suite that pins horizontal/id
+    // everywhere never exercises the view a real user opens. That gap hid a
+    // real defect — the epic fit clipped its outermost step title, worst in the
+    // default pair — so PIPE-14 asks for the defaults explicitly.
+    type Viz = { reqLayout: 'horizontal' | 'vertical'; stepLabel: 'id' | 'title' };
+    const VIZ_COORDS: Viz = { reqLayout: 'horizontal', stepLabel: 'id' };
+    const VIZ_PRODUCTION_DEFAULT: Viz = { reqLayout: 'vertical', stepLabel: 'title' };
+
     const lastMode = new WeakMap<Page, string>();
-    async function pinPreferences(page: Page, mode: 'table' | 'plan'): Promise<void> {
-        if (lastMode.get(page) === mode) return;
-        lastMode.set(page, mode);
-        await page.addInitScript((m) => {
+    async function pinPreferences(
+        page: Page, mode: 'table' | 'plan', viz: Viz = VIZ_COORDS,
+    ): Promise<void> {
+        const key = `${mode}:${viz.reqLayout}:${viz.stepLabel}`;
+        if (lastMode.get(page) === key) return;
+        lastMode.set(page, key);
+        await page.addInitScript(([m, rl, sl]) => {
             const set = (k: string, v: string) => {
                 sessionStorage.setItem(k, v);
                 localStorage.setItem(k, v);
             };
-            set('darwin-swarm-pipeline-detail-mode', m as string);
-            set('darwin-pipeline-viz-req-layout', 'horizontal');
-            set('darwin-pipeline-viz-step-label', 'id');
-        }, mode);
+            set('darwin-swarm-pipeline-detail-mode', m);
+            set('darwin-pipeline-viz-req-layout', rl);
+            set('darwin-pipeline-viz-step-label', sl);
+        }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
     /** Open a plan's detail page in Table mode and wait for the table to paint. */
@@ -134,8 +149,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
      * world-to-screen frame the click-target maths in PIPE-11 needs. A one-pixel
      * border offset is a miss when a bead's hit radius is ~5 screen px.
      */
-    async function openPlanVisualizer(page: Page, pipelineId: number): Promise<Locator> {
-        await pinPreferences(page, 'plan');
+    async function openPlanVisualizer(
+        page: Page, pipelineId: number, viz: Viz = VIZ_COORDS,
+    ): Promise<Locator> {
+        await pinPreferences(page, 'plan', viz);
         await page.goto(`/swarm/pipeline/${pipelineId}`);
         await expect(page.getByTestId('pipeline-plan-visualizer'))
             .toBeVisible({ timeout: 30000 });
@@ -635,17 +652,178 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${reqLabel.reqId}$`),
             { timeout: 15000 });
 
-        // Epic band label → the features view filtered to that epic.
-        at = await frame();
-        const epicLabel = layout.labels.find(
-            (l: { kind: string; epicId?: number }) => l.kind === 'epic' && l.epicId != null) as
-            { x: number; y: number; epicId: number };
-        expect(epicLabel, 'the plan renders epic band labels').toBeTruthy();
-        const epicPt = at(epicLabel.x + 3, epicLabel.y + 3);
-        await page.mouse.click(epicPt.x, epicPt.y);
-        await expect(page).toHaveURL(new RegExp(`/swarm/features\\?epic=${epicLabel.epicId}$`),
+        // Epic band label → the features view filtered to that epic. Since
+        // req #3204 the chip's NAME focuses the band (PIPE-14) and this
+        // navigation — the req #3119 production directive — lives on the chip's
+        // own ↗ control. It moved; it did not disappear, and it is a visible
+        // control rather than a modifier-key secret.
+        //
+        // Located by testid rather than by canvas coordinates: the ↗ is an HTML
+        // node, so there is no world-to-screen conversion to get wrong.
+        await openPlanVisualizer(page, fixture.batchPipelineId);
+        const epicBand = layout.bands.find(
+            (b: { epicId: number | null }) => b.epicId != null) as { epicId: number };
+        expect(epicBand, 'the plan renders epic bands').toBeTruthy();
+        const openEpic = page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`);
+        await expect(openEpic).toBeVisible({ timeout: 15000 });
+        await openEpic.click();
+        await expect(page).toHaveURL(new RegExp(`/swarm/features\\?epic=${epicBand.epicId}$`),
             { timeout: 15000 });
     });
+
+    // ── PIPE-14: epic focus (req #3204) ────────────────────────────────────
+
+    test('PIPE-14: clicking an epic name fits that epic, and enters no mode',
+        async ({ page }) => {
+            // The MAIN plan: four epic bands, one of them spanning non-contiguous
+            // columns, so the fit rectangle is a real one rather than the whole
+            // world by coincidence.
+            //
+            // In the PRODUCTION DEFAULT view (vertical + title), not the
+            // horizontal/id pair the rest of this file pins. Title mode is where
+            // step labels are longest and where they overflow their own columns
+            // furthest, so it is the mode that actually tests "with margin on
+            // all four sides". The first cut of this feature passed every other
+            // mode and clipped in this one.
+            const viz = VIZ_PRODUCTION_DEFAULT;
+            const layout = computePlanLayout(plan.rows, plan.batches, viz);
+            const canvas = await openPlanVisualizer(page, fixture.mainPipelineId, viz);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const read = async () =>
+                (await container.getAttribute('data-transform'))!.split(',').map(Number);
+            // The focus is a 420ms ANIMATION, so "has it arrived" is not a
+            // single read. Polling on the target value alone is not enough
+            // either: any finite tolerance can be satisfied a frame or two
+            // early, and the next gesture then interrupts the transition at a
+            // slightly later interpolation point — which reads as a drag that
+            // changed the scale. Wait for the transform to stop moving.
+            const settle = async () => {
+                let prev = '';
+                await expect.poll(async () => {
+                    const cur = (await container.getAttribute('data-transform'))!;
+                    const unchanged = cur === prev;
+                    prev = cur;
+                    return unchanged;
+                }, { timeout: 10000, intervals: [100] }).toBe(true);
+            };
+
+            // The component's own viewport, as the ResizeObserver rounds it.
+            const box = (await canvas.boundingBox())!;
+            const size = { w: Math.round(box.width), h: Math.round(box.height) };
+            const kBase = size.w / layout.width;
+
+            const [, , k0] = await read();
+            expect(k0, 'the plan opens fit-to-width').toBeCloseTo(kBase, 2);
+
+            // The band whose chip is on screen at the opening transform. The
+            // floating chip hides itself when its band is off-screen, so this
+            // picks a target rather than assuming band 0 is visible.
+            let band: any = null;
+            for (const b of layout.bands) {
+                if (b.epicId == null) continue;
+                if (await page.getByTestId(`pipeline-viz-epic-${b.key}`).count()) { band = b; break; }
+            }
+            expect(band, 'at least one epic chip is on screen at fit-to-width').toBeTruthy();
+
+            const want = epicFocusTransform(layout, band, size, kBase)!;
+            expect(want, 'the band has a fit transform').toBeTruthy();
+
+            // Click the NAME, not the ↗ beside it.
+            await page.getByTestId(`pipeline-viz-epic-${band.key}`)
+                .locator('.pipeline-viz-epic-name').click();
+
+            await settle();
+            const [fx, fy, fk] = await read();
+            expect(fx, 'x').toBeCloseTo(want.x, -1);   // within 5px
+            expect(fy, 'y').toBeCloseTo(want.y, -1);
+            expect(fk, 'k').toBeCloseTo(want.k, 3);
+
+            // The ceiling holds — "as close as possible" never means absurd.
+            expect(fk).toBeLessThanOrEqual(kBase * FOCUS_MAX_RATIO + 1e-6);
+
+            // Margin on ALL FOUR sides, measured from the transform the page
+            // actually published against every mark the band DRAWS — beads and
+            // labels, not the columns they nominally sit in. Since req #3119 a
+            // step label is centred on its column and sized to a budget that
+            // reaches 40% into each neighbour, so an outermost label draws
+            // outside the column extent and a column-based assertion here would
+            // pass while the user watches a title get cut off.
+            const ids = new Set<number>(band.stepIds);
+            let wl = Infinity;
+            let wr = -Infinity;
+            for (const id of ids) {
+                const n = layout.nodes.get(id)!;
+                wl = Math.min(wl, n.x - 10);      // BEAD_RADIUS
+                wr = Math.max(wr, n.x + 10);
+            }
+            for (const l of layout.labels as Array<
+                { stepId?: number; x: number; w?: number }>) {
+                if (l.stepId == null || !ids.has(l.stepId)) continue;
+                wl = Math.min(wl, l.x);
+                wr = Math.max(wr, l.x + (l.w || 0));
+            }
+            const screen = {
+                left: fx + wl * fk, right: fx + wr * fk,
+                top: fy + band.y * fk, bottom: fy + (band.y + band.height) * fk,
+            };
+            const slack = 2;   // the published transform is rounded to 2 decimals
+            expect(screen.left, 'left margin').toBeGreaterThanOrEqual(FOCUS_PAD - slack);
+            expect(screen.top, 'top margin').toBeGreaterThanOrEqual(FOCUS_PAD - slack);
+            expect(size.w - screen.right, 'right margin')
+                .toBeGreaterThanOrEqual(FOCUS_PAD - slack);
+            expect(size.h - screen.bottom, 'bottom margin')
+                .toBeGreaterThanOrEqual(FOCUS_PAD - slack);
+
+            // ── NOT A MODE ──────────────────────────────────────────────────
+            // A drag immediately afterwards continues from the focused view
+            // rather than snapping back to where d3-zoom last thought it was.
+            // This is the assertion that the transform went through the BEHAVIOR
+            // and not through React state alone: with a stale internal
+            // transform, this drag would jump to (k0-based) coordinates.
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2 - 90, box.y + box.height / 2 - 50,
+                { steps: 10 });
+            await page.mouse.up();
+            const [dx, dy, dk] = await read();
+            expect(dk, 'a drag after the focus must not change the scale')
+                .toBeCloseTo(fk, 3);
+            expect(dx - fx, 'the drag continues from the focused view, no snap-back')
+                .toBeCloseTo(-90, -1);
+            expect(dy - fy).toBeCloseTo(-50, -1);
+
+            // Clicking the SAME epic again re-fits to the SAME transform. A
+            // toggle would have un-zoomed here, and a stored "focused epic"
+            // would have branched. There is nothing to un-zoom.
+            await page.getByTestId(`pipeline-viz-epic-${band.key}`)
+                .locator('.pipeline-viz-epic-name').click();
+            await settle();
+            const [ax, ay, ak] = await read();
+            expect(ax, 'the second click lands on the same fit').toBeCloseTo(fx, -1);
+            expect(ay).toBeCloseTo(fy, -1);
+            expect(ak).toBeCloseTo(fk, 3);
+
+            // A wheel zoom likewise continues from the focused scale rather than
+            // from the fit-to-width one the page opened at.
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.wheel(0, -400);
+            await expect.poll(async () => (await read())[2], { timeout: 5000 })
+                .toBeGreaterThan(ak);
+
+            // A click that lands DURING the 420ms transition must not hit-test
+            // the moving world. Without the guard it resolves against a
+            // half-interpolated transform and can hit a bead — which switches the
+            // page to Table mode — or a requirement id, which navigates away.
+            // No `waitFor` between the two clicks: that is the point.
+            await openPlanVisualizer(page, fixture.mainPipelineId, viz);
+            const url = page.url();
+            await page.getByTestId(`pipeline-viz-epic-${band.key}`)
+                .locator('.pipeline-viz-epic-name').click();
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            await expect(page.getByTestId('pipeline-plan-visualizer')).toBeVisible();
+            await expect(page.getByTestId('pipeline-plan-table')).toHaveCount(0);
+            expect(page.url(), 'a mid-transition click navigates nowhere').toBe(url);
+        });
 
     // ── PIPE-12: the loud-failure path ─────────────────────────────────────
 
