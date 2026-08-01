@@ -13,7 +13,7 @@ import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS,
-    PLAN_VIZ_PALETTE, bandFitRect, epicFocusTransform,
+    PLAN_VIZ_PALETTE, STEP_DONE, bandFitRect, epicFocusTransform,
     FOCUS_PAD, FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
 } from '../pipelinePlanLayout';
 import { semanticLevel } from '../../konvaSwarmModel';
@@ -92,7 +92,7 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
         for (const r of plan.rows) expect(layout.nodes.get(r.id)).toBeTruthy();
     });
 
-    it('assigns dependency-depth columns: a dep always sits left of its dependent', () => {
+    it('every arc points forward: a dep always sits left of its dependent', () => {
         for (const r of plan.rows) {
             const n = layout.nodes.get(r.id);
             for (const d of r.depIds) {
@@ -121,13 +121,32 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
         }
     });
 
-    it('groups bands by dominant epic in first-appearance order over display order', () => {
-        const expected = [];
-        for (const r of plan.rows) {
-            const key = r.epicId != null ? r.epicId : null;
-            if (!expected.includes(key)) expected.push(key);
-        }
+    // With no time axis supplied every epic is undated, so req #3201's band
+    // rule falls through to its documented tie-break: epic id ascending, the
+    // label-less band last. (The fixture carries no timestamps at all — the
+    // timed axis is exercised in its own describe block below.)
+    it('stacks bands by epic id when no epic has a derived start', () => {
+        const expected = [...new Set(plan.rows.map((r) => (r.epicId != null ? r.epicId : null)))]
+            .sort((a, b) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a - b));
         expect(layout.bands.map((b) => b.epicId)).toEqual(expected);
+    });
+
+    // The degenerate axis IS the old axis. Without this, "one code path" is a
+    // claim in a comment rather than a property.
+    it('degenerates to pure dependency depth with no time axis', () => {
+        const byId = new Map(plan.rows.map((r) => [r.id, r]));
+        const memo = new Map();
+        const depth = (r) => {
+            if (memo.has(r.id)) return memo.get(r.id);
+            memo.set(r.id, 0);
+            const v = 1 + Math.max(-1, ...(r.depIds || [])
+                .filter((d) => byId.has(d)).map((d) => depth(byId.get(d))));
+            memo.set(r.id, v);
+            return v;
+        };
+        for (const r of plan.rows) {
+            expect(layout.nodes.get(r.id).depth).toBe(depth(r));
+        }
     });
 });
 
@@ -976,4 +995,325 @@ describe('epic focus geometry', () => {
         expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
         expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
     });
+});
+// ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
+// A purpose-built model rather than the Substrate fixture, because the shapes
+// under test are shapes that fixture does not contain: an epic that has never
+// started at all, an UNGATED step whose work began late (the live step-97
+// shape, which is the acceptance case a per-band origin cannot satisfy), a
+// dependency that crosses an epic boundary, and a dependency edge that runs
+// BACKWARD in time. Every requirement here carries `completed_at` and no
+// `started_at`, which is what the live table overwhelmingly looks like.
+const TIMED_MODEL = {
+    pipeline: { id: 500, title: 'Time axis' },
+    epics: [
+        { id: 1, title: 'Shipped' },
+        { id: 2, title: 'In flight' },
+        { id: 3, title: 'Backlog' },
+    ],
+    features: [
+        { id: 11, title: 'F-shipped', epic_fk: 1 },
+        { id: 12, title: 'F-flight', epic_fk: 2 },
+        { id: 13, title: 'F-backlog', epic_fk: 3 },
+    ],
+    machines: [],
+    steps: [
+        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
+        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
+        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
+        // The step-97 shape: no dep edges at all, work begun on the LATEST day.
+        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
+        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
+        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
+        // Backward in time: its own work completed on day 1, but it is gated on
+        // step 3, whose work began on day 3.
+        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
+    ],
+    stepDeps: [
+        { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses epic 1 -> 2
+        { id: 3, step_fk: 6, dep_step_fk: 5, time_at: null },
+        { id: 4, step_fk: 7, dep_step_fk: 3, time_at: null },   // backward in time
+    ],
+    stepRequirements: [
+        { step_fk: 1, requirement_fk: 101 },
+        { step_fk: 2, requirement_fk: 102 },
+        { step_fk: 3, requirement_fk: 103 },
+        { step_fk: 4, requirement_fk: 104 },
+        { step_fk: 5, requirement_fk: 105 },
+        { step_fk: 6, requirement_fk: 106 },
+        { step_fk: 7, requirement_fk: 107 },
+    ],
+    requirements: [
+        // `met` with NO started_at — 820 of 960 live `met` rows look like this.
+        {
+            id: 101, title: 'r101', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T09:00:00',
+        },
+        {
+            id: 102, title: 'r102', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-26T09:00:00',
+        },
+        {
+            id: 103, title: 'r103', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-27T09:00:00', completed_at: null,
+        },
+        {
+            id: 104, title: 'r104', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-28T09:00:00', completed_at: null,
+        },
+        {
+            id: 105, title: 'r105', requirement_status: 'authoring', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 106, title: 'r106', requirement_status: 'approved', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 107, title: 'r107', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T10:00:00',
+        },
+    ],
+};
+
+const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
+    { now: '2026-07-28T12:00:00Z' });
+const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+    { timeAxis: timedPlan.timeAxis });
+const colOfStep = (layout, id) => layout.nodes.get(id).depth;
+
+describe('time axis — vertical band order (req #3201)', () => {
+    it('stacks bands by derived epic start, never-started last', () => {
+        expect(timedLayout.bands.map((b) => b.epic))
+            .toEqual(['Shipped', 'In flight', 'Backlog']);
+    });
+
+    it('derives an epic start from completed_at when started_at was never stamped', () => {
+        expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
+        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-27T09:00:00');
+        expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
+    });
+});
+
+describe('time axis — horizontal position (req #3201)', () => {
+    it('every arc still points forward — no step renders left of a dependency', () => {
+        for (const r of timedPlan.rows) {
+            for (const d of r.depIds) {
+                expect(colOfStep(timedLayout, d)).toBeLessThan(colOfStep(timedLayout, r.id));
+                expect(timedLayout.nodes.get(d).x).toBeLessThan(timedLayout.nodes.get(r.id).x);
+            }
+        }
+    });
+
+    it('renders a NEVER-STARTED epic right of every started epic, with no dep edge', () => {
+        const started = timedPlan.rows
+            .filter((r) => r.epicId !== 3).map((r) => colOfStep(timedLayout, r.id));
+        const never = timedPlan.rows
+            .filter((r) => r.epicId === 3).map((r) => colOfStep(timedLayout, r.id));
+        expect(Math.min(...never)).toBeGreaterThan(Math.max(...started));
+        // …and it got there without borrowing anybody's dependency edge.
+        for (const r of timedPlan.rows.filter((x) => x.epicId === 3)) {
+            for (const d of r.depIds) expect(timedPlan.rows.find((x) => x.id === d).epicId).toBe(3);
+        }
+    });
+
+    it('puts an UNGATED late step right of the epic that finished before it', () => {
+        // The live step-97 case: step 4 has NO dependencies at all, and must
+        // still render right of everything whose work happened earlier. This is
+        // what removes the need for a synthetic dep edge.
+        const late = colOfStep(timedLayout, 4);
+        for (const id of [1, 2, 3]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
+        expect(timedPlan.rows.find((r) => r.id === 4).depIds).toEqual([]);
+    });
+
+    it('monotonizes a BACKWARD-IN-TIME edge rather than drawing the arc backwards', () => {
+        // Step 7's own work completed on day 1, but it is gated on step 3
+        // (day 3). Its column follows the gate, not the stamp.
+        expect(colOfStep(timedLayout, 7)).toBeGreaterThan(colOfStep(timedLayout, 3));
+        expect(timedLayout.slotOf.get(7)).toBe(timedLayout.slotOf.get(3));
+    });
+
+    it('orders the slots chronologically, with the future slot last', () => {
+        expect(timedLayout.slots.map((s) => s.day)).toEqual([
+            '2026-07-25', '2026-07-26', '2026-07-27', '2026-07-28', null,
+        ]);
+        expect(timedLayout.slots[timedLayout.slots.length - 1].kind).toBe('future');
+        for (let i = 1; i < timedLayout.slots.length; i++) {
+            expect(timedLayout.slots[i].origin)
+                .toBeGreaterThan(timedLayout.slots[i - 1].origin);
+        }
+    });
+
+    it('starts every slot strictly right of the last column any earlier slot reaches', () => {
+        // The property the whole design rests on, asserted from OUTPUT: it is
+        // what makes "unstarted renders right of started" true in general, not
+        // just for this fixture's epics.
+        const maxColInSlot = timedLayout.slots.map(() => -1);
+        for (const r of timedPlan.rows) {
+            const k = timedLayout.slotOf.get(r.id);
+            const c = colOfStep(timedLayout, r.id);
+            if (c > maxColInSlot[k]) maxColInSlot[k] = c;
+        }
+        for (let k = 1; k < timedLayout.slots.length; k++) {
+            expect(timedLayout.slots[k].origin).toBeGreaterThan(maxColInSlot[k - 1]);
+        }
+    });
+});
+
+// ── Review regressions (req #3201) ─────────────────────────────────────────
+// Three shapes the first cut of the axis got wrong. Each one is asserted from
+// LAYOUT OUTPUT, not from the classifier, because the classifier being right is
+// only half the claim — the column is what the user sees.
+describe('time axis — review regressions', () => {
+    const build = (rows, reqs) => {
+        const model = {
+            pipeline: { id: 900, title: 'r' },
+            epics: [{ id: 1, title: 'E' }, { id: 2, title: 'F' }],
+            features: [{ id: 21, title: 'fe', epic_fk: 1 }, { id: 22, title: 'ff', epic_fk: 2 }],
+            machines: [],
+            steps: rows.map((r) => ({
+                id: r.id, pipeline_fk: 900, title: `s${r.id}`, run: 'auto',
+                completed_at: r.completedAt || null,
+            })),
+            stepDeps: rows.flatMap((r) => (r.depIds || []).map((d, i) => ({
+                id: r.id * 100 + i, step_fk: r.id, dep_step_fk: d, time_at: null,
+            }))),
+            stepRequirements: rows.flatMap((r) => (r.reqIds || [])
+                .map((q) => ({ step_fk: r.id, requirement_fk: q }))),
+            requirements: reqs,
+        };
+        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T00:00:00Z' });
+        return {
+            plan: p,
+            layout: computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis }),
+        };
+    };
+    const r = (o) => ({
+        id: 1, title: 't', requirement_status: 'met', feature_fk: 21, machine_fk: null,
+        coordination_type: 'implemented', tracking: 0, started_at: null,
+        completed_at: null, ...o,
+    });
+
+    // Critical: `deferred` is TERMINAL, so the engine derives `done` from it.
+    // Calling it not-yet-started put a done step in the future zone AND, since
+    // the monotone max propagates FUTURE, dragged its whole subtree there —
+    // step 2 finished 07-01 rendered right of step 3 which finished 07-02.
+    it('keeps a DONE step derived from a deferred requirement out of the future zone', () => {
+        const { plan, layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },
+                { id: 2, depIds: [1], reqIds: [2] },
+                { id: 3, depIds: [], reqIds: [3] },
+            ],
+            [
+                r({ id: 1, requirement_status: 'deferred' }),
+                r({ id: 2, completed_at: '2026-07-01T00:00:00' }),
+                r({ id: 3, completed_at: '2026-07-02T00:00:00' }),
+            ],
+        );
+        for (const row of plan.rows) expect(row.state).toBe(STEP_DONE);
+        expect(layout.slots.some((s) => s.kind === 'future')).toBe(false);
+        // Step 2 finished BEFORE step 3, so it may not render to its right.
+        expect(layout.nodes.get(2).depth).toBeLessThan(layout.nodes.get(3).depth);
+    });
+
+    // Warning: UNKNOWN means "no claim", so it must not be handed the leftmost
+    // column — that is the claim "earliest of all". The un-run manual gate here
+    // used to render LEFT of finished work.
+    it('does not push an UNKNOWN step left of dated work', () => {
+        const { layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },
+                { id: 2, depIds: [], reqIds: [] },   // req-less, not complete
+            ],
+            [r({ id: 1, completed_at: '2026-07-01T00:00:00' })],
+        );
+        expect(layout.nodes.get(2).depth).not.toBeLessThan(layout.nodes.get(1).depth);
+        expect(layout.slots.some((s) => s.kind === 'unknown')).toBe(false);
+    });
+
+    // Warning: a NULL start meant both "not begun" and "begun but unstamped",
+    // so a pure BACKLOG epic could stack above an ACTIVE one on an id tie-break.
+    it('stacks an unstamped ACTIVE epic above a never-started backlog epic', () => {
+        const { layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },   // epic 2 — in flight, unstamped
+                { id: 2, depIds: [], reqIds: [2] },   // epic 1 — untouched backlog
+            ],
+            [
+                r({ id: 1, requirement_status: 'development', feature_fk: 22 }),
+                r({ id: 2, requirement_status: 'authoring', feature_fk: 21 }),
+            ],
+        );
+        expect(layout.bands.map((b) => b.epic)).toEqual(['F', 'E']);
+    });
+});
+
+// The zero-overlap contract is metric-derived, and req #3201 changed the thing
+// the metrics are indexed by (columns are time positions now, so a plan has
+// MORE of them and they are sparser). Re-running the four-combination invariant
+// under a real-scale timed axis is what keeps that contract from rotting
+// silently — the Substrate fixture's 34 steps, with timestamps synthesized from
+// each requirement's status so the plan spreads over several day slots and
+// acquires backward-in-time edges of its own.
+const TIMED_SUBSTRATE = {
+    ...SUBSTRATE_REBUILD_MODEL,
+    requirements: SUBSTRATE_REBUILD_MODEL.requirements.map((r) => {
+        const day = `2026-07-${String(21 + (r.id % 6)).padStart(2, '0')}`;
+        if (r.requirement_status === 'met' || r.requirement_status === 'wontfix') {
+            return { ...r, started_at: null, completed_at: `${day}T08:00:00` };
+        }
+        if (r.requirement_status === 'development') {
+            return { ...r, started_at: `${day}T08:00:00`, completed_at: null };
+        }
+        return { ...r, started_at: null, completed_at: null };
+    }),
+};
+const timedSubstratePlan = orderedPlan(buildPipelineModel(TIMED_SUBSTRATE), { now: NOW });
+
+describe('time axis — the zero-overlap contract still holds at plan scale', () => {
+    for (const combo of COMBOS) {
+        const name = `${combo.reqLayout}/${combo.stepLabel}`;
+        const layout = computePlanLayout(timedSubstratePlan.rows, timedSubstratePlan.batches,
+            { ...combo, timeAxis: timedSubstratePlan.timeAxis });
+
+        it(`no two labels intersect (${name})`, () => {
+            assertNoLabelOverlap(layout, name);
+        });
+
+        it(`no label intersects any bead (${name})`, () => {
+            for (const label of layout.labels) {
+                for (const n of layout.nodes.values()) {
+                    if (rectsOverlap(label, beadRect(n))) {
+                        throw new Error(`label ${JSON.stringify(label)} overlaps bead ${n.id}`);
+                    }
+                }
+            }
+        });
+
+        it(`every arc points forward (${name})`, () => {
+            for (const r of timedSubstratePlan.rows) {
+                for (const d of r.depIds) {
+                    expect(layout.nodes.get(d).depth).toBeLessThan(layout.nodes.get(r.id).depth);
+                }
+            }
+        });
+
+        it(`never stacks two beads on one (band, column, lane) cell (${name})`, () => {
+            const seen = new Set();
+            for (const n of layout.nodes.values()) {
+                const cell = `${n.bandIndex}|${n.depth}|${n.lane}`;
+                expect(seen.has(cell)).toBe(false);
+                seen.add(cell);
+            }
+        });
+    }
 });

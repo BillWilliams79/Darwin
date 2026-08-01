@@ -8,10 +8,16 @@
 //
 // The layout language (POC, kept verbatim unless noted):
 //   - Epic bands stacked vertically, one per DOMINANT epic (design rule 10), in
-//     first-appearance order over the given rows (callers pass display order, so
-//     completed epics surface first exactly as the POC page read).
-//   - Dependency-depth columns left-to-right; a step's column is
-//     1 + max(dep columns).
+//     DERIVED-START order since req #3201: earliest-starting epic on top,
+//     never-started epics last, epic id ascending as the tie-break. (Was
+//     first-appearance over display order, which had two problems: it made a
+//     band's position move whenever a step was appended, and it said nothing at
+//     all about time.)
+//   - TIME-SLOT columns left-to-right (req #3201). A column is a position on a
+//     calendar proxy, no longer raw dependency depth — see the block comment
+//     above `computeTimeColumns` for the whole model. Dependency depth survives
+//     as the HARD FLOOR: a step's column is never less than 1 + the maximum of
+//     its dependencies', so every arc still points forward.
 //   - Chain-aware swim lanes inside each band: a step takes its first same-epic
 //     dependency's lane when free, and that lane is RESERVED across the columns
 //     the chain spans, so no unrelated bead sits on an arc's path.
@@ -124,6 +130,168 @@ export const PLAN_VIZ_FONT = {
 
 export const BEAD_RADIUS = BEAD_R;
 
+// ── The time axis (req #3201) ───────────────────────────────────────────────
+// Sentinel slot prefixes. Sorting the composed keys lexicographically IS the
+// chronological order: '0' < '1' < '2', and ISO days sort as strings.
+const SLOT_UNKNOWN = '0:unknown';
+const SLOT_FUTURE = '2:future';
+const slotOfDay = (at) => `1:${String(at).slice(0, 10)}`;
+
+// Comparable rank for a step's derived start. UNKNOWN sorts BEFORE every date
+// and FUTURE AFTER every date, which is what makes the monotone max below mean
+// "the latest thing this step is downstream of".
+const TIME_RANK = { unknown: 0, dated: 1, future: 2 };
+const rankOf = (t) => TIME_RANK[t && t.kind] || 0;
+function timeCmp(a, b) {
+    const ra = rankOf(a);
+    const rb = rankOf(b);
+    if (ra !== rb) return ra - rb;
+    const xa = (a && a.at) || '';
+    const xb = (b && b.at) || '';
+    return xa === xb ? 0 : (xa < xb ? -1 : 1);
+}
+
+/**
+ * Turn derived START TIMES into COLUMNS, with dependency depth as a hard floor.
+ *
+ * The axis is a sequence of TIME SLOTS: one leading slot for steps whose start
+ * is UNKNOWN, one per distinct calendar DAY that carries work, and one trailing
+ * slot for steps that have positively not begun. Day granularity is a choice: a
+ * slot per distinct timestamp degenerates the drawing into a one-step-per-column
+ * diagonal and hides every bit of parallelism, while a slot per day puts the
+ * work of one day side by side, which is how the plan is actually read.
+ *
+ * Four steps, and the order matters:
+ *
+ * 1. **Monotonize.** A step's effective time is `max(its own, every
+ *    dependency's)`. A step cannot begin before its gate; where the stored
+ *    timestamps disagree — and they DO, twice, in live pipeline 2 — the gate
+ *    wins. This is the same "topology outranks presentation" ruling design rule
+ *    3 makes, applied to the DATA so that step 4 below needs no special case.
+ *    It also resolves UNKNOWN for free: a req-less step inherits the time of the
+ *    work it gates, exactly as it already inherits that work's epic label.
+ * 2. **Local depth.** Inside one slot, a step's offset is its dependency depth
+ *    counting only same-slot dependencies. A chain done in one day reads as
+ *    consecutive columns.
+ * 3. **Origins.** `origin[k] = Σ (span[i] + 1)` over earlier slots, where
+ *    `span[i]` is slot i's deepest local chain. Every slot therefore starts at
+ *    least one column past the last column any earlier slot can reach.
+ * 4. **Columns.** `col(r) = max(origin[slot] + localDepth, 1 + max col(deps))`.
+ *
+ * TWO PROPERTIES FALL OUT, and both are asserted in the tests:
+ *
+ * - **Every arc points forward**, unconditionally, from the second term. No
+ *   step can render left of something it depends on because a date said so —
+ *   the constraint this requirement was told not to break.
+ * - **Slot k renders strictly right of slot j < k.** Proof: by induction, a
+ *   same-slot dep contributes `1 + col(d) ≤ origin[k] + localDepth(r)`, and an
+ *   earlier-slot dep contributes `1 + col(d) ≤ origin[j] + span[j] + 1 ≤
+ *   origin[k]`. Step 1 is what guarantees there is no LATER-slot dep to break
+ *   the induction. So a never-started epic renders right of every started one
+ *   with no synthetic dependency edge anywhere.
+ *
+ * DEGENERATE CASE, and it is the reason there is no second code path: with no
+ * time axis supplied every step is UNKNOWN, so there is ONE slot, local depth is
+ * global dependency depth and `col` is exactly the pre-#3201 depth column.
+ *
+ * @param {Object[]} rows                 PlanRows
+ * @param {Map<number, Object>} byId
+ * @param {(r: Object) => number[]} depsOf  in-set dependency ids
+ * @param {?Object} timeAxis              planTimeAxis() output, or null
+ * @returns {{colOf: Map<number, number>, maxCol: number,
+ *            slotKeys: string[], slotOf: Map<number, number>,
+ *            origins: number[], spans: number[]}}
+ */
+export function computeTimeColumns(rows, byId, depsOf, timeAxis) {
+    const starts = (timeAxis && timeAxis.stepStarts) || new Map();
+    const own = (r) => starts.get(r.id) || { at: null, kind: 'unknown' };
+
+    // 1. Monotonize along the dep graph.
+    const effMemo = new Map();
+    const eff = (r) => {
+        if (effMemo.has(r.id)) return effMemo.get(r.id);
+        effMemo.set(r.id, own(r)); // cycle guard — a cycle keeps its own time
+        let best = own(r);
+        for (const d of depsOf(r)) {
+            const up = eff(byId.get(d));
+            if (timeCmp(up, best) > 0) best = up;
+        }
+        effMemo.set(r.id, best);
+        return best;
+    };
+    const slotKeyOf = (r) => {
+        const t = eff(r);
+        if (t.kind === 'dated' && t.at) return slotOfDay(t.at);
+        return t.kind === 'future' ? SLOT_FUTURE : SLOT_UNKNOWN;
+    };
+    // UNKNOWN GETS NO SLOT OF ITS OWN when any dated slot exists (review
+    // finding). A dedicated leading slot put every UNKNOWN step one column
+    // LEFT of all dated work — "earlier than everything", which is precisely
+    // the claim UNKNOWN means we cannot make, and the opposite of this
+    // module's own rule that topology alone should place it. Sharing the
+    // EARLIEST dated slot gives it the weakest lower bound there is (that
+    // slot's origin is 0), so its column comes from its dependencies and
+    // nothing else. It keeps a slot of its own only when there is no dated
+    // slot to share — otherwise it would fall into FUTURE, which is a claim
+    // in the other direction.
+    const rawKeys = new Set(rows.map(slotKeyOf));
+    const hasUnknown = rawKeys.delete(SLOT_UNKNOWN);
+    const slotKeys = [...rawKeys].sort();
+    if (hasUnknown && (slotKeys.length === 0 || slotKeys[0] === SLOT_FUTURE)) {
+        slotKeys.unshift(SLOT_UNKNOWN);
+    }
+    const slotIndex = new Map(slotKeys.map((k, i) => [k, i]));
+    const slotFor = (r) => {
+        const k = slotKeyOf(r);
+        const i = slotIndex.get(k);
+        return i === undefined ? 0 : i;   // UNKNOWN folded into the first slot
+    };
+    const slotOf = new Map(rows.map((r) => [r.id, slotFor(r)]));
+
+    // 2. Local depth, counting only same-slot dependencies.
+    const ldMemo = new Map();
+    const slotIdx = (id) => {
+        const i = slotOf.get(id);
+        return i === undefined ? 0 : i;   // a caller's byId may exceed rows
+    };
+    const ld = (r) => {
+        if (ldMemo.has(r.id)) return ldMemo.get(r.id);
+        ldMemo.set(r.id, 0); // cycle guard
+        const v = 1 + Math.max(-1, ...depsOf(r)
+            .filter((d) => slotIdx(d) === slotIdx(r.id))
+            .map((d) => ld(byId.get(d))));
+        ldMemo.set(r.id, v);
+        return v;
+    };
+    rows.forEach(ld);
+
+    // 3. Slot spans and cumulative origins.
+    const spans = slotKeys.map(() => 0);
+    for (const r of rows) {
+        const k = slotIdx(r.id);
+        if (ldMemo.get(r.id) > spans[k]) spans[k] = ldMemo.get(r.id);
+    }
+    const origins = [];
+    {
+        let acc = 0;
+        for (let k = 0; k < slotKeys.length; k++) { origins.push(acc); acc += spans[k] + 1; }
+    }
+
+    // 4. Columns — the time position, floored by topology.
+    const colOf = new Map();
+    const col = (r) => {
+        if (colOf.has(r.id)) return colOf.get(r.id);
+        colOf.set(r.id, 0); // cycle guard — a cycle collapses toward column 0
+        const v = Math.max(origins[slotIdx(r.id)] + ldMemo.get(r.id),
+            ...depsOf(r).map((d) => 1 + col(byId.get(d))));
+        colOf.set(r.id, v);
+        return v;
+    };
+    rows.forEach(col);
+    const maxCol = Math.max(0, ...rows.map((r) => colOf.get(r.id)));
+    return { colOf, maxCol, slotKeys, slotOf, origins, spans };
+}
+
 const truncate = (s, n) => {
     const str = String(s == null ? '' : s);
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
@@ -142,39 +310,36 @@ const reqStr = (row) => (row.reqIds || []).join(' ');
 /**
  * Compute the full Plan-mode layout.
  *
- * @param {Object[]} rows      engine PlanRows, DISPLAY order (band order follows
- *                             first appearance, so pass displayOrder output)
+ * @param {Object[]} rows      engine PlanRows, DISPLAY order (steps sort within
+ *                             a band by column, so pass displayOrder output)
  * @param {Object[]} batches   engine LaunchBatch[] (launchBatches output)
  * @param {Object} [opts]
  * @param {('horizontal'|'vertical')} [opts.reqLayout]
  * @param {('id'|'title')} [opts.stepLabel]
+ * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
+ *                             the axis degenerates to pure dependency depth and
+ *                             bands stack by epic id — see computeTimeColumns.
  * @returns {Object} layout — see the shape assembled at the bottom
  */
-export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', stepLabel = 'id' } = {}) {
+export function computePlanLayout(rows, batches, {
+    reqLayout = 'horizontal', stepLabel = 'id', timeAxis = null,
+} = {}) {
     const safeRows = Array.isArray(rows) ? rows : [];
     const safeBatches = Array.isArray(batches) ? batches : [];
     if (safeRows.length === 0) {
         return {
             width: MIN_WORLD_W, height: 120, bands: [], nodes: new Map(),
             arcs: [], batchBoxes: [], labels: [], colW: [], colX: [],
-            reqLayout, stepLabel, empty: true,
+            slots: [], slotOf: new Map(), reqLayout, stepLabel, empty: true,
         };
     }
 
     const byId = new Map(safeRows.map((r) => [r.id, r]));
     const depsOf = (r) => (r.depIds || []).filter((d) => byId.has(d));
 
-    // ── Dependency-depth columns ────────────────────────────────────────────
-    const depthMemo = new Map();
-    const depth = (r) => {
-        if (depthMemo.has(r.id)) return depthMemo.get(r.id);
-        depthMemo.set(r.id, 0); // cycle guard — a cycle collapses to column 0
-        const v = 1 + Math.max(-1, ...depsOf(r).map((d) => depth(byId.get(d))));
-        depthMemo.set(r.id, v);
-        return v;
-    };
-    safeRows.forEach(depth);
-    const maxD = Math.max(...safeRows.map((r) => depthMemo.get(r.id)));
+    // ── Time-slot columns, floored by dependency depth (req #3201) ──────────
+    const { colOf, maxCol, slotKeys, slotOf, origins: slotOrigins } =
+        computeTimeColumns(safeRows, byId, depsOf, timeAxis);
 
     // ── Column widths (the zero-overlap contract, half 1) ───────────────────
     // A column is as wide as the widest thing DRAWN in it: the one-line req-id
@@ -182,7 +347,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     // label — id or truncated title — in either mode.
     const colSteps = [];
     for (const r of safeRows) {
-        const d = depthMemo.get(r.id);
+        const d = colOf.get(r.id);
         (colSteps[d] ||= []).push(r);
     }
     // Title-mode step labels are STAGGERED, so a column no longer has to be as
@@ -193,7 +358,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     // actually has, below.
     const staggerLabels = stepLabel === 'title';
     const colW = [];
-    for (let d = 0; d <= maxD; d++) {
+    for (let d = 0; d <= maxCol; d++) {
         const steps = colSteps[d] || [];
         const labelW = staggerLabels ? TITLE_COL_MIN
             : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW_LABEL + 16));
@@ -214,35 +379,79 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     // gutter instead of letting a wide colW[1] push it off the world.
     const staggerBudget = (d) => {
         const left = d > 0 ? colW[d - 1] : LEFT;
-        const right = d < maxD ? colW[d + 1] : RIGHT + 40;
+        const right = d < maxCol ? colW[d + 1] : RIGHT + 40;
         return colW[d] + 2 * STAGGER_REACH * Math.min(left, right);
     };
     const staggerOf = (d) => (d % 2) * STAGGER_GAP;
     const colX = [];
     {
         let acc = LEFT;
-        for (let d = 0; d <= maxD; d++) {
+        for (let d = 0; d <= maxCol; d++) {
             colX.push(acc + colW[d] / 2);
             acc += colW[d];
         }
     }
-    const totalW = Math.max(MIN_WORLD_W, colX[maxD] + colW[maxD] / 2 + RIGHT + 40);
+    const totalW = Math.max(MIN_WORLD_W, colX[maxCol] + colW[maxCol] / 2 + RIGHT + 40);
 
-    // ── Epic bands (dominant label, first-appearance order) ─────────────────
+    // ── Epic bands (dominant label), stacked by DERIVED START (req #3201) ───
+    // The vertical axis reads as time too: the epic whose work began first sits
+    // on top. An epic's start is the minimum over its requirements — there is no
+    // `epics.started_at` and design rule 1 says there never will be — and
+    // `pipelinePlanTime.js` owns the derivation, including the ruling that a
+    // requirement which completed without ever being stamped `started_at`
+    // counts as started.
+    //
+    // THREE TIERS, then tie-breaks, stated rather than left to sort stability:
+    //   1. `dated`   — sort ascending on the derived start;
+    //   2. `unknown` — no start, but evidence of work whose timing was never
+    //                  recorded. A NULL start alone used to mean both this and
+    //                  tier 3, which let a pure BACKLOG epic stack above an
+    //                  ACTIVE one on an id tie-break (review finding);
+    //   3. `future`  — every step positively has not begun. Sorts LAST.
+    // Within a tier: EPIC ID ascending, the label-less "No epic" band last of
+    // all. Id rather than first appearance on purpose — first appearance moved
+    // a band down the stack whenever a step was appended to another epic, a
+    // documented wart of the old rule, and it carried no time meaning.
+    const bandStarts = (timeAxis && timeAxis.bandStarts) || new Map();
+    const bandKinds = (timeAxis && timeAxis.bandKinds) || new Map();
+    const BAND_TIER = { dated: 0, unknown: 1, future: 2 };
+    const bandTierOf = (key) => {
+        const t = BAND_TIER[bandKinds.get(key)];
+        return t === undefined ? BAND_TIER.future : t;
+    };
     const bandKeys = [];
     const bandByKey = new Map();
     for (const r of safeRows) {
         const key = r.epicId != null ? r.epicId : null;
         if (!bandByKey.has(key)) {
-            bandByKey.set(key, {
-                key, epicId: key, epic: r.epic || 'No epic',
-                color: EPIC_PALETTE[bandKeys.length % EPIC_PALETTE.length],
-                steps: [],
-            });
+            bandByKey.set(key, { key, epicId: key, epic: r.epic || 'No epic', steps: [] });
             bandKeys.push(key);
         }
         bandByKey.get(key).steps.push(r);
     }
+    const bandStartOf = (key) => {
+        const v = bandStarts.get(key);
+        return v == null ? null : String(v);
+    };
+    bandKeys.sort((a, b) => {
+        const ta = bandTierOf(a);
+        const tb = bandTierOf(b);
+        if (ta !== tb) return ta - tb;
+        const sa = bandStartOf(a);
+        const sb = bandStartOf(b);
+        if ((sa === null) !== (sb === null)) return sa === null ? 1 : -1;
+        if (sa !== null && sa !== sb) return sa < sb ? -1 : 1;
+        if (a === b) return 0;
+        if (a === null) return 1;
+        if (b === null) return -1;
+        return a < b ? -1 : 1;
+    });
+    // Colour AFTER the sort: the palette cycles on the band's position in the
+    // stack, so assigning at discovery time would hand two adjacent bands the
+    // same hue once the order stopped being discovery order.
+    bandKeys.forEach((key, i) => {
+        bandByKey.get(key).color = EPIC_PALETTE[i % EPIC_PALETTE.length];
+    });
 
     // Batch letters, for adjacency inside a band (a box must never enclose a
     // non-member — POC sorted batch-mates together within the band).
@@ -285,7 +494,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     for (const key of bandKeys) {
         const band = bandByKey.get(key);
         const steps = [...band.steps].sort((a, b) =>
-            (depthMemo.get(a.id) - depthMemo.get(b.id)) ||
+            (colOf.get(a.id) - colOf.get(b.id)) ||
             ((batchOf.has(a.id) ? 0 : 1) - (batchOf.has(b.id) ? 0 : 1)) ||
             String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
@@ -305,7 +514,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             (used.has(d) ? used.get(d).get(lane) : undefined);
         const free = (d, lane) => occupant(d, lane) === undefined;
         const corridorOk = (a, r, lane) => {
-            for (let dd = depthMemo.get(a.id) + 1; dd < depthMemo.get(r.id); dd++) {
+            for (let dd = colOf.get(a.id) + 1; dd < colOf.get(r.id); dd++) {
                 const o = occupant(dd, lane);
                 if (o === undefined) continue;
                 if (o === RESERVED) return false;
@@ -356,7 +565,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
                 if (ds >= d || rDeps.has(sid)) continue;
                 for (const tid of dependentsInBand.get(sid) || []) {
                     if (tid === r.id) continue;
-                    if (depthMemo.get(tid) <= d) continue;
+                    if (colOf.get(tid) <= d) continue;
                     if (reach(r.id).has(sid) && reach(tid).has(r.id)) continue;
                     return false;
                 }
@@ -375,7 +584,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
         const batchRunNext = new Map(); // letter -> next lane in this band's run
         for (const r of steps) {
-            const d = depthMemo.get(r.id);
+            const d = colOf.get(r.id);
             const letter = batchOf.get(r.id);
             let lane = null;
             if (letter !== undefined) {
@@ -439,7 +648,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
             // identity for later corridorOk checks.
             for (const a of sameEpicDepsOf(r)) {
                 if (laneById.get(a.id) === lane) {
-                    for (let dd = depthMemo.get(a.id) + 1; dd < d; dd++) {
+                    for (let dd = colOf.get(a.id) + 1; dd < d; dd++) {
                         take(dd, lane, RESERVED);
                     }
                 }
@@ -529,7 +738,7 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
     const nodes = new Map();
     bands.forEach((band, bandIndex) => {
         for (const r of band.steps) {
-            const d = depthMemo.get(r.id);
+            const d = colOf.get(r.id);
             nodes.set(r.id, {
                 id: r.id,
                 x: colX[d],
@@ -801,6 +1010,18 @@ export function computePlanLayout(rows, batches, { reqLayout = 'horizontal', ste
         labels,
         colW,
         colX,
+        // The time axis as GEOMETRY (req #3201): the ordered slots and the
+        // column each one starts at. Exported so the axis is assertable from
+        // this module's output — "slot k begins right of everything in slot
+        // k-1" is the property the whole design rests on, and a test that
+        // re-derives it from the input would be a second implementation.
+        slots: slotKeys.map((key, i) => ({
+            key,
+            kind: key === SLOT_UNKNOWN ? 'unknown' : key === SLOT_FUTURE ? 'future' : 'dated',
+            day: key === SLOT_UNKNOWN || key === SLOT_FUTURE ? null : key.slice(2),
+            origin: slotOrigins[i],
+        })),
+        slotOf,
         reqLayout,
         stepLabel,
         empty: false,

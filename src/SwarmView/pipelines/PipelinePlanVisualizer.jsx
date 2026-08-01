@@ -162,9 +162,15 @@ export default function PipelinePlanVisualizer({
         () => new Map((model?.requirements || [])
             .map((r) => [r.id, { title: r.title, status: r.requirement_status }])),
         [model]);
+    // `plan.timeAxis` (req #3201) is what makes the horizontal axis read as a
+    // calendar and stacks the bands by epic start. It comes from `orderedPlan`
+    // rather than being derived here for the same reason cost does: two
+    // surfaces over one plan must not each derive the same fact.
     const layout = useMemo(
-        () => computePlanLayout(rows, plan.batches || [], { reqLayout, stepLabel }),
-        [rows, plan.batches, reqLayout, stepLabel]);
+        () => computePlanLayout(rows, plan.batches || [], {
+            reqLayout, stepLabel, timeAxis: plan.timeAxis || null,
+        }),
+        [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel]);
 
     // ── Machine identity on the REQUIREMENT IDS (req #3119) ─────────────────
     // Machine rides the requirement ids, never the bead: the bead's fill already
