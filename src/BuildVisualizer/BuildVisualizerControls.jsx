@@ -12,6 +12,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
 import CheckIcon from '@mui/icons-material/Check';
+import SemanticLevelControl from '../Components/SemanticLevelControl';
 import BuildPatternMenu from './BuildPatternMenu';
 import MergeRulesDialog from './MergeRulesDialog';
 import { BRANCH_TYPES, branchTypeChipProps, branchTypeLabel } from './branchTypeChipStyles';
@@ -230,49 +231,19 @@ const BuildVisualizerControls = ({
                 {onChangePinnedLevel && (
                     <>
                         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-                        <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
-                               data-testid="bv-level-control">
-                            <Box component="span" sx={{ fontSize: '0.75rem', color: 'text.secondary', mr: 0.25 }}>
-                                Detail:
-                            </Box>
-                            <Chip
-                                label="Auto"
-                                size="small"
-                                onClick={() => onChangePinnedLevel(null)}
-                                {...(pinnedLevel == null
-                                    ? { sx: { bgcolor: 'primary.main', color: 'primary.contrastText', cursor: 'pointer' } }
-                                    : { variant: 'outlined', sx: { cursor: 'pointer' } })}
-                                aria-pressed={pinnedLevel == null ? 'true' : 'false'}
-                                data-testid="bv-level-auto"
-                            />
-                            {[1, 2, 3].map(lvl => {
-                                const pinned = pinnedLevel === lvl;
-                                // When on Auto, softly mark the level the zoom is currently at.
-                                const isAutoActive = pinnedLevel == null && effectiveLevel === lvl;
-                                return (
-                                    <Chip
-                                        key={lvl}
-                                        label={`L${lvl}`}
-                                        size="small"
-                                        onClick={() => onChangePinnedLevel(pinned ? null : lvl)}
-                                        {...(pinned
-                                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
-                                            : {
-                                                variant: 'outlined',
-                                                sx: {
-                                                    cursor: 'pointer',
-                                                    ...(isAutoActive && {
-                                                        borderColor: 'primary.main',
-                                                        color: 'primary.main',
-                                                        fontWeight: 600,
-                                                    }),
-                                                },
-                                            })}
-                                        aria-pressed={pinned ? 'true' : 'false'}
-                                        data-testid={`bv-level-${lvl}`}
-                                    />
-                                );
-                            })}
+                        {/* The Auto|L1|L2|L3 chips are the SHARED control since
+                            req #3168 — the Plan visualizer asked for "the
+                            selector used elsewhere", and a second copy is a
+                            second place to change it. `testIdPrefix="bv"` keeps
+                            every `bv-level-*` hook byte-for-byte, and the
+                            collapse chip below stays a child of the same group so
+                            the DOM is unchanged too. */}
+                        <SemanticLevelControl
+                            pinnedLevel={pinnedLevel}
+                            effectiveLevel={effectiveLevel}
+                            onChangePinnedLevel={onChangePinnedLevel}
+                            testIdPrefix="bv"
+                        >
                             {/* Collapse on/off (req #2892) — plays with the L2/L3
                                 collapse rules. Inert at L1 ("L1 is its own thing"),
                                 which always collapses regardless. */}
@@ -296,7 +267,7 @@ const BuildVisualizerControls = ({
                                     />
                                 );
                             })()}
-                        </Stack>
+                        </SemanticLevelControl>
                     </>
                 )}
 

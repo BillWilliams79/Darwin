@@ -11,12 +11,24 @@ import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
+import { semanticLevel } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS,
-    PLAN_VIZ_PALETTE, STEP_DONE, bandFitRect, epicFocusTransform,
-    FOCUS_PAD, FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
+    PLAN_VIZ_PALETTE, placeEpicChips,
+    STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
+    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, EPIC_CHIP_CHAR_W,
+    EPIC_CHIP_FONT, EPIC_CHIP_H,
+    REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
+    MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
+    MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
+    COLOR_KEY_LABELS, DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
+    reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_W,
+    LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
+    normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
+    DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
+    REQ_LINE_H,
+    FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
 } from '../pipelinePlanLayout';
-import { semanticLevel } from '../../konvaSwarmModel';
 
 const NOW = '2026-07-27T03:00:00Z';
 const plan = orderedPlan(SUBSTRATE_REBUILD_MODEL, { now: NOW });
@@ -92,7 +104,7 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
         for (const r of plan.rows) expect(layout.nodes.get(r.id)).toBeTruthy();
     });
 
-    it('every arc points forward: a dep always sits left of its dependent', () => {
+    it('assigns dependency-depth columns: a dep always sits left of its dependent', () => {
         for (const r of plan.rows) {
             const n = layout.nodes.get(r.id);
             for (const d of r.depIds) {
@@ -121,32 +133,13 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
         }
     });
 
-    // With no time axis supplied every epic is undated, so req #3201's band
-    // rule falls through to its documented tie-break: epic id ascending, the
-    // label-less band last. (The fixture carries no timestamps at all — the
-    // timed axis is exercised in its own describe block below.)
-    it('stacks bands by epic id when no epic has a derived start', () => {
-        const expected = [...new Set(plan.rows.map((r) => (r.epicId != null ? r.epicId : null)))]
-            .sort((a, b) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a - b));
-        expect(layout.bands.map((b) => b.epicId)).toEqual(expected);
-    });
-
-    // The degenerate axis IS the old axis. Without this, "one code path" is a
-    // claim in a comment rather than a property.
-    it('degenerates to pure dependency depth with no time axis', () => {
-        const byId = new Map(plan.rows.map((r) => [r.id, r]));
-        const memo = new Map();
-        const depth = (r) => {
-            if (memo.has(r.id)) return memo.get(r.id);
-            memo.set(r.id, 0);
-            const v = 1 + Math.max(-1, ...(r.depIds || [])
-                .filter((d) => byId.has(d)).map((d) => depth(byId.get(d))));
-            memo.set(r.id, v);
-            return v;
-        };
+    it('groups bands by dominant epic in first-appearance order over display order', () => {
+        const expected = [];
         for (const r of plan.rows) {
-            expect(layout.nodes.get(r.id).depth).toBe(depth(r));
+            const key = r.epicId != null ? r.epicId : null;
+            if (!expected.includes(key)) expected.push(key);
         }
+        expect(layout.bands.map((b) => b.epicId)).toEqual(expected);
     });
 });
 
@@ -739,6 +732,1227 @@ describe('empty plan', () => {
     });
 });
 
+// ── req #3168 ──────────────────────────────────────────────────────────────
+
+describe('step width option (req #3168)', () => {
+    const WIDTHS = Object.keys(STEP_WIDTH_FACTORS);
+
+    it('compact is the IDENTITY — an unchanged reader gets the unchanged plan', () => {
+        for (const opts of COMBOS) {
+            const before = computePlanLayout(plan.rows, plan.batches, opts);
+            const after = computePlanLayout(plan.rows, plan.batches,
+                { ...opts, stepWidth: 'compact' });
+            expect(after.colW).toEqual(before.colW);
+            expect(after.width).toBe(before.width);
+        }
+    });
+
+    it('every wider setting widens EVERY column, monotonically', () => {
+        const at = (w) => computePlanLayout(plan.rows, plan.batches, { stepWidth: w }).colW;
+        const compact = at('compact');
+        const medium = at('medium');
+        const wide = at('wide');
+        expect(medium).toHaveLength(compact.length);
+        for (let d = 0; d < compact.length; d++) {
+            expect(medium[d]).toBeGreaterThan(compact[d]);
+            expect(wide[d]).toBeGreaterThan(medium[d]);
+            // RATIO against compact's own factor, not against 1. `compact` has
+            // not been the identity since the 2026-08-01 retune ("shift widths
+            // S/M/L all by 10% higher except L by 20%") — comparing a
+            // compact-relative ratio to an absolute factor only ever passed
+            // because the anchor happened to be 1.
+            expect(medium[d] / compact[d]).toBeCloseTo(
+                STEP_WIDTH_FACTORS.medium / STEP_WIDTH_FACTORS.compact, 6);
+            expect(wide[d] / compact[d]).toBeCloseTo(
+                STEP_WIDTH_FACTORS.wide / STEP_WIDTH_FACTORS.compact, 6);
+        }
+    });
+
+    // The load-bearing claim: the width option must not be able to break the
+    // zero-overlap contract the module exists to prove. It is a UNIFORM scale on
+    // the column widths, and both the label character budget and the stagger
+    // reach are linear in those, so the proof is scale-invariant — but "should
+    // be" is not a test, and a future factor below 1 would break it silently.
+    for (const stepWidth of WIDTHS) {
+        for (const opts of COMBOS) {
+            const name = `${opts.reqLayout} × ${opts.stepLabel} × ${stepWidth}`;
+            it(`holds zero label overlap, no label-on-bead and column containment (${name})`,
+                () => {
+                    const layout = computePlanLayout(plan.rows, plan.batches,
+                        { ...opts, stepWidth });
+                    assertNoLabelOverlap(layout, name);
+                    const beads = [...layout.nodes.values()].map(beadRect);
+                    for (const label of layout.labels) {
+                        for (const bead of beads) {
+                            expect(rectsOverlap(label, bead)).toBe(false);
+                        }
+                    }
+                    for (const label of layout.labels) {
+                        if (label.stepId == null || label.kind !== 'req') continue;
+                        const n = layout.nodes.get(label.stepId);
+                        const left = layout.colX[n.depth] - layout.colW[n.depth] / 2;
+                        const right = layout.colX[n.depth] + layout.colW[n.depth] / 2;
+                        expect(label.x).toBeGreaterThanOrEqual(left - 0.01);
+                        expect(label.x + label.w).toBeLessThanOrEqual(right + 0.01);
+                    }
+                    assertStraightArcsClear(layout, plan.rows);
+                });
+        }
+    }
+
+    it('an unknown width falls back to compact rather than producing NaN geometry', () => {
+        const compact = computePlanLayout(plan.rows, plan.batches, { stepWidth: 'compact' });
+        // Including the INHERITED Object.prototype keys. The setting is read from
+        // localStorage, so these are reachable strings, and a plain truthiness
+        // lookup returns the inherited FUNCTION — every column width becomes NaN
+        // and the canvas renders blank with no error (review finding).
+        for (const bogus of ['enormous', 'toString', 'constructor', 'valueOf',
+            '', null, undefined, 0]) {
+            const layout = computePlanLayout(plan.rows, plan.batches, { stepWidth: bogus });
+            expect(layout.colW, `stepWidth=${String(bogus)}`).toEqual(compact.colW);
+            expect(Number.isFinite(layout.width)).toBe(true);
+        }
+        expect(isStepWidth('toString')).toBe(false);
+        expect(isStepWidth('wide')).toBe(true);
+    });
+});
+
+describe('readable default scale (req #3168)', () => {
+    it('K_READABLE keeps the smallest REQUIRED text at the legibility floor', () => {
+        expect(PLAN_VIZ_FONT.req * K_READABLE).toBeCloseTo(READABLE_MIN_PX, 6);
+        // The step label is the other thing a reader must resolve, and it is
+        // larger — so a scale chosen for the ids covers it.
+        expect(PLAN_VIZ_FONT.label).toBeGreaterThan(PLAN_VIZ_FONT.req);
+    });
+
+    it('the live-scale plan is the case that needed it: fit-to-width is illegible', () => {
+        // The fixture is 34 steps. Fit-to-width across a 1600px panel puts the
+        // requirement ids below the floor, which is the defect the requirement
+        // names — assert the premise rather than trusting the anecdote.
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title' });
+        const kFit = 1600 / layout.width;
+        expect(PLAN_VIZ_FONT.req * kFit).toBeLessThan(READABLE_MIN_PX);
+        expect(Math.max(kFit, K_READABLE)).toBe(K_READABLE);
+    });
+});
+
+describe('floating epic chips (req #3168)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const VIEWPORT = { w: 1500, h: 900 };
+    const chipsAt = (transform, keepOut = null) => placeEpicChips({
+        bands: layout.bands, transform, viewport: VIEWPORT,
+        worldWidth: layout.width, keepOut,
+    });
+
+    it('draws one chip per band at the default view', () => {
+        const chips = chipsAt({ x: 0, y: 0, k: K_READABLE });
+        expect(chips.length).toBeGreaterThan(0);
+        expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
+        for (const c of chips) {
+            expect(layout.bands.some((b) => b.epic === c.text)).toBe(true);
+        }
+    });
+
+    // The chip is a fixed SCREEN height clamped into a header reserved in WORLD
+    // units, so below some k the header is shorter than the chip and neighbouring
+    // bands' chips land on each other.
+    //
+    // MEASURED, not assumed: the Substrate fixture does NOT reach this. Its four
+    // bands are 160–604 world px tall and 294+ apart, and by the k at which that
+    // spacing falls under the chip's 24px the chips are already suppressed by the
+    // width test (a 3000px world is 150 screen px at k=0.05 and no chip fits).
+    // Zero collisions were found under the OLD rule over k ∈ [0.05, 2.5] × four
+    // pans, so a fixture-only assertion here would be vacuous.
+    //
+    // The reachable shape is MANY SHORT bands — a plan of one-lane steps, ~150
+    // world px per band — zoomed out. Under the old rule that collides 70 times
+    // over k ∈ [0.05, 0.5]; the fixture is asserted alongside it so the ordinary
+    // case is covered too.
+    // Shaped like a real band since req #3168 gave the epic its own lane:
+    // `epicLaneH` is the clear strip the chip is confined to, `headerH` the whole
+    // reservation. A synthetic band that omits `epicLaneH` exercises the fallback
+    // rather than the shipped geometry.
+    const SHORT_BANDS = Array.from({ length: 6 }, (_, i) => ({
+        key: i, epicId: i + 1, epic: `Epic number ${i + 1}`, color: '#8ce99a',
+        y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+    }));
+    const assertNoChipOverlap = (chips, where) => {
+        for (let i = 0; i < chips.length; i++) {
+            for (let j = i + 1; j < chips.length; j++) {
+                if (rectsOverlap(chips[i], chips[j])) {
+                    throw new Error(`epic chips overlap ${where}: `
+                        + `${chips[i].text} vs ${chips[j].text}`);
+                }
+            }
+        }
+    };
+
+    it('never overlaps another chip on the fixture, at any zoom or pan', () => {
+        for (const k of [0.12, 0.2, 0.28, 0.4, 0.55, 0.8, 1, 1.6, 2.4]) {
+            for (const y of [0, -200, -900, -2400, 300]) {
+                for (const x of [0, -300, -1200, 400]) {
+                    assertNoChipOverlap(chipsAt({ x, y, k }), `at k=${k} x=${x} y=${y}`);
+                }
+            }
+        }
+    });
+
+    it('never overlaps another chip on SHORT bands zoomed out — the reachable case', () => {
+        let drawn = 0;
+        for (let k = 0.05; k <= 0.5; k += 0.01) {
+            const chips = placeEpicChips({
+                bands: SHORT_BANDS, transform: { x: 0, y: 0, k },
+                viewport: VIEWPORT, worldWidth: 3000,
+            });
+            drawn += chips.length;
+            assertNoChipOverlap(chips, `on short bands at k=${k.toFixed(2)}`);
+        }
+        // The sweep has to actually DRAW chips, or it proves nothing: a
+        // displacement pass that hid everything would pass the loop above.
+        // 255 chips are drawn over the sweep; the floor is set well under that so
+        // it fails on a collapse rather than on a nudge.
+        expect(drawn).toBeGreaterThan(150);
+    });
+
+    // The chip is measured against ONE metric, and the component must not carry
+    // its own. It did — a 7.3px/char leftover from the pre-req-#3119 12px chip,
+    // against a chip that has rendered at 15px since — which under-measured every
+    // name by ~22% and quietly defeated both the keep-out and this file's sweeps,
+    // because the tests read the same wrong number (review finding).
+    it('measures the chip with the layout module\'s own epic metric', () => {
+        expect(EPIC_CHIP_CHAR_W).toBeCloseTo(9.15, 6);   // CHW_EPIC, font 15
+        const [chip] = placeEpicChips({
+            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18, 6);
+    });
+
+    // THE COLLISION THAT IS REAL ON THE FIXTURE. Measured under the old rule:
+    // 280 chip-under-legend hits over k ∈ [0.05, 2.5] × four pans × a 420px
+    // legend — the band's clamped x lands in the top-right corner whenever the
+    // world is narrow on screen or panned right, and the legend drew over the
+    // epic name. Unlike the chip-vs-chip case above, this one needs no
+    // constructed geometry.
+    it('never overlaps the legend it shares the top-right corner with', () => {
+        // The legend's real geometry: `top: 8, right: 10` in the panel, with a
+        // width that depends on which keys are showing.
+        for (const legendW of [220, 420, 700]) {
+            const keepOut = { x: VIEWPORT.w - 10 - legendW, y: 8, w: legendW, h: 30 };
+            for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
+                for (const y of [0, -150, -900]) {
+                    // x=1200 is where the old rule was measured colliding most:
+                    // a right-panned band's visible sliver starts under the
+                    // legend, and the chip clamped into it went with it.
+                    for (const x of [0, -400, 600, 1200]) {
+                        for (const chip of chipsAt({ x, y, k }, keepOut)) {
+                            expect(rectsOverlap(chip, keepOut),
+                                `chip "${chip.text}" under the legend `
+                                + `at k=${k} x=${x} y=${y}`)
+                                .toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // THE DIRECTIVE (user, 2026-08-01): "the epic must not overwrite or ride in
+    // the same swim lane as the top most steps — give the epic its own swim lane
+    // to eliminate collision."
+    //
+    // The reservation is world geometry and the chip is screen geometry, so this
+    // is asserted where the collision actually happens: the layout's own label
+    // rects PROJECTED INTO SCREEN SPACE against the placed chips. That is the
+    // only frame in which the two are comparable, and asserting it in world units
+    // is exactly the mistake that let the old 46px header look sufficient.
+    //
+    // Measured before the fix, on the fixture at the page's OWN default scale
+    // (k=0.8): every band's chip overlapped a lane-0 step label. The header
+    // reserved ~25 world px above that label, i.e. 20 screen px, against a 24px
+    // chip.
+    it('never touches a step, requirement or title label — at any zoom', () => {
+        for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5]) {
+            for (const y of [0, -120, -600, -1400]) {
+                const chips = chipsAt({ x: 0, y, k });
+                const content = layout.labels.filter((l) => l.stepId != null);
+                for (const chip of chips) {
+                    for (const l of content) {
+                        const screen = {
+                            x: 0 + l.x * k, y: y + l.y * k,
+                            w: l.w * k, h: l.h * k,
+                        };
+                        if (rectsOverlap(chip, screen)) {
+                            throw new Error(
+                                `epic "${chip.text}" collides with ${l.kind} label of step `
+                                + `${l.stepId} at k=${k} y=${y}`);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    it('stays inside its own epic lane, scaling down rather than overflowing', () => {
+        for (const k of [0.15, 0.25, 0.39, 0.6, 1, 2]) {
+            for (const chip of chipsAt({ x: 0, y: 0, k })) {
+                const band = layout.bands.find((b) => b.epic === chip.text);
+                const laneTop = 0 + band.y * k;
+                const laneBottom = 0 + (band.y + band.headerH) * k;
+                expect(chip.y, `k=${k} ${chip.text} above its lane`)
+                    .toBeGreaterThanOrEqual(Math.min(laneTop, 2) - 0.01);
+                expect(chip.y + chip.h, `k=${k} ${chip.text} past its lane`)
+                    .toBeLessThanOrEqual(laneBottom + 0.01);
+                // Scaled, never clipped: the drawn font matches the measured box.
+                expect(chip.fontSize / chip.h)
+                    .toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 6);
+            }
+        }
+    });
+
+    it('keeps every chip wholly inside the panel', () => {
+        for (const k of [0.15, 0.5, 1, 2]) {
+            for (const x of [0, -600, -2000, 500]) {
+                for (const chip of chipsAt({ x, y: -400, k })) {
+                    expect(chip.x).toBeGreaterThanOrEqual(0);
+                    expect(chip.y).toBeGreaterThanOrEqual(0);
+                    expect(chip.x + chip.w).toBeLessThanOrEqual(VIEWPORT.w);
+                    expect(chip.y + chip.h).toBeLessThanOrEqual(VIEWPORT.h);
+                }
+            }
+        }
+    });
+
+    it('renders nothing for a band panned off either axis', () => {
+        expect(chipsAt({ x: 0, y: -100000, k: 1 })).toEqual([]);
+        expect(chipsAt({ x: 100000, y: 0, k: 1 })).toEqual([]);
+    });
+
+    it('is inert on a degenerate transform or an unmeasured panel', () => {
+        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 0 },
+            viewport: VIEWPORT, worldWidth: layout.width })).toEqual([]);
+        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
+            viewport: { w: 0, h: 0 }, worldWidth: layout.width })).toEqual([]);
+        expect(placeEpicChips()).toEqual([]);
+    });
+});
+
+describe('next-step highlight (req #3168)', () => {
+    const rowById = new Map(plan.rows.map((r) => [r.id, r]));
+
+    it('marks an eligible step for the halo and a non-eligible one not', () => {
+        expect(beadStyle(rowById.get(17), true).next).toBe(true);
+        expect(beadStyle(rowById.get(17), false).next).toBe(false);
+        expect(beadStyle(rowById.get(1), false).next).toBe(false);
+    });
+
+    // The halo is a MARK ON THE CANVAS, so it owes the same clearance every
+    // other mark does — and the bead-vs-label invariant above measures the BEAD's
+    // 10px radius, not the ring drawn outside it. The first version of this halo
+    // was BEAD_R + 7 with a 2.5px stroke (outer 18.25) and crossed both the step
+    // label's box and the first requirement id, with nothing to catch it (review
+    // finding). Asserted here so the radius can never be nudged back up in
+    // isolation.
+    it('clears every label box in all four layout combinations', () => {
+        const outer = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            for (const label of layout.labels) {
+                if (label.stepId == null) continue;
+                const n = layout.nodes.get(label.stepId);
+                const halo = { x: n.x - outer, y: n.y - outer, w: 2 * outer, h: 2 * outer };
+                expect(rectsOverlap(label, halo),
+                    `${opts.reqLayout}/${opts.stepLabel}: halo on ${label.kind} `
+                    + `label of step ${label.stepId}`).toBe(false);
+            }
+        }
+    });
+
+    it('the halo is a SEPARATE mark from the running pulse', () => {
+        const running = beadStyle(rowById.get(38), false);
+        expect(running.pulse).toBe(true);
+        expect(running.next).toBe(false);
+        const runningAndNext = beadStyle(rowById.get(38), true);
+        expect(runningAndNext.pulse).toBe(true);
+        expect(runningAndNext.next).toBe(true);
+    });
+});
+
+// ── The colour language (req #3168, user directives 2026-08-01) ─────────────
+//
+// Colour resolution lives in the pure module precisely so it can be MEASURED
+// here rather than eyeballed on a canvas. The two properties that matter are
+// legibility on the panel and separability from each other; both are computed
+// from the hex values, so a "nicer" hue that quietly collapses the scale fails
+// the suite instead of shipping.
+
+// sRGB relative luminance and WCAG contrast — the same arithmetic the machine
+// pairing's recorded 5.78:1 / 3.8:1 came from.
+const srgbLin = (c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+const channels = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    /* eslint-disable no-bitwise */
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    /* eslint-enable no-bitwise */
+};
+const luminance = (hex) => {
+    const [r, g, b] = channels(hex).map(srgbLin);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+};
+// CIE76 ΔE — crude by modern standards and entirely adequate for "are these two
+// swatches the same colour to a reader glancing at 13.75px type".
+const toLab = (hex) => {
+    const [r, g, b] = channels(hex).map((c) => {
+        const v = c / 255;
+        return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    const X = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+    const Y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const Z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+    const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+};
+const deltaE = (a, b) => {
+    const A = toLab(a);
+    const B = toLab(b);
+    return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
+};
+
+describe('requirement-status colour scale (req #3168, directive 1)', () => {
+    const PANEL = PLAN_VIZ_PALETTE.panel;
+
+    it('covers every requirement status the schema defines, and nothing else', () => {
+        // The vocabulary from root CLAUDE.md § Requirement statuses. A status
+        // added server-side without a colour here would fall to the dim unknown
+        // swatch, which is visible but wrong — so the set is pinned.
+        expect(REQ_STATUS_ORDER).toEqual([
+            'authoring', 'approved', 'swarm_ready', 'development',
+            'met', 'deferred', 'wontfix',
+        ]);
+        expect(Object.keys(REQ_STATUS_COLORS).sort())
+            .toEqual([...REQ_STATUS_ORDER].sort());
+    });
+
+    it('is legible on the panel — every swatch clears 4.5:1', () => {
+        // MEASURED 2026-08-01: 6.13:1 (swarm_ready, the lowest) to 12.49:1
+        // (development). The floor is WCAG AA for normal text; the ids render at
+        // 13.75px, which is normal text.
+        for (const status of REQ_STATUS_ORDER) {
+            const ratio = contrast(REQ_STATUS_COLORS[status], PANEL);
+            expect(ratio, `${status} (${REQ_STATUS_COLORS[status]}) on ${PANEL}`)
+                .toBeGreaterThanOrEqual(4.5);
+        }
+        expect(contrast(REQ_STATUS_UNKNOWN_COLOR, PANEL)).toBeGreaterThanOrEqual(4);
+    });
+
+    it('is separable — no two statuses read as the same colour', () => {
+        // MEASURED minimum 25.9 (approved vs wontfix). The floor is set at 20:
+        // low enough not to fail on a nudge, high enough that a scale collapsing
+        // two statuses into one hue cannot pass.
+        let worst = { pair: null, d: Infinity };
+        for (let i = 0; i < REQ_STATUS_ORDER.length; i++) {
+            for (let j = i + 1; j < REQ_STATUS_ORDER.length; j++) {
+                const a = REQ_STATUS_ORDER[i];
+                const b = REQ_STATUS_ORDER[j];
+                const d = deltaE(REQ_STATUS_COLORS[a], REQ_STATUS_COLORS[b]);
+                if (d < worst.d) worst = { pair: `${a}/${b}`, d };
+            }
+        }
+        expect(worst.d, `closest pair ${worst.pair}`).toBeGreaterThanOrEqual(20);
+    });
+
+    it('AGREES with the panel\'s own state hues where the two mean the same thing', () => {
+        // The rule that keeps one meaning to one colour: a requirement in
+        // `development` and a step deriving Running are the same fact at two
+        // levels, so they are the same amber; likewise `met` and Complete.
+        expect(REQ_STATUS_COLORS.development).toBe(PLAN_VIZ_PALETTE.runningRing);
+        expect(REQ_STATUS_COLORS.met).toBe(PLAN_VIZ_PALETTE.doneRing);
+        // And the converse: no OTHER status may borrow a reserved state hue,
+        // which is why Darwin's chip palette is not carried verbatim (its
+        // `authoring` is a yellow and its `development` a green — on this panel
+        // those read as Running and Complete).
+        const reserved = [PLAN_VIZ_PALETTE.runningFill, PLAN_VIZ_PALETTE.runningRing,
+            PLAN_VIZ_PALETTE.doneFill, PLAN_VIZ_PALETTE.doneRing];
+        for (const status of REQ_STATUS_ORDER) {
+            if (status === 'development' || status === 'met') continue;
+            expect(reserved, `${status} must not borrow a state hue`)
+                .not.toContain(REQ_STATUS_COLORS[status]);
+        }
+    });
+
+    it('falls back to the dim unknown swatch, INCLUDING inherited keys', () => {
+        for (const status of REQ_STATUS_ORDER) {
+            expect(reqStatusColor(status)).toBe(REQ_STATUS_COLORS[status]);
+        }
+        // Same hazard class as `isStepWidth`: a bracket lookup for an inherited
+        // key returns a FUNCTION, and a function handed to Konva as a `fill`
+        // paints nothing with no error anywhere.
+        for (const bogus of ['constructor', 'toString', 'valueOf', 'hasOwnProperty',
+            'closed', '', null, undefined, 0]) {
+            expect(reqStatusColor(bogus), `status=${String(bogus)}`)
+                .toBe(REQ_STATUS_UNKNOWN_COLOR);
+        }
+    });
+});
+
+describe('machine colour view (moved to the pure module, req #3168)', () => {
+    it('resolves each ecosystem from the machine record, not from list position', () => {
+        expect(machineEcosystem({ platform: 'darwin' })).toBe('mac');
+        expect(machineEcosystem({ platform: 'win32' })).toBe('windows');
+        expect(machineEcosystem({ title: 'WSL box' })).toBe('windows');
+        expect(machineEcosystem({ hostname: 'some-mac-mini' })).toBe('mac');
+        expect(machineEcosystem({ platform: 'linux' })).toBeNull();
+        expect(machineEcosystem(undefined)).toBeNull();
+    });
+
+    it('gives a machine the SAME colour whatever else the plan uses', () => {
+        const mac = { id: 2, title: 'Mac mini', platform: 'darwin' };
+        const wsl = { id: 3, title: 'WSL', platform: 'win32' };
+        const linux = { id: 9, title: 'Box', platform: 'linux' };
+        const twoMachine = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 2 }, { id: 2, machine_fk: 3 }],
+            machines: [mac, wsl],
+        });
+        const threeMachine = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 2 }, { id: 2, machine_fk: 3 },
+                { id: 3, machine_fk: 9 }],
+            machines: [mac, wsl, linux],
+        });
+        expect(twoMachine.colorOf(1)).toBe(MACHINE_MAC_COLOR);
+        expect(threeMachine.colorOf(1)).toBe(MACHINE_MAC_COLOR);
+        expect(twoMachine.colorOf(2)).toBe(MACHINE_WINDOWS_COLOR);
+        expect(threeMachine.colorOf(2)).toBe(MACHINE_WINDOWS_COLOR);
+        // A machine outside the pairing takes a hue that is neither.
+        expect(threeMachine.colorOf(3)).toBe(MACHINE_FALLBACK_PALETTE[0]);
+        expect(threeMachine.colorOf(3)).not.toBe(MACHINE_MAC_COLOR);
+        expect(threeMachine.colorOf(3)).not.toBe(MACHINE_WINDOWS_COLOR);
+    });
+
+    it('reads an unpinned requirement, and an unknown one, as Any', () => {
+        const view = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: null }],
+            machines: [{ id: 2, title: 'Mac mini', platform: 'darwin' }],
+        });
+        expect(view.colorOf(1)).toBe(MACHINE_ANY_COLOR);
+        expect(view.colorOf(999)).toBe(MACHINE_ANY_COLOR);
+        expect(view.legend).toEqual([
+            { key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' },
+        ]);
+    });
+
+    it('keys the key on machines the plan USES, titled, lowest id first', () => {
+        const view = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 3 }, { id: 2, machine_fk: 2 }],
+            machines: [{ id: 2, title: 'Mac mini', platform: 'darwin' },
+                { id: 3, title: 'WSL', platform: 'win32' },
+                { id: 4, title: 'Unused', platform: 'linux' }],
+        });
+        expect(view.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL']);
+        // An id with no machine row still gets a nameable entry rather than
+        // dropping out of the key.
+        const orphan = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 77 }], machines: [],
+        });
+        expect(orphan.legend).toEqual([
+            { key: 77, color: MACHINE_FALLBACK_PALETTE[0], label: 'Machine 77' },
+        ]);
+    });
+
+    it('is inert on an empty or absent model', () => {
+        const view = buildMachineColorView();
+        expect(view.legend).toEqual([]);
+        expect(view.colorOf(1)).toBe(MACHINE_ANY_COLOR);
+    });
+});
+
+describe('the TRI-STATE colour key (req #3168, directive 3)', () => {
+    it('has exactly three positions and defaults to state', () => {
+        expect(Object.keys(COLOR_KEY_LABELS).sort())
+            .toEqual(['machine', 'none', 'state']);
+        expect(DEFAULT_COLOR_KEY).toBe('state');
+        for (const v of ['state', 'machine', 'none']) expect(isColorKey(v)).toBe(true);
+    });
+
+    it('survives a pre-existing stored preference — state and machine still mean themselves',
+        () => {
+            // The values a reader's browser already holds from before the third
+            // position existed. Normalizing them to anything else would silently
+            // change an existing plan's appearance.
+            expect(normalizeColorKey('state')).toBe('state');
+            expect(normalizeColorKey('machine')).toBe('machine');
+        });
+
+    it('survives a garbage or localStorage-injected value, INHERITED KEYS INCLUDED', () => {
+        // The `isStepWidth` hazard, on a value that ends up as a Konva `fill`.
+        for (const bogus of ['constructor', 'toString', 'valueOf', '__proto__',
+            'hasOwnProperty', 'STATE', 'none ', '', null, undefined, 0, {}, []]) {
+            expect(isColorKey(bogus), `isColorKey(${String(bogus)})`).toBe(false);
+            expect(normalizeColorKey(bogus), `normalizeColorKey(${String(bogus)})`)
+                .toBe(DEFAULT_COLOR_KEY);
+        }
+    });
+
+    it('resolves the id style per key — and NEUTRAL is near-white, not black', () => {
+        expect(reqIdStyle({ colorKey: 'state', status: 'development' }))
+            .toEqual({ fill: REQ_STATUS_COLORS.development, bold: true });
+        expect(reqIdStyle({ colorKey: 'machine', machineColor: MACHINE_MAC_COLOR }))
+            .toEqual({ fill: MACHINE_MAC_COLOR, bold: true });
+        // THE LIGHT-MODE FINDING, pinned rather than commented: this panel is a
+        // FIXED dark surface in both app themes (PLAN_VIZ_PALETTE is not
+        // theme-derived and the container paints `panel` unconditionally), so
+        // "white, or black in white mode" has exactly one reachable answer here.
+        expect(reqIdStyle({ colorKey: 'none' }))
+            .toEqual({ fill: PLAN_VIZ_PALETTE.text, bold: false });
+        expect(luminance(PLAN_VIZ_PALETTE.text))
+            .toBeGreaterThan(luminance(PLAN_VIZ_PALETTE.panel));
+        // A hostile key falls to the default rather than painting nothing.
+        expect(reqIdStyle({ colorKey: 'constructor', status: 'met' }).fill)
+            .toBe(REQ_STATUS_COLORS.met);
+        expect(reqIdStyle().fill).toBe(REQ_STATUS_UNKNOWN_COLOR);
+    });
+
+    it('builds a key that lists only the statuses the plan CONTAINS, in lifecycle order',
+        () => {
+            const { title, entries } = reqIdKeyEntries({
+                colorKey: 'state',
+                statuses: ['met', 'swarm_ready', 'met', 'development'],
+            });
+            expect(title).toBe('Requirement id = status');
+            expect(entries.map((e) => e.key)).toEqual(['swarm_ready', 'development', 'met']);
+            expect(entries.map((e) => e.label))
+                .toEqual(['swarm-ready', 'development', 'met']);
+            expect(entries.map((e) => e.color)).toEqual([
+                REQ_STATUS_COLORS.swarm_ready,
+                REQ_STATUS_COLORS.development,
+                REQ_STATUS_COLORS.met,
+            ]);
+        });
+
+    it('names an unrecognised status rather than hiding it', () => {
+        const { entries } = reqIdKeyEntries({
+            colorKey: 'state', statuses: ['met', 'brand_new_status', null],
+        });
+        expect(entries.map((e) => e.key)).toEqual(['met', 'unknown']);
+        expect(entries[1].color).toBe(REQ_STATUS_UNKNOWN_COLOR);
+    });
+
+    it('switches wholesale to the machine key, and says so on none', () => {
+        const machineLegend = [{ key: 2, color: MACHINE_MAC_COLOR, label: 'Mac mini' }];
+        expect(reqIdKeyEntries({ colorKey: 'machine', machineLegend }))
+            .toEqual({ title: 'Requirement id = machine', entries: machineLegend });
+        const off = reqIdKeyEntries({ colorKey: 'none', statuses: ['met'] });
+        expect(off.entries).toHaveLength(1);
+        expect(off.entries[0].color).toBe(PLAN_VIZ_PALETTE.text);
+        expect(off.entries[0].label).toBe('no colour key');
+        // And a hostile key does not produce an empty, meaningless legend.
+        expect(reqIdKeyEntries({ colorKey: 'toString', statuses: ['met'] }).title)
+            .toBe('Requirement id = status');
+        expect(reqIdKeyEntries()).toEqual({ title: 'Requirement id = status', entries: [] });
+    });
+});
+
+describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const VIEWPORT = { w: 1500, h: 900 };
+
+    // The complete key (directive 2) is TALLER than the bead legend it replaces
+    // — one row per CHANNEL, plus a heading and the size/motion footer — and no
+    // wider, because the component caps it at PLAN_KEY_MAX_W. These sizes
+    // bracket what it can actually be at that cap: collapsed (a heading and a
+    // button), the ordinary expanded key, and the worst case (a machine key on a
+    // many-machine plan, wrapped over several rows).
+    const KEY_SIZES = [
+        { w: 90, h: 26, label: 'collapsed' },
+        { w: 300, h: 76, label: 'expanded, state key' },
+        { w: PLAN_KEY_MAX_W, h: 96, label: 'expanded, wrapped to the cap' },
+        { w: PLAN_KEY_MAX_W, h: 180, label: 'worst case — many machines, at the cap' },
+    ];
+
+    it('never lets a chip land under the key, at any key size, zoom or pan', () => {
+        for (const size of KEY_SIZES) {
+            const keepOut = { x: VIEWPORT.w - 10 - size.w, y: 8, w: size.w, h: size.h };
+            for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
+                for (const y of [0, -150, -900]) {
+                    for (const x of [0, -400, 600, 1200]) {
+                        const chips = placeEpicChips({
+                            bands: layout.bands, transform: { x, y, k },
+                            viewport: VIEWPORT, worldWidth: layout.width, keepOut,
+                        });
+                        for (const chip of chips) {
+                            expect(rectsOverlap(chip, keepOut),
+                                `chip "${chip.text}" under the ${size.label} key `
+                                + `at k=${k} x=${x} y=${y}`).toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    it('DROPS NO CHIP the small key drew — the growth costs the epics nothing', () => {
+        // The claim the constraint actually makes: a bigger key steals space
+        // from the epic labels. Measured as a DIFFERENCE against the key this
+        // replaces (the ~420×30 bead legend), band for band, so a regression is
+        // named rather than inferred from a total.
+        const OLD = { w: 420, h: 30 };
+        let compared = 0;
+        for (const size of KEY_SIZES) {
+            for (const k of [0.2, 0.5, 0.8, 1.5]) {
+                for (const y of [0, -150, -900]) {
+                    for (const x of [0, -400, 600]) {
+                        const t = { x, y, k };
+                        const before = placeEpicChips({
+                            bands: layout.bands, transform: t, viewport: VIEWPORT,
+                            worldWidth: layout.width,
+                            keepOut: { x: VIEWPORT.w - 10 - OLD.w, y: 8, ...OLD },
+                        });
+                        const after = placeEpicChips({
+                            bands: layout.bands, transform: t, viewport: VIEWPORT,
+                            worldWidth: layout.width,
+                            keepOut: { x: VIEWPORT.w - 10 - size.w, y: 8,
+                                w: size.w, h: size.h },
+                        });
+                        const lost = before.map((c) => c.key)
+                            .filter((key) => !after.some((c) => c.key === key));
+                        expect(lost,
+                            `${size.label} key drops epic chip(s) at k=${k} x=${x} y=${y}`)
+                            .toEqual([]);
+                        compared += before.length;
+                    }
+                }
+            }
+        }
+        // The sweep has to have drawn chips, or it proves nothing.
+        expect(compared, 'the sweep compared real chips').toBeGreaterThan(100);
+    });
+
+    it('the WIDTH cap is what buys that — height is free and width is not', () => {
+        // The boundary is asserted from BOTH sides, so the cap is a measured
+        // number rather than a comfortable one. MEASURED over
+        // k ∈ {0.2…2} × 4 pans × 6 x-offsets, 233 chips: zero lost at width ≤ 420
+        // at EVERY height from 30 to 180; one lost at 500, 8-10 at 600, 15-20 at
+        // 700. The mechanism is that `placeEpicChips` displaces horizontally
+        // only — a chip may never move to another band's line — so a keep-out's
+        // height costs nothing and its width costs everything.
+        const OLD = { w: 420, h: 30 };
+        const sweep = (w, h) => {
+            let lost = 0;
+            for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
+                for (const y of [0, -150, -500, -900]) {
+                    for (const x of [0, -400, -1000, 300, 600, 740]) {
+                        const t = { x, y, k };
+                        const args = {
+                            bands: layout.bands, transform: t, viewport: VIEWPORT,
+                            worldWidth: layout.width,
+                        };
+                        const before = placeEpicChips({ ...args,
+                            keepOut: { x: VIEWPORT.w - 10 - OLD.w, y: 8, ...OLD } });
+                        const after = placeEpicChips({ ...args,
+                            keepOut: { x: VIEWPORT.w - 10 - w, y: 8, w, h } });
+                        lost += before.filter(
+                            (c) => !after.some((d) => d.key === c.key)).length;
+                    }
+                }
+            }
+            return lost;
+        };
+        // Height is free at the cap — still true, and it is what lets the key
+        // stack one row per channel.
+        for (const h of [30, 60, 100, 140, 180]) {
+            expect(sweep(PLAN_KEY_MAX_W, h), `height ${h} at the cap`)
+                .toBeLessThanOrEqual(sweep(PLAN_KEY_MAX_W, 30));
+        }
+        // …and the cap is NOT vacuous: a key MUCH wider than it really does drop
+        // epic names, which is the finding that put a pixel cap on this element
+        // instead of a percentage. (The 2026-08-01 raise from 420 to 470 sits
+        // inside a flat stretch of that curve — see PLAN_KEY_MAX_W — so the cap
+        // is asserted where it still bites rather than where it no longer does.)
+        expect(sweep(900, 30), 'a 900px key must still cost chips')
+            .toBeGreaterThan(0);
+        expect(sweep(1100, 30)).toBeGreaterThanOrEqual(sweep(900, 30));
+    });
+});
+
+// ── The 35-character ceiling, on FROZEN geometry (user directives 2026-08-01) ─
+//
+// "let's go with all three levels of zoom showing 35 chars", then "if 35 is too
+// much, pick a lower number. I do not want any other spacing to have to change
+// for this." The second sentence is the binding one: 35 is a CEILING, the text
+// is fitted to the room that already exists, and nothing about the layout moves.
+
+// The requirement titles the fixture does not carry. Deliberately longer than
+// any cap, so every drawn length IS the cap and the table below is exact.
+const LONG_TITLE = 'A requirement title that is definitely longer than any cap here';
+const FIXTURE_TITLES = new Map(
+    SUBSTRATE_REBUILD_MODEL.requirements.map((r) => [r.id, LONG_TITLE]));
+
+const drawn = (opts) => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqTitles: FIXTURE_TITLES, ...opts });
+    const pick = (kind) => layout.labels.filter((l) => l.kind === kind)
+        .map((l) => l.text.length);
+    return { layout, step: pick('step'), req: pick('req') };
+};
+
+describe('the 35-character ceiling (req #3168, directive B)', () => {
+    it('never draws a step label longer than the ceiling, in any combination', () => {
+        for (const view of Object.keys(REQ_VIEWS)) {
+            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+                const { step } = drawn({ ...reqViewOptions(view),
+                    stepLabel: 'title', stepWidth });
+                expect(Math.max(...step), `${view} x ${stepWidth}`)
+                    .toBeLessThanOrEqual(LABEL_MAX_CHARS);
+            }
+        }
+    });
+
+    // THE TABLE THE USER GETS TO PICK FROM. Pinned as exact numbers because the
+    // whole point of the directive was that the number is a measured fact rather
+    // than a promise — if a future edit moves any of these, the user is being
+    // given a different deal and should be told.
+    it('draws the MEASURED number of characters per mode and width', () => {
+        const at = (view, stepWidth) => {
+            const { step } = drawn({ ...reqViewOptions(view),
+                stepLabel: 'title', stepWidth });
+            return Math.max(...step);
+        };
+        // `horizontal` columns are sized by the requirement-id STRING, which is
+        // wide enough that the ceiling is what binds — it drew 42 / 45 / 50
+        // before the cap.
+        expect([at('horizontal', 'compact'), at('horizontal', 'medium'),
+            at('horizontal', 'wide')]).toEqual([35, 35, 35]);
+        // `vertical` columns are TITLE_COL_MIN, so the stagger budget binds and
+        // the ceiling is inert below Width L. These are the numbers the geometry
+        // gives after the 2026-08-01 width retune (+10% / +10% / +20%).
+        expect([at('vertical', 'compact'), at('vertical', 'medium'),
+            at('vertical', 'wide')]).toEqual([27, 29, 35]);
+        // Showing requirement TITLES costs the step label nothing.
+        expect([at('titles', 'compact'), at('titles', 'medium'),
+            at('titles', 'wide')]).toEqual([27, 29, 35]);
+    });
+
+    it('the ceiling did not move a single column', () => {
+        // The claim the user actually made ("I do not want any other spacing to
+        // have to change"): capping the TEXT must not touch the geometry. A
+        // layout with no title labels at all shares its columns with one that
+        // has them, at every width.
+        for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+            const ids = computePlanLayout(plan.rows, plan.batches,
+                { reqLayout: 'vertical', stepLabel: 'id', stepWidth });
+            const titled = computePlanLayout(plan.rows, plan.batches,
+                { reqLayout: 'vertical', stepLabel: 'id', stepWidth,
+                    reqTitles: FIXTURE_TITLES });
+            expect(titled.colW).toEqual(ids.colW);
+            expect(titled.width).toBe(ids.width);
+            expect(titled.height).toBe(ids.height);
+        }
+    });
+});
+
+describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
+    it('SHOWING TITLES COSTS EXACTLY ONE LINE PER LANE, AND NO WIDTH', () => {
+        // The frozen-geometry directive stands on the HORIZONTAL axis: a title
+        // may never widen a column or the world, because that was the user's
+        // explicit refusal. The swim-lane directive that followed asks for
+        // vertical separation, and that is not free — an odd column's marks drop
+        // one line, so each lane must own that line.
+        //
+        // Pinned as an EXACT identity rather than a bound: one REQ_LINE_H per
+        // lane in the plan, no more, and it must be the ONLY thing that moved.
+        for (const stepLabel of ['id', 'title']) {
+            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+                const base = computePlanLayout(plan.rows, plan.batches,
+                    { ...reqViewOptions('vertical'), stepLabel, stepWidth,
+                        reqTitles: FIXTURE_TITLES });
+                const titled = computePlanLayout(plan.rows, plan.batches,
+                    { ...reqViewOptions('titles'), stepLabel, stepWidth,
+                        reqTitles: FIXTURE_TITLES });
+                const where = `${stepLabel} x ${stepWidth}`;
+                // Horizontal: untouched, to the pixel.
+                expect(titled.colW, where).toEqual(base.colW);
+                expect(titled.width, where).toBe(base.width);
+                expect([...titled.nodes.values()].map((n) => n.x), where)
+                    .toEqual([...base.nodes.values()].map((n) => n.x));
+                // Vertical: one line per lane, and nothing else.
+                const lanes = base.bands.reduce((sum, b) => sum + b.sub, 0);
+                expect(titled.height - base.height, where).toBe(lanes * REQ_LINE_H);
+                expect(titled.bands.map((b) => b.sub), where)
+                    .toEqual(base.bands.map((b) => b.sub));
+            }
+        }
+    });
+
+    // The number the user has to live with, measured rather than hoped for.
+    it('draws the MEASURED title length the frozen column affords', () => {
+        const at = (stepLabel, stepWidth) => {
+            const { req } = drawn({ ...reqViewOptions('titles'), stepLabel, stepWidth });
+            return [Math.min(...req), Math.max(...req)];
+        };
+        // The swim-lane directive (2026-08-01) moved these numbers UP without
+        // widening a single column: a lone title inside a run of 1-req steps
+        // draws on its own line and may reach into its neighbours, so the MAX
+        // rises while the MIN — a mark in a stack, still column-bound — does not.
+        //
+        // With `Step: Title` the column already carries TITLE_COL_MIN (144·f),
+        // and the run-widened marks reach the 35-character ceiling at Width L.
+        // Measured: 21 of 55 marks qualify on this fixture.
+        expect([at('title', 'compact'), at('title', 'medium'), at('title', 'wide')])
+            .toEqual([[18, 33], [19, 35], [23, 35]]);
+        // With `Step: ID` the column is only as wide as the ids need, so both
+        // ends are lower. This is why the pair of controls interacts.
+        expect([at('id', 'compact'), at('id', 'medium'), at('id', 'wide')])
+            .toEqual([[8, 20], [9, 22], [11, 26]]);
+    });
+
+    it('keeps every requirement mark inside its column slab — the frozen contract', () => {
+        // Every position the CONTROL offers, PLUS the one it withholds. The
+        // withheld combination is in this loop deliberately: the module's claim
+        // is that it renders `horizontal` + titles correctly rather than
+        // trusting callers not to ask, and an unasserted branch is where that
+        // claim went wrong once already — the per-mark budget divided the column
+        // by N and forgot the (N−1) mono separators `texts.join(' ')` draws, so
+        // a 3-requirement step's marks sat 14.4px outside their own slab while
+        // every individual truncation looked right.
+        const combos = [...Object.keys(REQ_VIEWS).map((v) => reqViewOptions(v)),
+            { reqLayout: 'horizontal', reqLabel: 'title' }];
+        for (const view of combos) {
+            for (const stepLabel of ['id', 'title']) {
+                for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+                    const layout = computePlanLayout(plan.rows, plan.batches, {
+                        ...view, stepLabel, stepWidth,
+                        reqTitles: FIXTURE_TITLES,
+                    });
+                    // Since the swim-lane directive (2026-08-01) containment is
+                    // KIND-DEPENDENT here, exactly as it already was for step
+                    // labels. A lone requirement title inside a run of 1-req
+                    // steps is STAGGERED — its column's neighbours draw on the
+                    // other line — so it may reach a bounded distance into them.
+                    // Its guarantee is not "inside the slab" but "no further than
+                    // STAGGER_REACH of one neighbour", and the pairwise property
+                    // that follows from it is asserted by the zero-overlap test
+                    // below. Everything else is still slab-contained.
+                    const marksOf = new Map();
+                    for (const l of layout.labels) {
+                        if (l.kind === 'req') marksOf.set(l.stepId, (marksOf.get(l.stepId) || 0) + 1);
+                    }
+                    for (const label of layout.labels) {
+                        if (label.kind !== 'req') continue;
+                        const n = layout.nodes.get(label.stepId);
+                        const half = layout.colW[n.depth] / 2;
+                        const staggered = view.reqLabel === 'title'
+                            && view.reqLayout !== 'horizontal'
+                            && marksOf.get(label.stepId) === 1;
+                        // The reach a staggered mark is allowed, per side: the
+                        // same STAGGER_REACH 0.4 of the NARROWER neighbour that
+                        // bounds a staggered step label.
+                        const reach = staggered
+                            ? 0.4 * Math.min(
+                                n.depth > 0 ? layout.colW[n.depth - 1] : 66,
+                                n.depth < layout.colW.length - 1
+                                    ? layout.colW[n.depth + 1] : 54)
+                            : 0;
+                        const left = layout.colX[n.depth] - half - reach;
+                        const right = layout.colX[n.depth] + half + reach;
+                        const where = `${view.reqLayout}+${view.reqLabel}`
+                            + `/${stepLabel}/${stepWidth} step ${label.stepId}`;
+                        expect(label.x, where).toBeGreaterThanOrEqual(left - 0.01);
+                        expect(label.x + label.w, where).toBeLessThanOrEqual(right + 0.01);
+                    }
+                }
+            }
+        }
+    });
+
+    it('holds zero label overlap and no label-on-bead with titles showing', () => {
+        for (const stepLabel of ['id', 'title']) {
+            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+                const name = `titles x ${stepLabel} x ${stepWidth}`;
+                const layout = computePlanLayout(plan.rows, plan.batches, {
+                    ...reqViewOptions('titles'), stepLabel, stepWidth,
+                    reqTitles: FIXTURE_TITLES,
+                });
+                assertNoLabelOverlap(layout, name);
+                const beads = [...layout.nodes.values()].map(beadRect);
+                for (const label of layout.labels) {
+                    for (const bead of beads) {
+                        expect(rectsOverlap(label, bead), name).toBe(false);
+                    }
+                }
+                assertStraightArcsClear(layout, plan.rows);
+            }
+        }
+    });
+
+    it('falls back to the ID when a title is missing, blank or unresolvable', () => {
+        expect(reqLabelText(3001, { reqLabel: 'id', reqTitles: FIXTURE_TITLES }))
+            .toBe('3001');
+        expect(reqLabelText(3001, { reqLabel: 'title' })).toBe('3001');
+        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: new Map() }))
+            .toBe('3001');
+        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: { 3001: '' } }))
+            .toBe('3001');
+        // A blank mark under a bead reads as a rendering fault; the id is always
+        // true, so it is the honest fallback.
+        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: { 3001: 'Bounded reads' } }))
+            .toBe('Bounded reads');
+        // Plain-object lookups go through Object.hasOwn — an inherited key must
+        // not resolve to a function whose source would be drawn on the canvas.
+        expect(reqLabelText('constructor', { reqLabel: 'title', reqTitles: {} }))
+            .toBe('constructor');
+        expect(reqLabelText(1, { reqLabel: 'title', reqTitles: { 1: LONG_TITLE },
+            maxChars: 10 })).toHaveLength(10);
+        // Never past the ceiling, whatever room the caller claims to have.
+        expect(reqLabelText(1, { reqLabel: 'title', reqTitles: { 1: LONG_TITLE },
+            maxChars: 500 })).toHaveLength(LABEL_MAX_CHARS);
+    });
+
+    it('flags stored PROSE so the no-# audit keys on what a label IS', () => {
+        // PIPE-07 excludes stored plan content from its generated-label sweep. It
+        // used to infer that from `kind === 'title'`; a requirement mark that can
+        // be EITHER a generated id or a stored name breaks that inference, so the
+        // module states it.
+        const ids = computePlanLayout(plan.rows, plan.batches,
+            { ...reqViewOptions('vertical'), stepLabel: 'id', reqTitles: FIXTURE_TITLES });
+        for (const l of ids.labels.filter((x) => x.kind === 'req')) {
+            expect(l.prose).toBe(false);
+        }
+        const titled = computePlanLayout(plan.rows, plan.batches,
+            { ...reqViewOptions('titles'), stepLabel: 'title',
+                reqTitles: FIXTURE_TITLES });
+        for (const l of titled.labels.filter((x) => x.kind === 'req')) {
+            expect(l.prose).toBe(true);
+        }
+        // The step label is prose only when it IS the stored title.
+        expect(titled.labels.filter((l) => l.kind === 'step').every((l) => l.prose))
+            .toBe(true);
+        expect(ids.labels.filter((l) => l.kind === 'step').every((l) => l.prose))
+            .toBe(false);
+        // Every generated mark stays generated.
+        for (const l of titled.labels) {
+            if (l.kind === 'batch' || l.kind === 'epic') expect(l.prose).toBeFalsy();
+        }
+    });
+});
+
+describe('the requirement-view control (req #3168, directive E)', () => {
+    it('offers exactly three positions, and titles only in the vertical stack', () => {
+        expect(Object.keys(REQ_VIEWS)).toEqual(['horizontal', 'vertical', 'titles']);
+        expect(reqViewOptions('horizontal')).toMatchObject(
+            { reqLayout: 'horizontal', reqLabel: 'id' });
+        expect(reqViewOptions('vertical')).toMatchObject(
+            { reqLayout: 'vertical', reqLabel: 'id' });
+        // THE CONSTRAINT, not an accident: in `horizontal` N requirements share
+        // one line inside one frozen column, so a title would be a stub.
+        expect(reqViewOptions('titles')).toMatchObject(
+            { reqLayout: 'vertical', reqLabel: 'title' });
+        expect(Object.values(REQ_VIEWS).some(
+            (v) => v.reqLayout === 'horizontal' && v.reqLabel === 'title')).toBe(false);
+    });
+
+    it('measures the stub that justifies that constraint', () => {
+        // Not asserted from the rule — MEASURED from the layout, so the
+        // constraint is evidence rather than an opinion.
+        const layout = computePlanLayout(plan.rows, plan.batches, {
+            reqLayout: 'horizontal', reqLabel: 'title', stepLabel: 'title',
+            reqTitles: FIXTURE_TITLES,
+        });
+        const byStep = new Map();
+        for (const l of layout.labels.filter((x) => x.kind === 'req')) {
+            if (!byStep.has(l.stepId)) byStep.set(l.stepId, []);
+            byStep.get(l.stepId).push(l.text.length);
+        }
+        const multi = [...byStep.values()].filter((v) => v.length > 1);
+        expect(multi.length, 'the fixture has multi-requirement steps').toBeGreaterThan(0);
+        const worst = Math.min(...multi.map((v) => Math.min(...v)));
+        expect(worst, 'a title in horizontal mode collapses to a stub')
+            .toBeLessThanOrEqual(8);
+        // MEASURED at width S, by requirement count: 2 → 7 characters, 3+ → 4,
+        // which is `reqLabelText`'s own floor (three characters and an ellipsis)
+        // and the same length as the bare id it replaced. Pinned so the evidence
+        // behind the constraint is a number the suite defends, not a sentence.
+        const byN = new Map();
+        for (const v of byStep.values()) {
+            byN.set(v.length, Math.min(byN.get(v.length) ?? Infinity, ...v));
+        }
+        // The 2026-08-01 width retune (+10%/+10%/+20%) lifted these by a
+        // character or two; the POINT is unchanged and is what the numbers still
+        // show — a 3-or-more-requirement step gets a 4-to-5 character stub, i.e.
+        // no more than the bare id it would replace.
+        expect(byN.get(2), 'a 2-requirement step').toBe(8);
+        for (const n of [...byN.keys()].filter((k) => k >= 3)) {
+            expect(byN.get(n), `a ${n}-requirement step`).toBeLessThanOrEqual(5);
+        }
+    });
+
+    it('normalizes a legacy or hostile stored preference', () => {
+        expect(DEFAULT_REQ_VIEW).toBe('vertical');
+        // The two values a browser may already hold must mean themselves.
+        expect(normalizeReqView('horizontal')).toBe('horizontal');
+        expect(normalizeReqView('vertical')).toBe('vertical');
+        expect(normalizeReqView('titles')).toBe('titles');
+        for (const bogus of ['constructor', 'toString', '__proto__', 'valueOf',
+            'TITLES', '', null, undefined, 0, {}]) {
+            expect(isReqView(bogus), `isReqView(${String(bogus)})`).toBe(false);
+            expect(normalizeReqView(bogus)).toBe(DEFAULT_REQ_VIEW);
+        }
+    });
+});
+
+describe('the semantic-level selector (req #3168, directive C)', () => {
+    it('maps the shared control\'s 1|2|3 onto this canvas\'s own vocabulary', () => {
+        expect(pinnedLevelOf('1')).toBe('out');
+        expect(pinnedLevelOf('2')).toBe('mid');
+        expect(pinnedLevelOf('3')).toBe('in');
+        expect(pinnedLevelOf(2)).toBe('mid');       // a number, not a string
+        // Auto is a POSITION, and it resolves to "no pin" rather than to a level.
+        expect(pinnedLevelOf('auto')).toBeNull();
+        expect(DEFAULT_PLAN_LEVEL_PREF).toBe('auto');
+        // …and the reverse map the control needs to soft-mark the live level.
+        expect(PLAN_LEVEL_NUMBER).toEqual({ out: 1, mid: 2, in: 3 });
+        for (const [pref, level] of Object.entries(PLAN_LEVEL_BY_PREF)) {
+            if (level == null) continue;
+            expect(PLAN_LEVEL_NUMBER[level]).toBe(Number(pref));
+        }
+    });
+
+    it('survives a garbage or localStorage-injected value', () => {
+        for (const bogus of ['constructor', 'toString', '__proto__', 'hasOwnProperty',
+            '4', '0', 'AUTO', '', null, undefined, {}, []]) {
+            expect(isPlanLevelPref(bogus), `isPlanLevelPref(${String(bogus)})`).toBe(false);
+            expect(normalizePlanLevelPref(bogus)).toBe(DEFAULT_PLAN_LEVEL_PREF);
+            expect(pinnedLevelOf(bogus)).toBeNull();
+        }
+    });
+});
+
+
+// ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
+// A purpose-built model rather than the Substrate fixture, because the shapes
+// under test are shapes that fixture does not contain: an epic that has never
+// started at all, an UNGATED step whose work began late (the live step-97
+// shape, which is the acceptance case a per-band origin cannot satisfy), a
+// dependency that crosses an epic boundary, and a dependency edge that runs
+// BACKWARD in time. Every requirement here carries `completed_at` and no
+// `started_at`, which is what the live table overwhelmingly looks like.
+const TIMED_MODEL = {
+    pipeline: { id: 500, title: 'Time axis' },
+    epics: [
+        { id: 1, title: 'Shipped' },
+        { id: 2, title: 'In flight' },
+        { id: 3, title: 'Backlog' },
+    ],
+    features: [
+        { id: 11, title: 'F-shipped', epic_fk: 1 },
+        { id: 12, title: 'F-flight', epic_fk: 2 },
+        { id: 13, title: 'F-backlog', epic_fk: 3 },
+    ],
+    machines: [],
+    steps: [
+        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
+        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
+        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
+        // The step-97 shape: no dep edges at all, work begun on the LATEST day.
+        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
+        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
+        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
+        // Backward in time: its own work completed on day 1, but it is gated on
+        // step 3, whose work began on day 3.
+        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
+    ],
+    stepDeps: [
+        { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses epic 1 -> 2
+        { id: 3, step_fk: 6, dep_step_fk: 5, time_at: null },
+        { id: 4, step_fk: 7, dep_step_fk: 3, time_at: null },   // backward in time
+    ],
+    stepRequirements: [
+        { step_fk: 1, requirement_fk: 101 },
+        { step_fk: 2, requirement_fk: 102 },
+        { step_fk: 3, requirement_fk: 103 },
+        { step_fk: 4, requirement_fk: 104 },
+        { step_fk: 5, requirement_fk: 105 },
+        { step_fk: 6, requirement_fk: 106 },
+        { step_fk: 7, requirement_fk: 107 },
+    ],
+    requirements: [
+        // `met` with NO started_at — 820 of 960 live `met` rows look like this.
+        {
+            id: 101, title: 'r101', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T09:00:00',
+        },
+        {
+            id: 102, title: 'r102', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-26T09:00:00',
+        },
+        {
+            id: 103, title: 'r103', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-27T09:00:00', completed_at: null,
+        },
+        {
+            id: 104, title: 'r104', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-28T09:00:00', completed_at: null,
+        },
+        {
+            id: 105, title: 'r105', requirement_status: 'authoring', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 106, title: 'r106', requirement_status: 'approved', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 107, title: 'r107', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T10:00:00',
+        },
+    ],
+};
+
+// The zero-overlap contract is metric-derived, and req #3201 changed the thing
+// the metrics are indexed by (columns are time positions now, so a plan has
+// MORE of them and they are sparser). Re-running the four-combination invariant
+// under a real-scale timed axis is what keeps that contract from rotting
+// silently — the Substrate fixture's 34 steps, with timestamps synthesized from
+// each requirement's status so the plan spreads over several day slots and
+// acquires backward-in-time edges of its own.
+const TIMED_SUBSTRATE = {
+    ...SUBSTRATE_REBUILD_MODEL,
+    requirements: SUBSTRATE_REBUILD_MODEL.requirements.map((r) => {
+        const day = `2026-07-${String(21 + (r.id % 6)).padStart(2, '0')}`;
+        if (r.requirement_status === 'met' || r.requirement_status === 'wontfix') {
+            return { ...r, started_at: null, completed_at: `${day}T08:00:00` };
+        }
+        if (r.requirement_status === 'development') {
+            return { ...r, started_at: `${day}T08:00:00`, completed_at: null };
+        }
+        return { ...r, started_at: null, completed_at: null };
+    }),
+};
+
+const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
+    { now: '2026-07-28T12:00:00Z' });
+const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+    { timeAxis: timedPlan.timeAxis });
+const timedSubstratePlan = orderedPlan(buildPipelineModel(TIMED_SUBSTRATE), { now: NOW });
+const colOfStep = (layout, id) => layout.nodes.get(id).depth;
+
 // ── Epic focus (req #3204) ──────────────────────────────────────────────────
 // The click sets the viewport ONCE and retains nothing, so the whole feature is
 // falsifiable right here: two pure functions from (layout, band, viewport) to a
@@ -996,99 +2210,6 @@ describe('epic focus geometry', () => {
         expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
     });
 });
-// ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
-// A purpose-built model rather than the Substrate fixture, because the shapes
-// under test are shapes that fixture does not contain: an epic that has never
-// started at all, an UNGATED step whose work began late (the live step-97
-// shape, which is the acceptance case a per-band origin cannot satisfy), a
-// dependency that crosses an epic boundary, and a dependency edge that runs
-// BACKWARD in time. Every requirement here carries `completed_at` and no
-// `started_at`, which is what the live table overwhelmingly looks like.
-const TIMED_MODEL = {
-    pipeline: { id: 500, title: 'Time axis' },
-    epics: [
-        { id: 1, title: 'Shipped' },
-        { id: 2, title: 'In flight' },
-        { id: 3, title: 'Backlog' },
-    ],
-    features: [
-        { id: 11, title: 'F-shipped', epic_fk: 1 },
-        { id: 12, title: 'F-flight', epic_fk: 2 },
-        { id: 13, title: 'F-backlog', epic_fk: 3 },
-    ],
-    machines: [],
-    steps: [
-        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
-        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
-        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
-        // The step-97 shape: no dep edges at all, work begun on the LATEST day.
-        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
-        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
-        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
-        // Backward in time: its own work completed on day 1, but it is gated on
-        // step 3, whose work began on day 3.
-        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
-    ],
-    stepDeps: [
-        { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
-        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses epic 1 -> 2
-        { id: 3, step_fk: 6, dep_step_fk: 5, time_at: null },
-        { id: 4, step_fk: 7, dep_step_fk: 3, time_at: null },   // backward in time
-    ],
-    stepRequirements: [
-        { step_fk: 1, requirement_fk: 101 },
-        { step_fk: 2, requirement_fk: 102 },
-        { step_fk: 3, requirement_fk: 103 },
-        { step_fk: 4, requirement_fk: 104 },
-        { step_fk: 5, requirement_fk: 105 },
-        { step_fk: 6, requirement_fk: 106 },
-        { step_fk: 7, requirement_fk: 107 },
-    ],
-    requirements: [
-        // `met` with NO started_at — 820 of 960 live `met` rows look like this.
-        {
-            id: 101, title: 'r101', requirement_status: 'met', feature_fk: 11,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: null, completed_at: '2026-07-25T09:00:00',
-        },
-        {
-            id: 102, title: 'r102', requirement_status: 'met', feature_fk: 11,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: null, completed_at: '2026-07-26T09:00:00',
-        },
-        {
-            id: 103, title: 'r103', requirement_status: 'development', feature_fk: 12,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: '2026-07-27T09:00:00', completed_at: null,
-        },
-        {
-            id: 104, title: 'r104', requirement_status: 'development', feature_fk: 12,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: '2026-07-28T09:00:00', completed_at: null,
-        },
-        {
-            id: 105, title: 'r105', requirement_status: 'authoring', feature_fk: 13,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: null, completed_at: null,
-        },
-        {
-            id: 106, title: 'r106', requirement_status: 'approved', feature_fk: 13,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: null, completed_at: null,
-        },
-        {
-            id: 107, title: 'r107', requirement_status: 'met', feature_fk: 11,
-            machine_fk: null, coordination_type: 'implemented', tracking: 0,
-            started_at: null, completed_at: '2026-07-25T10:00:00',
-        },
-    ],
-};
-
-const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
-    { now: '2026-07-28T12:00:00Z' });
-const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
-    { timeAxis: timedPlan.timeAxis });
-const colOfStep = (layout, id) => layout.nodes.get(id).depth;
 
 describe('time axis — vertical band order (req #3201)', () => {
     it('stacks bands by derived epic start, never-started last', () => {
@@ -1256,28 +2377,6 @@ describe('time axis — review regressions', () => {
         expect(layout.bands.map((b) => b.epic)).toEqual(['F', 'E']);
     });
 });
-
-// The zero-overlap contract is metric-derived, and req #3201 changed the thing
-// the metrics are indexed by (columns are time positions now, so a plan has
-// MORE of them and they are sparser). Re-running the four-combination invariant
-// under a real-scale timed axis is what keeps that contract from rotting
-// silently — the Substrate fixture's 34 steps, with timestamps synthesized from
-// each requirement's status so the plan spreads over several day slots and
-// acquires backward-in-time edges of its own.
-const TIMED_SUBSTRATE = {
-    ...SUBSTRATE_REBUILD_MODEL,
-    requirements: SUBSTRATE_REBUILD_MODEL.requirements.map((r) => {
-        const day = `2026-07-${String(21 + (r.id % 6)).padStart(2, '0')}`;
-        if (r.requirement_status === 'met' || r.requirement_status === 'wontfix') {
-            return { ...r, started_at: null, completed_at: `${day}T08:00:00` };
-        }
-        if (r.requirement_status === 'development') {
-            return { ...r, started_at: `${day}T08:00:00`, completed_at: null };
-        }
-        return { ...r, started_at: null, completed_at: null };
-    }),
-};
-const timedSubstratePlan = orderedPlan(buildPipelineModel(TIMED_SUBSTRATE), { now: NOW });
 
 describe('time axis — the zero-overlap contract still holds at plan scale', () => {
     for (const combo of COMBOS) {

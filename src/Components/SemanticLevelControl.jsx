@@ -1,0 +1,111 @@
+// SemanticLevelControl.jsx — the shared "Detail: Auto | L1 | L2 | L3" selector
+// (extracted by req #3168 from BuildVisualizerControls.jsx, where req #2864
+// built it).
+//
+// WHY IT WAS EXTRACTED RATHER THAN COPIED. The user asked the Plan visualizer
+// for "the L1, L2, L3 and Auto selector used elsewhere" — i.e. the one they
+// already know. Two canvases in this app now do semantic zoom (the Konva Build
+// Visualizer and the Plan visualizer), both auto-select a level from the zoom
+// ratio, and both need the same escape hatch. A visually identical second copy
+// would be the same control with two places to change it, and the first
+// divergence would be invisible on either page alone.
+//
+// The three behaviours are the ones the Build Visualizer settled on, kept
+// verbatim because they are what the user has learned:
+//
+//   · Auto is a POSITION, not the absence of one — it is a chip you can click
+//     back to, and it is pressed while nothing is pinned.
+//   · Clicking the CURRENTLY PINNED level unpins it (back to Auto). A pinned
+//     control with no way out except a second control is a trap.
+//   · While on Auto, the level the canvas is actually rendering is SOFTLY marked
+//     (outlined in the primary colour, not filled), so the control reports the
+//     derived answer without claiming it was chosen.
+//
+// The control is deliberately ignorant of what a "level" MEANS. It speaks
+// `null | 1 | 2 | 3`; each canvas maps that to its own vocabulary — the Build
+// Visualizer's `autoLevel()` returns 1|2|3 directly, the Plan visualizer's
+// `semanticLevel()` returns 'out'|'mid'|'in' and is mapped in
+// `pipelinePlanLayout.js` (`PLAN_LEVEL_BY_PREF` / `PLAN_LEVEL_NUMBER`).
+//
+// `testIdPrefix` exists so the Build Visualizer keeps its `bv-level-*` test ids
+// byte-for-byte through the extraction: a shared component that renames the
+// hooks its existing callers are found by is a refactor with a blast radius,
+// which is precisely what extracting it was meant to avoid.
+
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+
+/**
+ * @param {Object} props
+ * @param {?number} props.pinnedLevel        null = auto-by-zoom; 1|2|3 = pinned
+ * @param {?number} props.effectiveLevel     the level actually being rendered
+ * @param {function} props.onChangePinnedLevel  receives null | 1 | 2 | 3
+ * @param {string} [props.testIdPrefix]      'bv' keeps the Build Visualizer's ids
+ * @param {string} [props.label]             the leading caption
+ * @param {React.ReactNode} [props.children] trailing controls inside the group
+ */
+export default function SemanticLevelControl({
+    pinnedLevel = null,
+    effectiveLevel = null,
+    onChangePinnedLevel,
+    testIdPrefix = 'semantic',
+    label = 'Detail:',
+    children = null,
+}) {
+    if (!onChangePinnedLevel) return null;
+    return (
+        <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+               data-testid={`${testIdPrefix}-level-control`}>
+            {label != null && (
+                // Omissible (req #3168): inside the Plan visualizer's key every
+                // section already carries its own uppercase caption, so the
+                // control's built-in "Detail:" would be a second label in a
+                // different typographic voice on the same row.
+                <Box component="span"
+                     sx={{ fontSize: '0.75rem', color: 'text.secondary', mr: 0.25 }}>
+                    {label}
+                </Box>
+            )}
+            <Chip
+                label="Auto"
+                size="small"
+                onClick={() => onChangePinnedLevel(null)}
+                {...(pinnedLevel == null
+                    ? { sx: { bgcolor: 'primary.main', color: 'primary.contrastText', cursor: 'pointer' } }
+                    : { variant: 'outlined', sx: { cursor: 'pointer' } })}
+                aria-pressed={pinnedLevel == null ? 'true' : 'false'}
+                data-testid={`${testIdPrefix}-level-auto`}
+            />
+            {[1, 2, 3].map((lvl) => {
+                const pinned = pinnedLevel === lvl;
+                // When on Auto, softly mark the level the zoom is currently at.
+                const isAutoActive = pinnedLevel == null && effectiveLevel === lvl;
+                return (
+                    <Chip
+                        key={lvl}
+                        label={`L${lvl}`}
+                        size="small"
+                        onClick={() => onChangePinnedLevel(pinned ? null : lvl)}
+                        {...(pinned
+                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
+                            : {
+                                variant: 'outlined',
+                                sx: {
+                                    cursor: 'pointer',
+                                    ...(isAutoActive && {
+                                        borderColor: 'primary.main',
+                                        color: 'primary.main',
+                                        fontWeight: 600,
+                                    }),
+                                },
+                            })}
+                        aria-pressed={pinned ? 'true' : 'false'}
+                        data-testid={`${testIdPrefix}-level-${lvl}`}
+                    />
+                );
+            })}
+            {children}
+        </Stack>
+    );
+}

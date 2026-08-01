@@ -30,11 +30,25 @@ import {
     rowMachineLabel,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
 import {
-    computePlanLayout, epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
+    computePlanLayout, REQ_LINE_H, K_READABLE,
+    epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
 
 // UTC so the seeded naive timestamps and the rendered ones agree on any host.
 test.use({ timezoneId: 'UTC' });
+
+// EXACTLY what PipelineDetail passes the visualizer now that the `Reqs:` and
+// `Step:` controls are gone (user directive 2026-08-01): the requirement marks
+// are always the vertical stack reserving their TITLE's box, and the step label
+// is always the title. Width is the one thing still chosen, and `pinPreferences`
+// pins it to `compact`. Every layout this spec computes for a click target uses
+// this object, so the spec and the page cannot disagree about the geometry.
+const PLAN_VIEW_OPTIONS = {
+    reqLayout: 'vertical' as const,
+    reqLabel: 'title' as const,
+    stepLabel: 'title' as const,
+    stepWidth: 'compact' as const,
+};
 
 // One seed for the whole file — ~200 gateway inserts is not something to repeat
 // per test, and every test is read-only against it.
@@ -96,12 +110,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     // setting only localStorage loses to a sessionStorage value an earlier
     // navigation in the same tab already wrote.
     //
-    // The two VISUALIZER preferences are pinned alongside the mode, because
-    // PIPE-11 computes canvas click coordinates from
-    // `computePlanLayout(..., {reqLayout: 'horizontal', stepLabel: 'id'})` and
-    // those must be the values the component is actually rendering. A stale
-    // storage value would move every coordinate and produce silent click misses
-    // rather than a legible failure.
+    // PIPE-11 computes canvas click coordinates from `computePlanLayout`, so its
+    // options must be the values the component is ACTUALLY rendering — a
+    // mismatch moves every coordinate and produces silent click misses rather
+    // than a legible failure. `PLAN_VIEW_OPTIONS` below is that single source.
+    //
+    // `req-layout` and `step-label` are NO LONGER PINNED: the user removed both
+    // controls (2026-08-01), so the page ignores whatever those keys hold. A pin
+    // that no longer influences the page is worse than no pin — it reads as a
+    // guarantee the page has stopped honouring.
     //
     // `addInitScript` accumulates and re-runs in registration order on every
     // navigation, so re-registering only when the requested mode CHANGES keeps
@@ -111,7 +128,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     // preferences to `vertical` + `title`, so a suite that pins horizontal/id
     // everywhere never exercises the view a real user opens. That gap hid a
     // real defect — the epic fit clipped its outermost step title, worst in the
-    // default pair — so PIPE-14 asks for the defaults explicitly.
+    // default pair — so PIPE-18 asks for the defaults explicitly.
     type Viz = { reqLayout: 'horizontal' | 'vertical'; stepLabel: 'id' | 'title' };
     const VIZ_COORDS: Viz = { reqLayout: 'horizontal', stepLabel: 'id' };
     const VIZ_PRODUCTION_DEFAULT: Viz = { reqLayout: 'vertical', stepLabel: 'title' };
@@ -129,8 +146,22 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 localStorage.setItem(k, v);
             };
             set('darwin-swarm-pipeline-detail-mode', m);
+            // INERT for the visualizer since req #3168 removed the `Reqs:` and
+            // `Step:` controls — the page no longer reads either key. Still
+            // written so the `Viz` parameter keeps its meaning for any caller
+            // that has not been re-pointed, and so a stale value from an older
+            // session cannot be mistaken for the cause of a failure.
             set('darwin-pipeline-viz-req-layout', rl);
             set('darwin-pipeline-viz-step-label', sl);
+            // Req #3168 — column width IS still a live preference, and it scales
+            // every column, so it belongs in the pin: PIPE-11's coordinates are
+            // computed from a layout, and a stale storage value would silently
+            // move every one of them.
+            set('darwin-pipeline-viz-step-width', 'compact');
+            // Req #3168 — the colour key is TRI-STATE ('state' | 'machine' |
+            // 'none'). Pinned to the default so PIPE-15's gesture starts from a
+            // known position and no other test inherits a previous one.
+            set('darwin-pipeline-viz-color-key', 'state');
         }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
@@ -454,22 +485,25 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
         const layout = computePlanLayout(plan.rows, plan.batches,
             { reqLayout: 'horizontal', stepLabel: 'id' });
-        type VizLabel = { kind: string; text: string };
+        type VizLabel = { kind: string; text: string; prose?: boolean };
         const labels = layout.labels as VizLabel[];
 
-        // Same scope split as the DOM sweep. `kind: 'title'` is the per-step
-        // detail line — the step's own stored title, truncated — and
-        // pipelinePlanLayout.js says so where it builds it: "ids render bare
-        // (production directive), titles render verbatim (stored plan content)".
-        const generated = labels.filter((l) => l.kind !== 'title')
+        // Same scope split as the DOM sweep, keyed on the label's OWN `prose`
+        // flag rather than on its kind (req #3168). It used to filter
+        // `kind !== 'title'`, which worked only while "stored content" and "the
+        // per-step detail line" were the same set. Since a requirement mark can
+        // now be EITHER a generated id or the requirement's stored NAME, kind no
+        // longer decides it — so the layout module states which it is, and this
+        // sweep reads that instead of inferring it.
+        const generated = labels.filter((l) => !l.prose)
             .map((l) => l.text).join(' ');
         expect(generated.match(/#\d+/g), 'generated canvas labels').toBeNull();
 
         // And the exclusion is EVIDENCED, not assumed: the fixture really does
         // carry a '#' inside stored prose (step 22's title names "#3077 R13"), so
-        // a sweep that covered titles would fail on content it must not rewrite.
-        const titles = labels.filter((l) => l.kind === 'title').map((l) => l.text).join(' ');
-        expect(titles, 'the fixture exercises the prose exclusion').toMatch(/#\d/);
+        // a sweep that covered it would fail on content it must not rewrite.
+        const prose = labels.filter((l) => l.prose).map((l) => l.text).join(' ');
+        expect(prose, 'the fixture exercises the prose exclusion').toMatch(/#\d/);
     });
 
     // ── PIPE-08 / 09 / 10 / 11: the Plan visualizer ────────────────────────
@@ -587,13 +621,20 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(kinds.has('step'), "the 'out' level has step labels to suppress").toBe(true);
         });
 
-    test('PIPE-10: the dashed batch box and its legend key appear only with a batch',
+    test('PIPE-10: the dashed batch box is drawn only on a plan that has a batch',
         async ({ page }) => {
-            // The box itself is canvas geometry and cannot be queried from the
-            // DOM, so it is asserted through the SAME layout the component
-            // renders from — while the legend key, which IS in the DOM, is
-            // asserted directly on both plans. Together they cover the directive:
-            // the key renders only when a box is actually drawn.
+            // RE-ANCHORED (req #3168). The box is canvas geometry, so this test
+            // used to prove it through the visualizer legend's conditional batch
+            // KEY — the only thing in the DOM that tracked it. The user directive
+            // stripping the key back to step marks + the requirement scale
+            // removed that proxy, so the component now publishes what it actually
+            // drew: `data-batch-boxes`, the same device and the same reasoning as
+            // `data-transform` beside it.
+            //
+            // This is STRICTLY BETTER evidence than the legend key was. The key
+            // was a second thing derived from the same flag, so a bug between the
+            // flag and the drawn rect was invisible to it; the count is the
+            // length of the array the canvas iterates to draw the boxes.
             const batchLayout = computePlanLayout(batchPlan.rows, batchPlan.batches,
                 { reqLayout: 'horizontal', stepLabel: 'id' });
             expect(batchPlan.batches).toHaveLength(1);
@@ -601,14 +642,22 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(batchLayout.batchBoxes[0].letter).toBe('A');
 
             await openPlanVisualizer(page, fixture.batchPipelineId);
-            await expect(page.getByTestId('pipeline-viz-batch-legend')).toBeVisible();
+            await expect(page.getByTestId('pipeline-plan-visualizer'))
+                .toHaveAttribute('data-batch-boxes', '1');
 
             const mainLayout = computePlanLayout(plan.rows, plan.batches,
                 { reqLayout: 'horizontal', stepLabel: 'id' });
             expect(mainLayout.batchBoxes).toEqual([]);
 
             await openPlanVisualizer(page, fixture.mainPipelineId);
-            await expect(page.getByTestId('pipeline-viz-batch-legend')).toHaveCount(0);
+            await expect(page.getByTestId('pipeline-plan-visualizer'))
+                .toHaveAttribute('data-batch-boxes', '0');
+
+            // The TABLE view's batch legend is untouched by the directive and
+            // still carries the conditional key — asserted in PIPE-04/04b. The
+            // two surfaces are checked separately on purpose: they are different
+            // renderings of one plan and a shared assertion would hide a
+            // regression in either.
         });
 
     test('PIPE-11: bead, requirement and epic click targets navigate', async ({ page }) => {
@@ -618,16 +667,26 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         // of pixels, on the 34-step plan it is a handful. This test is about the
         // click TARGETS existing and routing, not about the layout's density.
         const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
-            { reqLayout: 'horizontal', stepLabel: 'id' });
+            // `timeAxis` is part of the geometry since req #3201 — the page
+            // passes `plan.timeAxis`, and a layout computed without it puts the
+            // columns somewhere else, so every derived click coordinate misses.
+            { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
 
-        // The component fits the world to the canvas width and starts at
-        // zoomIdentity.scale(kBase), so world (x, y) sits at screen (x·k, y·k)
-        // measured from the canvas origin.
+        // The world-to-screen frame is READ from `data-transform`, not derived
+        // from the canvas width (req #3168). It used to be `k = width / world`,
+        // which was only true while the default view was fit-to-width; the
+        // default is now `max(fit, K_READABLE)`, so on a narrow panel the
+        // component legitimately starts zoomed in and every derived coordinate
+        // would miss its target by a growing margin. The attribute is the
+        // component's own answer and cannot disagree with what it drew.
         const frame = async () => {
             const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
             const box = (await canvas.boundingBox())!;
-            const k = box.width / layout.width;
-            return (x: number, y: number) => ({ x: box.x + x * k, y: box.y + y * k });
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const [tx, ty, k] = (await container.getAttribute('data-transform'))!
+                .split(',').map(Number);
+            return (x: number, y: number) =>
+                ({ x: box.x + tx + x * k, y: box.y + ty + y * k });
         };
 
         // Bead → Table mode, scrolled to and highlighting that row.
@@ -686,7 +745,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // all four sides". The first cut of this feature passed every other
             // mode and clipped in this one.
             const viz = VIZ_PRODUCTION_DEFAULT;
-            const layout = computePlanLayout(plan.rows, plan.batches, viz);
+            // The page renders with the WHOLE option set the merge produced:
+            // req #3201's time axis AND req #3168's width / label choices. A
+            // layout computed from `viz` alone puts the bands at different y,
+            // so the focus rectangle this test derives is for a plan the
+            // component is not drawing.
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { ...PLAN_VIEW_OPTIONS, ...viz, timeAxis: plan.timeAxis || null });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId, viz);
             const container = page.getByTestId('pipeline-plan-visualizer');
             const read = async () =>
@@ -710,10 +775,19 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // The component's own viewport, as the ResizeObserver rounds it.
             const box = (await canvas.boundingBox())!;
             const size = { w: Math.round(box.width), h: Math.round(box.height) };
-            const kBase = size.w / layout.width;
+            // THE OPENING SCALE IS `max(fit, K_READABLE)`, not fit-to-width.
+            // This test was written against the fit default and req #3168's
+            // "Default size = readable" replaced it: fit is a scale divided by
+            // plan size, so the bigger the plan the smaller the type, and the
+            // live plan opened illegible. The focus clamp reads the SAME anchor
+            // the zoom extent does (`kDefault`), so the value below is what
+            // `epicFocusTransform` must be handed — passing the fit scale here
+            // would test a camera the component never uses.
+            const kFit = size.w / layout.width;
+            const kBase = Math.max(kFit, K_READABLE);
 
             const [, , k0] = await read();
-            expect(k0, 'the plan opens fit-to-width').toBeCloseTo(kBase, 2);
+            expect(k0, 'the plan opens at the readable default').toBeCloseTo(kBase, 2);
 
             // The band whose chip is on screen at the opening transform. The
             // floating chip hides itself when its band is off-screen, so this
@@ -723,7 +797,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 if (b.epicId == null) continue;
                 if (await page.getByTestId(`pipeline-viz-epic-${b.key}`).count()) { band = b; break; }
             }
-            expect(band, 'at least one epic chip is on screen at fit-to-width').toBeTruthy();
+            expect(band, 'at least one epic chip is on screen at the default view').toBeTruthy();
 
             const want = epicFocusTransform(layout, band, size, kBase)!;
             expect(want, 'the band has a fit transform').toBeTruthy();
@@ -870,21 +944,31 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(page.getByTestId('pipeline-goal')).toHaveCount(0);
 
             // 2. The button is IN the header row (not merely somewhere on the
-            //    page) and at its right end — past the last chip, which is its
-            //    immediately preceding sibling and therefore on its own line
-            //    whether or not the row wrapped.
+            //    page) and it is the LAST thing in it.
+            //
+            //    ANCHORED ON DOM ORDER, not on a neighbour's box. The status and
+            //    machine chips it used to be measured against were removed on the
+            //    user's directive (2026-08-01), and a positional assertion
+            //    against whatever happens to precede it would have to be rewritten
+            //    every time that row changes — which it has, three times. "Last
+            //    child of the header row" is the claim the requirement actually
+            //    makes, and it is wrap-invariant for free.
             await expect(page.locator('[data-testid="pipeline-header-row"]'
                 + ' [data-testid="pipeline-description-btn"]')).toHaveCount(1);
             const btn = page.getByTestId('pipeline-description-btn');
             await expect(btn).toBeVisible();
-            const chipBox = (await page.getByTestId('pipeline-machine-chip').boundingBox())!;
-            const btnBox = (await btn.boundingBox())!;
-            expect(btnBox.y, 'the button shares the last chip\'s line')
-                .toBeLessThan(chipBox.y + chipBox.height);
-            expect(btnBox.y + btnBox.height, 'the button shares the last chip\'s line')
-                .toBeGreaterThan(chipBox.y);
-            expect(btnBox.x, 'the button is the LAST control on the row')
-                .toBeGreaterThan(chipBox.x + chipBox.width - 1);
+            const isLast = await page.evaluate(() => {
+                const row = document.querySelector('[data-testid="pipeline-header-row"]')!;
+                const b = row.querySelector('[data-testid="pipeline-description-btn"]')!;
+                // The button is wrapped in a Tooltip, so compare against the
+                // last ELEMENT child's subtree rather than the button itself.
+                return row.lastElementChild!.contains(b);
+            });
+            expect(isLast, 'the description button is the last control on the row')
+                .toBe(true);
+            // And the removed chips are really gone, not merely unqueried.
+            await expect(page.getByTestId('pipeline-status-chip')).toHaveCount(0);
+            await expect(page.getByTestId('pipeline-machine-chip')).toHaveCount(0);
 
             // 3. It opens the goal, editable, with the seeded text.
             await btn.click();
@@ -900,11 +984,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(dialog).toHaveCount(0);
             await expect(page.getByTestId('pipeline-goal')).toHaveCount(0);
 
-            // 5. THE POINT: the canvas starts immediately under the header row and
-            //    runs to the bottom of the viewport. The gate is the row's own
-            //    `mb: 1` (8px) plus slack — the ~90px description block this
-            //    replaced could not fit inside it, so this is a real regression
-            //    guard and not a tautology.
+            // 5. THE POINT: the canvas starts immediately under the last row of
+            //    chrome and runs to the bottom of the viewport. The gate is that
+            //    row's own `mb: 1` (8px) plus slack — the ~90px description block
+            //    this replaced could not fit inside it, so this is a real
+            //    regression guard and not a tautology.
+            //
+            //    RE-ANCHORED BACK onto `pipeline-header-row` (user directive
+            //    2026-08-01). Req #3168 briefly split the chrome into a pipeline
+            //    bar and a view bar and this assertion moved to the lower one;
+            //    the user rejected the split against production, so there is one
+            //    row again and it is the one that touches the panel. The claim
+            //    never changed — only which row has to satisfy it.
             //
             //    Both boxes are read AFTER the dialog has closed, never from a
             //    measurement taken before it opened: a modal that perturbed the
@@ -914,7 +1005,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const vizBox = (await page.getByTestId('pipeline-plan-visualizer')
                 .boundingBox())!;
             expect(vizBox.y - (headerBox.y + headerBox.height),
-                'no chrome between the header row and the canvas')
+                'no chrome between the view row and the canvas')
                 .toBeLessThanOrEqual(16);
             expect(vizBox.y + vizBox.height,
                 'the canvas runs to the bottom of the viewport')
@@ -927,5 +1018,425 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const canvasBox = (await canvas.boundingBox())!;
             expect(canvasBox.height, 'the Konva stage fills the container')
                 .toBeCloseTo(vizBox.height, -1);
+        });
+
+    // ── PIPE-18: the polish pass (req #3168) ───────────────────────────────
+    // Renumbered from PIPE-14 in the merge: req #3204 landed its own PIPE-14
+    // (epic focus) on main first, and two tests sharing an id makes a failure
+    // report ambiguous about which one broke.
+
+    test('PIPE-18: ONE header row, the width control, the next-step readout and reset',
+        async ({ page }) => {
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            await openPlanVisualizer(page, fixture.mainPipelineId);
+
+            // 1. ONE ROW (user directive 2026-08-01). Req #3168 split the chrome
+            //    into a pipeline bar and a view bar; looked at against
+            //    production it read as three rows of chrome before any plan, and
+            //    the user rejected it. So the claims invert: there is no second
+            //    row, and EVERYTHING lives on `pipeline-header-row` — mode
+            //    switch first, description button last.
+            //
+            //    WRAP-INVARIANT, like every other assertion about this row: it
+            //    carries the mode switch, four labelled toggle groups and the
+            //    level selector, so it legitimately wraps on a narrow viewport.
+            //    DOM containment and sibling order say the same thing at every
+            //    width; a y-coordinate comparison would not.
+            const headerRow = page.getByTestId('pipeline-header-row');
+            await expect(headerRow).toBeVisible();
+            await expect(page.getByTestId('pipeline-view-row'),
+                'the view row is gone, not hidden').toHaveCount(0);
+            for (const id of ['pipeline-detail-mode-toggle', 'pipeline-title',
+                'pipeline-accounting', 'pipeline-viz-stepwidth-toggle',
+                'pipeline-viz-colorkey-toggle', 'pipeline-description-btn']) {
+                await expect(page.locator(`[data-testid="pipeline-header-row"]`
+                    + ` [data-testid="${id}"]`), `${id} is on the one row`)
+                    .toHaveCount(1);
+            }
+            // What the 2026-08-01 directives took OFF this row, asserted as gone
+            // rather than merely unlisted — an element that quietly came back
+            // would otherwise re-crowd the row with nothing to notice it by.
+            // The `Reqs:` and `Step:` controls were removed outright; the level
+            // selector MOVED INTO THE KEY on the canvas, so it is absent here and
+            // present there (PIPE-16 owns that half).
+            for (const id of ['pipeline-viz-reqlayout-toggle',
+                'pipeline-viz-steplabel-toggle', 'pipeline-status-chip',
+                'pipeline-machine-chip']) {
+                await expect(page.getByTestId(id), `${id} is gone`).toHaveCount(0);
+            }
+            await expect(page.locator('[data-testid="pipeline-header-row"]'
+                + ' [data-testid="pipeline-viz-level-control"]'),
+            'the level selector left the header row').toHaveCount(0);
+            await expect(page.locator('[data-testid="pipeline-viz-legend"]'
+                + ' [data-testid="pipeline-viz-level-control"]'),
+            'the level selector is inside the key').toHaveCount(1);
+            // Production's order at the two ends that the user reads by: the mode
+            // switch opens the row and the description button closes it. Asserted
+            // by DOM position among the row's own children, so a wrap cannot
+            // change the answer.
+            const ends = await page.evaluate(() => {
+                const row = document.querySelector('[data-testid="pipeline-header-row"]')!;
+                const ids = Array.from(row.children).map((el) => {
+                    const own = (el as HTMLElement).dataset.testid;
+                    if (own) return own;
+                    const inner = el.querySelector('[data-testid]');
+                    return inner ? inner.getAttribute('data-testid') : null;
+                });
+                return { first: ids[0], last: ids[ids.length - 1] };
+            });
+            expect(ends.first, 'the mode switch opens the row')
+                .toBe('pipeline-detail-mode-toggle');
+            expect(ends.last, 'the description button closes the row')
+                .toBe('pipeline-description-btn');
+
+            // 1b. WHAT THE ONE ROW COSTS, measured rather than guessed. Merging
+            //     the bars back put the mode switch, the plan's identity and
+            //     accounting, FOUR labelled toggle groups, the level selector and
+            //     three trailing controls on one line — so it wraps, and the user
+            //     should hear the width from us. Measured as the row's own
+            //     natural content width plus the page chrome around it; no
+            //     viewport sweep, so it costs the suite nothing.
+            const rowCost = await page.evaluate(() => {
+                const row = document.querySelector(
+                    '[data-testid="pipeline-header-row"]') as HTMLElement;
+                const gap = parseFloat(getComputedStyle(row).gap) || 0;
+                const kids = Array.from(row.children) as HTMLElement[];
+                let content = 0;
+                let n = 0;
+                for (const k of kids) {
+                    const w = k.getBoundingClientRect().width;
+                    if (w < 0.5) continue;
+                    n += 1;
+                    // The flexGrow spacer absorbs slack and is not content.
+                    if (!k.dataset.testid && !k.textContent?.trim()
+                        && k.children.length === 0) continue;
+                    content += w;
+                }
+                const chrome = window.innerWidth - row.getBoundingClientRect().width;
+                return {
+                    content: Math.round(content + gap * Math.max(0, n - 1)),
+                    chrome: Math.round(chrome),
+                    rowHeight: Math.round(row.getBoundingClientRect().height),
+                };
+            });
+            // eslint-disable-next-line no-console
+            console.log(`[PIPE-18] header row natural content=${rowCost.content}px `
+                + `chrome=${rowCost.chrome}px wraps below ~`
+                + `${rowCost.content + rowCost.chrome}px viewport `
+                + `(height at 1800px = ${rowCost.rowHeight}px)`);
+            // It fits one line on a wide desktop and is honest about needing one.
+            expect(rowCost.content, 'the one row is wider than a 1440px laptop')
+                .toBeGreaterThan(1000);
+
+            // 2. The step-width control widens the WORLD, read from `data-world`.
+            //
+            //    Deliberately NOT `data-transform`: on this plan the default
+            //    scale is already the readable floor (measured 0.8, i.e.
+            //    fit-to-width is BELOW it), so widening the columns lowers the
+            //    fit scale further and the transform does not move at all. That
+            //    is the readable default behaving correctly, and it makes the
+            //    transform blind to this control. The scroll rail used to be this
+            //    observable; the rails were removed on the user's directive
+            //    (2026-08-01), so the component publishes the world instead.
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            await expect(page.getByTestId('pipeline-viz-rail-h'),
+                'the scroll rails are gone, not hidden').toHaveCount(0);
+            await expect(page.getByTestId('pipeline-viz-rail-v')).toHaveCount(0);
+            const worldW = async () => Number(
+                (await container.getAttribute('data-world'))!.split(',')[0]);
+            const beforeW = await worldW();
+            expect(beforeW, 'the world is published').toBeGreaterThan(0);
+            const widthToggle = page.getByTestId('pipeline-viz-stepwidth-toggle');
+            await expect(widthToggle).toBeVisible();
+            // By VALUE, not by accessible name: the buttons read "Width: S",
+            // "M", "L" and Playwright's name match is a case-insensitive
+            // substring, so `name: 'L'` also matches "Column width — compact".
+            await widthToggle.locator('button[value="wide"]').click();
+            await expect.poll(worldW,
+                { message: 'Width: L must widen the world' })
+                .toBeGreaterThan(beforeW);
+
+            // 3. The next-step readout is GONE (user directive 2026-08-01). The
+            //    halo on the beads is the whole mark; a corner chip restating it
+            //    in text was chrome over the plan. Asserted as absent so it
+            //    cannot creep back in.
+            await expect(page.getByTestId('pipeline-viz-next-steps')).toHaveCount(0);
+
+            // 4. Reset returns the view to the default scale after a pan.
+            const canvas = container.locator('canvas').first();
+            const box = (await canvas.boundingBox())!;
+            const atDefault = (await container.getAttribute('data-transform'))!;
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2 - 200, box.y + box.height / 2,
+                { steps: 10 });
+            await page.mouse.up();
+            await expect(container).not.toHaveAttribute('data-transform', atDefault);
+            await page.getByTestId('pipeline-viz-reset').click();
+            await expect(container).toHaveAttribute('data-transform', atDefault);
+
+            // 5. And the panel still clips — the rails are an overlay, not a
+            //    scrollbar, so the PIPE-08 directive is untouched by them.
+            const overflow = await page.evaluate(() => {
+                const el = document.querySelector(
+                    '[data-testid="pipeline-plan-visualizer"]') as HTMLElement;
+                return {
+                    overflowX: getComputedStyle(el).overflowX,
+                    document: document.documentElement.scrollWidth
+                        - document.documentElement.clientWidth,
+                };
+            });
+            expect(overflow.overflowX).toBe('hidden');
+            expect(overflow.document).toBeLessThanOrEqual(0);
+        });
+
+    // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────
+
+    test('PIPE-15: the key defines both channels at ONE size, and the colour key is tri-state',
+        async ({ page }) => {
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            await openPlanVisualizer(page, fixture.mainPipelineId);
+
+            const key = page.getByTestId('pipeline-viz-legend');
+            const reqScale = page.getByTestId('pipeline-viz-legend-reqscale');
+            const toggle = page.getByTestId('pipeline-viz-colorkey-toggle');
+            const stateBtn = toggle.locator('button[value="state"]');
+            const machineBtn = toggle.locator('button[value="machine"]');
+            const scaleOf = (name: string) =>
+                page.getByTestId(`pipeline-viz-legend-scale-${name}`);
+
+            // 1. THE KEY IS THE TWO CHANNELS A READER DECODES, and nothing else.
+            //    The user's second pass removed the heading, the small-print
+            //    footer and the plan-level rows; what remains must still cover
+            //    every mark on the canvas that carries meaning.
+            await expect(key).toBeVisible();
+            const keyBox = (await key.boundingBox())!;
+            const panelBox = (await page.getByTestId('pipeline-plan-visualizer')
+                .boundingBox())!;
+            expect(keyBox.x - panelBox.x, 'the key is in the RIGHT half of the panel')
+                .toBeGreaterThan(panelBox.width / 2);
+            expect(keyBox.y - panelBox.y, 'the key is at the TOP of the panel')
+                .toBeLessThan(40);
+            for (const mark of ['Complete', 'Running', 'Scheduled', 'Manual', 'next up']) {
+                await expect(key, `the key names "${mark}"`).toContainText(mark);
+            }
+            // …and the removals are asserted as ABSENT so they cannot creep back.
+            await expect(key).not.toContainText('band = epic');
+            await expect(key).not.toContainText('/swarm-start');
+            await expect(key).not.toContainText('size carries no meaning');
+            await expect(key).not.toContainText('motion = live');
+            // The heading is gone; the requirement group is labelled plainly.
+            // CASE-INSENSITIVE: the caption is uppercased by `text-transform`,
+            // so its rendered case and its text content are different things.
+            // Asserting the styled form pins a CSS choice, not the content.
+            await expect(reqScale).toContainText(/requirement/i);
+            await expect(reqScale).not.toContainText('Requirement id');
+
+            // 2. THE SWATCH IS THE WORD. Each status name is drawn in its own
+            //    colour rather than beside a sample id — asserted through the
+            //    fixture's own statuses and through the absence of the sample.
+            await expect(stateBtn).toHaveAttribute('aria-pressed', 'true');
+            const seededStatuses = [...new Set(fixture.models.main.requirements
+                .map((r) => String(r.requirement_status)))];
+            expect(seededStatuses.length,
+                'the fixture exercises more than one requirement status')
+                .toBeGreaterThan(1);
+            for (const st of seededStatuses) {
+                await expect(scaleOf('state'), `the scale lists "${st}"`)
+                    .toContainText(st.replace('_', '-'));
+            }
+            await expect(scaleOf('state')).not.toContainText('42');
+            // Each name really is coloured, and no two share a colour.
+            const colors = await scaleOf('state').locator('span, p').evaluateAll(
+                (els) => els.map((el) => getComputedStyle(el).color)
+                    .filter((c) => c && c !== 'rgba(0, 0, 0, 0)'));
+            expect(new Set(colors).size, 'each status name has its own colour')
+                .toBe(colors.length);
+
+            // 3. ONE FOOTPRINT ACROSS MODES — the user's complaint was that "when
+            //    I select machine view the key gets too small". All three scales
+            //    occupy one grid cell, so the box cannot change size when the
+            //    mode does. Measured, not assumed.
+            const sizeNow = async () => {
+                const b = (await key.boundingBox())!;
+                return { w: Math.round(b.width), h: Math.round(b.height) };
+            };
+            const atState = await sizeNow();
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'true');
+            await expect(scaleOf('machine')).toBeVisible();
+            expect(await sizeNow(), 'machine mode must not resize the key')
+                .toEqual(atState);
+
+            // 4. THE TRI-STATE GESTURE, exactly as the directive states it:
+            //    click Machine again → no colouring at all.
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
+            await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
+            await expect(scaleOf('none')).toContainText('no colour key');
+            expect(await sizeNow(), 'the neutral mode must not resize the key either')
+                .toEqual(atState);
+            //    …and the third position is reachable from either button.
+            await stateBtn.click();
+            await expect(stateBtn).toHaveAttribute('aria-pressed', 'true');
+            await stateBtn.click();
+            await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
+
+            // 5. It still costs the epic labels no chip — the key's measured rect
+            //    is their keep-out, and collapsing it is the control for that
+            //    claim: a key that were stealing the corner would let MORE chips
+            //    draw once collapsed.
+            await stateBtn.click();
+            const chips = page.locator('[data-testid^="pipeline-viz-epic-"]');
+            const withKeyOpen = await chips.count();
+            expect(withKeyOpen, 'the fixture draws epic chips to protect')
+                .toBeGreaterThan(0);
+            await page.getByTestId('pipeline-viz-legend-toggle').click();
+            await expect(reqScale).toHaveCount(0);
+            await expect.poll(async () => (await key.boundingBox())!.height,
+                { message: 'collapsing the key shrinks its measured rect' })
+                .toBeLessThan(keyBox.height);
+            await expect(key).toBeVisible();
+            await expect(chips,
+                'the key costs the epic labels no chip vs. the collapsed one')
+                .toHaveCount(withKeyOpen);
+            await page.getByTestId('pipeline-viz-legend-toggle').click();
+            await expect(reqScale).toBeVisible();
+        });
+
+    // ── PIPE-16: step labels at every level, and the L1/L2/L3/Auto selector ──
+
+    test('PIPE-16: the level selector pins what is DRAWN without moving the camera',
+        async ({ page }) => {
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const chip = page.getByTestId('pipeline-viz-zoom-level');
+            const control = page.getByTestId('pipeline-viz-level-control');
+
+            // 1. It is the Build Visualizer's control, reused — same shape, same
+            //    labels, same Auto-is-a-position behaviour, one component.
+            await expect(control).toBeVisible();
+            await expect(control).toContainText('Detail:');
+            for (const id of ['auto', '1', '2', '3']) {
+                await expect(page.getByTestId(`pipeline-viz-level-${id}`)).toBeVisible();
+            }
+            await expect(page.getByTestId('pipeline-viz-level-auto'))
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container).toHaveAttribute('data-level', 'mid');
+            await expect(chip).toContainText('Plan');
+            await expect(chip).not.toContainText('pinned');
+
+            // 2. PINNING CHANGES WHAT IS DRAWN, NOT WHERE THE CAMERA IS. The
+            //    transform must be byte-identical across a pin — that is the
+            //    whole distinction between this control and a zoom button.
+            const before = (await container.getAttribute('data-transform'))!;
+            const atMid = await canvas.screenshot();
+
+            await page.getByTestId('pipeline-viz-level-1').click();
+            await expect(page.getByTestId('pipeline-viz-level-1'))
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container).toHaveAttribute('data-level', 'out');
+            await expect(chip).toContainText('Overview');
+            await expect(chip, 'a pinned level says so').toContainText('pinned');
+            expect(await container.getAttribute('data-transform'),
+                'pinning a level must not move the camera').toBe(before);
+            const atOut = await canvas.screenshot();
+            expect(Buffer.compare(atMid, atOut),
+                'pinning redraws the canvas at the new level').not.toBe(0);
+
+            await page.getByTestId('pipeline-viz-level-3').click();
+            await expect(container).toHaveAttribute('data-level', 'in');
+            await expect(chip).toContainText('Detail');
+            expect(await container.getAttribute('data-transform')).toBe(before);
+
+            // 3. Clicking the pinned level again returns to Auto — the Build
+            //    Visualizer's own escape hatch, so a pin is never a trap.
+            await page.getByTestId('pipeline-viz-level-3').click();
+            await expect(page.getByTestId('pipeline-viz-level-auto'))
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container).toHaveAttribute('data-level', 'mid');
+            await expect(chip).not.toContainText('pinned');
+
+            // 4. STEP LABELS DRAW AT EVERY LEVEL, Overview included (user
+            //    directive 2026-08-01). The canvas is a bitmap, so the component
+            //    publishes which label kinds it drew — `data-drawn`, the same
+            //    device as `data-transform` beside it and for the same reason: a
+            //    screenshot at Overview looks identical whether the labels are
+            //    there or not unless you already hold the other version, so a
+            //    pixel comparison here would prove nothing.
+            //
+            //    The ladder itself is asserted whole, because "step at every
+            //    level" is only meaningful next to the kinds that ARE gated.
+            const drawnAt = async (lvl: string) => {
+                await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
+                return container.getAttribute('data-drawn');
+            };
+            expect(await drawnAt('1'), 'Overview draws step labels').toBe('step');
+            expect(await drawnAt('2'), 'Plan adds the requirement marks')
+                .toBe('step,req');
+            expect(await drawnAt('3'), 'Detail adds the per-step title slot')
+                .toBe('step,req,title');
+            // And the plan really has step labels to draw, or the attribute
+            // above would be describing an empty set.
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { reqLayout: 'horizontal', stepLabel: 'id' });
+            expect(layout.labels.filter((l: { kind: string }) => l.kind === 'step').length,
+                'the plan has one step label per row').toBe(plan.rows.length);
+        });
+
+    // ── PIPE-17: requirement titles under the bead (req #3168) ──────────────
+
+    test('PIPE-17: requirement marks become TITLES at L3, and the camera does not move',
+        async ({ page }) => {
+            // The `Reqs:` control is GONE (user directive 2026-08-01) — the marks
+            // are always the vertical stack, and the id/title choice is no longer
+            // a control at all: it is the LEVEL. "L3 can have the req titles on
+            // by default", so L1/L2 draw the id and L3 draws the name.
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+
+            await expect(page.getByTestId('pipeline-viz-reqlayout-toggle'),
+                'the Reqs control is gone, not hidden').toHaveCount(0);
+
+            // L2 — ids under the beads.
+            await page.getByTestId('pipeline-viz-level-2').click();
+            await expect(container).toHaveAttribute('data-level', 'mid');
+            const beforeTransform = (await container.getAttribute('data-transform'))!;
+            const withIds = await canvas.screenshot();
+
+            // L3 — the same marks, now naming their requirements.
+            await page.getByTestId('pipeline-viz-level-3').click();
+            await expect(container).toHaveAttribute('data-level', 'in');
+            const withTitles = await canvas.screenshot();
+
+            // THE MARKS CHANGED…
+            expect(Buffer.compare(withIds, withTitles),
+                'the requirement marks must actually change at L3').not.toBe(0);
+            // …AND THE CAMERA DID NOT. This is the invariant that made the
+            // layout reserve the TITLE's box at every level and let the renderer
+            // choose the text: a level change is a pure redraw, never a re-fit,
+            // so nothing under the pointer moves as the reader crosses L2→L3.
+            expect(await container.getAttribute('data-transform'),
+                'crossing a level must not re-fit the plan').toBe(beforeTransform);
+
+            // The geometry the page renders from is ONE layout — the title's —
+            // at every level, which is what the camera assertion above depends
+            // on. Against the id layout it is identical HORIZONTALLY (the user's
+            // "I do not want any other spacing to have to change") and taller by
+            // exactly the swim lane the later directive asked for: one line per
+            // lane, so a lone title can alternate clear of its neighbours.
+            const asTitles = computePlanLayout(plan.rows, plan.batches, {
+                ...PLAN_VIEW_OPTIONS,
+                reqTitles: new Map(fixture.models.main.requirements.map(
+                    (r) => [r.id, `Requirement ${r.id}`])),
+            });
+            const asIds = computePlanLayout(plan.rows, plan.batches,
+                { ...PLAN_VIEW_OPTIONS, reqLabel: 'id' });
+            expect(asTitles.colW).toEqual(asIds.colW);
+            expect(asTitles.width).toBe(asIds.width);
+            const lanes = asIds.bands.reduce((sum, b) => sum + b.sub, 0);
+            expect(asTitles.height - asIds.height).toBe(lanes * REQ_LINE_H);
         });
 });
