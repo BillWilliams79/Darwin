@@ -29,6 +29,7 @@ import {
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
+    EPIC_PALETTE,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -1199,6 +1200,26 @@ const deltaE = (a, b) => {
     const A = toLab(a);
     const B = toLab(b);
     return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
+};
+// HSL hue (degrees) and saturation (0-1) — standard colorsys-equivalent
+// arithmetic, needed for the epic-palette guard below: WCAG contrast alone
+// cannot tell "dark and vivid" from "dark and dirty", which is exactly the axis
+// saturation measures.
+const hueSat = (hex) => {
+    const [r, g, b] = channels(hex).map((c) => c / 255);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0 };
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    return { h, s };
 };
 
 describe('requirement-status colour scale (req #3168, directive 1)', () => {
@@ -2807,5 +2828,152 @@ describe('time ruler (req #3207)', () => {
 
     it('renders a tick with no # — the production directive covers generated text', () => {
         for (const l of rulerLabels(timedLayout)) expect(l.text).not.toContain('#');
+    });
+});
+
+// ── The epic band palette (req #3219, "no brown, no muddy tones on dark") ───
+//
+// DIRT NEVER COMES BACK. Two dimensions, per the requirement: every entry must
+// clear a contrast floor against the ACTUAL panel (read from PLAN_VIZ_PALETTE,
+// never a second hardcoded copy) and a saturation floor, with BOTH floors
+// raised for the warm hue range where dirt lives (orange through yellow — and,
+// per brown's own hue, the red-orange approach to it).
+//
+// THE THRESHOLDS, measured against the colours being kept and the colours being
+// removed (2026-08-01):
+//   general contrast >= 2.7 — below every kept colour's floor (pink 2.94, the
+//     tightest) and above both roundly-rejected values (old indigo 2.23, brown
+//     1.85).
+//   general saturation >= 0.55 — below every kept colour's floor (pink 0.78,
+//     the tightest) and above both rejected values (old indigo 0.50, brown
+//     0.26).
+//   warm range: hue in [10, 70) — covers brown (14.2) and orange (21.8-30.4)
+//     without reaching pink's 336.4 or any of the cool hues.
+//   warm contrast >= 6.5, warm saturation >= 0.85 — the raised floor. The
+//     load-bearing case is the OLD orange (#f57c00): it clears the general
+//     floor easily (6.39, 1.00) and would pass a one-dimensional guard, which
+//     is exactly the "clears the floor and still reads muddy" failure the
+//     requirement names. The new orange (7.75, 1.00) clears the raised floor
+//     with margin; brown fails it far more decisively than the general floor
+//     alone (0.26 saturation against an 0.85 requirement).
+const EPIC_PANEL = PLAN_VIZ_PALETTE.panel;
+const EPIC_GENERAL_MIN_CONTRAST = 2.7;
+const EPIC_GENERAL_MIN_SAT = 0.55;
+const EPIC_WARM_HUE_MIN = 10;
+const EPIC_WARM_HUE_MAX = 70;
+const EPIC_WARM_MIN_CONTRAST = 6.5;
+const EPIC_WARM_MIN_SAT = 0.85;
+
+// Returns null if `hex` clears the guard, else a human-readable reason naming
+// the value and the numbers it failed on — a bare assertion failure teaches
+// nobody, per the requirement's own instruction.
+function epicPaletteViolation(hex, label) {
+    // `channels()` decodes only 6-digit `#rrggbb` — a shorthand, an 8-digit
+    // alpha hex or an rgb() string would silently measure the WRONG bytes
+    // (e.g. `#7c4dffcc` decodes as `#4dffcc`, a different colour) rather than
+    // failing, so an out-of-format entry is rejected here before it is ever
+    // measured.
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) return `${label} ${hex}: unsupported colour format`;
+    const c = contrast(hex, EPIC_PANEL);
+    const { h, s } = hueSat(hex);
+    const warm = h >= EPIC_WARM_HUE_MIN && h < EPIC_WARM_HUE_MAX;
+    const minC = warm ? EPIC_WARM_MIN_CONTRAST : EPIC_GENERAL_MIN_CONTRAST;
+    const minS = warm ? EPIC_WARM_MIN_SAT : EPIC_GENERAL_MIN_SAT;
+    const fails = [];
+    if (c < minC) fails.push(`contrast ${c.toFixed(2)} below the ${warm ? 'warm' : 'general'} floor of ${minC}`);
+    if (s < minS) fails.push(`saturation ${s.toFixed(2)} below the ${warm ? 'warm' : 'general'} floor of ${minS}`);
+    if (fails.length === 0) return null;
+    const tag = warm ? `warm hue at ${h.toFixed(1)}°` : `hue ${h.toFixed(1)}°`;
+    return `${label} ${hex}: ${tag}, ${fails.join(', ')}`;
+}
+
+describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
+    it('has no browns and no muddy tones — every entry clears the two-dimensional guard, '
+        + 'at whatever length the palette ends up', () => {
+        const violations = EPIC_PALETTE
+            .map((hex, i) => epicPaletteViolation(hex, `entry ${i}`))
+            .filter(Boolean);
+        expect(violations).toEqual([]);
+    });
+
+    it('is separable — no two entries read as the same colour', () => {
+        // Same discipline and floor as the requirement-status scale above: 20
+        // is low enough not to fail on a nudge, high enough that a palette
+        // collapsing two entries into one hue cannot pass.
+        let worst = { pair: null, d: Infinity };
+        for (let i = 0; i < EPIC_PALETTE.length; i++) {
+            for (let j = i + 1; j < EPIC_PALETTE.length; j++) {
+                const d = deltaE(EPIC_PALETTE[i], EPIC_PALETTE[j]);
+                if (d < worst.d) worst = { pair: `${i}/${j}`, d };
+            }
+        }
+        expect(worst.d, `closest pair ${worst.pair}`).toBeGreaterThanOrEqual(20);
+    });
+
+    it('covers the live epic count with no positional wraparound collision', () => {
+        // MEASURED 2026-08-01: pipeline 2 ("Darwin", the live plan) carries 7
+        // active epics. The palette must be at least that long, or the
+        // positional cycle (see below) hands two on-screen bands the same
+        // colour — the exact regression this requirement was filed over (six
+        // entries against seven epics, two sharing a hue).
+        expect(EPIC_PALETTE.length).toBeGreaterThanOrEqual(7);
+    });
+
+    it('rejects the specific values this requirement removed, proving the guard has teeth',
+        () => {
+            // Brown fails on BOTH dimensions, decisively.
+            expect(epicPaletteViolation('#5d4037', 'brown'))
+                .toMatch(/contrast .* below .*, saturation .* below/);
+            // The old indigo — "low separation from the panel" — fails BOTH
+            // general floors too (contrast 2.23 < 2.7 AND saturation 0.50 <
+            // 0.55); pinned exact so a change that quietly dropped the
+            // saturation floor would still be caught here.
+            expect(epicPaletteViolation('#3949ab', 'old indigo')).toBe(
+                'old indigo #3949ab: hue 231.6°, contrast 2.23 below the general floor of 2.7, '
+                + 'saturation 0.50 below the general floor of 0.55');
+            // The old orange is the case that motivates the warm floor at all:
+            // it clears the GENERAL floor (a one-dimensional guard would pass
+            // it) and fails only the raised warm-hue contrast requirement.
+            expect(epicPaletteViolation('#f57c00', 'old orange'))
+                .toBe('old orange #f57c00: warm hue at 30.4°, contrast 6.39 below the warm floor of 6.5');
+            expect(epicPaletteViolation('#f57c00', 'x')).not.toBeNull();
+        });
+
+    it('assigns band colour by POSITION AFTER THE SORT, not by discovery order or epic '
+        + 'identity — the documented, deliberate choice (req #3219)', () => {
+        const mk = (id, epicId, epic) => ({
+            id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+            depIds: [], timeDeps: [], epicId, epic,
+            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        });
+        const n = EPIC_PALETTE.length + 2; // headroom over the palette length,
+        // so the wrap below is exercised at whatever length EPIC_PALETTE is,
+        // rather than the test pinning that length to a literal.
+        //
+        // Rows are discovered in DESCENDING epic id (n, n-1, …, 1). With no
+        // `timeAxis` every band ties into the same tier (bandTierOf), so the
+        // sort falls through to epic id ASCENDING — the OPPOSITE of discovery
+        // order. That inversion is the point: colour is assigned via
+        // `bandKeys.forEach((key, i) => ... EPIC_PALETTE[i % len])` AFTER
+        // `bandKeys.sort(...)` runs (pipelinePlanLayout.js, "Colour AFTER the
+        // sort"). If that assignment were moved back above the sort — coloured
+        // at discovery time instead — epic id n (discovered first) would take
+        // EPIC_PALETTE[0]. The real code path instead hands EPIC_PALETTE[0] to
+        // epic id 1, which sorts first despite being discovered LAST. Asserting
+        // `bands[].epicId` is ascending is what proves the sort actually ran;
+        // asserting `bands[].color` against `EPIC_PALETTE[i % len]` on THAT
+        // (sorted, not discovery) order is what proves colour follows it.
+        const rows = Array.from({ length: n }, (_, i) => mk(i + 1, n - i, `E${n - i}`));
+        const layout = computePlanLayout(rows, []);
+        expect(layout.bands.map((b) => b.epicId))
+            .toEqual(Array.from({ length: n }, (_, i) => i + 1));
+        expect(layout.bands.map((b) => b.color)).toEqual(
+            Array.from({ length: n }, (_, i) => EPIC_PALETTE[i % EPIC_PALETTE.length]));
+        // The wrap is real, at whatever length the palette is: the band at
+        // index EPIC_PALETTE.length reuses band 0's colour though they are
+        // different epics.
+        const wrapIdx = EPIC_PALETTE.length;
+        expect(layout.bands[wrapIdx].color).toBe(layout.bands[0].color);
+        expect(layout.bands[wrapIdx].epicId).not.toBe(layout.bands[0].epicId);
     });
 });
