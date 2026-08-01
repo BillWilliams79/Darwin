@@ -494,7 +494,7 @@ const STAGGER_REACH = 0.4;
 // is only the ceiling that stops a pathological title from running forever.
 const TITLE_COL_MIN = 144;
 export const PLAN_VIZ_FONT = {
-    label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9,
+    label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9, slot: 13,
 };
 
 export const BEAD_RADIUS = BEAD_R;
@@ -760,6 +760,169 @@ export function computeTimeColumns(rows, byId, depsOf, timeAxis) {
     return { colOf, maxCol, slotKeys, slotOf, origins, spans };
 }
 
+// ── The TIME RULER (req #3207) ─────────────────────────────────────────────
+// #3201 made the columns a calendar and stopped there: `layout.slots` was
+// exported and tested, and nothing drew it. The columns were ORDERED by time
+// and a reader could not READ them as dates.
+//
+// Three marks, because each answers a different question and none of them is a
+// restatement of another (the ONE FACT, ONE CHANNEL rule above):
+//
+//   · the STRIP says WHICH day a column is. It is world text at the top of the
+//     plan, so it scrolls off when you pan down — which is exactly why it is
+//     not the only mark.
+//   · the SEPARATORS say WHERE a day begins. Full-height rules at slot origins,
+//     readable at any vertical pan.
+//   · the FUTURE TINT says where the not-yet-begun region starts. That boundary
+//     is the single thing a plan is most often opened to find, and a rule alone
+//     does not say which SIDE of it is the future.
+//
+// THE HEIGHT IS RESERVED UNCONDITIONALLY. Zoom is a pure transform on this
+// surface (deviation 2) — no semantic level and no plan shape may change the
+// geometry — so the strip costs `RULER_H` on every plan including the
+// degenerate no-time-axis one, where the single slot is honestly labelled
+// `undated` rather than the reservation being conditionally skipped.
+export const RULER_H = 36;
+const RULER_LABEL_Y = 12;
+const RULER_LABEL_H = 15;
+// px per mono char at font 13. Derived from the module's own ~0.61 px/pt mono
+// metric (CHW_REQ 8.4/13.75, CHW_LABEL 10.05/16.5, CHW_EPIC 9.15/15 are all
+// 0.609–0.611), not eyeballed separately — a ruler metric that drifted from the
+// others would make the overlap contract narrower for this one class of text.
+const CHW_SLOT = 7.93;
+// The clear gap two consecutive ruler labels must leave. Drives the degradation
+// pass below; a plan with more slots than room simply draws fewer labels.
+const RULER_LABEL_GAP = 10;
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Whole days between two ISO 'YYYY-MM-DD' strings. Parsed as UTC midnights on
+// purpose: a slot key IS a calendar day with no time and no zone, and
+// `new Date('2026-07-28')` in a browser west of UTC is the 27th locally — which
+// would make a same-day pair read as a one-day gap.
+const dayNumber = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!m) return null;
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000;
+};
+
+/**
+ * The text one ruler tick draws.
+ *
+ * `showYear` is decided by the CALLER, not by this function, because it is a
+ * property of the SEQUENCE rather than of the date. `computeRuler` sets it on
+ * the FIRST dated slot and on every slot whose year differs from its
+ * predecessor — so a plan that never crosses a year reads
+ * `Jul 21 '26, Jul 22, Jul 23…`: ONE anchored label, bare days after it.
+ *
+ * The anchor is not free — it costs the first tick ~40px, and on a tight ruler
+ * that is enough to thin the tick beside it (measured: `Jul 22` on the timed
+ * Substrate fixture). It is still the right trade. Two ambiguous `Jul 28`s a
+ * year apart on one axis is the lie this exists to prevent, and an axis with
+ * no year ANYWHERE is a date strip a reader cannot resolve at all — the year
+ * has to be on the first tick to anchor the whole sequence, not only the half
+ * that follows a boundary.
+ */
+export function slotTickText(slot, showYear = false) {
+    if (!slot) return '';
+    if (slot.kind === 'future') return 'future';
+    if (slot.kind !== 'dated' || !slot.day) return 'undated';
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(slot.day);
+    if (!m) return String(slot.day);
+    const base = `${MONTH_ABBR[Number(m[2]) - 1] || m[2]} ${Number(m[3])}`;
+    return showYear ? `${base} '${m[1].slice(2)}` : base;
+}
+
+/**
+ * Turn the ordered slots into drawable ruler geometry.
+ *
+ * PURE, and separated from `computePlanLayout` so the degradation rule is
+ * testable on a synthetic 200-slot axis without building a 200-column plan.
+ *
+ * @param {Object[]} slots   `layout.slots` shape — {key, kind, day, origin}
+ * @param {number[]} colX    column centres
+ * @param {number[]} colW    column widths
+ * @param {number} totalW    world width
+ * @returns {{h: number, slots: Object[], futureX: ?number}}
+ */
+export function computeRuler(slots, colX, colW, totalW) {
+    const out = [];
+    let prevDay = null;
+    let prevYear = null;
+    for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        const d = colX[s.origin] === undefined
+            ? 0 : colX[s.origin] - colW[s.origin] / 2;
+        // The slot's right edge is where the NEXT slot begins — not the right
+        // edge of its own last column. Columns between two origins belong to
+        // this slot (that is what `origin` means), so bounding by the origin
+        // column alone would draw a day one column wide on a day that ran five.
+        const next = slots[i + 1];
+        const nx = next && colX[next.origin] !== undefined
+            ? colX[next.origin] - colW[next.origin] / 2
+            : Math.max(d, totalW - RIGHT);
+        const dn = s.kind === 'dated' ? dayNumber(s.day) : null;
+        const year = s.kind === 'dated' && s.day ? s.day.slice(0, 4) : null;
+        out.push({
+            key: s.key, kind: s.kind, day: s.day, origin: s.origin,
+            x: d, w: Math.max(0, nx - d),
+            // Sparse in TIME though dense in COLUMNS: 07-28 and 07-31 are
+            // adjacent slots two days apart. `gapDays` is that distance, and the
+            // renderer draws a gapped boundary DASHED — the dashes are the gap.
+            // null on a non-dated slot and on the first dated one: there is no
+            // predecessor to measure from, and 0 would claim there was.
+            gapDays: (dn != null && prevDay != null) ? dn - prevDay : null,
+            label: slotTickText(s, year != null && year !== prevYear),
+            showLabel: true,
+        });
+        if (dn != null) prevDay = dn;
+        if (year != null) prevYear = year;
+    }
+    // The drawn rect, decided HERE and not by the renderer, because the
+    // degradation pass below has to thin the boxes that actually get drawn. The
+    // last tick is clamped off the right edge of the world it is measured
+    // against; clamping in the caller instead would move a box the pass had
+    // already cleared, which is how a "checked" invariant stops being one.
+    for (const r of out) {
+        r.labelW = r.label.length * CHW_SLOT;
+        r.labelX = Math.max(0, Math.min(r.x + 4, totalW - RIGHT - r.labelW));
+    }
+    // ── Degradation, measured rather than counted ───────────────────────────
+    // "Every Nth day" is the obvious rule and it is the wrong one here: columns
+    // have VARIABLE widths (a column is as wide as the widest thing drawn in
+    // it), so a fixed stride drops a label in front of 300px of empty ruler and
+    // keeps two that collide. A greedy left-to-right pass against the actual
+    // rects degrades exactly as much as the room requires and no more.
+    let lastRight = -Infinity;
+    for (const r of out) {
+        if (r.labelX < lastRight + RULER_LABEL_GAP) { r.showLabel = false; continue; }
+        r.showLabel = true;
+        lastRight = r.labelX + r.labelW;
+    }
+    // The FUTURE tick is forced back on if the pass dropped it. It is the one
+    // boundary a plan is opened to find, so it outranks whatever dated label
+    // happens to precede it — that label is displaced, not shrunk. Safe to do
+    // after the pass because FUTURE always sorts last (SLOT_FUTURE is '2:'), so
+    // nothing downstream of it needs re-thinning.
+    const fut = out.length > 0 && out[out.length - 1].kind === 'future'
+        ? out[out.length - 1] : null;
+    if (fut && !fut.showLabel) {
+        fut.showLabel = true;
+        for (const r of out) {
+            if (r === fut || !r.showLabel) continue;
+            if (r.labelX < fut.labelX + fut.labelW + RULER_LABEL_GAP
+                && fut.labelX < r.labelX + r.labelW + RULER_LABEL_GAP) {
+                r.showLabel = false;
+            }
+        }
+    }
+    return {
+        h: RULER_H,
+        slots: out,
+        futureX: fut ? fut.x : null,
+    };
+}
+
 const truncate = (s, n) => {
     const str = String(s == null ? '' : s);
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
@@ -844,6 +1007,11 @@ export function computePlanLayout(rows, batches, {
             width: MIN_WORLD_W, height: 120, bands: [], nodes: new Map(),
             arcs: [], batchBoxes: [], labels: [], colW: [], colX: [],
             slots: [], slotOf: new Map(),
+            // An INERT ruler, not a missing one: `layout.ruler.h` is the
+            // reservation and every consumer reads it unconditionally, so an
+            // absent key here would be the one shape that makes the renderer
+            // need a null check the other path never exercises.
+            ruler: { h: RULER_H, slots: [], futureX: null },
             reqLayout, stepLabel, stepWidth, reqLabel, empty: true,
         };
     }
@@ -940,6 +1108,19 @@ export function computePlanLayout(rows, batches, {
         }
     }
     const totalW = Math.max(MIN_WORLD_W, colX[maxCol] + colW[maxCol] / 2 + RIGHT + 40);
+
+    // ── The time ruler (req #3207) ──────────────────────────────────────────
+    // Built HERE, before the bands, because its height is what the first band's
+    // y is offset by. The slot descriptors are the same objects `layout.slots`
+    // exports — one derivation, not two, so the drawn ruler and the tested axis
+    // can never disagree about where a day begins.
+    const slots = slotKeys.map((key, i) => ({
+        key,
+        kind: key === SLOT_UNKNOWN ? 'unknown' : key === SLOT_FUTURE ? 'future' : 'dated',
+        day: key === SLOT_UNKNOWN || key === SLOT_FUTURE ? null : key.slice(2),
+        origin: slotOrigins[i],
+    }));
+    const ruler = computeRuler(slots, colX, colW, totalW);
 
     // ── Epic bands (dominant label), stacked by DERIVED START (req #3201) ───
     // The vertical axis reads as time too: the epic whose work began first sits
@@ -1283,7 +1464,10 @@ export function computePlanLayout(rows, batches, {
             headerH, epicLaneH });
         bandUsed.push(used);
     }
-    let y = 8;
+    // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
+    // Every band, node, arc and batch box is derived from this y, so the whole
+    // plan shifts by one constant and nothing below has to know about the strip.
+    let y = 8 + ruler.h;
     for (const band of bands) {
         band.y = y;
         band.height = band.headerH + band.laneY[band.sub];
@@ -1610,6 +1794,28 @@ export function computePlanLayout(rows, batches, {
             }
         }
     }
+    // ── Ruler ticks join `labels` (req #3207 constraint) ────────────────────
+    // Deliberately NOT a second, separately-checked class of text. The
+    // zero-overlap contract is asserted over `layout.labels` in all four
+    // reqLayout × stepLabel combinations, and a date strip that carried its own
+    // rects would be text on this surface that no invariant covers — which is
+    // how the epic label × batch letter collision got shipped once already.
+    // Left-anchored just inside the tick, because a ruler label belongs to a
+    // BOUNDARY, not to the middle of a region whose width is an accident of how
+    // many columns that day happened to need.
+    for (const r of ruler.slots) {
+        if (!r.showLabel) continue;
+        labels.push({
+            kind: 'slot', slotKey: r.key, slotKind: r.kind, day: r.day,
+            text: r.label,
+            // Generated from a date, never stored user content — so the no-'#'
+            // audit governs it (see the `prose` note on requirement marks).
+            prose: false,
+            // Clamped off the right edge so the last tick's text stays in the
+            // world it is measured against.
+            x: r.labelX, y: RULER_LABEL_Y, w: r.labelW, h: RULER_LABEL_H,
+        });
+    }
     for (const band of bands) {
         labels.push({
             kind: 'epic', epicId: band.epicId, text: band.epic,
@@ -1684,13 +1890,14 @@ export function computePlanLayout(rows, batches, {
         // this module's output — "slot k begins right of everything in slot
         // k-1" is the property the whole design rests on, and a test that
         // re-derives it from the input would be a second implementation.
-        slots: slotKeys.map((key, i) => ({
-            key,
-            kind: key === SLOT_UNKNOWN ? 'unknown' : key === SLOT_FUTURE ? 'future' : 'dated',
-            day: key === SLOT_UNKNOWN || key === SLOT_FUTURE ? null : key.slice(2),
-            origin: slotOrigins[i],
-        })),
+        slots,
         slotOf,
+        // The DRAWN axis (req #3207): the same slots with world x-extents, the
+        // calendar gap at each boundary, and which ticks survived degradation.
+        // The text rects are ALSO in `labels` above — this carries the rules,
+        // the ticks and the future region, which are not text and therefore not
+        // subject to the overlap contract.
+        ruler,
         reqLayout,
         reqLabel,
         stepLabel,

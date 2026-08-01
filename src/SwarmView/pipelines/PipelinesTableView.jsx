@@ -13,10 +13,11 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
 
 import { formatDateTime } from '../../utils/dateFormat';
 import { pipelineStatusChipProps, PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
-import { machineTitle } from './pipelineViewModel';
+import { machineTitle, pipelinesEmptyMessage } from './pipelineViewModel';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
@@ -25,7 +26,23 @@ const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 const STATUS_ORDER = PIPELINE_STATUS_VALUES.reduce(
     (acc, v, i) => ({ ...acc, [v]: i }), {});
 
-export default function PipelinesTableView({ pipelines, summaries, machines, timezone, onOpen }) {
+// req #3220 — the table view's own empty state, matching Cards: a status
+// filter that hid every pipeline must say WHICH statuses it hid rather than
+// falling through to the DataGrid's generic "No rows" placeholder.
+function PipelinesNoRowsOverlay({ hiddenStatusCounts = [] }) {
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    height: '100%', p: 2 }}
+             data-testid="pipelines-table-empty">
+            <Typography variant="body2" color="text.secondary">
+                {pipelinesEmptyMessage(hiddenStatusCounts)}
+            </Typography>
+        </Box>
+    );
+}
+
+export default function PipelinesTableView({ pipelines, summaries, machines, timezone, onOpen,
+    hiddenStatusCounts = [] }) {
     const rows = useMemo(() => pipelines.map((p) => {
         const s = summaries.get(p.id) || EMPTY_SUMMARY;
         return {
@@ -90,8 +107,11 @@ export default function PipelinesTableView({ pipelines, summaries, machines, tim
                 columns={columns}
                 rowHeight={52}
                 density="compact"
-                slots={{ toolbar: GridToolbar }}
-                slotProps={{ toolbar: { showQuickFilter: true } }}
+                slots={{ toolbar: GridToolbar, noRowsOverlay: PipelinesNoRowsOverlay }}
+                slotProps={{
+                    toolbar: { showQuickFilter: true },
+                    noRowsOverlay: { hiddenStatusCounts },
+                }}
                 initialState={{
                     pagination: { paginationModel: { pageSize: 25 } },
                     sorting: { sortModel: [{ field: 'id', sort: 'desc' }] },

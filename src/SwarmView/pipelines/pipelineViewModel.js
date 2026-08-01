@@ -27,6 +27,7 @@ import {
     STEP_PENDING,
 } from './pipelineModel';
 import { planTimeAxis } from './pipelinePlanTime';
+import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -389,6 +390,44 @@ export function pipelineSummaries({ pipelines, steps, stepRequirements, requirem
         out.set(p.id, pipelineSummary(buildPlanRows(model)));
     }
     return out;
+}
+
+/**
+ * Statuses hidden by the current multi-select filter that would otherwise show
+ * at least one pipeline (req #3220) — what the list page's empty state names so
+ * a user who filtered a page to nothing is told WHY rather than shown a blank
+ * view. A status the filter excludes but that has zero matching pipelines is
+ * left out: naming it would not explain anything the user can see.
+ *
+ * @param {Object[]} pipelines     the FULL (unfiltered) pipelines list
+ * @param {string[]} statusFilter  the currently-selected pipeline_status values
+ * @returns {{status: string, count: number}[]} in PIPELINE_STATUS_VALUES order
+ */
+export function hiddenPipelineStatusCounts(pipelines, statusFilter) {
+    const selected = asArray(statusFilter);
+    const counts = {};
+    for (const p of asArray(pipelines)) {
+        if (!p || !p.pipeline_status) continue;
+        counts[p.pipeline_status] = (counts[p.pipeline_status] || 0) + 1;
+    }
+    return PIPELINE_STATUS_VALUES
+        .filter((status) => !selected.includes(status) && counts[status])
+        .map((status) => ({ status, count: counts[status] }));
+}
+
+/**
+ * The list page's empty-state sentence. "No pipelines yet" is a claim about the
+ * DATA and is false whenever a status filter is what emptied the view — this
+ * names the hidden statuses and their counts instead (req #3220 acceptance).
+ *
+ * @param {{status: string, count: number}[]} hiddenStatusCounts
+ * @returns {string}
+ */
+export function pipelinesEmptyMessage(hiddenStatusCounts) {
+    const hidden = asArray(hiddenStatusCounts);
+    if (!hidden.length) return 'No pipelines yet.';
+    const named = hidden.map(({ status, count }) => `${status} (${count})`).join(', ');
+    return `No pipelines match this filter — hidden: ${named}.`;
 }
 
 // ── The no-'#' directive ────────────────────────────────────────────────────

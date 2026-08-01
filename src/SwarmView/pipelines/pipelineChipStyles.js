@@ -82,6 +82,13 @@ export const ELIGIBLE_MARKER_COLOR = '#4caf50';
 // the plan as a whole — deliberately NOT derived, unlike a step's state.
 export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed', 'aborted'];
 
+// req #3220 — default-visible statuses for the list page's status filter.
+// `paused` stays IN: pausing a plan is a normal, reversible operating state the
+// Primary or user can resume any time, not an archival one — unlike `completed`
+// and `aborted`, which are what the default is actually trying to get out of
+// the way. Excluding `paused` would hide a plan the instant someone pauses it.
+export const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
+
 export const pipelineStatusChipProps = (status) => {
     switch (status) {
         case 'draft':     return { sx: { bgcolor: '#546e7a', color: '#fff' } };
