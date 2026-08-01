@@ -58,7 +58,21 @@
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead →
 // Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
-// /swarm/features?epic=<id> (the minimal target — no dedicated epic pages).
+// FOCUS the band (req #3204), with /swarm/features?epic=<id> — the req #3119
+// directive, the minimal target since there are no dedicated epic pages — moved
+// onto the chip's own ↗ control so it stays a visible affordance rather than
+// being deleted or buried under a modifier key.
+//
+// ── Epic focus (req #3204) ─────────────────────────────────────────────────
+// Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
+// no focused-epic state exists anywhere in this file, there is nothing to
+// un-zoom, and after the click every gesture behaves exactly as in a session
+// where the feature was never used. That property is not a promise, it is a
+// consequence of applying the transform THROUGH the d3-zoom behavior
+// (`zb.transform`): the behavior's own internal transform simply becomes the
+// new current one. Writing `setTransform` directly would leave d3's copy stale
+// and the next wheel or drag would snap back — the classic integration bug.
+// The geometry itself is pure and lives in pipelinePlanLayout.js.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -66,6 +80,11 @@ import { Stage, Layer, Group, Rect, Circle, Line, Text, Path } from 'react-konva
 import Konva from 'konva';
 import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
+// Side-effect import: augments d3-selection's prototype with .transition(), which
+// is how d3-zoom animates a programmatic transform. A user gesture interrupts the
+// transition through d3-zoom's own `interrupt`, so an impatient click-then-drag
+// never fights the animation.
+import 'd3-transition';
 
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -81,8 +100,9 @@ import { fmtCost } from './pipelineModel';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
-    computePlanLayout, beadStyle, placeEpicChips,
+    computePlanLayout, beadStyle, placeEpicChips, epicFocusTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS,
+    CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
@@ -116,6 +136,10 @@ const rgba = (hex, a) => {
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
     /* eslint-enable no-bitwise */
 };
+
+// Duration of the epic-focus camera move (req #3204). Long enough to read as a
+// move, short enough that a second click never feels queued.
+const FOCUS_MS = 420;
 
 // Key swatch — a colored dot (or ring) in the POC vocabulary. `text` renders the
 // swatch as a glyph instead, which is how the requirement-id channel is shown:
@@ -236,11 +260,17 @@ export default function PipelinePlanVisualizer({
     // `reqLabelText` in the layout module.
     const reqTitles = useMemo(
         () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
+    // `plan.timeAxis` (req #3201) is what makes the horizontal axis read as a
+    // calendar and stacks the bands by epic start. It comes from `orderedPlan`
+    // rather than being derived here for the same reason cost does: two
+    // surfaces over one plan must not each derive the same fact.
     const layout = useMemo(
         () => computePlanLayout(rows, plan.batches || [], {
             reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
+            timeAxis: plan.timeAxis || null,
         }),
-        [rows, plan.batches, reqLayout, stepLabel, stepWidth, reqLabel, reqTitles]);
+        [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel, stepWidth,
+            reqLabel, reqTitles]);
 
     // ── The REQUIREMENT-ID channel (req #3119, tri-state req #3168) ─────────
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -308,6 +338,14 @@ export default function PipelinePlanVisualizer({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);
+    // True only while a focus transition is in flight (req #3204). See the
+    // world-click hit-test for why. `focusSeqRef` stamps each transition so a
+    // SUPERSEDED one cannot clear the flag out from under its successor: d3
+    // interrupts the older transition on the next timer tick, i.e. AFTER the
+    // newer one has already raised the flag, so an unstamped handler would
+    // re-open the very window this closes.
+    const focusingRef = useRef(false);
+    const focusSeqRef = useRef(0);
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
     const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'batch', ...}
@@ -455,7 +493,19 @@ export default function PipelinePlanVisualizer({
                 (y - t.y) / t.k);
         };
         const zb = d3zoom()
-            .scaleExtent([Math.min(kFit, kDefault) * 0.25, kDefault * 8])
+            // The SAME pair the epic-focus clamp reads (req #3204). They have to
+            // agree — `zoom.transform` applies a programmatic transform verbatim
+            // and does not constrain it, so an out-of-extent k would sit there
+            // looking fine until the user's first wheel event snapped it back.
+            //
+            // Anchored on `kDefault`, not the fit scale (req #3168): the default
+            // view is `max(fit, K_READABLE)` and every ratio on this surface —
+            // the level ladder, this extent, and the focus clamp — is measured
+            // from the view the reader actually lands in. The lower bound keeps
+            // the fit scale in reach so `Overview` can still show the whole plan
+            // on a plan that opens zoomed in.
+            .scaleExtent([Math.min(kFit, kDefault) * ZOOM_MIN_RATIO,
+                kDefault * ZOOM_MAX_RATIO])
             .constrain(bound)
             // A DRAG that starts on the key or the reset button belongs to
             // that control (req #3168). Rejecting it HERE rather than calling
@@ -495,7 +545,15 @@ export default function PipelinePlanVisualizer({
         const sc = stageRef.current?.container();
         if (sc) sc.style.cursor = 'grab';
         zoomRef.current = zb;
-        return () => { sel.on('.zoom', null); };
+        return () => {
+            sel.on('.zoom', null);
+            // Detaching the listeners does NOT stop a running focus transition
+            // (req #3204): it would keep ticking on a detached container for the
+            // rest of its 420ms, calling setTransform/setCard into an unmounted
+            // tree and holding the node. Reachable — a bead click switches the
+            // page to Table mode, which unmounts this component.
+            sel.interrupt();
+        };
     }, [containerEl, size.w, size.h, kFit, kDefault, layout.width, layout.height]);
 
     // Reset to the default view on first size and whenever a layout toggle
@@ -527,6 +585,27 @@ export default function PipelinePlanVisualizer({
             if (e.target?.closest?.(CHROME_SELECTOR)) return;
             const d = downRef.current;
             if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+            // Only a click that landed on the CANVAS ITSELF is a world click
+            // (req #3204). This listener is native and sits on the container,
+            // so it also sees clicks bubbling up from the HTML overlays —
+            // and it would then fire an `activate` on whatever Konva node
+            // happens to lie beneath the overlay. That was harmless only while
+            // the epic chip navigated away from this page; now that the chip
+            // focuses and stays, a chip parked over a bead would ALSO switch
+            // the page to Table mode. React's stopPropagation cannot fix it:
+            // React 18 delegates to its root, which is an ANCESTOR of this
+            // node, so this listener runs first regardless.
+            if (!(e.target instanceof HTMLCanvasElement)) return;
+            // A click that lands mid-focus-transition would hit-test a world
+            // that is still moving (req #3204). The chip the user just clicked
+            // slides across the panel during the transition — measured, one
+            // band's chip travelled from (8, 523) to (247, 47) — so an impatient
+            // second click (a different epic, or the same one again) lands on
+            // BARE CANVAS at an interpolated transform. That resolves against
+            // whatever bead or requirement id happens to be under the cursor at
+            // that instant and switches to Table mode or navigates away. The
+            // window is new: the chip used to leave the page immediately.
+            if (focusingRef.current) return;
             const stage = stageRef.current;
             if (!stage) return;
             const rect = el.getBoundingClientRect();
@@ -672,6 +751,37 @@ export default function PipelinePlanVisualizer({
         if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
     }, [reqInfo]);
     const hideCard = useCallback(() => setCard(null), []);
+
+    // ── Focus an epic band (req #3204) ──────────────────────────────────────
+    // Applied through the d3-zoom BEHAVIOR, on a transition. Animated rather
+    // than jumped (the requirement asked for a decision): a 420ms ease shows
+    // WHERE the band was, so the click reads as a camera move over one plan
+    // instead of a page swap — and d3-zoom already supports it, so the choice
+    // costs a duration argument rather than an animation loop.
+    //
+    // Stores NOTHING. `band` comes from the layout the caller is already
+    // rendering, the transform goes to d3, and the callback returns.
+    const focusEpic = useCallback((band) => {
+        const el = containerEl;
+        const zb = zoomRef.current;
+        if (!el || !zb) return;
+        const tr = epicFocusTransform(layout, band, size, kDefault);
+        if (!tr) return;
+        // The world is about to slide out from under any open datacard, exactly
+        // as it does on a pan.
+        setCard(null);
+        focusingRef.current = true;
+        const seq = (focusSeqRef.current += 1);
+        select(el).transition().duration(FOCUS_MS)
+            // 'end' fires on completion, 'interrupt' when a user gesture, a
+            // second focus or the unmount cleanup pre-empts this one — both mean
+            // the world has stopped being a moving target. Only the LATEST
+            // transition may lower the flag.
+            .on('end.focus interrupt.focus', () => {
+                if (focusSeqRef.current === seq) focusingRef.current = false;
+            })
+            .call(zb.transform, zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
+    }, [containerEl, layout, size, kDefault]);
 
     if (!rows.length) {
         return (
@@ -967,15 +1077,39 @@ export default function PipelinePlanVisualizer({
                 {/* Floating epic labels — pinned to their band, clamped to the
                     top of the viewport while the band is on screen. The strip
                     ignores the pointer so it can never swallow a drag-pan; each
-                    label re-enables it so the epic stays clickable. */}
+                    label re-enables it so the epic stays clickable.
+
+                    Clicking the NAME focuses that band (req #3204). Every band
+                    is focusable, "No epic" included — it is a band with steps
+                    like any other, and the previous rule (pointer events only
+                    when `epicId != null`) existed solely because the old click
+                    needed an epic id to navigate WITH. The ↗ beside it keeps
+                    that navigation, and only it needs the id.
+
+                    Re-enabling pointer events does not cost the drag-pan: the
+                    chip is a DESCENDANT of the container d3-zoom is bound to, so
+                    a mousedown on the chip still bubbles and still starts a pan.
+                    Only the click is the chip's. */}
                 <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
                     {floatingEpics.map((e) => (
                         <Box
                             key={e.key}
-                            onClick={e.epicId != null
-                                ? () => navigate(`/swarm/features?epic=${e.epicId}`) : undefined}
+                            onClick={() => focusEpic(e.band)}
+                            // Reachable without a mouse. The chip has been a
+                            // click target since req #3119 and was never
+                            // focusable; now that it is the ONLY way to reach
+                            // the focus feature, leaving it mouse-only would
+                            // make the feature mouse-only.
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(ev) => {
+                                if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                                ev.preventDefault();     // Space must not scroll
+                                focusEpic(e.band);
+                            }}
+                            title={`Fit “${e.text}” to the view`}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
@@ -984,9 +1118,10 @@ export default function PipelinePlanVisualizer({
                                 // it now scales the chip to fit its own epic lane
                                 // at low zoom (req #3168). Drawing at any other
                                 // size means the collision maths decided against a
-                                // box that is not on screen.
+                                // box that is not on screen. `gap` is req #3204's,
+                                // for the ↗ control that rides beside the name.
                                 height: e.h, lineHeight: 1,
-                                display: 'flex', alignItems: 'center',
+                                display: 'flex', alignItems: 'center', gap: '4px',
                                 fontFamily: MONO, fontSize: e.fontSize,
                                 fontWeight: 700,
                                 color: e.color,
@@ -999,11 +1134,64 @@ export default function PipelinePlanVisualizer({
                                 px: 0.9, py: 0, borderRadius: '5px',
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
-                                pointerEvents: e.epicId != null ? 'auto' : 'none',
-                                cursor: e.epicId != null ? 'pointer' : 'default',
+                                pointerEvents: 'auto',
+                                cursor: 'pointer',
+                                // An affordance you cannot see is not a feature
+                                // (req #3204): the border firms up and the name
+                                // underlines on hover, so the chip reads as the
+                                // control it is.
+                                transition: 'border-color 120ms',
+                                '&:hover': { borderColor: e.color },
+                                // Scoped to the NAME, not the chip: an ancestor
+                                // rule would draw the underline through the ↗
+                                // too, and a blockified flex item cannot opt out
+                                // of an inherited text-decoration.
+                                '&:hover .pipeline-viz-epic-name': {
+                                    textDecoration: 'underline',
+                                    textDecorationThickness: '1px',
+                                    textUnderlineOffset: '2px',
+                                },
                             }}
                         >
-                            {e.text}
+                            <Box component="span" className="pipeline-viz-epic-name">
+                                {e.text}
+                            </Box>
+                            {/* The req #3119 target — the features view filtered
+                                to this epic — kept as its OWN visible control
+                                now that the chip body focuses instead. Its click
+                                must not also focus, hence stopPropagation; the
+                                react-router navigate leaves the page anyway, but
+                                relying on that would make the ordering matter. */}
+                            {e.epicId != null && (
+                                <Box
+                                    component="span"
+                                    role="link"
+                                    tabIndex={0}
+                                    aria-label={`Open ${e.text} in the features view`}
+                                    title={`Open “${e.text}” in the features view`}
+                                    data-testid={`pipeline-viz-epic-open-${e.key}`}
+                                    onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                    }}
+                                    onKeyDown={(ev) => {
+                                        if (ev.key !== 'Enter') return;
+                                        // Without this the chip's own handler
+                                        // also fires and focuses the band the
+                                        // user is navigating away from.
+                                        ev.stopPropagation();
+                                        ev.preventDefault();
+                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                    }}
+                                    sx={{
+                                        fontSize: 12, fontWeight: 400, opacity: 0.7,
+                                        lineHeight: 1, px: '2px',
+                                        '&:hover': { opacity: 1 },
+                                    }}
+                                >
+                                    ↗
+                                </Box>
+                            )}
                         </Box>
                     ))}
                 </Box>

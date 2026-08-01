@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
+import { semanticLevel } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips,
@@ -26,6 +27,7 @@ import {
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     REQ_LINE_H,
+    FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -1832,4 +1834,585 @@ describe('the semantic-level selector (req #3168, directive C)', () => {
             expect(pinnedLevelOf(bogus)).toBeNull();
         }
     });
+});
+
+
+// ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
+// A purpose-built model rather than the Substrate fixture, because the shapes
+// under test are shapes that fixture does not contain: an epic that has never
+// started at all, an UNGATED step whose work began late (the live step-97
+// shape, which is the acceptance case a per-band origin cannot satisfy), a
+// dependency that crosses an epic boundary, and a dependency edge that runs
+// BACKWARD in time. Every requirement here carries `completed_at` and no
+// `started_at`, which is what the live table overwhelmingly looks like.
+const TIMED_MODEL = {
+    pipeline: { id: 500, title: 'Time axis' },
+    epics: [
+        { id: 1, title: 'Shipped' },
+        { id: 2, title: 'In flight' },
+        { id: 3, title: 'Backlog' },
+    ],
+    features: [
+        { id: 11, title: 'F-shipped', epic_fk: 1 },
+        { id: 12, title: 'F-flight', epic_fk: 2 },
+        { id: 13, title: 'F-backlog', epic_fk: 3 },
+    ],
+    machines: [],
+    steps: [
+        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
+        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
+        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
+        // The step-97 shape: no dep edges at all, work begun on the LATEST day.
+        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
+        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
+        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
+        // Backward in time: its own work completed on day 1, but it is gated on
+        // step 3, whose work began on day 3.
+        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
+    ],
+    stepDeps: [
+        { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses epic 1 -> 2
+        { id: 3, step_fk: 6, dep_step_fk: 5, time_at: null },
+        { id: 4, step_fk: 7, dep_step_fk: 3, time_at: null },   // backward in time
+    ],
+    stepRequirements: [
+        { step_fk: 1, requirement_fk: 101 },
+        { step_fk: 2, requirement_fk: 102 },
+        { step_fk: 3, requirement_fk: 103 },
+        { step_fk: 4, requirement_fk: 104 },
+        { step_fk: 5, requirement_fk: 105 },
+        { step_fk: 6, requirement_fk: 106 },
+        { step_fk: 7, requirement_fk: 107 },
+    ],
+    requirements: [
+        // `met` with NO started_at — 820 of 960 live `met` rows look like this.
+        {
+            id: 101, title: 'r101', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T09:00:00',
+        },
+        {
+            id: 102, title: 'r102', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-26T09:00:00',
+        },
+        {
+            id: 103, title: 'r103', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-27T09:00:00', completed_at: null,
+        },
+        {
+            id: 104, title: 'r104', requirement_status: 'development', feature_fk: 12,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: '2026-07-28T09:00:00', completed_at: null,
+        },
+        {
+            id: 105, title: 'r105', requirement_status: 'authoring', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 106, title: 'r106', requirement_status: 'approved', feature_fk: 13,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: null,
+        },
+        {
+            id: 107, title: 'r107', requirement_status: 'met', feature_fk: 11,
+            machine_fk: null, coordination_type: 'implemented', tracking: 0,
+            started_at: null, completed_at: '2026-07-25T10:00:00',
+        },
+    ],
+};
+
+// The zero-overlap contract is metric-derived, and req #3201 changed the thing
+// the metrics are indexed by (columns are time positions now, so a plan has
+// MORE of them and they are sparser). Re-running the four-combination invariant
+// under a real-scale timed axis is what keeps that contract from rotting
+// silently — the Substrate fixture's 34 steps, with timestamps synthesized from
+// each requirement's status so the plan spreads over several day slots and
+// acquires backward-in-time edges of its own.
+const TIMED_SUBSTRATE = {
+    ...SUBSTRATE_REBUILD_MODEL,
+    requirements: SUBSTRATE_REBUILD_MODEL.requirements.map((r) => {
+        const day = `2026-07-${String(21 + (r.id % 6)).padStart(2, '0')}`;
+        if (r.requirement_status === 'met' || r.requirement_status === 'wontfix') {
+            return { ...r, started_at: null, completed_at: `${day}T08:00:00` };
+        }
+        if (r.requirement_status === 'development') {
+            return { ...r, started_at: `${day}T08:00:00`, completed_at: null };
+        }
+        return { ...r, started_at: null, completed_at: null };
+    }),
+};
+
+const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
+    { now: '2026-07-28T12:00:00Z' });
+const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+    { timeAxis: timedPlan.timeAxis });
+const timedSubstratePlan = orderedPlan(buildPipelineModel(TIMED_SUBSTRATE), { now: NOW });
+const colOfStep = (layout, id) => layout.nodes.get(id).depth;
+
+// ── Epic focus (req #3204) ──────────────────────────────────────────────────
+// The click sets the viewport ONCE and retains nothing, so the whole feature is
+// falsifiable right here: two pure functions from (layout, band, viewport) to a
+// rectangle and a transform. What the component adds is only the decision to
+// route that transform through the d3-zoom behavior, which is a browser
+// property and is asserted in the E2E (PIPE-13).
+describe('epic focus geometry', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'horizontal', stepLabel: 'id' });
+    const bandOf = (epic) => {
+        const b = layout.bands.find((x) => x.epic === epic);
+        expect(b, `the fixture has a "${epic}" band`).toBeTruthy();
+        return b;
+    };
+    const depthsOf = (band) =>
+        band.stepIds.map((id) => layout.nodes.get(id).depth).sort((a, b) => a - b);
+
+    // The band's screen-space rectangle under a transform — what the user sees.
+    const onScreen = (band, tr) => {
+        const r = bandFitRect(layout, band);
+        return {
+            left: tr.x + r.x * tr.k,
+            top: tr.y + r.y * tr.k,
+            right: tr.x + (r.x + r.w) * tr.k,
+            bottom: tr.y + (r.y + r.h) * tr.k,
+        };
+    };
+
+    it('the rect is the band\'s own vertical extent, header strip included', () => {
+        for (const band of layout.bands) {
+            const r = bandFitRect(layout, band);
+            expect(r).toBeTruthy();
+            expect(r.y).toBe(band.y);
+            expect(r.h).toBe(band.height);
+        }
+    });
+
+    // THE load-bearing case, and the one the first cut of this feature got
+    // wrong. A step label is CENTRED on its column and sized to
+    // `staggerBudget()` — its own column plus 40% of the narrower neighbour on
+    // each side — so a label in the band's outermost column legitimately draws
+    // OUTSIDE the column extent. Fitting to columns alone clipped it.
+    //
+    // Parameterised over all FOUR view combinations, because the bug was
+    // invisible in the two this suite used to test and worst in the pair
+    // PipelineDetail actually defaults to (vertical + title). Measured before
+    // the fix, at 1600×820: "Application Backlog" lost 10.6px off the right edge
+    // in horizontal+id, and the default view was down to 7.6px of its 44.
+    describe.each(COMBOS)('drawn content fits, in $reqLayout + $stepLabel', (combo) => {
+        const lay = computePlanLayout(plan.rows, plan.batches, combo);
+
+        // Everything this band's steps actually DRAW: beads and every label
+        // carrying one of its step ids. Deliberately recomputed here from the
+        // layout's own output rather than reusing bandFitRect — a test that
+        // asks the implementation what it drew cannot catch it drawing the
+        // wrong thing.
+        const drawn = (band) => {
+            const ids = new Set(band.stepIds);
+            let left = Infinity;
+            let right = -Infinity;
+            for (const id of ids) {
+                const n = lay.nodes.get(id);
+                left = Math.min(left, n.x - BEAD_RADIUS);
+                right = Math.max(right, n.x + BEAD_RADIUS);
+            }
+            for (const l of lay.labels) {
+                if (l.stepId == null || !ids.has(l.stepId)) continue;
+                left = Math.min(left, l.x);
+                right = Math.max(right, l.x + (l.w || 0));
+            }
+            return { left, right };
+        };
+
+        it('leaves FOCUS_PAD clear of every mark the band draws', () => {
+            const size = { w: 1600, h: 820 };
+            const kBase = size.w / lay.width;
+            for (const band of lay.bands) {
+                const tr = epicFocusTransform(lay, band, size, kBase);
+                expect(tr, band.epic).toBeTruthy();
+                const d = drawn(band);
+                expect(tr.x + d.left * tr.k, `${band.epic} left`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(size.w - (tr.x + d.right * tr.k), `${band.epic} right`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(tr.y + band.y * tr.k, `${band.epic} top`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(size.h - (tr.y + (band.y + band.height) * tr.k), `${band.epic} bottom`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            }
+        });
+
+        it('contains the band\'s drawn extent inside the fit rectangle', () => {
+            for (const band of lay.bands) {
+                const r = bandFitRect(lay, band);
+                const d = drawn(band);
+                expect(r.x, `${band.epic} left`).toBeLessThanOrEqual(d.left + 1e-6);
+                expect(r.x + r.w, `${band.epic} right`)
+                    .toBeGreaterThanOrEqual(d.right - 1e-6);
+            }
+        });
+    });
+
+    it('spans non-contiguous columns rather than skipping the gap', () => {
+        // "Application Backlog" is the fixture's non-contiguous epic: its steps
+        // sit at depths 0, 1 and then 11–13, with nothing between. The fit must
+        // cover the whole span — there is no honest view that omits the middle.
+        const band = bandOf('Application Backlog');
+        const depths = depthsOf(band);
+        expect(depths[0]).toBe(0);
+        expect(depths.at(-1)).toBeGreaterThan(depths[0] + depths.length);
+        const r = bandFitRect(layout, band);
+        const dMin = depths[0];
+        const dMax = depths.at(-1);
+        // At LEAST the columns — labels may push it wider, never narrower.
+        expect(r.x).toBeLessThanOrEqual(layout.colX[dMin] - layout.colW[dMin] / 2 + 1e-6);
+        expect(r.x + r.w)
+            .toBeGreaterThanOrEqual(layout.colX[dMax] + layout.colW[dMax] / 2 - 1e-6);
+    });
+
+    it('reads only stepIds and node depth — no assumption about band ORDER', () => {
+        // Req #3201 reorders the bands. Reversing `layout.bands` must not move
+        // a single rectangle.
+        const before = layout.bands.map((b) => bandFitRect(layout, b));
+        const after = [...layout.bands].reverse().map((b) => bandFitRect(layout, b));
+        expect(after.reverse()).toEqual(before);
+    });
+
+    it('does NOT widen to the whole plan — a narrow epic fits its own columns', () => {
+        const orch = bandFitRect(layout, bandOf('Swarm Orchestration Feature'));
+        expect(orch.w).toBeLessThan(layout.width / 2);
+        expect(orch.x).toBeGreaterThan(layout.width / 2);
+    });
+
+    it('centres the band and leaves at least FOCUS_PAD on all four sides', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        for (const band of layout.bands) {
+            const tr = epicFocusTransform(layout, band, size, kBase);
+            expect(tr, band.epic).toBeTruthy();
+            const s = onScreen(band, tr);
+            // Centred: equal slack on both axes, so the margin is never spent
+            // entirely on one side.
+            expect(s.left + s.right).toBeCloseTo(size.w, 6);
+            expect(s.top + s.bottom).toBeCloseTo(size.h, 6);
+            // Margin on ALL FOUR sides. `>=` rather than `≈` because the
+            // non-binding axis (and any band clamped by the ceiling) gets more.
+            expect(s.left, `${band.epic} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(s.top, `${band.epic} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.w - s.right, `${band.epic} right`)
+                .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.h - s.bottom, `${band.epic} bottom`)
+                .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+        }
+    });
+
+    it('fits as tightly as it can — the binding axis is flush against the margin', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        // The widest band is not ceiling-clamped, so its fit is the honest one:
+        // one axis must land exactly on the pad, or the zoom was not tight.
+        const band = bandOf('Swarm Substrate Rebuild');
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        const s = onScreen(band, tr);
+        const slackX = s.left - FOCUS_PAD;
+        const slackY = s.top - FOCUS_PAD;
+        expect(Math.min(slackX, slackY)).toBeCloseTo(0, 6);
+    });
+
+    it('clamps a one-step epic to the ceiling instead of zooming absurdly far', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        const band = bandOf('Primary and Swarm Agentic Integration');
+        expect(band.stepIds).toHaveLength(1);
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        // Unclamped this would have been far tighter — the clamp is doing work,
+        // not merely agreeing with the fit.
+        const r = bandFitRect(layout, band);
+        expect((size.w - 2 * FOCUS_PAD) / r.w).toBeGreaterThan(kBase * FOCUS_MAX_RATIO);
+    });
+
+    it('the ceiling lands on the Detail semantic level', () => {
+        // Req #3204 point 5: confirm the level the fit lands on is the one a
+        // reader wants for "focus on this epic", rather than accepting whatever
+        // falls out. semanticLevel() reads the ratio to kBase, which is exactly
+        // what FOCUS_MAX_RATIO is expressed in.
+        expect(semanticLevel(FOCUS_MAX_RATIO)).toBe('in');
+    });
+
+    it('never leaves d3-zoom\'s scaleExtent, at any viewport', () => {
+        // `zoom.transform` does NOT constrain what it is handed — unlike
+        // scaleTo/translateBy it never calls `constrain`, so nothing re-clamps
+        // this at write time. The next WHEEL gesture does clamp against
+        // scaleExtent, so an out-of-extent k would look correct until the user's
+        // first scroll and then jump. That is what makes this clamp
+        // load-bearing rather than defensive, and why it reads the same
+        // constants the component hands to scaleExtent.
+        expect(FOCUS_MIN_RATIO).toBe(ZOOM_MIN_RATIO);
+        expect(FOCUS_MAX_RATIO).toBeLessThanOrEqual(ZOOM_MAX_RATIO);
+        for (const size of [{ w: 1200, h: 700 }, { w: 420, h: 2000 },
+            { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
+            const kBase = size.w / layout.width;
+            for (const band of layout.bands) {
+                const tr = epicFocusTransform(layout, band, size, kBase);
+                expect(tr, `${band.epic} @ ${size.w}×${size.h}`).toBeTruthy();
+                expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+                expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+                expect(Number.isFinite(tr.x) && Number.isFinite(tr.y)).toBe(true);
+            }
+        }
+    });
+
+    it('the floor engages when a band cannot fit even at the extent minimum', () => {
+        // A wide but very short panel: the height fit demands less than the
+        // extent's minimum, so the floor takes over and the band overflows
+        // vertically rather than the transform leaving the extent d3-zoom will
+        // enforce on the next wheel event.
+        const size = { w: 1600, h: 150 };
+        const kBase = size.w / layout.width;
+        const band = bandOf('Swarm Substrate Rebuild');
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
+        // The clamp is doing work — the unclamped fit really was tighter.
+        const r = bandFitRect(layout, band);
+        expect(Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD) / r.h)
+            .toBeLessThan(kBase * FOCUS_MIN_RATIO);
+    });
+
+    it('the pad fallback is continuous — no cliff at 2 × FOCUS_PAD', () => {
+        // `w > 2*PAD ? w - 2*PAD : w` reads reasonably and hides a step change:
+        // at w=88 it yields 88, at w=89 it yields 1, so one pixel of growth
+        // zooms out ~88×. Unreachable in production (the panel has minHeight
+        // 480) but a trap for the next caller, so the maths is continuous.
+        const band = bandOf('Swarm Substrate Rebuild');
+        let prev = null;
+        for (let w = 2 * FOCUS_PAD - 4; w <= 2 * FOCUS_PAD + 4; w++) {
+            const tr = epicFocusTransform(layout, band, { w, h: 600 }, w / layout.width);
+            expect(tr).toBeTruthy();
+            if (prev != null) expect(Math.abs(tr.k / prev - 1)).toBeLessThan(0.5);
+            prev = tr.k;
+        }
+    });
+
+    it('returns null rather than NaN geometry on degenerate input', () => {
+        const band = layout.bands[0];
+        const kBase = 0.5;
+        expect(bandFitRect(computePlanLayout([], []), band)).toBeNull();
+        expect(bandFitRect(layout, { ...band, stepIds: [] })).toBeNull();
+        expect(bandFitRect(layout, { ...band, stepIds: [999999] })).toBeNull();
+        expect(bandFitRect(layout, { ...band, height: 0 })).toBeNull();
+        expect(bandFitRect(layout, null)).toBeNull();
+        // No viewport yet (the container has not measured) — nothing to fit to.
+        expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase)).toBeNull();
+        expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
+        expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
+    });
+});
+
+describe('time axis — vertical band order (req #3201)', () => {
+    it('stacks bands by derived epic start, never-started last', () => {
+        expect(timedLayout.bands.map((b) => b.epic))
+            .toEqual(['Shipped', 'In flight', 'Backlog']);
+    });
+
+    it('derives an epic start from completed_at when started_at was never stamped', () => {
+        expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
+        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-27T09:00:00');
+        expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
+    });
+});
+
+describe('time axis — horizontal position (req #3201)', () => {
+    it('every arc still points forward — no step renders left of a dependency', () => {
+        for (const r of timedPlan.rows) {
+            for (const d of r.depIds) {
+                expect(colOfStep(timedLayout, d)).toBeLessThan(colOfStep(timedLayout, r.id));
+                expect(timedLayout.nodes.get(d).x).toBeLessThan(timedLayout.nodes.get(r.id).x);
+            }
+        }
+    });
+
+    it('renders a NEVER-STARTED epic right of every started epic, with no dep edge', () => {
+        const started = timedPlan.rows
+            .filter((r) => r.epicId !== 3).map((r) => colOfStep(timedLayout, r.id));
+        const never = timedPlan.rows
+            .filter((r) => r.epicId === 3).map((r) => colOfStep(timedLayout, r.id));
+        expect(Math.min(...never)).toBeGreaterThan(Math.max(...started));
+        // …and it got there without borrowing anybody's dependency edge.
+        for (const r of timedPlan.rows.filter((x) => x.epicId === 3)) {
+            for (const d of r.depIds) expect(timedPlan.rows.find((x) => x.id === d).epicId).toBe(3);
+        }
+    });
+
+    it('puts an UNGATED late step right of the epic that finished before it', () => {
+        // The live step-97 case: step 4 has NO dependencies at all, and must
+        // still render right of everything whose work happened earlier. This is
+        // what removes the need for a synthetic dep edge.
+        const late = colOfStep(timedLayout, 4);
+        for (const id of [1, 2, 3]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
+        expect(timedPlan.rows.find((r) => r.id === 4).depIds).toEqual([]);
+    });
+
+    it('monotonizes a BACKWARD-IN-TIME edge rather than drawing the arc backwards', () => {
+        // Step 7's own work completed on day 1, but it is gated on step 3
+        // (day 3). Its column follows the gate, not the stamp.
+        expect(colOfStep(timedLayout, 7)).toBeGreaterThan(colOfStep(timedLayout, 3));
+        expect(timedLayout.slotOf.get(7)).toBe(timedLayout.slotOf.get(3));
+    });
+
+    it('orders the slots chronologically, with the future slot last', () => {
+        expect(timedLayout.slots.map((s) => s.day)).toEqual([
+            '2026-07-25', '2026-07-26', '2026-07-27', '2026-07-28', null,
+        ]);
+        expect(timedLayout.slots[timedLayout.slots.length - 1].kind).toBe('future');
+        for (let i = 1; i < timedLayout.slots.length; i++) {
+            expect(timedLayout.slots[i].origin)
+                .toBeGreaterThan(timedLayout.slots[i - 1].origin);
+        }
+    });
+
+    it('starts every slot strictly right of the last column any earlier slot reaches', () => {
+        // The property the whole design rests on, asserted from OUTPUT: it is
+        // what makes "unstarted renders right of started" true in general, not
+        // just for this fixture's epics.
+        const maxColInSlot = timedLayout.slots.map(() => -1);
+        for (const r of timedPlan.rows) {
+            const k = timedLayout.slotOf.get(r.id);
+            const c = colOfStep(timedLayout, r.id);
+            if (c > maxColInSlot[k]) maxColInSlot[k] = c;
+        }
+        for (let k = 1; k < timedLayout.slots.length; k++) {
+            expect(timedLayout.slots[k].origin).toBeGreaterThan(maxColInSlot[k - 1]);
+        }
+    });
+});
+
+// ── Review regressions (req #3201) ─────────────────────────────────────────
+// Three shapes the first cut of the axis got wrong. Each one is asserted from
+// LAYOUT OUTPUT, not from the classifier, because the classifier being right is
+// only half the claim — the column is what the user sees.
+describe('time axis — review regressions', () => {
+    const build = (rows, reqs) => {
+        const model = {
+            pipeline: { id: 900, title: 'r' },
+            epics: [{ id: 1, title: 'E' }, { id: 2, title: 'F' }],
+            features: [{ id: 21, title: 'fe', epic_fk: 1 }, { id: 22, title: 'ff', epic_fk: 2 }],
+            machines: [],
+            steps: rows.map((r) => ({
+                id: r.id, pipeline_fk: 900, title: `s${r.id}`, run: 'auto',
+                completed_at: r.completedAt || null,
+            })),
+            stepDeps: rows.flatMap((r) => (r.depIds || []).map((d, i) => ({
+                id: r.id * 100 + i, step_fk: r.id, dep_step_fk: d, time_at: null,
+            }))),
+            stepRequirements: rows.flatMap((r) => (r.reqIds || [])
+                .map((q) => ({ step_fk: r.id, requirement_fk: q }))),
+            requirements: reqs,
+        };
+        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T00:00:00Z' });
+        return {
+            plan: p,
+            layout: computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis }),
+        };
+    };
+    const r = (o) => ({
+        id: 1, title: 't', requirement_status: 'met', feature_fk: 21, machine_fk: null,
+        coordination_type: 'implemented', tracking: 0, started_at: null,
+        completed_at: null, ...o,
+    });
+
+    // Critical: `deferred` is TERMINAL, so the engine derives `done` from it.
+    // Calling it not-yet-started put a done step in the future zone AND, since
+    // the monotone max propagates FUTURE, dragged its whole subtree there —
+    // step 2 finished 07-01 rendered right of step 3 which finished 07-02.
+    it('keeps a DONE step derived from a deferred requirement out of the future zone', () => {
+        const { plan, layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },
+                { id: 2, depIds: [1], reqIds: [2] },
+                { id: 3, depIds: [], reqIds: [3] },
+            ],
+            [
+                r({ id: 1, requirement_status: 'deferred' }),
+                r({ id: 2, completed_at: '2026-07-01T00:00:00' }),
+                r({ id: 3, completed_at: '2026-07-02T00:00:00' }),
+            ],
+        );
+        for (const row of plan.rows) expect(row.state).toBe(STEP_DONE);
+        expect(layout.slots.some((s) => s.kind === 'future')).toBe(false);
+        // Step 2 finished BEFORE step 3, so it may not render to its right.
+        expect(layout.nodes.get(2).depth).toBeLessThan(layout.nodes.get(3).depth);
+    });
+
+    // Warning: UNKNOWN means "no claim", so it must not be handed the leftmost
+    // column — that is the claim "earliest of all". The un-run manual gate here
+    // used to render LEFT of finished work.
+    it('does not push an UNKNOWN step left of dated work', () => {
+        const { layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },
+                { id: 2, depIds: [], reqIds: [] },   // req-less, not complete
+            ],
+            [r({ id: 1, completed_at: '2026-07-01T00:00:00' })],
+        );
+        expect(layout.nodes.get(2).depth).not.toBeLessThan(layout.nodes.get(1).depth);
+        expect(layout.slots.some((s) => s.kind === 'unknown')).toBe(false);
+    });
+
+    // Warning: a NULL start meant both "not begun" and "begun but unstamped",
+    // so a pure BACKLOG epic could stack above an ACTIVE one on an id tie-break.
+    it('stacks an unstamped ACTIVE epic above a never-started backlog epic', () => {
+        const { layout } = build(
+            [
+                { id: 1, depIds: [], reqIds: [1] },   // epic 2 — in flight, unstamped
+                { id: 2, depIds: [], reqIds: [2] },   // epic 1 — untouched backlog
+            ],
+            [
+                r({ id: 1, requirement_status: 'development', feature_fk: 22 }),
+                r({ id: 2, requirement_status: 'authoring', feature_fk: 21 }),
+            ],
+        );
+        expect(layout.bands.map((b) => b.epic)).toEqual(['F', 'E']);
+    });
+});
+
+describe('time axis — the zero-overlap contract still holds at plan scale', () => {
+    for (const combo of COMBOS) {
+        const name = `${combo.reqLayout}/${combo.stepLabel}`;
+        const layout = computePlanLayout(timedSubstratePlan.rows, timedSubstratePlan.batches,
+            { ...combo, timeAxis: timedSubstratePlan.timeAxis });
+
+        it(`no two labels intersect (${name})`, () => {
+            assertNoLabelOverlap(layout, name);
+        });
+
+        it(`no label intersects any bead (${name})`, () => {
+            for (const label of layout.labels) {
+                for (const n of layout.nodes.values()) {
+                    if (rectsOverlap(label, beadRect(n))) {
+                        throw new Error(`label ${JSON.stringify(label)} overlaps bead ${n.id}`);
+                    }
+                }
+            }
+        });
+
+        it(`every arc points forward (${name})`, () => {
+            for (const r of timedSubstratePlan.rows) {
+                for (const d of r.depIds) {
+                    expect(layout.nodes.get(d).depth).toBeLessThan(layout.nodes.get(r.id).depth);
+                }
+            }
+        });
+
+        it(`never stacks two beads on one (band, column, lane) cell (${name})`, () => {
+            const seen = new Set();
+            for (const n of layout.nodes.values()) {
+                const cell = `${n.bandIndex}|${n.depth}|${n.lane}`;
+                expect(seen.has(cell)).toBe(false);
+                seen.add(cell);
+            }
+        });
+    }
 });

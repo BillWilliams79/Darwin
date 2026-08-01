@@ -26,6 +26,7 @@ import {
     STEP_RUNNING,
     STEP_PENDING,
 } from './pipelineModel';
+import { planTimeAxis } from './pipelinePlanTime';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -41,8 +42,17 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 // its cache key, so two pages asking for different projections are two cache
 // entries and the second one refetches the whole requirements table. One
 // constant means list -> detail navigation reuses the read it already paid for.
+//
+// `started_at` / `completed_at` (req #3201) carry the plan's TIME AXIS. The
+// visualizer's horizontal position is a calendar proxy and its bands stack by
+// epic start, and there is no `epics.started_at` column to read — an epic's
+// start is DERIVED as a minimum over its requirements (design rule 1), so the
+// two stamps have to travel with the projection. They are two DATETIME columns
+// on rows already being read; the blob columns req #3078 keeps out of list
+// reads are a different thing entirely.
 export const PLAN_REQUIREMENT_FIELDS =
-    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking';
+    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking,'
+    + 'started_at,completed_at';
 
 /**
  * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.
@@ -192,7 +202,7 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 
 /**
  * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
- * propose → mark eligibility → attach cost.
+ * propose → mark eligibility → attach cost → derive the time axis.
  *
  * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
  * point: the renderer checks its own output and the caller renders any violation
@@ -243,9 +253,19 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     // input, so there is nothing outside this function to surprise.
     for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
 
+    // The visualizer's TIME AXIS (req #3201). Derived here rather than in the
+    // canvas for the same reason cost is: the plan table and the plan
+    // visualizer are two surfaces over one plan, and a fact they each derive
+    // independently is a fact that can disagree. Like cost, and for the same
+    // reason, it is computed AFTER ordering and is never an ordering input —
+    // display order stays topological-then-state-banded (rule 3), and only the
+    // canvas's column origins and band stacking read this.
+    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
+
     return {
         rows,
         violations,
+        timeAxis,
         batches,
         batchLetterByStepId,
         proposals,
@@ -263,8 +283,9 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * cell renderers need.
  *
  * A banner is emitted immediately before the FIRST member of its batch in display
- * order — the engine guarantees batch-mates are contiguous, and verifyOrder
- * complains loudly when they are not, so one banner per batch is always correct.
+ * order. One banner per batch is always correct: the banner names its own
+ * members, so it stays readable even on the split described at the foot of this
+ * comment.
  *
  * Epic/Feature "render once per contiguous group" is computed over STEP rows
  * only: a banner between two rows of the same epic must not restart the group,
@@ -276,11 +297,21 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * (epic 9003 and feature 9012 are both titled "Swarm Orchestration Feature").
  * The engine exposes both ids, so there is no reason to compare display strings.
  *
- * NOTE on batch banners: exactly one banner is emitted per batch because the
- * engine keeps batch-mates contiguous. When contiguity DOES break, verifyOrder()
- * raises `batch-contiguity` and the page renders it loudly — but the banner will
- * span the intervening non-member row, which carries no member edge. That is the
- * violation being visible, not a second failure.
+ * NOTE on batch banners: a banner CAN span a non-member row, and since req #3192
+ * that no longer implies a violation is on screen to explain it.
+ *
+ * Design rule 3 orders its criteria — topological, THEN state bands — so a
+ * Running step that gates a Scheduled batch-mate is TRAPPED between two members
+ * of that batch and no ordering separates them. `verifyOrder` used to report the
+ * forced case as `batch-contiguity`; it now excuses exactly the splits that are
+ * forced, so this render is the ordinary appearance of a legitimate plan.
+ *
+ * It reads correctly without the alert: the banner names its own members
+ * (`steps 1 3`), and the intervening row gets no `batchLetter` — there is no
+ * batch COLUMN, so what that changes is the row's left-border accent, which
+ * falls through to its state colour instead of the dashed batch-member edge. An
+ * AVOIDABLE split still raises `batch-contiguity` and the page still renders it
+ * loudly — that one really is the ordering's fault.
  *
  * @param {Object} plan  from orderedPlan
  * @returns {Array<{kind: 'batch'|'step'}>}
