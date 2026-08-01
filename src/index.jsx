@@ -180,6 +180,11 @@ root.render(
                     <Route path="swarm/steps" element= {<AuthenticatedRoute>
                                                              <StepsPage />
                                                          </AuthenticatedRoute>} />
+                    {/* Features editor (req #3217) — the middle tier of Epic >
+                        Feature > Story and the third plan editor, so it belongs to
+                        the block above rather than to the validate routes below it.
+                        The route is unchanged and predates the requirement (#2380);
+                        what #3217 added is the formal nav entry that reaches it. */}
                     <Route path="swarm/features" element= {<AuthenticatedRoute>
                                                              <FeaturesPage />
                                                          </AuthenticatedRoute>} />

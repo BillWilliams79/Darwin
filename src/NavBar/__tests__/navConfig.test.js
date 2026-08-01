@@ -5,7 +5,7 @@
 // reads NAV_LINKS flat losing the children.
 
 import { describe, it, expect } from 'vitest';
-import { NAV_LINKS, flattenNavLinks } from '../navConfig';
+import { NAV_LINKS, NAV_GROUPS, flattenNavLinks } from '../navConfig';
 
 const SESSIONS_PATH = '/swarm/sessions';
 const L3_PATHS = ['/swarm/swarm-starts', '/swarm/swarm-completes', '/swarm/swarm-undos'];
@@ -97,12 +97,13 @@ describe('navConfig — Epics editor placement (req #3139)', () => {
     });
 });
 
-// Req #3140 — the Steps editor completes feature 37's Pipelines > Epics > Steps
-// L2 cluster. Same positional spec as #3139 ("goes where pipelines L2 is"), so
+// Req #3140 — the Steps editor joins feature 37's Pipelines > Epics > Steps L2
+// cluster. Same positional spec as #3139 ("goes where pipelines L2 is"), so
 // position is again what these pin: appending Steps to the end of the swarm group
 // would satisfy every other assertion in this file and still be wrong.
 describe('navConfig — Steps editor placement (req #3140)', () => {
     const STEPS_PATH = '/swarm/steps';
+    const FEATURES_PATH = '/swarm/features';
     const EPICS_PATH = '/swarm/epics';
     const PIPELINES_PATH = '/swarm/pipelines';
 
@@ -114,11 +115,16 @@ describe('navConfig — Steps editor placement (req #3140)', () => {
         expect(steps.icon).toBeTruthy();
     });
 
-    it('keeps Pipelines, Epics and Steps contiguous, in that order', () => {
+    it('keeps Pipelines, Epics, Features and Steps contiguous, in that order', () => {
+        // Req #3217 seated Features between Epics and Steps, so Steps moved from
+        // Pipelines + 2 to Pipelines + 3. Everything #3140 actually pinned — Steps
+        // inside the cluster, after Epics, with no gap — is asserted here still;
+        // only the constant it was measured against changed.
         const paths = NAV_LINKS.map(l => l.path);
         const pipelines = paths.indexOf(PIPELINES_PATH);
         expect(paths.indexOf(EPICS_PATH)).toBe(pipelines + 1);
-        expect(paths.indexOf(STEPS_PATH)).toBe(pipelines + 2);
+        expect(paths.indexOf(FEATURES_PATH)).toBe(pipelines + 2);
+        expect(paths.indexOf(STEPS_PATH)).toBe(pipelines + 3);
     });
 
     it('keeps Steps a SIBLING of Pipelines, never a child of it', () => {
@@ -133,6 +139,81 @@ describe('navConfig — Steps editor placement (req #3140)', () => {
 
     it('leaves Requirements as the swarm group\'s first link', () => {
         // Same HomePage-redirect invariant the blocks above pin.
+        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe('/swarm');
+    });
+});
+
+// Req #3217 — the Features editor, the last page of feature 37. Unlike its two
+// siblings this one is a MOVE, not an addition: /swarm/features has existed since
+// #2380 and was filed under SWARM VALIDATE, a group gated behind a profile toggle
+// that ships disabled. Two failure modes are specific to a move and to nothing
+// else in this file, so both get their own assertion: leaving the old entry behind
+// (a duplicate route in the tree) and moving it somewhere other than the cluster.
+describe('navConfig — Features editor placement (req #3217)', () => {
+    const FEATURES_PATH = '/swarm/features';
+    const STEPS_PATH = '/swarm/steps';
+    const EPICS_PATH = '/swarm/epics';
+    const PIPELINES_PATH = '/swarm/pipelines';
+
+    it('registers Features as an L2 link in the swarm group', () => {
+        const features = NAV_LINKS.find(l => l.path === FEATURES_PATH);
+        expect(features).toBeDefined();
+        expect(features.group).toBe('swarm');
+        expect(features.label).toBe('Features');
+        expect(features.icon).toBeTruthy();
+    });
+
+    it('places Features between Epics and Steps', () => {
+        // Epic > Feature is the plan hierarchy design rule 10 walks (requirement →
+        // feature → epic), and feature 37 enumerates its pages in that order.
+        const paths = NAV_LINKS.map(l => l.path);
+        expect(paths.indexOf(FEATURES_PATH)).toBe(paths.indexOf(EPICS_PATH) + 1);
+        expect(paths.indexOf(STEPS_PATH)).toBe(paths.indexOf(FEATURES_PATH) + 1);
+    });
+
+    it('no longer files Features under the swarm-validate group', () => {
+        const validatePaths = NAV_LINKS.filter(l => l.group === 'swarm-validate')
+                                       .map(l => l.path);
+        expect(validatePaths).not.toContain(FEATURES_PATH);
+    });
+
+    it('lists Features exactly once across the whole tree', () => {
+        // The move's own failure mode: adding the swarm entry without deleting the
+        // swarm-validate one. Both rows would light up as active on /swarm/features
+        // and the mobile bottom nav would show the page twice.
+        const occurrences = flattenNavLinks(NAV_LINKS)
+            .filter(l => l.path === FEATURES_PATH).length;
+        expect(occurrences).toBe(1);
+    });
+
+    it('leaves the rest of the swarm-validate group intact', () => {
+        // Moving one entry out must not empty or reorder the group it left.
+        expect(NAV_LINKS.filter(l => l.group === 'swarm-validate').map(l => l.path))
+            .toEqual(['/swarm/testcases', '/swarm/testplans', '/swarm/testruns']);
+        expect(NAV_GROUPS.map(g => g.id)).toContain('swarm-validate');
+    });
+
+    it('keeps Features a SIBLING of Pipelines, never a child of it', () => {
+        // A feature is a tier the plan is composed FROM, not a lifecycle record OF
+        // a pipeline, so it must not acquire req #3209's nesting.
+        const features = NAV_LINKS.find(l => l.path === FEATURES_PATH);
+        expect(features.children).toBeUndefined();
+        NAV_LINKS.forEach(parent => {
+            expect((parent.children ?? []).map(c => c.path)).not.toContain(FEATURES_PATH);
+        });
+    });
+
+    it('keeps the whole plan-editor cluster in one unbroken run', () => {
+        const paths = NAV_LINKS.map(l => l.path);
+        const start = paths.indexOf(PIPELINES_PATH);
+        expect(paths.slice(start, start + 4)).toEqual([
+            PIPELINES_PATH, EPICS_PATH, FEATURES_PATH, STEPS_PATH,
+        ]);
+    });
+
+    it('leaves Requirements as the swarm group\'s first link', () => {
+        // Same HomePage-redirect invariant the blocks above pin — Features must not
+        // land ahead of /swarm and become the redirect target.
         expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe('/swarm');
     });
 });
