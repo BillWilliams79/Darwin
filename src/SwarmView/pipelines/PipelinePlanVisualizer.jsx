@@ -18,9 +18,10 @@
 // it gained is the two properties a scroll pane has and free pan does not:
 // BOUNDED translation (d3's translateExtent — the plan cannot be dragged off the
 // panel and lost). The overlay scroll rails that shipped alongside it were
-// REMOVED on the user's directive (2026-08-01): the bound plus the `reset view`
-// control are what keep the plan reachable, and a thumb on a canvas that pans by
-// transform was chrome restating what the pan already shows.
+// REMOVED on the user's directive (2026-08-01): the bound plus the Reset
+// control (now in the header's zoom control group, req #3216) are what keep
+// the plan reachable, and a thumb on a canvas that pans by transform was
+// chrome restating what the pan already shows.
 //
 // Level-of-detail via the SAME semanticLevel() the swarm canvas uses, so the
 // three depth levels feel identical. Mapping (worker judgment, documented per
@@ -107,7 +108,7 @@ import { aiModelLabel } from '../modelChipStyles';
 import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
-    computePlanLayout, beadStyle, placeEpicChips, epicFocusTransform,
+    computePlanLayout, beadStyle, placeEpicChips, epicFocusTransform, factoryDefaultScale,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
@@ -120,17 +121,20 @@ import '../../CalendarFC/swarmVisualizer.css';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
-const LEVEL_NAME = { out: 'Overview', mid: 'Plan', in: 'Detail' };
-
 // The three requirement-mark colour scales, in the order they are reserved.
 // Every one is rendered every time (hidden when not live) so the key's footprint
 // is the MAX of the three and therefore constant — see the key's own comment.
 const REQ_KEY_SCALES = ['state', 'machine', 'none'];
 
-// Interactive chrome layered OVER the canvas (req #3168): the key and the
-// reset button. Both d3-zoom's gesture filter and the manual click hit-test
-// reject anything originating inside one, so a control can never double as a
-// pan gesture or as a click on the bead beneath it.
+// Interactive chrome layered OVER the canvas (req #3168): the key, the only
+// occupant left since the reset control and the status chip moved out (req
+// #3216 — reset joined the header's zoom controls, the chip was deleted
+// outright). d3-zoom's gesture filter and the manual click hit-test both
+// reject anything originating inside it, so a control can never double as a
+// pan gesture or as a click on the bead beneath it. Nothing else needs the
+// exclusion any more: what replaced the old bottom-right stack lives in the
+// page header, outside the container this behavior is bound to, so a
+// mousedown on it was never reachable as a pan gesture in the first place.
 const CHROME_SELECTOR = '[data-viz-chrome]';
 
 // The panel colour at the chip's declared opacity (req #3168 user directive:
@@ -242,6 +246,12 @@ export default function PipelinePlanVisualizer({
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
     onEffectiveLevel, onChangeLevelPref,
+    // The header's Reset control (req #3216) lives outside this component, in
+    // the zoom control group PipelineDetail.jsx owns, so the click has to
+    // reach across that boundary. `resetViewNonce` is KonvaBuildCanvas's own
+    // device for exactly this (`resetViewNonce`/`frame`): a number that only
+    // ever increments, watched by an effect below. 0 is the initial render.
+    resetViewNonce = 0,
 }) {
     const navigate = useNavigate();
 
@@ -454,6 +464,13 @@ export default function PipelinePlanVisualizer({
     // 11px floor; see pipelinePlanLayout. On a plan that already fits at a legible
     // size this is inert — kFit wins and nothing about the old view changes.
     const kDefault = Math.max(kFit, K_READABLE);
+    // The zoom behavior's own configured floor, computed ONCE here so this
+    // and the `.scaleExtent` call below read the SAME number rather than two
+    // copies of a formula that only agree today because `kDefault` happens to
+    // collapse `Math.min(kFit, kDefault)` to `kFit` (req #3216 review
+    // finding — a future `kDefault` that could fall below `kFit` would
+    // silently desync a duplicated expression; a shared variable cannot).
+    const kZoomFloor = Math.min(kFit, kDefault) * ZOOM_MIN_RATIO;
     const curK = transform ? transform.k : kDefault;
     // THE LEVEL LADDER RE-ANCHORS ON THE DEFAULT, not on the fit (req #3168).
     // semanticLevel() takes a RATIO, and the ratio means "how far in from where
@@ -517,11 +534,13 @@ export default function PipelinePlanVisualizer({
             // from the view the reader actually lands in. The lower bound keeps
             // the fit scale in reach so `Overview` can still show the whole plan
             // on a plan that opens zoomed in.
-            .scaleExtent([Math.min(kFit, kDefault) * ZOOM_MIN_RATIO,
-                kDefault * ZOOM_MAX_RATIO])
+            .scaleExtent([kZoomFloor, kDefault * ZOOM_MAX_RATIO])
             .constrain(bound)
-            // A DRAG that starts on the key or the reset button belongs to
-            // that control (req #3168). Rejecting it HERE rather than calling
+            // A DRAG that starts on the key belongs to that control (req
+            // #3168; the reset button's own exclusion left with it, req
+            // #3216 — it now lives in the header, outside this container
+            // entirely, so it was never reachable as a pan gesture here to
+            // begin with). Rejecting it HERE rather than calling
             // stopPropagation on the control's React handler is the only version
             // that works: d3's listener is bound to this container and fires on
             // the way up, long before React's delegated handler at the document
@@ -567,22 +586,67 @@ export default function PipelinePlanVisualizer({
             // page to Table mode, which unmounts this component.
             sel.interrupt();
         };
-    }, [containerEl, size.w, size.h, kFit, kDefault, layout.width, layout.height]);
+    }, [containerEl, size.w, size.h, kFit, kDefault, kZoomFloor, layout.width, layout.height]);
 
-    // Reset to the default view on first size and whenever a layout toggle
-    // changes the world dimensions wholesale (the POC re-rendered from scratch on
-    // those toggles). `stepWidth` joins that list for the same reason the other
-    // two are on it: it rescales every column, so the previous pan lands
-    // somewhere unrelated on the new geometry.
+    // ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────
+    // Deliberately NOT `kDefault` above — see `factoryDefaultScale`'s own
+    // comment in pipelinePlanLayout.js for why the readable landing scale and
+    // "reset" are two different numbers now. The fit math is pure and lives
+    // there, same as `epicFocusTransform`'s; this file only draws what it
+    // returns. `kZoomFloor` (computed above, alongside `kDefault`) is the
+    // SAME number the zoom behavior's own `scaleExtent` floor uses — passed
+    // in rather than re-derived, so the two can never desync (review finding:
+    // a duplicated `kFit * ZOOM_MIN_RATIO` only agreed with the behavior's
+    // real floor by algebraic coincidence).
+    const kFactoryDefault = factoryDefaultScale(layout, size, kFit, kZoomFloor);
+
+    // WHICH base a toggle-driven recenter targets (review finding): Width
+    // rescales every column and re-centres to keep the view sane on the new
+    // geometry (the effect below), and until this ref existed that recentre
+    // was hard-coded to `kDefault` — so clicking Width right after clicking
+    // Reset, its own neighbour in the same header group, silently undid the
+    // factory reset the user had just asked for. Flipping this to 'factory'
+    // on a Reset click and reading it back here means a toggle instead
+    // preserves whichever view the reader is IN, exactly as it always
+    // preserved `kDefault` when the two scales happened to be the same
+    // number. A drag or a wheel zoom never touches this ref: those don't run
+    // through this effect at all, so which gesture last moved the camera is
+    // still irrelevant to it, same as before this fix.
+    const recenterModeRef = useRef('readable');
+
+    // Reset to the current base view on first size and whenever a layout
+    // toggle changes the world dimensions wholesale (the POC re-rendered from
+    // scratch on those toggles). `stepWidth` joins that list for the same
+    // reason the other two are on it: it rescales every column, so the
+    // previous pan lands somewhere unrelated on the new geometry.
     const resetView = useCallback(() => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
-        select(el).call(zb.transform, zoomIdentity.scale(kDefault));
-    }, [containerEl, size.w, kDefault]);
+        const k = recenterModeRef.current === 'factory' ? kFactoryDefault : kDefault;
+        select(el).call(zb.transform, zoomIdentity.scale(k));
+    }, [containerEl, size.w, kDefault, kFactoryDefault]);
     useEffect(() => {
         resetView();
     }, [resetView, size.h, reqLayout, stepLabel, stepWidth, reqLabel]);
+
+    const factoryReset = useCallback(() => {
+        recenterModeRef.current = 'factory';
+        resetView();
+    }, [resetView]);
+    // `resetViewNonce` only ever increments (the header's click handler), so
+    // the effect fires once per click. Read through a ref rather than joining
+    // the dependency list: `factoryReset`'s identity changes on every resize
+    // and every layout toggle, and depending on it directly would fire this on
+    // those too — which is the mount/toggle effect above's job, not a factory
+    // reset the user never asked for. 0 is the initial render — skip it, the
+    // mount effect above already puts the canvas at the readable default.
+    const factoryResetRef = useRef(factoryReset);
+    factoryResetRef.current = factoryReset;
+    useEffect(() => {
+        if (!resetViewNonce) return;
+        factoryResetRef.current();
+    }, [resetViewNonce]);
 
     // Manual DOM click hit-test: d3-zoom owns the pointer gesture, so a
     // non-drag click is resolved against the stage and fired as the Konva
@@ -592,9 +656,9 @@ export default function PipelinePlanVisualizer({
         if (!el) return undefined;
         const onDown = (e) => { downRef.current = { x: e.clientX, y: e.clientY }; };
         const onClick = (e) => {
-            // Same exclusion as the zoom filter: the key and the reset button
-            // are chrome over the canvas, and resolving a click through one of
-            // them would fire whichever bead it happens to be lying on top of.
+            // Same exclusion as the zoom filter: the key is chrome over the
+            // canvas, and resolving a click through it would fire whichever
+            // bead it happens to be lying on top of.
             if (e.target?.closest?.(CHROME_SELECTOR)) return;
             const d = downRef.current;
             if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
@@ -1181,8 +1245,10 @@ export default function PipelinePlanVisualizer({
                 hover datacard appears, which makes a screenshot diff a weak
                 proof that the view actually moved. Publishing {x, y, k} costs one
                 attribute on a node React already re-renders per zoom event and
-                makes the interaction falsifiable (req #3118 PIPE-08/09). Same
-                purpose as the `pipeline-viz-zoom-level` chip beside it. */}
+                makes the interaction falsifiable (req #3118 PIPE-08/09).
+                `data-level` a few lines down carries the same duty for the
+                semantic level since the status chip that used to name it was
+                deleted (req #3216). */}
             <Box ref={setContainer} data-testid="pipeline-plan-visualizer"
                  data-transform={`${t.x.toFixed(2)},${t.y.toFixed(2)},${t.k.toFixed(4)}`}
                  // The WORLD the transform is applied to, for the same reason
@@ -1537,41 +1603,21 @@ export default function PipelinePlanVisualizer({
                     )}
                 </Stack>
 
-                {/* `data-viz-chrome` on the WRAPPER, not just the button: the
-                    6px flex gap between the two chips is inside this Stack and
-                    over the canvas, so a mousedown that landed in it started a
-                    pan from what looks like a control. */}
-                <Stack direction="row" spacing={0.75} alignItems="center"
-                       data-viz-chrome="hud"
-                       sx={{ position: 'absolute', bottom: 15, right: 10 }}>
-                    {/* The way home from a pan (req #3168). A bounded pan keeps
-                        the plan reachable; this makes getting back one click
-                        rather than a hunt, and it is also the only way back to
-                        the default SCALE after a zoom. */}
-                    <Box component="button" type="button" onClick={resetView}
-                         data-viz-chrome="reset"
-                         data-testid="pipeline-viz-reset"
-                         sx={{ fontSize: 11, fontFamily: MONO, color: P.text,
-                                background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
-                                border: `1px solid ${P.line}`, borderRadius: '10px',
-                                px: 1, py: 0.25, userSelect: 'none',
-                                '&:hover': { color: P.accent, borderColor: P.accent } }}>
-                        reset view
-                    </Box>
-                    <Box sx={{ fontSize: 11,
-                                color: P.dim, background: 'rgba(0,0,0,0.45)',
-                                px: 1, py: 0.25, borderRadius: '10px',
-                                pointerEvents: 'none', userSelect: 'none' }}
-                         data-testid="pipeline-viz-zoom-level">
-                        {/* `· pinned` is `KonvaBuildCanvas`'s own wording, kept
-                            verbatim so a reader who knows one canvas knows this
-                            one. It matters more here than there: pinning does not
-                            move the camera, so without this the chip would name a
-                            level the zoom disagrees with and read as a bug. */}
-                        {LEVEL_NAME[level]}{pinnedLevel ? ' · pinned' : ''}
-                        {' · drag to pan · scroll to zoom'}
-                    </Box>
-                </Stack>
+                {/* The bottom-right reset button + status chip stack is GONE
+                    (req #3216). Reset moved to the header's zoom control group
+                    — see PipelineDetail.jsx and the `resetViewNonce` handshake
+                    above — and the status chip (zoom level name, "pinned", the
+                    "drag to pan, scroll to zoom" hint) was deleted outright,
+                    not just its text: drag-to-pan and scroll-to-zoom are
+                    discovered in under a second by anyone who touches the
+                    canvas, and a permanent caption teaching them cost this
+                    corner forever. The level and the pinned state are each
+                    still named elsewhere — `data-level` on the container
+                    (published for the same reason `data-transform` is, a few
+                    lines up) and the key's own `SemanticLevelControl` (the
+                    filled/outlined Auto|L1|L2|L3 chips), which was ALREADY the
+                    control a reader used to pin or clear a level, so removing
+                    this chip removes no signal that had no other home. */}
 
                 {card && (
                     <PlanDataCard card={card} timezone={timezone} level={level}

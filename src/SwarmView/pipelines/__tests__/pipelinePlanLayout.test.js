@@ -28,7 +28,7 @@ import {
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
-    RULER_H, computeRuler, slotTickText,
+    RULER_H, computeRuler, slotTickText, factoryDefaultScale,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -2288,6 +2288,69 @@ describe('epic focus geometry', () => {
         expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase)).toBeNull();
         expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
         expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
+    });
+});
+
+describe('reset = factory default scale (req #3216 D1)', () => {
+    const kFit = 0.8;
+    // The caller's own configured floor, passed in rather than re-derived
+    // (review finding) — see the function's own comment for why. Computed
+    // here exactly as PipelinePlanVisualizer computes `kZoomFloor`, so these
+    // tests exercise the real contract between the two.
+    const kFloor = kFit * ZOOM_MIN_RATIO;
+
+    it('kFit wins when the plan already fits vertically at that scale', () => {
+        // width-bound: at kFit the world is 500 tall against a 900px viewport,
+        // so nothing about the vertical axis needs correcting.
+        const k = factoryDefaultScale({ height: 500 }, { w: 1000, h: 900 }, kFit, kFloor);
+        expect(k).toBe(kFit);
+    });
+
+    it('zooms out further than kFit on a plan too TALL to fit at it — the D1 bug', () => {
+        // height-bound: at kFit (0.8) a 2000-tall world needs 1600px of
+        // viewport and only 900 are on offer — the exact shape of "reset
+        // lands somewhere the user still has to zoom out from".
+        const size = { w: 1000, h: 900 };
+        const layout = { height: 2000 };
+        const k = factoryDefaultScale(layout, size, kFit, kFloor);
+        expect(k).toBeLessThan(kFit);
+        // THE ACCEPTANCE BAR ITSELF: the whole vertical extent fits at k.
+        expect(k * layout.height).toBeLessThanOrEqual(size.h + 1e-9);
+    });
+
+    it('never goes below the caller\'s own configured floor', () => {
+        // Absurdly tall — the vertical fit alone would ask for a k far below
+        // what the caller's own scaleExtent permits. The floor wins, matching
+        // what a user's own scroll-to-zoom-out is already capped at, rather
+        // than writing a transform the next wheel event would snap away from
+        // (see the function's own comment).
+        const size = { w: 1000, h: 900 };
+        const layout = { height: 400_000 };
+        const k = factoryDefaultScale(layout, size, kFit, kFloor);
+        expect(k).toBe(kFloor);
+        // Confirms the floor really is the binding constraint here, not a
+        // coincidence — the raw vertical fit is well below it.
+        expect(size.h / layout.height).toBeLessThan(kFloor);
+    });
+
+    it('honours a floor the caller derives from something other than kFit * ZOOM_MIN_RATIO', () => {
+        // The whole point of taking the floor as a parameter: this function
+        // must not assume any particular relationship between kFit and the
+        // floor, because the caller's own `Math.min(kFit, kDefault)` collapse
+        // is a fact about `kDefault`'s CURRENT formula, not a law this
+        // function may lean on. An arbitrary floor above kFit clamps the
+        // result up to it, whatever the vertical fit would have asked for.
+        const size = { w: 1000, h: 900 };
+        const layout = { height: 400_000 };
+        const oddFloor = kFit * 1.5;
+        expect(factoryDefaultScale(layout, size, kFit, oddFloor)).toBe(oddFloor);
+    });
+
+    it('falls back to kFit when the viewport or the plan has not measured yet', () => {
+        expect(factoryDefaultScale({ height: 500 }, { w: 0, h: 0 }, kFit, kFloor)).toBe(kFit);
+        expect(factoryDefaultScale({ height: 500 }, undefined, kFit, kFloor)).toBe(kFit);
+        expect(factoryDefaultScale({ height: 0 }, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
+        expect(factoryDefaultScale(null, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
     });
 });
 
