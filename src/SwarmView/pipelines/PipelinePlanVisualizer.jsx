@@ -152,36 +152,30 @@ const rgba = (hex, a) => {
 // move, short enough that a second click never feels queued.
 const FOCUS_MS = 420;
 
-// Key swatch — a colored dot (or ring) in the POC vocabulary. `text` renders the
-// swatch as a glyph instead, which is how the requirement-id channel is shown:
-// that channel colours TYPE, and a dot would misrepresent it as another bead.
-function LegendDot({ fill, ring, dashed, text, label, animated }) {
+// Key swatch — a colored dot (or ring) in the POC vocabulary. The requirement
+// channel colours TYPE instead (LegendWord, below) — a dot there would
+// misrepresent it as another bead, which is why this swatch only ever draws
+// the STEP channel's marks now.
+function LegendDot({ fill, ring, label, animated }) {
     return (
         <Stack direction="row" spacing={0.5} alignItems="center">
-            {text ? (
-                <Box sx={{ width: 12, flexShrink: 0, fontFamily: MONO, fontSize: 10,
-                            fontWeight: 700, lineHeight: 1, color: fill, textAlign: 'center' }}>
-                    {text}
-                </Box>
-            ) : (
-                <Box sx={{
-                    width: 10, height: 10, flexShrink: 0,
-                    borderRadius: dashed ? '3px' : '50%',
-                    bgcolor: fill || 'transparent',
-                    border: ring ? `2px ${dashed ? 'dashed' : 'solid'} ${ring}` : 'none',
-                    // The key SHOWS the motion it describes rather than only
-                    // naming it — the two animated marks are the two questions
-                    // this page exists to answer, and a static swatch beside the
-                    // word "pulses" makes the reader match prose to a moving
-                    // thing 400px away. Same curves as the canvas
-                    // (PLAN_VIZ pulse ~480ms, halo ~900ms), so the key and the
-                    // plan visibly share a rhythm.
-                    ...(animated ? {
-                        animation: `${animated} ${animated === 'pipeKeyPulse' ? '0.96s' : '1.8s'}`
-                            + ' ease-in-out infinite',
-                    } : null),
-                }} />
-            )}
+            <Box sx={{
+                width: 10, height: 10, flexShrink: 0,
+                borderRadius: '50%',
+                bgcolor: fill || 'transparent',
+                border: ring ? `2px solid ${ring}` : 'none',
+                // The key SHOWS the motion it describes rather than only
+                // naming it — the two animated marks are the two questions
+                // this page exists to answer, and a static swatch beside the
+                // word "pulses" makes the reader match prose to a moving
+                // thing 400px away. Same curves as the canvas
+                // (PLAN_VIZ pulse ~480ms, halo ~900ms), so the key and the
+                // plan visibly share a rhythm.
+                ...(animated ? {
+                    animation: `${animated} ${animated === 'pipeKeyPulse' ? '0.96s' : '1.8s'}`
+                        + ' ease-in-out infinite',
+                } : null),
+            }} />
             <Typography variant="caption" sx={{ color: P.dim, whiteSpace: 'nowrap' }}>
                 {label}
             </Typography>
