@@ -13,8 +13,10 @@ import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS,
-    PLAN_VIZ_PALETTE, STEP_DONE,
+    PLAN_VIZ_PALETTE, STEP_DONE, bandFitRect, epicFocusTransform,
+    FOCUS_PAD, FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
 } from '../pipelinePlanLayout';
+import { semanticLevel } from '../../konvaSwarmModel';
 
 const NOW = '2026-07-27T03:00:00Z';
 const plan = orderedPlan(SUBSTRATE_REBUILD_MODEL, { now: NOW });
@@ -737,6 +739,263 @@ describe('empty plan', () => {
     });
 });
 
+// ── Epic focus (req #3204) ──────────────────────────────────────────────────
+// The click sets the viewport ONCE and retains nothing, so the whole feature is
+// falsifiable right here: two pure functions from (layout, band, viewport) to a
+// rectangle and a transform. What the component adds is only the decision to
+// route that transform through the d3-zoom behavior, which is a browser
+// property and is asserted in the E2E (PIPE-13).
+describe('epic focus geometry', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'horizontal', stepLabel: 'id' });
+    const bandOf = (epic) => {
+        const b = layout.bands.find((x) => x.epic === epic);
+        expect(b, `the fixture has a "${epic}" band`).toBeTruthy();
+        return b;
+    };
+    const depthsOf = (band) =>
+        band.stepIds.map((id) => layout.nodes.get(id).depth).sort((a, b) => a - b);
+
+    // The band's screen-space rectangle under a transform — what the user sees.
+    const onScreen = (band, tr) => {
+        const r = bandFitRect(layout, band);
+        return {
+            left: tr.x + r.x * tr.k,
+            top: tr.y + r.y * tr.k,
+            right: tr.x + (r.x + r.w) * tr.k,
+            bottom: tr.y + (r.y + r.h) * tr.k,
+        };
+    };
+
+    it('the rect is the band\'s own vertical extent, header strip included', () => {
+        for (const band of layout.bands) {
+            const r = bandFitRect(layout, band);
+            expect(r).toBeTruthy();
+            expect(r.y).toBe(band.y);
+            expect(r.h).toBe(band.height);
+        }
+    });
+
+    // THE load-bearing case, and the one the first cut of this feature got
+    // wrong. A step label is CENTRED on its column and sized to
+    // `staggerBudget()` — its own column plus 40% of the narrower neighbour on
+    // each side — so a label in the band's outermost column legitimately draws
+    // OUTSIDE the column extent. Fitting to columns alone clipped it.
+    //
+    // Parameterised over all FOUR view combinations, because the bug was
+    // invisible in the two this suite used to test and worst in the pair
+    // PipelineDetail actually defaults to (vertical + title). Measured before
+    // the fix, at 1600×820: "Application Backlog" lost 10.6px off the right edge
+    // in horizontal+id, and the default view was down to 7.6px of its 44.
+    describe.each(COMBOS)('drawn content fits, in $reqLayout + $stepLabel', (combo) => {
+        const lay = computePlanLayout(plan.rows, plan.batches, combo);
+
+        // Everything this band's steps actually DRAW: beads and every label
+        // carrying one of its step ids. Deliberately recomputed here from the
+        // layout's own output rather than reusing bandFitRect — a test that
+        // asks the implementation what it drew cannot catch it drawing the
+        // wrong thing.
+        const drawn = (band) => {
+            const ids = new Set(band.stepIds);
+            let left = Infinity;
+            let right = -Infinity;
+            for (const id of ids) {
+                const n = lay.nodes.get(id);
+                left = Math.min(left, n.x - BEAD_RADIUS);
+                right = Math.max(right, n.x + BEAD_RADIUS);
+            }
+            for (const l of lay.labels) {
+                if (l.stepId == null || !ids.has(l.stepId)) continue;
+                left = Math.min(left, l.x);
+                right = Math.max(right, l.x + (l.w || 0));
+            }
+            return { left, right };
+        };
+
+        it('leaves FOCUS_PAD clear of every mark the band draws', () => {
+            const size = { w: 1600, h: 820 };
+            const kBase = size.w / lay.width;
+            for (const band of lay.bands) {
+                const tr = epicFocusTransform(lay, band, size, kBase);
+                expect(tr, band.epic).toBeTruthy();
+                const d = drawn(band);
+                expect(tr.x + d.left * tr.k, `${band.epic} left`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(size.w - (tr.x + d.right * tr.k), `${band.epic} right`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(tr.y + band.y * tr.k, `${band.epic} top`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                expect(size.h - (tr.y + (band.y + band.height) * tr.k), `${band.epic} bottom`)
+                    .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            }
+        });
+
+        it('contains the band\'s drawn extent inside the fit rectangle', () => {
+            for (const band of lay.bands) {
+                const r = bandFitRect(lay, band);
+                const d = drawn(band);
+                expect(r.x, `${band.epic} left`).toBeLessThanOrEqual(d.left + 1e-6);
+                expect(r.x + r.w, `${band.epic} right`)
+                    .toBeGreaterThanOrEqual(d.right - 1e-6);
+            }
+        });
+    });
+
+    it('spans non-contiguous columns rather than skipping the gap', () => {
+        // "Application Backlog" is the fixture's non-contiguous epic: its steps
+        // sit at depths 0, 1 and then 11–13, with nothing between. The fit must
+        // cover the whole span — there is no honest view that omits the middle.
+        const band = bandOf('Application Backlog');
+        const depths = depthsOf(band);
+        expect(depths[0]).toBe(0);
+        expect(depths.at(-1)).toBeGreaterThan(depths[0] + depths.length);
+        const r = bandFitRect(layout, band);
+        const dMin = depths[0];
+        const dMax = depths.at(-1);
+        // At LEAST the columns — labels may push it wider, never narrower.
+        expect(r.x).toBeLessThanOrEqual(layout.colX[dMin] - layout.colW[dMin] / 2 + 1e-6);
+        expect(r.x + r.w)
+            .toBeGreaterThanOrEqual(layout.colX[dMax] + layout.colW[dMax] / 2 - 1e-6);
+    });
+
+    it('reads only stepIds and node depth — no assumption about band ORDER', () => {
+        // Req #3201 reorders the bands. Reversing `layout.bands` must not move
+        // a single rectangle.
+        const before = layout.bands.map((b) => bandFitRect(layout, b));
+        const after = [...layout.bands].reverse().map((b) => bandFitRect(layout, b));
+        expect(after.reverse()).toEqual(before);
+    });
+
+    it('does NOT widen to the whole plan — a narrow epic fits its own columns', () => {
+        const orch = bandFitRect(layout, bandOf('Swarm Orchestration Feature'));
+        expect(orch.w).toBeLessThan(layout.width / 2);
+        expect(orch.x).toBeGreaterThan(layout.width / 2);
+    });
+
+    it('centres the band and leaves at least FOCUS_PAD on all four sides', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        for (const band of layout.bands) {
+            const tr = epicFocusTransform(layout, band, size, kBase);
+            expect(tr, band.epic).toBeTruthy();
+            const s = onScreen(band, tr);
+            // Centred: equal slack on both axes, so the margin is never spent
+            // entirely on one side.
+            expect(s.left + s.right).toBeCloseTo(size.w, 6);
+            expect(s.top + s.bottom).toBeCloseTo(size.h, 6);
+            // Margin on ALL FOUR sides. `>=` rather than `≈` because the
+            // non-binding axis (and any band clamped by the ceiling) gets more.
+            expect(s.left, `${band.epic} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(s.top, `${band.epic} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.w - s.right, `${band.epic} right`)
+                .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.h - s.bottom, `${band.epic} bottom`)
+                .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+        }
+    });
+
+    it('fits as tightly as it can — the binding axis is flush against the margin', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        // The widest band is not ceiling-clamped, so its fit is the honest one:
+        // one axis must land exactly on the pad, or the zoom was not tight.
+        const band = bandOf('Swarm Substrate Rebuild');
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        const s = onScreen(band, tr);
+        const slackX = s.left - FOCUS_PAD;
+        const slackY = s.top - FOCUS_PAD;
+        expect(Math.min(slackX, slackY)).toBeCloseTo(0, 6);
+    });
+
+    it('clamps a one-step epic to the ceiling instead of zooming absurdly far', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        const band = bandOf('Primary and Swarm Agentic Integration');
+        expect(band.stepIds).toHaveLength(1);
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        // Unclamped this would have been far tighter — the clamp is doing work,
+        // not merely agreeing with the fit.
+        const r = bandFitRect(layout, band);
+        expect((size.w - 2 * FOCUS_PAD) / r.w).toBeGreaterThan(kBase * FOCUS_MAX_RATIO);
+    });
+
+    it('the ceiling lands on the Detail semantic level', () => {
+        // Req #3204 point 5: confirm the level the fit lands on is the one a
+        // reader wants for "focus on this epic", rather than accepting whatever
+        // falls out. semanticLevel() reads the ratio to kBase, which is exactly
+        // what FOCUS_MAX_RATIO is expressed in.
+        expect(semanticLevel(FOCUS_MAX_RATIO)).toBe('in');
+    });
+
+    it('never leaves d3-zoom\'s scaleExtent, at any viewport', () => {
+        // `zoom.transform` does NOT constrain what it is handed — unlike
+        // scaleTo/translateBy it never calls `constrain`, so nothing re-clamps
+        // this at write time. The next WHEEL gesture does clamp against
+        // scaleExtent, so an out-of-extent k would look correct until the user's
+        // first scroll and then jump. That is what makes this clamp
+        // load-bearing rather than defensive, and why it reads the same
+        // constants the component hands to scaleExtent.
+        expect(FOCUS_MIN_RATIO).toBe(ZOOM_MIN_RATIO);
+        expect(FOCUS_MAX_RATIO).toBeLessThanOrEqual(ZOOM_MAX_RATIO);
+        for (const size of [{ w: 1200, h: 700 }, { w: 420, h: 2000 },
+            { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
+            const kBase = size.w / layout.width;
+            for (const band of layout.bands) {
+                const tr = epicFocusTransform(layout, band, size, kBase);
+                expect(tr, `${band.epic} @ ${size.w}×${size.h}`).toBeTruthy();
+                expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+                expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+                expect(Number.isFinite(tr.x) && Number.isFinite(tr.y)).toBe(true);
+            }
+        }
+    });
+
+    it('the floor engages when a band cannot fit even at the extent minimum', () => {
+        // A wide but very short panel: the height fit demands less than the
+        // extent's minimum, so the floor takes over and the band overflows
+        // vertically rather than the transform leaving the extent d3-zoom will
+        // enforce on the next wheel event.
+        const size = { w: 1600, h: 150 };
+        const kBase = size.w / layout.width;
+        const band = bandOf('Swarm Substrate Rebuild');
+        const tr = epicFocusTransform(layout, band, size, kBase);
+        expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
+        // The clamp is doing work — the unclamped fit really was tighter.
+        const r = bandFitRect(layout, band);
+        expect(Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD) / r.h)
+            .toBeLessThan(kBase * FOCUS_MIN_RATIO);
+    });
+
+    it('the pad fallback is continuous — no cliff at 2 × FOCUS_PAD', () => {
+        // `w > 2*PAD ? w - 2*PAD : w` reads reasonably and hides a step change:
+        // at w=88 it yields 88, at w=89 it yields 1, so one pixel of growth
+        // zooms out ~88×. Unreachable in production (the panel has minHeight
+        // 480) but a trap for the next caller, so the maths is continuous.
+        const band = bandOf('Swarm Substrate Rebuild');
+        let prev = null;
+        for (let w = 2 * FOCUS_PAD - 4; w <= 2 * FOCUS_PAD + 4; w++) {
+            const tr = epicFocusTransform(layout, band, { w, h: 600 }, w / layout.width);
+            expect(tr).toBeTruthy();
+            if (prev != null) expect(Math.abs(tr.k / prev - 1)).toBeLessThan(0.5);
+            prev = tr.k;
+        }
+    });
+
+    it('returns null rather than NaN geometry on degenerate input', () => {
+        const band = layout.bands[0];
+        const kBase = 0.5;
+        expect(bandFitRect(computePlanLayout([], []), band)).toBeNull();
+        expect(bandFitRect(layout, { ...band, stepIds: [] })).toBeNull();
+        expect(bandFitRect(layout, { ...band, stepIds: [999999] })).toBeNull();
+        expect(bandFitRect(layout, { ...band, height: 0 })).toBeNull();
+        expect(bandFitRect(layout, null)).toBeNull();
+        // No viewport yet (the container has not measured) — nothing to fit to.
+        expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase)).toBeNull();
+        expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
+        expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
+    });
+});
 // ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
 // A purpose-built model rather than the Substrate fixture, because the shapes
 // under test are shapes that fixture does not contain: an epic that has never
