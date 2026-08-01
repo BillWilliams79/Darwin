@@ -46,9 +46,11 @@ export const PIPELINE_DETAIL_MODES = [
         Component: PipelinePlanTable,
     },
     {
-        // The req #3115 Plan visualizer: epic bands, chain-aware swim lanes,
-        // dependency-depth columns, launch-batch boxes, drag-pan + three-level
-        // zoom (react-konva + d3-zoom, the Swarm Visualizer's feel).
+        // The req #3115 Plan visualizer: epic bands stacked by derived start,
+        // chain-aware swim lanes, TIME-SLOT columns floored by dependency depth
+        // (req #3201 — they were raw dependency depth), launch-batch boxes,
+        // drag-pan + three-level zoom (react-konva + d3-zoom, the Swarm
+        // Visualizer's feel).
         value: 'plan',
         label: 'Plan',
         icon: AccountTreeIcon,

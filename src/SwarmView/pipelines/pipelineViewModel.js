@@ -26,6 +26,7 @@ import {
     STEP_RUNNING,
     STEP_PENDING,
 } from './pipelineModel';
+import { planTimeAxis } from './pipelinePlanTime';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -41,8 +42,17 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 // its cache key, so two pages asking for different projections are two cache
 // entries and the second one refetches the whole requirements table. One
 // constant means list -> detail navigation reuses the read it already paid for.
+//
+// `started_at` / `completed_at` (req #3201) carry the plan's TIME AXIS. The
+// visualizer's horizontal position is a calendar proxy and its bands stack by
+// epic start, and there is no `epics.started_at` column to read — an epic's
+// start is DERIVED as a minimum over its requirements (design rule 1), so the
+// two stamps have to travel with the projection. They are two DATETIME columns
+// on rows already being read; the blob columns req #3078 keeps out of list
+// reads are a different thing entirely.
 export const PLAN_REQUIREMENT_FIELDS =
-    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking';
+    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking,'
+    + 'started_at,completed_at';
 
 /**
  * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.
@@ -192,7 +202,7 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 
 /**
  * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
- * propose → mark eligibility → attach cost.
+ * propose → mark eligibility → attach cost → derive the time axis.
  *
  * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
  * point: the renderer checks its own output and the caller renders any violation
@@ -243,9 +253,19 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     // input, so there is nothing outside this function to surprise.
     for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
 
+    // The visualizer's TIME AXIS (req #3201). Derived here rather than in the
+    // canvas for the same reason cost is: the plan table and the plan
+    // visualizer are two surfaces over one plan, and a fact they each derive
+    // independently is a fact that can disagree. Like cost, and for the same
+    // reason, it is computed AFTER ordering and is never an ordering input —
+    // display order stays topological-then-state-banded (rule 3), and only the
+    // canvas's column origins and band stacking read this.
+    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
+
     return {
         rows,
         violations,
+        timeAxis,
         batches,
         batchLetterByStepId,
         proposals,
