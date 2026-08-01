@@ -2268,4 +2268,52 @@ export function epicFocusTransform(layout, band, size, kBase) {
     };
 }
 
+// ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────────
+// "Reset" used to mean "back to `kDefault`", the READABLE landing scale (req
+// #3168, `K_READABLE` above) — fit-to-width floored at a legible text size.
+// The requirement redefines what the control returns to: fully zoomed out so
+// the whole plan's VERTICAL extent is visible, one click, from any pan or
+// zoom. "reset that lands somewhere the user still has to zoom out from is
+// not reset." On a plan with many epic bands the readable floor can sit
+// ABOVE the scale that needs, which is exactly the failure mode this
+// function exists to rule out — it is deliberately NOT `kDefault`, and
+// legibility is not a concern it weighs at all.
+//
+// PURE and exported for the same reason `epicFocusTransform` is (the comment
+// two functions up): this is a fit computation over `layout`/`size`, testable
+// with plain numbers, and the canvas component's job is only to draw what it
+// returns.
+/**
+ * The scale at which the WHOLE plan — both axes, not just the width `kFit`
+ * already fits — is visible in a `size.w` × `size.h` viewport.
+ *
+ * The tighter of the two axis fits, exactly `epicFocusTransform`'s own
+ * "contain" idiom applied to the whole world instead of one band's rect.
+ * Floored at `kFloor` — the CALLER's own configured `scaleExtent` minimum,
+ * taken as a parameter rather than re-derived here, because
+ * `zoom.transform` applies what it is given VERBATIM and does not clamp it
+ * (see PipelinePlanVisualizer's `scaleExtent` comment): a k below the floor
+ * would look right until the next wheel event snapped it back, the same bug
+ * class `epicFocusTransform`'s own clamp exists to avoid. A re-derived
+ * `kFit * ZOOM_MIN_RATIO` here would only agree with the real floor by
+ * algebraic coincidence (today, `Math.min(kFit, kDefault) === kFit` because
+ * `kDefault = Math.max(kFit, K_READABLE)`) — a future caller whose floor
+ * formula changes would silently desync a copy but cannot desync a value it
+ * hands in itself. Where that floor actually binds, the zoom behavior itself
+ * already refuses to scroll out any further on this plan — the honest edge
+ * of what panning it allows, not this function failing its own definition.
+ *
+ * @param {{width:number,height:number}} layout the world dimensions
+ * @param {{w:number,h:number}} size the viewport, in screen px
+ * @param {number} kFit the fit-to-width scale the caller already has
+ * @param {number} kFloor the caller's own zoom behavior's configured minimum
+ * @returns {number} `kFit` itself when the viewport or the plan has not
+ *   measured yet — the same "nothing to fit" fallback `kFit` uses.
+ */
+export function factoryDefaultScale(layout, size, kFit, kFloor) {
+    if (!(size?.h > 0) || !(layout?.height > 0) || !(kFit > 0)) return kFit || 0;
+    const kVertFit = size.h / layout.height;
+    return Math.max(Math.min(kFit, kVertFit), kFloor);
+}
+
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };
