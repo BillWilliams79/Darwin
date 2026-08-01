@@ -14,6 +14,7 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import LanIcon from '@mui/icons-material/Lan';
 import LayersIcon from '@mui/icons-material/Layers';
+import LinearScaleIcon from '@mui/icons-material/LinearScale';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BusinessIcon from '@mui/icons-material/Business';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -81,6 +82,14 @@ export const NAV_LINKS = [
     // hierarchy is read from, and above Sessions for the same reason Pipelines
     // is — plan views carry no session data at all (req #3080 design rule 9).
     { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
+    // Req #3140 — the Steps editor, the third page of feature 37 "Plan Editors"
+    // and the last of the Pipelines > Epics > Steps L2 cluster. A SIBLING for the
+    // same reason Epics is: req #3209's nesting is for lifecycle records OF a
+    // thing, and a step is a MEMBER of a plan, not a record about one. It sits
+    // after Epics rather than displacing it because the cluster reads top-down as
+    // the plan itself (Pipelines) and then what it is composed of — and because
+    // #3139 pinned Epics at Pipelines + 1.
+    { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
     // Req #3209 — Sessions is the first L2 item with L3 children. Starts,
     // Completes and Undos are lifecycle records OF a session, not peers of it,
     // so they nest underneath rather than sitting as siblings. They keep their

@@ -97,6 +97,46 @@ describe('navConfig — Epics editor placement (req #3139)', () => {
     });
 });
 
+// Req #3140 — the Steps editor completes feature 37's Pipelines > Epics > Steps
+// L2 cluster. Same positional spec as #3139 ("goes where pipelines L2 is"), so
+// position is again what these pin: appending Steps to the end of the swarm group
+// would satisfy every other assertion in this file and still be wrong.
+describe('navConfig — Steps editor placement (req #3140)', () => {
+    const STEPS_PATH = '/swarm/steps';
+    const EPICS_PATH = '/swarm/epics';
+    const PIPELINES_PATH = '/swarm/pipelines';
+
+    it('registers Steps as an L2 link in the swarm group', () => {
+        const steps = NAV_LINKS.find(l => l.path === STEPS_PATH);
+        expect(steps).toBeDefined();
+        expect(steps.group).toBe('swarm');
+        expect(steps.label).toBe('Steps');
+        expect(steps.icon).toBeTruthy();
+    });
+
+    it('keeps Pipelines, Epics and Steps contiguous, in that order', () => {
+        const paths = NAV_LINKS.map(l => l.path);
+        const pipelines = paths.indexOf(PIPELINES_PATH);
+        expect(paths.indexOf(EPICS_PATH)).toBe(pipelines + 1);
+        expect(paths.indexOf(STEPS_PATH)).toBe(pipelines + 2);
+    });
+
+    it('keeps Steps a SIBLING of Pipelines, never a child of it', () => {
+        // A step is a MEMBER of a plan, not a lifecycle record OF one, so it must
+        // not acquire req #3209's nesting.
+        const steps = NAV_LINKS.find(l => l.path === STEPS_PATH);
+        expect(steps.children).toBeUndefined();
+        NAV_LINKS.forEach(parent => {
+            expect((parent.children ?? []).map(c => c.path)).not.toContain(STEPS_PATH);
+        });
+    });
+
+    it('leaves Requirements as the swarm group\'s first link', () => {
+        // Same HomePage-redirect invariant the blocks above pin.
+        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe('/swarm');
+    });
+});
+
 describe('flattenNavLinks', () => {
     it('emits each parent immediately followed by its children', () => {
         const flat = flattenNavLinks([
