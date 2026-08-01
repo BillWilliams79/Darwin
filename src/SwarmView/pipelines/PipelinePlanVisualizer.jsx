@@ -703,20 +703,28 @@ export default function PipelinePlanVisualizer({
     // Every label kind asks this and nothing else, and the container publishes
     // the answer as `data-drawn`. Two reasons, both learned here:
     //
-    //   · The canvas is a bitmap, so "Overview now draws step labels" is
-    //     otherwise unfalsifiable — a screenshot at L1 looks the same whether the
-    //     labels are there or not unless you already have the other version to
+    //   · The canvas is a bitmap, so "Overview omits step labels" is otherwise
+    //     unfalsifiable — a screenshot at L1 looks the same whether the labels
+    //     are there or not unless you already have the other version to
     //     compare against, and a test that pins L1 twice and compares proves
     //     nothing. Same argument as `data-transform`, which exists because a pan
     //     is only observable as changed pixels.
     //   · The three early returns it replaces were three places to get the ladder
     //     wrong, and the attribute would have been a fourth.
     //
-    // STEP LABELS DRAW AT EVERY LEVEL (user directive 2026-08-01) — Overview used
-    // to be beads and arcs with nothing naming them, which is the one level a
-    // reader opens to see the shape of a plan.
+    // STEP LABELS ARE GATED LIKE REQUIREMENT MARKS (req #3221) — a step name is
+    // per-step detail the same as a requirement id, so it shares that gate
+    // rather than drawing unconditionally. This does not clear Overview down to
+    // bare beads and arcs: the ruler's slot ticks, the batch letters and the
+    // epic band names are drawn elsewhere in this component and are not asked
+    // through `drawsKind` at all, so they keep drawing at every level — the
+    // `return true` fallback below exists for THEM, not as a default nobody
+    // reaches. This gate is draw-only: `computePlanLayout` reserves the step
+    // label's rect at every level regardless (the zero-overlap invariant is
+    // asserted against it unconditionally), so hiding it here never moves
+    // anything else.
     const drawsKind = useCallback((kind) => {
-        if (kind === 'req') return level !== 'out';
+        if (kind === 'step' || kind === 'req') return level !== 'out';
         if (kind === 'title') return level === 'in';
         return true;
     }, [level]);
