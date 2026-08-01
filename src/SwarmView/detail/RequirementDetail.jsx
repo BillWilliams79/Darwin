@@ -4,6 +4,8 @@ import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
 import { useAllCategories, useMachines, useFeatureById, useEpicById } from '../../hooks/useDataQueries';
+import { useEpicPipelineLocation } from './useEpicPipelineLocation';
+import { epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
@@ -38,6 +40,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
+import LayersIcon from '@mui/icons-material/Layers';
+import LanIcon from '@mui/icons-material/Lan';
 
 // Soft limit for requirement titles — the swarm terminal, status line, and iTerm tab title
 // all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
@@ -220,6 +224,27 @@ const RequirementDetail = () => {
     // read-only and reports what it knows, so "couldn't check" and "checked,
     // there's nothing" have to read differently.
     const epicLinkErrored = linkedFeatureErrored || (linkedEpicFk != null && linkedEpicErrored);
+
+    // Req #3235 — the epic box's SECOND link: where the epic sits on the plan
+    // visualizer, alongside the link above that opens the epic itself. Kicked
+    // off from `linkedEpicFk` directly rather than waiting on `linkedEpic` to
+    // land — the pipeline chain needs only the id, not the epic row, so the
+    // two resolve in parallel instead of one queueing behind the other.
+    // Deliberately not consuming the hook's `isLoading`/`isError`: this box's
+    // Loading/Error/No-epic states are the req #3234 contract and stay
+    // exactly as built (out of scope), so a slow or failed plan-location
+    // lookup just renders no second link — no different from "no pipeline" —
+    // rather than blocking or relabeling the first one.
+    const { pipelineId: epicPipelineId } = useEpicPipelineLocation(
+        profile?.userName, linkedEpicFk, { enabled: linkedEpicFk != null });
+    // Code review, req #3235: HOISTED rather than called inline in the JSX
+    // `to=` prop. `epicLinkTo` returns null for a non-integer epic id (a
+    // future BIGINT serialized as a string, a partial/mocked row) — the
+    // caller is documented and tested to render no link at all for that case,
+    // but `to={null}` handed straight to react-router's RouterLink throws at
+    // render instead. Mirrors `StepsPage.jsx`'s `const to = stepLinkTo(...)`
+    // guard for the sibling module.
+    const epicPlanLinkTo = linkedEpic ? epicLinkTo(epicPipelineId, linkedEpic.id) : null;
 
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
@@ -847,24 +872,53 @@ const RequirementDetail = () => {
                             </Typography>
                         ) : linkedEpic ? (
                             <>
-                                {/* A real anchor (react-router Link), not a span with
-                                    onClick/onKeyDown — natively focusable/keyboard-activatable
-                                    and supports middle-click, ctrl-click and "copy link address"
-                                    (code review, req #3234). */}
-                                <Typography
-                                    component={RouterLink}
-                                    to={`/swarm/epics?id=${linkedEpic.id}`}
-                                    variant="body2"
-                                    aria-label={`Open epic ${linkedEpic.title}`}
-                                    sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
-                                    data-testid="epic-linkage-link"
-                                >
-                                    {linkedEpic.title}
-                                </Typography>
+                                {/* Two links, distinguishable by icon + label before either is
+                                    clicked (req #3235): LayersIcon/"open the epic" matches the
+                                    Epics nav entry's own icon, LanIcon/"view on plan" matches
+                                    Pipelines' — the app's existing iconography, not a new one
+                                    invented for this box. A real anchor (react-router Link), not
+                                    a span with onClick/onKeyDown — natively focusable/keyboard-
+                                    activatable and supports middle-click, ctrl-click and "copy
+                                    link address" (code review, req #3234). */}
+                                <Stack direction="row" spacing={0.5} alignItems="center">
+                                    <Tooltip title="Open the epic editor">
+                                        <LayersIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                                    </Tooltip>
+                                    <Typography
+                                        component={RouterLink}
+                                        to={`/swarm/epics?id=${linkedEpic.id}`}
+                                        variant="body2"
+                                        aria-label={`Open epic ${linkedEpic.title}`}
+                                        sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
+                                        data-testid="epic-linkage-link"
+                                    >
+                                        {linkedEpic.title}
+                                    </Typography>
+                                </Stack>
                                 {linkedFeature && (
                                     <Typography variant="caption" color="text.secondary">
                                         via feature &quot;{linkedFeature.title}&quot;
                                     </Typography>
+                                )}
+                                {/* Req #3235 — omitted, not a dead link, when the epic is in no
+                                    pipeline (epicPlanLinkTo stays null) or the lookup is still
+                                    resolving. A dead link is worse than an absent one. */}
+                                {epicPlanLinkTo != null && (
+                                    <Stack direction="row" spacing={0.5} alignItems="center">
+                                        <Tooltip title="View this epic's location on the plan visualizer">
+                                            <LanIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                                        </Tooltip>
+                                        <Typography
+                                            component={RouterLink}
+                                            to={epicPlanLinkTo}
+                                            variant="body2"
+                                            aria-label={`View epic ${linkedEpic.title} on the plan visualizer`}
+                                            sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
+                                            data-testid="epic-linkage-plan-link"
+                                        >
+                                            View on plan
+                                        </Typography>
+                                    </Stack>
                                 )}
                             </>
                         ) : (
