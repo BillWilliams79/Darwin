@@ -535,7 +535,12 @@ export function useEpicById(creatorFk, id, { enabled = true } = {}) {
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!id && !!idToken,
+        // `creatorFk` in the enabled gate matches every other hook in this file
+        // (code review, req #3234) — it is already in `queryKey`, so firing
+        // without it would cache a row under `['epics', undefined, {id}]`, a
+        // key the `epicKeys.all(creatorFk)` prefix invalidation used elsewhere
+        // can never reach.
+        enabled: enabled && !!creatorFk && !!id && !!idToken,
     });
 }
 
@@ -586,7 +591,8 @@ export function useFeatureById(creatorFk, id, { enabled = true } = {}) {
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!id && !!idToken,
+        // See useEpicById's identical comment (code review, req #3234).
+        enabled: enabled && !!creatorFk && !!id && !!idToken,
     });
 }
 

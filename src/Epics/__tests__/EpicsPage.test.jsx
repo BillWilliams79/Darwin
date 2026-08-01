@@ -27,6 +27,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -104,7 +105,10 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 let mountedRoots = [];
 let queryClient;
 
-function mount() {
+// `initialEntries` defaults to a bare route — req #3234's `?id=<id>` deep-link
+// tests pass `['/swarm/epics?id=<id>']`. `useSearchParams` (req #3234) needs a
+// real Router in the tree; `useNavigate` stays mocked above regardless.
+function mount(initialEntries = ['/swarm/epics']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     queryClient = new QueryClient({
@@ -114,13 +118,15 @@ function mount() {
     const root = createRoot(container);
     act(() => {
         root.render(
-            <QueryClientProvider client={queryClient}>
-                <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
-                    <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                        <EpicsPage />
-                    </AuthContext.Provider>
-                </AppContext.Provider>
-            </QueryClientProvider>
+            <MemoryRouter initialEntries={initialEntries}>
+                <QueryClientProvider client={queryClient}>
+                    <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
+                        <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
+                            <EpicsPage />
+                        </AuthContext.Provider>
+                    </AppContext.Provider>
+                </QueryClientProvider>
+            </MemoryRouter>
         );
     });
     mountedRoots.push(root);
@@ -499,5 +505,48 @@ describe('EpicsPage delete', () => {
         // `queryKey[0] === 'swarm_sessions'` is satisfied by the list key, which
         // misses the detail row entirely; only the bare entity root reaches it.
         expect(keys).toContainEqual(['swarm_sessions']);
+    });
+});
+
+// req #3234 — the requirement detail page's Epic linkage box links here via
+// `?id=<id>`. This flat grid + dialog page has no per-row route, so "landing
+// on" a specific epic means auto-opening the same edit dialog the Edit icon
+// opens — the page's own presentation of one epic's full detail.
+describe('EpicsPage — ?id=<id> deep-link (req #3234)', () => {
+    it('opens the edit dialog for the epic named in the id param once epics have loaded', async () => {
+        mount(['/swarm/epics?id=2']);
+        await flush();
+
+        expect(node('epic-edit-dialog').className).toContain('MuiDialog');
+        expect(node('epic-title-input').value).toBe('Application Backlog');
+    });
+
+    it('does not keep re-opening (and resetting) the form on later renders', async () => {
+        mount(['/swarm/epics?id=2']);
+        await flush();
+        expect(node('epic-title-input').value).toBe('Application Backlog');
+
+        // The param is cleared and the ref guards against re-firing — if either
+        // failed, a later render would call `openEdit` again and stomp this.
+        type(node('epic-title-input'), 'Renamed');
+        await flush();
+        await flush();
+        expect(node('epic-title-input').value).toBe('Renamed');
+    });
+
+    it('ignores an id with no matching row — the grid still renders normally', async () => {
+        mount(['/swarm/epics?id=999']);
+        await flush();
+
+        expect(node('epic-title-input')).toBeNull();
+        expect(rowIds()).toEqual([2, 4, 9]);
+    });
+
+    it('does not open the dialog while categories are still loading', async () => {
+        loading = { epics: false, features: false, categories: true };
+        mount(['/swarm/epics?id=2']);
+        await flush();
+
+        expect(node('epic-title-input')).toBeNull();
     });
 });

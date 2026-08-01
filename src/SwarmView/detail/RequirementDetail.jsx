@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
-import { useAllCategories, useMachines } from '../../hooks/useDataQueries';
+import { useAllCategories, useMachines, useFeatureById, useEpicById } from '../../hooks/useDataQueries';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import AuthContext from '../../Context/AuthContext';
@@ -191,6 +191,36 @@ const RequirementDetail = () => {
             }),
         [machinesData]
     );
+    // Req #3234 — Epic linkage (read-only): requirement -> feature -> epic.
+    // Targeted single-row reads (`useFeatureById`/`useEpicById`, existing in
+    // useDataQueries.js but previously unused anywhere) rather than the plan
+    // view's whole-table `useAllFeatures`/`useAllEpics` label dictionaries —
+    // this page needs at most one feature row and one epic row, not the whole
+    // account's features/epics just to resolve one requirement's chain.
+    // `!isNew` is implied by `linkedFeatureFk != null`: the new-draft literal above
+    // has no `feature_fk` key at all, so a brand-new requirement never reaches here.
+    const linkedFeatureFk = requirement?.feature_fk ?? null;
+    const { data: linkedFeatureRaw, isLoading: linkedFeatureLoading, isError: linkedFeatureErrored } =
+        useFeatureById(profile?.userName, linkedFeatureFk, { enabled: linkedFeatureFk != null });
+    const linkedFeature = Array.isArray(linkedFeatureRaw) ? linkedFeatureRaw[0] : linkedFeatureRaw;
+    const linkedEpicFk = linkedFeature?.epic_fk ?? null;
+    const { data: linkedEpicRaw, isLoading: linkedEpicLoading, isError: linkedEpicErrored } =
+        useEpicById(profile?.userName, linkedEpicFk, { enabled: linkedEpicFk != null });
+    const linkedEpic = Array.isArray(linkedEpicRaw) ? linkedEpicRaw[0] : linkedEpicRaw;
+    // Still resolving if the feature fetch hasn't landed yet, or it has and named
+    // an epic whose fetch hasn't landed yet. NOT loading when there is simply no
+    // feature (or no epic) to resolve — that is an answer, not a pending one.
+    const epicLinkResolving = linkedFeatureFk != null &&
+        (linkedFeatureLoading || (linkedEpicFk != null && linkedEpicLoading));
+    // Code review, req #3234: a failed fetch is NOT "no epic" — `isLoading` alone
+    // (TanStack v5: pending && fetching) goes false once retries exhaust on an
+    // error, same as on a real resolve, and rendering "No epic" there asserts a
+    // wrong fact the user can't tell apart from the true unlinked case. Kept
+    // distinct from `epicLinkResolving` rather than folded in: this box is
+    // read-only and reports what it knows, so "couldn't check" and "checked,
+    // there's nothing" have to read differently.
+    const epicLinkErrored = linkedFeatureErrored || (linkedEpicFk != null && linkedEpicErrored);
+
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
@@ -251,6 +281,12 @@ const RequirementDetail = () => {
 
     useEffect(() => {
         if (isNew) return;  // no fetch — local draft only
+        // Re-arm the loading gate on every id change (code review, req #3234): without
+        // this, navigating from one requirement straight to another (duplicate, the
+        // sessions grid's Source link, browser Back/Forward) left the OLD requirement's
+        // data — including its resolved Epic link — rendered and clickable throughout
+        // the new GET, since `loading` was already false from the previous mount.
+        setLoading(true);
         const fetchData = async () => {
             try {
                 const requirementUri = `${darwinUri}/requirements?id=${id}`;
@@ -705,14 +741,17 @@ const RequirementDetail = () => {
                 const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
 
                 return (
-                    // A real <fieldset>/<legend> pair so the "AI Settings" caption sits ON the
-                    // border line at top-left with the line notched behind the text.
+                    // Row pairing AI Settings with the Epic linkage box (req #3234) — the
+                    // same flex-row idiom the Requirement/Session timings pair below uses.
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap', mb: 2 }}>
+                    {/* A real <fieldset>/<legend> pair so the "AI Settings" caption sits ON the
+                        border line at top-left with the line notched behind the text. */}
                     <Box
                         component="fieldset"
                         data-testid="launch-settings-group"
                         sx={{
                             width: 'fit-content', maxWidth: '100%',
-                            m: 0, mb: 2, px: 1.5, pt: 0.25, pb: 1.25,
+                            m: 0, px: 1.5, pt: 0.25, pb: 1.25,
                             display: 'flex', flexDirection: 'column', gap: 1.5,
                             border: 1, borderColor: 'common.white', borderRadius: 2,
                             opacity: isFaded ? 0.4 : 1,
@@ -772,6 +811,68 @@ const RequirementDetail = () => {
                                 })}
                             </Stack>
                         </Box>
+                    </Box>
+
+                    {/* Epic linkage (req #3234) — READ-ONLY: reports the derived
+                        requirement -> feature -> epic chain and navigates, nothing more.
+                        Deliberately NOT the edit-in-place cell pattern the rest of the page
+                        uses; matching AI Settings' LOOK is the requirement, its editable
+                        BEHAVIOUR is not. Same fieldset/legend/border/radius so the two read
+                        as a pair; no editability fade since there is nothing here to edit. */}
+                    <Box
+                        component="fieldset"
+                        data-testid="requirement-epic-linkage-group"
+                        sx={{
+                            width: 'fit-content', maxWidth: '100%',
+                            m: 0, px: 1.5, pt: 0.25, pb: 1.25,
+                            display: 'flex', flexDirection: 'column', gap: 0.5,
+                            border: 1, borderColor: 'common.white', borderRadius: 2,
+                            ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                        }}
+                    >
+                        <Box component="legend" sx={{ ml: 1, px: 0.5 }}>
+                            <Typography variant="subtitle2" color="text.secondary">
+                                Epic
+                            </Typography>
+                        </Box>
+                        {epicLinkResolving ? (
+                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-loading">
+                                Loading…
+                            </Typography>
+                        ) : epicLinkErrored ? (
+                            // Code review, req #3234: distinct from "No epic" — a failed
+                            // fetch is not the same fact as a confirmed-absent link.
+                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-error">
+                                Epic unavailable
+                            </Typography>
+                        ) : linkedEpic ? (
+                            <>
+                                {/* A real anchor (react-router Link), not a span with
+                                    onClick/onKeyDown — natively focusable/keyboard-activatable
+                                    and supports middle-click, ctrl-click and "copy link address"
+                                    (code review, req #3234). */}
+                                <Typography
+                                    component={RouterLink}
+                                    to={`/swarm/epics?id=${linkedEpic.id}`}
+                                    variant="body2"
+                                    aria-label={`Open epic ${linkedEpic.title}`}
+                                    sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
+                                    data-testid="epic-linkage-link"
+                                >
+                                    {linkedEpic.title}
+                                </Typography>
+                                {linkedFeature && (
+                                    <Typography variant="caption" color="text.secondary">
+                                        via feature &quot;{linkedFeature.title}&quot;
+                                    </Typography>
+                                )}
+                            </>
+                        ) : (
+                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-none">
+                                No epic
+                            </Typography>
+                        )}
+                    </Box>
                     </Box>
                 );
             })()}
