@@ -114,6 +114,7 @@ import {
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
+    nextHaloMagnify, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -162,14 +163,19 @@ const FOCUS_MS = 420;
 // channel colours TYPE instead (LegendWord, below) — a dot there would
 // misrepresent it as another bead, which is why this swatch only ever draws
 // the STEP channel's marks now.
-function LegendDot({ fill, ring, label, animated }) {
+// `dashed` (req #3271): the canvas's next-step halo is DASHED, and that is not
+// decoration — only 0.25px separates it from the bead's own eligible ring, so
+// form rather than distance is the whole of what makes it read as a second mark
+// (see NEXT_HALO_DASH). A key that advertised it as a solid ring described a
+// mark the canvas does not draw, in the one channel where form carries meaning.
+function LegendDot({ fill, ring, label, animated, dashed }) {
     return (
         <Stack direction="row" spacing={0.5} alignItems="center">
             <Box sx={{
                 width: 10, height: 10, flexShrink: 0,
                 borderRadius: '50%',
                 bgcolor: fill || 'transparent',
-                border: ring ? `2px solid ${ring}` : 'none',
+                border: ring ? `2px ${dashed ? 'dashed' : 'solid'} ${ring}` : 'none',
                 // The key SHOWS the motion it describes rather than only
                 // naming it — the two animated marks are the two questions
                 // this page exists to answer, and a static swatch beside the
@@ -1308,7 +1314,11 @@ export default function PipelinePlanVisualizer({
         for (let l = 0; l < band.sub; l++) {
             // band.laneY, not l × pitch — lanes have individual heights since
             // req #3119 and a constant-pitch wire would drift off its beads.
-            const wy = band.y + band.headerH + band.laneY[l] + 10;
+            // BEAD_LANE_OFFSET, not a literal 10: this is the same offset the
+            // layout places the beads at, and the wire's whole job is to run
+            // through them (req #3271 hoist — two copies that "only have to
+            // agree" is what the naming exists to prevent).
+            const wy = band.y + band.headerH + band.laneY[l] + BEAD_LANE_OFFSET;
             worldNodes.push(
                 <Line key={`wire-${band.key}-${l}`}
                       points={[36, wy, layout.width - 14, wy]}
@@ -1418,6 +1428,21 @@ export default function PipelinePlanVisualizer({
                   onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }} />);
     });
 
+    // The next-step halo's magnification for THIS frame (req #3271). Computed
+    // once per render rather than per row: it depends only on the scale being
+    // drawn at and on whether this level draws labels, and `dash` is an array
+    // prop — a fresh one per bead would hand react-konva a changed reference for
+    // every halo on every frame of a zoom.
+    //
+    // NOT a `useMemo`, and it cannot become one: the `!rows.length` early return
+    // above sits between this and the last hook, so a hook here would be
+    // conditional. At m === 1 the shared constant is returned by reference and
+    // nothing is allocated at all; above it the array is rebuilt per render,
+    // which costs one `setAttr` on a layer the halo animation is already
+    // redrawing every frame.
+    const haloM = nextHaloMagnify(t.k, drawsKind('step'));
+    const haloDash = haloM === 1 ? NEXT_HALO_DASH : NEXT_HALO_DASH.map((d) => d * haloM);
+
     rows.forEach((row) => {
         const n = layout.nodes.get(row.id);
         if (!n) return;
@@ -1433,12 +1458,21 @@ export default function PipelinePlanVisualizer({
         // when the engine says this step's launch is SUPPRESSED (a paused
         // scope): the ring beneath it stays green (still eligible), so the
         // two together read as "eligible, but held", not "about to run".
+        //
+        // req #3271 — EMITTING it at 'out' was never the same as it reading
+        // there. This Group is scaled by `t.k` and Konva scales stroke and dash
+        // with it, so on the live plan Overview drew a 0.8px stroke with 1.2px
+        // dashes: present in the scene graph, absent on the screen. `haloM`
+        // magnifies the whole mark — radius, stroke and dash by ONE factor, so
+        // its shape is invariant — into the room the labels vacate at that
+        // level. It is exactly 1 wherever the labels ARE drawn, so 'mid' and
+        // 'in' are untouched. See `nextHaloMagnify`.
         if (style.next) {
             worldNodes.push(
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
-                        radius={NEXT_HALO_RADIUS} stroke={style.haloColor}
-                        strokeWidth={NEXT_HALO_STROKE} opacity={NEXT_HALO_OPACITY}
-                        dash={NEXT_HALO_DASH} listening={false} />);
+                        radius={NEXT_HALO_RADIUS * haloM} stroke={style.haloColor}
+                        strokeWidth={NEXT_HALO_STROKE * haloM} opacity={NEXT_HALO_OPACITY}
+                        dash={haloDash} listening={false} />);
         }
         worldNodes.push(
             <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
@@ -2119,7 +2153,7 @@ export default function PipelinePlanVisualizer({
                                     mark answers the question in the plan's own
                                     words: these are the steps that run next. */}
                                 <LegendDot ring={P.eligibleRing} label="next up"
-                                           animated="pipeKeyBreathe" />
+                                           dashed animated="pipeKeyBreathe" />
                             </KeyGroup>
 
                             {/* THE REQUIREMENT channel — all three scales in ONE
