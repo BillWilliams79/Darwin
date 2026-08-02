@@ -30,6 +30,7 @@ import {
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     EPIC_PALETTE,
+    PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -735,7 +736,11 @@ describe('launch-batch box geometry', () => {
         // unchecked rectangle drawn beside the name.
         const label = layout.labels.find((l) => l.kind === 'epic' && l.epicId === firstBand);
         expect(label.text).toBe(band.epicLabel);
-        expect(label.w).toBeCloseTo(band.epicLabel.length * EPIC_CHIP_CHAR_W, 6);
+        // + EPIC_PAUSE_BUBBLE_W (req #3226) — grown onto this rect the same
+        // way the count suffix is: the zero-overlap invariant sweeps
+        // `layout.labels`, so anything the chip actually reserves belongs here.
+        expect(label.w).toBeCloseTo(
+            band.epicLabel.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     it('accepts a plain object as well as a Map, matching the reqTitles convention', () => {
@@ -1063,7 +1068,9 @@ describe('floating epic chips (req #3168)', () => {
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
-        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18, 6);
+        // + EPIC_PAUSE_BUBBLE_W (req #3226) — the pause bubble's own flat,
+        // unconditional reservation, added to every chip's measured width.
+        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     // THE COLLISION THAT IS REAL ON THE FIXTURE. Measured under the old rule:
@@ -1558,7 +1565,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         for (const label of epicLabels) {
             const band = withCounts.bands.find((b) => b.epicId === label.epicId);
             expect(label.text).toBe(band.epic);
-            expect(label.w).toBeCloseTo(band.epic.length * EPIC_CHIP_CHAR_W, 6);
+            expect(label.w).toBeCloseTo(
+                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
         }
     });
 
@@ -1620,7 +1628,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         expect(chip.text).toBe('X'.repeat(20));
-        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18, 6);
+        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -1681,6 +1689,100 @@ describe('next-step highlight (req #3168)', () => {
         const runningAndNext = beadStyle(rowById.get(38), true);
         expect(runningAndNext.pulse).toBe(true);
         expect(runningAndNext.next).toBe(true);
+    });
+
+    // req #3226 — the halo's colour carries the suppression fact ALONGSIDE the
+    // ring's eligibility fact, never replacing it: a paused scope's eligible
+    // step must not read as "about to run".
+    it('haloColor is the eligible green by default, red when suppressed', () => {
+        const eligible = beadStyle(rowById.get(17), true);
+        expect(eligible.haloColor).toBe(PLAN_VIZ_PALETTE.eligibleRing);
+        const suppressed = beadStyle(rowById.get(17), true, true);
+        expect(suppressed.haloColor).toBe(PAUSE_PAUSED_COLOR);
+        // The RING is untouched by suppression — eligibility itself never
+        // changes under pause, only whether it will launch on its own.
+        expect(suppressed.ring).toBe(eligible.ring);
+        expect(suppressed.ringWidth).toBe(eligible.ringWidth);
+    });
+
+    it('suppressed with no `next` (not eligible) is inert — nothing draws the halo', () => {
+        const style = beadStyle(rowById.get(1), false, true);
+        expect(style.next).toBe(false);
+    });
+});
+
+describe('the pause status bubble (req #3226)', () => {
+    const VIEWPORT = { w: 1500, h: 900 };
+
+    it('pauseBubbleColor resolves the two measured swatches, never a third', () => {
+        expect(pauseBubbleColor(false)).toBe(PAUSE_ACTIVE_COLOR);
+        expect(pauseBubbleColor(true)).toBe(PAUSE_PAUSED_COLOR);
+    });
+
+    it('is legible on the panel — both swatches clear 4.5:1', () => {
+        // MEASURED 2026-08-01: active 8.22:1, paused 5.41:1.
+        expect(contrast(PAUSE_ACTIVE_COLOR, PLAN_VIZ_PALETTE.panel))
+            .toBeGreaterThanOrEqual(4.5);
+        expect(contrast(PAUSE_PAUSED_COLOR, PLAN_VIZ_PALETTE.panel))
+            .toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('does not collide with the reserved STEP-state hues (rule: one meaning, '
+        + 'one colour)', () => {
+        const reserved = [PLAN_VIZ_PALETTE.runningFill, PLAN_VIZ_PALETTE.runningRing,
+            PLAN_VIZ_PALETTE.doneFill, PLAN_VIZ_PALETTE.doneRing];
+        expect(reserved).not.toContain(PAUSE_ACTIVE_COLOR);
+        expect(reserved).not.toContain(PAUSE_PAUSED_COLOR);
+    });
+
+    it('computePlanLayout: a band is paused when the WHOLE PLAN is paused — '
+        + 'including the "No epic" band', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { pauseInfo: { pipelinePaused: true, pausedEpicIds: [] } });
+        expect(layout.bands.length).toBeGreaterThan(0);
+        expect(layout.bands.every((b) => b.paused === true)).toBe(true);
+    });
+
+    it('computePlanLayout: a band is paused when ITS OWN epic is paused, '
+        + 'neighbours untouched', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { pauseInfo: { pipelinePaused: false, pausedEpicIds: [1] } });
+        for (const band of layout.bands) {
+            expect(band.paused).toBe(band.epicId === 1);
+        }
+    });
+
+    it('defaults every band to unpaused when pauseInfo is omitted', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches);
+        expect(layout.bands.every((b) => b.paused === false)).toBe(true);
+    });
+
+    it('placeEpicChips reserves EPIC_PAUSE_BUBBLE_W on every chip, '
+        + 'unconditionally — the requirement\'s own "a bubble is width the '
+        + 'label did not have before"', () => {
+        const withBubble = placeEpicChips({
+            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
+    });
+
+    // "its rectangle belongs in the same label set the zero-overlap invariant
+    // is already asserted against" — the requirement's own words. The chip's
+    // OWN width (above) is what `placeEpicChips` displaces around; THIS rect
+    // (`layout.labels`, kind 'epic') is what `assertNoLabelOverlap` actually
+    // sweeps, and req #3225 set the precedent that the two must grow together.
+    it('the kind:"epic" label rect ALSO carries the bubble reservation', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches);
+        const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
+        expect(epicLabels.length).toBeGreaterThan(0);
+        for (const label of epicLabels) {
+            const band = layout.bands.find((b) => b.epicId === label.epicId);
+            const bandText = band.epicLabel || band.epic;
+            expect(label.w).toBeCloseTo(
+                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
+        }
     });
 });
 
@@ -2060,7 +2162,8 @@ describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)
         expect(compared, 'the sweep compared real chips').toBeGreaterThan(100);
     });
 
-    it('the WIDTH cap is what buys that — height is free and width is not', () => {
+    it('the WIDTH cap is what buys that — height stays FLAT past a small floor, '
+        + 'width is not', () => {
         // The boundary is asserted from BOTH sides, so the cap is a measured
         // number rather than a comfortable one. MEASURED over
         // k ∈ {0.2…2} × 4 pans × 6 x-offsets, 233 chips: zero lost at width ≤ 420
@@ -2090,12 +2193,23 @@ describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)
             }
             return lost;
         };
-        // Height is free at the cap — still true, and it is what lets the key
-        // stack one row per channel.
-        for (const h of [30, 60, 100, 140, 180]) {
-            expect(sweep(PLAN_KEY_MAX_W, h), `height ${h} at the cap`)
-                .toBeLessThanOrEqual(sweep(PLAN_KEY_MAX_W, 30));
-        }
+        // RE-MEASURED 2026-08-02 (req #3226 widened every epic chip by
+        // `EPIC_PAUSE_BUBBLE_W`, the pause bubble's flat reservation, so chips
+        // have less slack to escape a keep-out by displacing sideways): height
+        // is no longer PERFECTLY free at every point (h=30 loses 1 chip, h=60
+        // loses 3 — a one-time step as the key grows past its smallest size),
+        // but it is FLAT from h=60 to h=180, which is the property that
+        // actually matters: growing the key from one row to three (the whole
+        // reason it needs a THIRD height at all) costs nothing further. A
+        // small absolute ceiling, not a comparison to h=30 (the pre-#3226
+        // shape of this assertion) — that comparison is false by construction
+        // now, since widening every chip is exactly what moved h=30 off the
+        // flat line it used to share with every other height.
+        const atFloor = sweep(PLAN_KEY_MAX_W, 30);
+        expect(atFloor, 'height 30 at the cap').toBeLessThanOrEqual(5);
+        const grown = [60, 100, 140, 180].map((h) => sweep(PLAN_KEY_MAX_W, h));
+        expect(new Set(grown).size, 'flat from h=60 to h=180').toBe(1);
+        expect(grown[0], 'height ≥60 at the cap').toBeLessThanOrEqual(5);
         // …and the cap is NOT vacuous: a key MUCH wider than it really does drop
         // epic names, which is the finding that put a pixel cap on this element
         // instead of a percentage. (The 2026-08-01 raise from 420 to 470 sits

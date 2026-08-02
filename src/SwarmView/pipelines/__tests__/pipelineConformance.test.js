@@ -36,7 +36,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     buildPlanRows, displayOrder, verifyOrder, eligibility, launchBatches,
-    requirementCounts,
+    requirementCounts, pauseState,
 } from '../pipelineModel';
 import { SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -120,6 +120,12 @@ function observe(wireModel, now) {
 
     const byId = new Map(outRows.map((r) => [r.id, r]));
 
+    // req #3226 — the visibility half landed, so pause joins the corpus.
+    // Called like every other predicate here: BEFORE the per-row loop below,
+    // because it writes `launchSuppressed`/`suppressedBy` onto `outRows` in
+    // place, mirroring `observe.py`'s own call ordering.
+    const pause = pauseState(model, outRows);
+
     const observedRows = {};
     for (const row of outRows) {
         observedRows[String(row.id)] = {
@@ -145,6 +151,8 @@ function observe(wireModel, now) {
             // `machine_identity_the_one_deliberate_divergence`.
             machine_bucket_count: (row.machineLabels || []).length,
             eligible: eligibility(row, byId, now == null ? undefined : now),
+            launch_suppressed: row.launchSuppressed,
+            suppressed_by: [...(row.suppressedBy || [])],
         };
     }
 
@@ -203,6 +211,14 @@ function observe(wireModel, now) {
         duplicate_step_ids: [...ordered.duplicateStepIds],
         unresolved_req_ids: unresolved,
         requirement_counts: observedCounts,
+        // req #3226 — `pipeline_status` is dropped (a verbatim wire field, not
+        // a derived answer); the three that remain are what this corpus
+        // cross-checks.
+        pause: {
+            pipeline_paused: pause.pipelinePaused,
+            paused_epic_ids: [...pause.pausedEpicIds],
+            suppressed_step_ids: [...pause.suppressedStepIds],
+        },
     };
 }
 

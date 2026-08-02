@@ -783,6 +783,24 @@ export default function PipelineDetail() {
                     were two more things between the plan's name and the reader.
                     The description button is what remains, and it is last. */}
 
+                {/* req #3226 — the ONE status this requirement asks to survive
+                    here despite the chip-removal directive above, for the same
+                    reason the orchestration-holder chip below does: it is
+                    CONDITIONAL (renders only while actually paused, so the
+                    ordinary row is unchanged) and it is not a duplicate of the
+                    list page's chip — a reader who navigated straight here
+                    (a deep link, a bookmark) never saw that page at all. */}
+                {pipeline?.pipeline_status === 'paused' && (
+                    <Tooltip title="This plan is paused — its steps are not swarm-starting">
+                        <Chip
+                            size="small"
+                            label="Paused"
+                            {...pipelineStatusChipProps('paused')}
+                            sx={{ flexShrink: 0 }}
+                            data-testid="pipeline-detail-paused"
+                        />
+                    </Tooltip>
+                )}
                 {/* req #3224 — WHO is orchestrating this plan, from WHERE.
                     Deliberately kept despite the directive above, and the reason
                     it does not reoffend is that it is CONDITIONAL: it renders

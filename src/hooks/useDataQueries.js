@@ -509,7 +509,12 @@ export const ALL_ROWS = 'all';
 // epic, design rule 10), not as a browsable catalog: filtering closed rows out
 // would blank the Epic column on plan rows whose epic has since been closed,
 // which reads as a data bug rather than as a filter.
-const EPIC_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
+// `epic_status` (req #3223, migration 20260801125029) — suppression, not
+// lifecycle: whether this epic's scope may be swarm-started. Carried here so
+// every label-dictionary reader (the plan visualizer's pause bubble, req
+// #3226) gets it for free, the same way `closed` already rides along.
+const EPIC_DEFAULT_FIELDS =
+    'id,title,description,category_fk,closed,epic_status,sort_order,create_ts';
 
 export function useAllEpics(creatorFk,
     { fields = EPIC_DEFAULT_FIELDS, closed = ALL_ROWS, enabled = true } = {}) {

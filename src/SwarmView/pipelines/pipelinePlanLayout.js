@@ -77,6 +77,19 @@ export const PLAN_VIZ_PALETTE = {
     manualRing: '#ff9bf5',
     eligibleRing: '#7ee08a',
     batch: '#4ad9c8',
+    // The pause status bubble's two colours (req #3226) — a NEW channel
+    // (SCOPE: is this band's launch suppressed?), so neither reuses an
+    // existing entry outright even where a hue is nearby, to avoid the bubble
+    // reading as a restatement of an existing mark (`doneFill`/`doneRing`/
+    // `eligibleRing` are all green already, at the STEP/REQUIREMENT levels the
+    // colour-language table below enumerates). Both MEASURED against `panel`
+    // (`#111b2b`), 2026-08-01: `pauseActive` 8.22:1, `pausePaused` 5.41:1 —
+    // both clear WCAG AA (4.5:1) with room to spare, and neither collides with
+    // an existing entry closely enough to be mistaken for it at the bubble's
+    // own size. IN the palette object itself, not beside it — "no hardcoded
+    // colours" means every colour this surface draws lives HERE.
+    pauseActive: '#2ecc71',
+    pausePaused: '#ff5252',
 };
 
 // Epic band palette (POC EPAL) — band index cycles through it.
@@ -126,6 +139,13 @@ export const EPIC_PALETTE = [
     '#aa00ff', // magenta (hue 280°) — new 7th slot, closest neighbour ΔE 26.4
                // from purple, entry 0
 ];
+
+// Named exports for the two pause colours — FROM the palette above, never a
+// second literal, so "no hardcoded colours" holds for every reader of this
+// module and not only for `PLAN_VIZ_PALETTE`'s own callers.
+export const PAUSE_ACTIVE_COLOR = PLAN_VIZ_PALETTE.pauseActive;  // may launch
+export const PAUSE_PAUSED_COLOR = PLAN_VIZ_PALETTE.pausePaused;  // paused
+export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE_ACTIVE_COLOR);
 
 // ════════════════════════════════════════════════════════════════════════════
 // THE COLOUR LANGUAGE (req #3168, user directives 2026-08-01)
@@ -1079,11 +1099,17 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  * @param {?(Map|Object)} [opts.epicCounts]  req #3225 — epicId -> {met, total}.
  *                             Null/omitted (the toggle-off state) leaves every
  *                             band's label exactly as it reads today.
+ * @param {?Object} [opts.pauseInfo]  req #3226 — `pauseState()`'s
+ *                             `{pipelinePaused, pausedEpicIds}`. Null/omitted
+ *                             leaves every band unpaused, matching a caller
+ *                             (a test, a hand-built probe) with no pause
+ *                             concept at all.
  * @returns {Object} layout — see the shape assembled at the bottom
  */
 export function computePlanLayout(rows, batches, {
     reqLayout = 'horizontal', stepLabel = 'id', stepWidth = DEFAULT_STEP_WIDTH,
     reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
+    pauseInfo = null,
 } = {}) {
     const safeRows = Array.isArray(rows) ? rows : [];
     const safeBatches = Array.isArray(batches) ? batches : [];
@@ -1234,6 +1260,16 @@ export function computePlanLayout(rows, batches, {
         const t = BAND_TIER[bandKinds.get(key)];
         return t === undefined ? BAND_TIER.future : t;
     };
+    // req #3226 — a band is PAUSED when the whole plan is paused (every band
+    // suppressed alike, "No epic" included — pause is a plan-wide fact there
+    // too) OR when this band's OWN epic is paused. Resolved once, here, rather
+    // than at render time in every consumer of `band` (the natural chip loop,
+    // the sticky pass, and any future one), the same reasoning `bandStartOf`
+    // below is memoized for.
+    const pausedEpicIdSet = new Set(pauseInfo?.pausedEpicIds || []);
+    const planPaused = !!pauseInfo?.pipelinePaused;
+    const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
+
     const bandKeys = [];
     const bandByKey = new Map();
     for (const r of safeRows) {
@@ -1245,6 +1281,7 @@ export function computePlanLayout(rows, batches, {
                 // req #3225 — the SAME string measures the zero-overlap label
                 // rect and the floating chip; see the helper's own comment.
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
+                paused: bandPausedOf(key),
                 steps: [],
             });
             bandKeys.push(key);
@@ -1941,7 +1978,12 @@ export function computePlanLayout(rows, batches, {
         const bandText = band.epicLabel || band.epic;
         labels.push({
             kind: 'epic', epicId: band.epicId, text: bandText,
-            x: 12, y: band.y + 6, w: bandText.length * CHW_EPIC, h: 16,
+            x: 12, y: band.y + 6,
+            // req #3226 — the SAME reservation `placeEpicChips` measures the
+            // floating chip against, grown onto the rect the zero-overlap
+            // invariant actually sweeps (req #3225 set this precedent: the
+            // count suffix grew both together, never just the chip).
+            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W, h: 16,
         });
     }
     // Batch letters live in the reserved header strip of a segment's band —
@@ -2088,6 +2130,21 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // leaving the control unmeasured there is the exact under-measurement bug
 // this module's own header comment warns about, just for a different mark.
 export const EPIC_CHIP_OPEN_LINK_W = 24;
+// The pause status bubble (req #3226) — a small filled circle immediately left
+// of the epic name, the SAME kind of flat, unscaled reservation as the ↗
+// control above and for the identical reason: it is a fixed-diameter dot plus
+// the chip's own flex `gap`, neither of which shrinks with the chip.
+//
+// UNLIKE the ↗ control, this one IS added to the natural (non-sticky) chip's
+// measured width, not only the sticky one — the requirement calls this out by
+// name ("a bubble is width the label did not have before") because, unlike
+// the ↗ link, the bubble renders on EVERY band unconditionally (the ↗ link is
+// absent for the "No epic" band; the bubble is not carved out for it because
+// pause is meaningful there too — the whole-plan pause suppresses it same as
+// any other band).
+export const EPIC_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
+const EPIC_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
+export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
 // The floor a scaled chip stops at. Below this the name is not readable anyway,
 // and the layout would rather draw a small legible-ish chip inside its own lane
 // than a full-size one over the first row of steps.
@@ -2212,7 +2269,12 @@ export function placeEpicChips({
         // the plain name, so this stays the identity transform for callers
         // that never set it.
         const bandText = band.epicLabel || band.epic;
-        const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale;
+        // req #3226 — the pause bubble's flat footprint, added BEFORE anything
+        // is checked against beads/arcs/labels, matching the ↗ control's own
+        // discipline at the sticky site below (this chip always carries it,
+        // unlike the ↗, which is absent for the "No epic" band).
+        const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+            + EPIC_PAUSE_BUBBLE_W;
         const minY = top + 2;
         const maxY = Math.max(minY, laneBottom - h - 2);
         const y = Math.min(Math.max(2, minY), maxY);
@@ -2345,8 +2407,11 @@ export function placeEpicChips({
                 // be in `w` before anything is checked against beads/arcs/
                 // labels, or the collision math clears a box the reader
                 // cannot actually see the edge of.
+                // req #3226 — the pause bubble, unconditional (unlike the ↗
+                // link above): it renders on every band, "No epic" included.
                 const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-                    + (targetBand.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0);
+                    + (targetBand.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+                    + EPIC_PAUSE_BUBBLE_W;
                 const maxX = maxXCap - w;
                 if (maxX < minX) return;
                 const y = atTop ? 2 : (vh - h - 2);
@@ -2415,7 +2480,15 @@ export function placeEpicChips({
 // This is the STEP end of the colour language documented under the palette: the
 // fill is derived state, the ring is run mode, the halo is eligibility. Nothing
 // here ever encodes a REQUIREMENT-level fact — that is the ids' channel.
-export function beadStyle(row, eligible) {
+//
+// `suppressed` (req #3226) does NOT touch the ring: the ring still answers
+// "is this step eligible" and that fact does not change under pause — the
+// engine's own `eligibility()` is deliberately independent of `pauseState()`.
+// It touches only the outer HALO's colour, because the halo is what a reader
+// takes as "about to launch", and that reading IS wrong under pause. Ring
+// green + halo red is the "eligible AND suppressed" combination rendered
+// side by side, never one replacing the other.
+export function beadStyle(row, eligible, suppressed = false) {
     const P = PLAN_VIZ_PALETTE;
     const done = row.state === STEP_DONE;
     const running = row.state === STEP_RUNNING;
@@ -2436,6 +2509,7 @@ export function beadStyle(row, eligible) {
         // OUTER halo the renderer draws at every zoom level, including Overview,
         // where "what runs next" is asked most and a 1px ring reads as nothing.
         next: !!eligible,
+        haloColor: suppressed ? PAUSE_PAUSED_COLOR : P.eligibleRing,
     };
 }
 

@@ -18,6 +18,14 @@
 // a pure module can be exercised by vitest without pulling MUI into the test env.
 
 import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+// req #3226 — re-exported from the canvas colour-language module (the same
+// swatch the plan visualizer's bubble/halo use) rather than a second literal,
+// so the plan TABLE's "held" marker and the plan VISUALIZER's red agree by
+// construction. This is the DOM-side home for a colour constant, matching
+// `ELIGIBLE_MARKER_COLOR` below.
+import { PAUSE_PAUSED_COLOR } from './pipelinePlanLayout';
+
+export { PAUSE_PAUSED_COLOR };
 
 // Derived step state (rule 1) -> the human label the plan has always used.
 // "Complete / Running / Scheduled" is the plan's vocabulary; done/running/pending
