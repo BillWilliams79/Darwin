@@ -77,16 +77,23 @@ import { claimForPipeline, holderView } from './orchestrationHolder';
 import { readFocusStepParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 import SemanticLevelControl from '../../Components/SemanticLevelControl';
+// Trimmed to what this file actually renders (req #3241). `DEFAULT_REQ_VIEW`,
+// `REQ_VIEWS`, `normalizeReqView`, `reqViewOptions` and `machineTitle` outlived
+// the `Reqs:`/`Step:` controls and the status/machine chips that the 2026-08-01
+// directives removed, and `PLAN_LEVEL_NUMBER` + `SemanticLevelControl` were
+// imported for a move that was started and abandoned. There is no eslint in this
+// package, so nothing flagged any of them — the dead `SemanticLevelControl`
+// import was the visible trace this requirement was filed from.
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_REQ_VIEW, DEFAULT_STEP_WIDTH,
-    PLAN_LEVEL_NUMBER, REQ_VIEWS, isStepWidth, normalizeColorKey,
-    normalizePlanLevelPref, normalizeReqView, reqViewOptions,
+    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_STEP_WIDTH,
+    PLAN_LEVEL_NUMBER, isStepWidth, normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
 import {
+    DEFAULT_REQ_COUNTS,
     PLAN_REQUIREMENT_FIELDS,
+    REQ_COUNTS_STORAGE_KEY,
     buildCostIndex,
     buildPipelineModel,
-    machineTitle,
     orderedPlan,
     pipelineSummary,
 } from './pipelineViewModel';
@@ -273,11 +280,15 @@ export default function PipelineDetail() {
     // component that must read the same choice on its own next mount rather
     // than default back to off. `useViewPreference`'s per-tab sessionStorage
     // is exactly that: this page writes it, the list page's own hook reads it
-    // fresh when React Router mounts that page. Off by default (the
-    // requirement's own recommendation) so the header row's default width is
-    // unchanged.
+    // fresh when React Router mounts that page.
+    //
+    // ON BY DEFAULT since req #3241, from the ONE shared key/default pair the
+    // list page also reads. It shipped off on a header-width argument; this
+    // requirement solved the header width directly (the row is `nowrap` with
+    // the title as its elastic member) and the argument never touched the epic
+    // band labels, which are drawn on the canvas.
     const [showReqCountsPref, setShowReqCountsPref] = useViewPreference(
-        'darwin-pipeline-req-counts', 'off');
+        REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
     const showReqCounts = showReqCountsPref === 'on';
     // Req #3179 — the goal text is behind the header's info button now. Shut it
     // when the route changes plans: this component is re-rendered, not remounted,
@@ -317,6 +328,12 @@ export default function PipelineDetail() {
     // mark it while on Auto — the same handshake BuildVisualizerPage uses
     // (`onEffectiveLevel={setEffectiveLevel}`). Display only: nothing is derived
     // from it, so a late first report cannot change what is drawn.
+    //
+    // It arrives in the CANVAS's vocabulary ('out'|'mid'|'in'), because that is
+    // what `semanticLevel()` returns and the panel reports what it actually
+    // drew. `PLAN_LEVEL_NUMBER` maps it at the control (req #3241) — handing the
+    // string straight through would leave every chip unpressed and the control
+    // would silently claim nothing was active.
     const [effectiveLevel, setEffectiveLevel] = useState(null);
     // Req #3216 — Reset joins the header's zoom controls (it used to float
     // over the canvas in the bottom-right corner). The click has to reach
@@ -522,17 +539,11 @@ export default function PipelineDetail() {
         () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
         [orchestrationClaims, pipeline?.id, machines]);
 
-    // Every distinct machine the plan's steps actually touch, derived from the
-    // requirements (design rule 10's level). Sorted for a stable chip.
-    const planMachines = useMemo(() => {
-        const seen = [];
-        for (const row of plan.rows || []) {
-            for (const label of row.machineLabels || []) {
-                if (!seen.includes(label)) seen.push(label);
-            }
-        }
-        return seen.sort((a, b) => a.localeCompare(b));
-    }, [plan.rows]);
+    // `planMachines` — the distinct machine set behind the header's machine chip
+    // — was REMOVED with the rest of the dead code (req #3241). The chip itself
+    // went on the 2026-08-01 directive; this memo outlived it, unread, still
+    // walking every row and every row's machine labels on each plan change.
+    // Unlike a dead import, it cost something.
 
     if (isLoading) {
         return (
@@ -567,6 +578,27 @@ export default function PipelineDetail() {
         ? 'Description — the plan\'s goal'
         : 'Description — none yet; click to write one';
 
+    // ── ONE STRING PER ELLIPSIZING LINE (req #3241) ─────────────────────────
+    // Both of these are now `noWrap` with a tooltip, and both of those need the
+    // whole text as a VALUE: CSS `text-overflow` needs a single inline flow to
+    // clip, and a tooltip that is the recovery path for a clip has to carry
+    // exactly what was clipped. Building the title's suffix inline in the JSX
+    // and passing the bare `pipeline.title` to the tooltip would clip
+    // "Darwin 30/64" to "Darwin 30/6…" and recover only "Darwin" — losing the
+    // one part of the string the reader could not already infer (review
+    // finding). The title reads the same in the breadcrumb, so it is built once
+    // and used in all three places.
+    const titleText = pipeline.title
+        + (showReqCounts && planReqCounts
+            ? ` ${planReqCounts.met}/${planReqCounts.total}` : '');
+    const accountingText = `${summary.total} step${summary.total === 1 ? '' : 's'} — `
+        + `${summary.done} complete · ${summary.running} running · `
+        + `${summary.pending} scheduled`
+        + (pipeline.started_at
+            ? ` · started ${formatDateTime(pipeline.started_at, timezone)}` : '')
+        + (pipeline.completed_at
+            ? ` · completed ${formatDateTime(pipeline.completed_at, timezone)}` : '');
+
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
     // `min-width: auto` — "never shrink below your content". The plan table is
@@ -581,18 +613,71 @@ export default function PipelineDetail() {
     // this page: nothing else reads it.
     return (
         <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
-            <Breadcrumbs sx={{ mb: 1 }}>
-                <Link component="button" variant="body2" underline="hover"
-                      onClick={() => navigate('/swarm/pipelines')}
-                      data-testid="pipeline-breadcrumb-list">
-                    Pipelines
-                </Link>
-                <Typography variant="body2" color="text.primary">
-                    {pipeline.title}
-                    {showReqCounts && planReqCounts
-                        ? ` ${planReqCounts.met}/${planReqCounts.total}` : ''}
-                </Typography>
-            </Breadcrumbs>
+            {/* ── The breadcrumb line now also carries the ACCOUNTING (req
+                #3241) ────────────────────────────────────────────────────────
+                This is the header row's overflow answer, and it is the cheapest
+                one available. MEASURED, on the live plan's own strings, at the
+                real 180px sidebar + 24px page padding (244px of chrome):
+
+                    accounting "64 steps — 30 complete · 2 running ·
+                                32 scheduled · started …"          530px
+                    next widest occupant of that row (Width: S|M|L) 139px
+
+                It is the largest single occupant of the row below by nearly 4×,
+                and the only pure PROSE on it — everything else there is a
+                control the reader clicks. This line already exists, already
+                renders, already uses the same `body2` scale, and carried only
+                163px of content across the full page width. So the move costs NO
+                row and NO pixel of page height — which matters here more than on
+                most pages, because the visualizer measures its own top and turns
+                every pixel above it into canvas.
+
+                Both are `minWidth: 0` with ellipsis, so this line cannot become
+                two either. Flex distributes shrink in PROPORTION to width and
+                the accounting is 3.3× the breadcrumb, so it absorbs most of any
+                deficit on its own — a narrow viewport loses the trailing
+                timestamps well before it touches the plan's name. The full
+                string is on the tooltip regardless. */}
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1,
+                        flexWrap: 'nowrap', minWidth: 0, mb: 1 }}
+                 data-testid="pipeline-subheader-row">
+                {/* `MuiBreadcrumbs-ol` wraps by default and its `li`s carry the
+                    same `min-width: auto` the header's children do, so both have
+                    to be answered here or this line reintroduces exactly the
+                    problem the row below just solved. The LAST crumb — the plan
+                    name — is the one allowed to give, mirroring the header's own
+                    rule; the "Pipelines" link is navigation and keeps its size. */}
+                <Breadcrumbs sx={{ minWidth: 0, flexShrink: 1,
+                                    '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
+                                    '& .MuiBreadcrumbs-li:last-of-type': { minWidth: 0 } }}>
+                    <Link component="button" variant="body2" underline="hover"
+                          onClick={() => navigate('/swarm/pipelines')}
+                          data-testid="pipeline-breadcrumb-list">
+                        Pipelines
+                    </Link>
+                    {/* Tooltipped for the same reason the header title is: the
+                        header comment calls this crumb the place a reader
+                        recovers a truncated plan name, and below ~945px of
+                        viewport it truncates too, so without one the stated
+                        fallback would not exist at the widths that need it
+                        (review finding). */}
+                    <Tooltip title={titleText}>
+                        <Typography variant="body2" color="text.primary" noWrap>
+                            {titleText}
+                        </Typography>
+                    </Tooltip>
+                </Breadcrumbs>
+
+                {/* Accounting — the whole plan, never a filtered view
+                    (view-switchable-pages § V7). */}
+                <Tooltip title={accountingText}>
+                    <Typography variant="body2" color="text.secondary" noWrap
+                                sx={{ minWidth: 0, flexShrink: 1 }}
+                                data-testid="pipeline-accounting">
+                        {accountingText}
+                    </Typography>
+                </Tooltip>
+            </Box>
 
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
                 "the title of the visualizer, it became three rows for seemingly
@@ -603,20 +688,71 @@ export default function PipelineDetail() {
                 reads as three rows of chrome before any plan.
 
                 So this is production's single row again, in production's order —
-                mode switch first and left, the plan's identity, the accounting
-                line, a spacer, the active mode's own controls, then the status
-                and machine chips and the description button at the right end.
-                The controls added since (Width, the colour tri-state, the
-                semantic-level selector) join the mode's group rather than
+                mode switch first and left, the plan's identity, a spacer, the
+                active mode's own controls, then the description button at the
+                right end. The controls added since (Width, the colour tri-state,
+                the semantic-level selector) join the mode's group rather than
                 claiming a row.
 
-                MEASURED: in Plan mode this row wraps to a second line below
-                ~2180px of viewport, and to a third below ~1290px. It is a
-                `flexWrap: 'wrap'` row and always was — every assertion written
-                against it is deliberately WRAP-INVARIANT for that reason, and
-                nothing here is shrunk to chase a single line. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
-                        mb: 1 }}
+                ── IT IS NOW ONE ROW AS A PROPERTY, NOT AS A MEASUREMENT (req
+                #3241) ────────────────────────────────────────────────────────
+                It used to be `flexWrap: 'wrap'`, and every assertion against it
+                was written to be wrap-INVARIANT so the suite kept passing on
+                both sides of the wrap point. Req #3241 puts the semantic-level
+                selector back on this row — the move req #3214's title promises —
+                and makes a one-row header the requirement rather than an
+                observation, so wrap-invariance is no longer the right property
+                to assert.
+
+                MEASURED, at the real 244px of page chrome (180px sidebar + the
+                24px padding either side of this Box):
+
+                    the row as it stood, WITHOUT the selector    1172px
+                        → wrapped to two lines below ~1416px of viewport,
+                          i.e. on every 1280px window and narrower
+                    the same row plus the selector (186px)      ~1366px
+                        → would have wrapped below ~1610px, i.e. on a
+                          1440px laptop too. That is the cost req #3214
+                          recorded, and it is real.
+                    this row, after the three changes below       883px
+                        → ONE line at EVERY width, because it cannot wrap
+                          at all; the whole name fits down to ~1127px and
+                          ellipsizes below that.
+
+                `nowrap` trades a wrap for page overflow, so the controls now
+                have a width CEILING rather than a soft cost. The row's
+                INCOMPRESSIBLE width — everything that is not the title — is
+                763px. Measured with the sidebar expanded: clean at 1024 and at
+                1000, 5px of document overflow at 980, 25px at 960. So the floor
+                is ~1000px of viewport, and it is the SAME floor whether or not
+                the orchestration chip is showing (see its own note below).
+                `pipelines.spec.ts` PIPE-18 asserts that budget directly
+                (≤ 780px, the row's own width at a 1024px viewport) so a control
+                added here fails a test rather than somebody's 1152px window.
+
+                The three changes that make it true at every width, in the order
+                they take effect:
+
+                  1. The ACCOUNTING LINE LEFT — it is on the breadcrumb line
+                     above, which already existed and had the room. That is the
+                     530px this row needed and the whole reason the level
+                     selector fits.
+                  2. `flexWrap: 'nowrap'` — the row cannot become two rows, by
+                     construction. There is nothing left to measure.
+                  3. THE PROSE IS ELASTIC, THE CONTROLS ARE NOT. Every control
+                     is `flexShrink: 0` and keeps its natural size at every
+                     viewport, so none is ever clipped or compressed into
+                     illegibility. The title gives instead, ellipsizing with its
+                     full text on a tooltip — and so does the orchestration
+                     chip, which reads as a control but is a sentence (see its
+                     own note below).
+
+                What that costs, stated plainly: on a narrow viewport a long plan
+                name truncates. Nothing else changes, and the reader keeps the
+                full name on the tooltip and, until it truncates too, one line
+                above in the breadcrumb. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap',
+                        minWidth: 0, mb: 1 }}
                  data-testid="pipeline-header-row">
                 <ToggleButtonGroup
                     value={activeMode}
@@ -637,26 +773,20 @@ export default function PipelineDetail() {
                     ))}
                 </ToggleButtonGroup>
 
-                <Typography variant="h6" sx={{ flexShrink: 0 }} data-testid="pipeline-title">
-                    {pipeline.title}
-                    {showReqCounts && planReqCounts
-                        ? ` ${planReqCounts.met}/${planReqCounts.total}` : ''}
-                </Typography>
+                {/* The row's ONE elastic member — see the block comment above.
+                    `minWidth: 0` is what actually lets it shrink: a flex item's
+                    default `min-width: auto` means "never below your content",
+                    and `noWrap` alone would then widen the row instead of
+                    ellipsizing inside it. */}
+                <Tooltip title={titleText}>
+                    <Typography variant="h6" noWrap
+                                sx={{ minWidth: 0, flexShrink: 1 }}
+                                data-testid="pipeline-title">
+                        {titleText}
+                    </Typography>
+                </Tooltip>
 
-                {/* Accounting — the whole plan, never a filtered view
-                    (view-switchable-pages § V7). */}
-                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}
-                            data-testid="pipeline-accounting">
-                    {summary.total} step{summary.total === 1 ? '' : 's'} —{' '}
-                    {summary.done} complete · {summary.running} running ·{' '}
-                    {summary.pending} scheduled
-                    {pipeline.started_at
-                        ? ` · started ${formatDateTime(pipeline.started_at, timezone)}` : ''}
-                    {pipeline.completed_at
-                        ? ` · completed ${formatDateTime(pipeline.completed_at, timezone)}` : ''}
-                </Typography>
-
-                <Box sx={{ flexGrow: 1 }} />
+                <Box sx={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }} />
 
                 {/* req #3225 — visible in EITHER mode (the plan name reads it
                     here, the epic band label reads it in Plan mode), so it
@@ -669,6 +799,7 @@ export default function PipelineDetail() {
                         className="cal-toggle-btn"
                         variant={showReqCounts ? 'contained' : 'outlined'}
                         onClick={() => setShowReqCountsPref(showReqCounts ? 'off' : 'on')}
+                        sx={{ flexShrink: 0 }}
                         data-testid="pipeline-reqcounts-toggle"
                     >
                         Counts
@@ -681,6 +812,7 @@ export default function PipelineDetail() {
                         className="cal-toggle-btn"
                         variant={showCost ? 'contained' : 'outlined'}
                         onClick={() => setShowCost((v) => !v)}
+                        sx={{ flexShrink: 0 }}
                         data-testid="pipeline-cost-toggle"
                     >
                         Time / Tokens
@@ -695,6 +827,64 @@ export default function PipelineDetail() {
                             module still takes both parameters and still proves
                             every combination — a control is a product decision,
                             not a reason to delete a tested code path. */}
+                        {/* ── THE SEMANTIC LEVEL SELECTOR, LEFT OF WIDTH (req
+                            #3241) ─────────────────────────────────────────────
+                            Req #3214's title — "Zoom UI buttons to title bar" —
+                            asked for exactly this and the work declined it,
+                            leaving the control in the key and a dead import in
+                            this file as the trace. The reason recorded for the
+                            decline was a measurement, not a decision: the header
+                            row had grown past 2300px of natural content. That
+                            figure is from req #3168's row, which carried four
+                            more controls than this one — re-measured today the
+                            row was 1172px — but the SHAPE of the finding held:
+                            adding this 186px control to it would have wrapped a
+                            1440px laptop. A measurement says what a move COSTS;
+                            it does not say whether to make it. The header block
+                            comment above says what was done about the cost.
+
+                            It is NOT a zoom pair, whatever the old title called
+                            it: Auto plus three named levels selecting which
+                            marks are DRAWN, with the camera untouched across a
+                            change. Nothing about transforms or scale extents
+                            applies to it, which is also why it sits beside Width
+                            (a layout control) rather than beside Reset.
+
+                            THE SHARED COMPONENT, not a header-shaped copy of it
+                            — req #3168 extracted it from the Build Visualizer
+                            precisely so two canvases doing semantic zoom cannot
+                            drift, and the Build Visualizer renders it in ITS
+                            header among chips too. `testIdPrefix="pipeline-viz"`
+                            keeps every `pipeline-viz-level-*` hook byte-for-byte
+                            through the move, so the move re-points test
+                            LOCATIONS and renames nothing.
+
+                            No `data-viz-chrome` here, unlike in the key: that
+                            attribute exempts a control from the canvas's two
+                            gesture filters, and those are bound to the canvas
+                            container. This row is outside it, so a mousedown
+                            here was never reachable as a pan gesture. The
+                            exemption travelled with the control in the sense
+                            that matters — it is gone from the key's level Box,
+                            and the key keeps its own on the collapse button. */}
+                        <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                            <SemanticLevelControl
+                                // The page holds the pref as the CANVAS's
+                                // vocabulary ('auto'|'1'|'2'|'3') and the
+                                // reported level as the canvas's OTHER
+                                // vocabulary ('out'|'mid'|'in'); the shared
+                                // control speaks `null | 1 | 2 | 3` and is
+                                // deliberately ignorant of what a level MEANS.
+                                // Both translations happen here, which is the
+                                // only place that knows both.
+                                pinnedLevel={planLevelPref === 'auto'
+                                    ? null : Number(planLevelPref)}
+                                effectiveLevel={PLAN_LEVEL_NUMBER[effectiveLevel] ?? null}
+                                onChangePinnedLevel={(lvl) => setLevelPref(
+                                    lvl == null ? 'auto' : String(lvl))}
+                                testIdPrefix="pipeline-viz"
+                            />
+                        </Box>
                         {/* Req #3168 — column width, the one piece of the plan's
                             geometry a reader could not influence. It only ever
                             WIDENS (see STEP_WIDTH_FACTORS): a narrower column
@@ -702,6 +892,7 @@ export default function PipelineDetail() {
                             out of their own slab, which is the zero-overlap
                             contract the layout module proves. */}
                         <ToggleButtonGroup value={stepWidth} exclusive size="small"
+                                           sx={{ flexShrink: 0 }}
                                            onChange={(_e, v) => v && setStepWidthPref(v)}
                                            data-testid="pipeline-viz-stepwidth-toggle">
                             <Tooltip title="Column width — compact">
@@ -739,6 +930,7 @@ export default function PipelineDetail() {
                             <ToggleButtonGroup
                                 value={colorKey === 'none' ? null : colorKey}
                                 exclusive size="small"
+                                sx={{ flexShrink: 0 }}
                                 onChange={(_e, v) => setColorKeyPref(v == null ? 'none' : v)}
                                 data-testid="pipeline-viz-colorkey-toggle">
                                 <ToggleButton value="state" className="cal-toggle-btn">
@@ -768,6 +960,7 @@ export default function PipelineDetail() {
                                 className="cal-toggle-btn"
                                 variant="outlined"
                                 onClick={handleResetView}
+                                sx={{ flexShrink: 0 }}
                                 data-testid="pipeline-viz-reset"
                             >
                                 Reset
@@ -817,7 +1010,34 @@ export default function PipelineDetail() {
                             color={orchestrationHolder.stale ? 'warning' : 'success'}
                             variant={orchestrationHolder.stale ? 'outlined' : 'filled'}
                             label={`Orchestrated by ${orchestrationHolder.label}`}
-                            sx={{ flexShrink: 0 }}
+                            // ELASTIC, unlike every other occupant of this row
+                            // (req #3241 review finding). It was `flexShrink: 0`
+                            // like the controls, but it is not a control — it is
+                            // ~158px of PROSE that appears only while somebody
+                            // holds a reservation, and as a rigid member it
+                            // raised the row's incompressible width by that much
+                            // exactly when it happened to be showing. That put
+                            // the page into horizontal scroll on a 1152px window
+                            // for one plan and not another, which is the worst
+                            // version of a layout bug: intermittent and tied to
+                            // live ops state. MUI's own Chip label already
+                            // ellipsizes, and the machine's full identity is on
+                            // the tooltip, so shrinking it loses nothing the
+                            // reader cannot get back.
+                            //
+                            // AND IT REALLY DOES REACH ZERO — worth recording,
+                            // because the arithmetic says otherwise and a later
+                            // reader will redo it. A small Chip carries 8px of
+                            // label padding a side, so ~18px looks like a floor
+                            // this can never give back, which would put the
+                            // chip's presence back into the row's overflow
+                            // budget just smaller. Measured: the label's own
+                            // `overflow: hidden` collapses that padding along
+                            // with the root, so the chip renders 6px at a 1024px
+                            // viewport and 0-2px below it (the 2px is the
+                            // `outlined` stale variant's border). The row's
+                            // overflow floor is IDENTICAL with and without it.
+                            sx={{ flexShrink: 1, minWidth: 0 }}
                             data-testid="pipeline-detail-holder"
                         />
                     </Tooltip>
@@ -898,8 +1118,13 @@ export default function PipelineDetail() {
                              showReqCounts={showReqCounts}
                              reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
                              stepWidth={stepWidth} reqLabel={reqLabel}
+                             // `levelPref` still travels IN — the canvas needs to
+                             // know which level is pinned to draw it. Only the
+                             // SETTER left (req #3241): the control that called
+                             // it is on this page's own header now, so the panel
+                             // no longer changes the preference, it only reports
+                             // the level it settled on via `onEffectiveLevel`.
                              levelPref={planLevelPref}
-                             onChangeLevelPref={setLevelPref}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />

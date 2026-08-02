@@ -56,6 +56,23 @@ const PLAN_VIEW_OPTIONS = {
     stepWidth: 'compact' as const,
 };
 
+/**
+ * The epic -> {met,total} lookup the visualizer feeds `computePlanLayout`,
+ * mirroring `PipelinePlanVisualizer.jsx`'s own memo.
+ *
+ * NEEDED FROM req #3241, when the Counts toggle began defaulting ON: the band
+ * label is `${epic} ${met}/${total}` from that moment, and a spec that computes
+ * its expectations from a layout built WITHOUT this map is asserting against a
+ * plan the component is not drawing. That bites hardest where the label is read
+ * as TEXT rather than as geometry — the epic chip's `aria-label` and the ↗'s
+ * `title` are both interpolated from it — because those assertions fail loudly
+ * while a small geometric difference would not.
+ */
+type EpicCount = { epicId: number; met: number; total: number };
+const epicCountsOf = (p: ReturnType<typeof orderedPlan>) =>
+    new Map((p.requirementCounts?.byEpic || []).map(
+        (c: EpicCount) => [c.epicId, c] as [number, EpicCount]));
+
 // One seed for the whole file — ~200 gateway inserts is not something to repeat
 // per test, and every test is read-only against it.
 //
@@ -966,12 +983,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //
             // Tall enough that `availH`'s 480px floor is never the binding
             // constraint on the canvas height, and wide enough to be a realistic
-            // desktop. Deliberately NOT wide enough to guarantee the header row
-            // stays on one line — in Plan mode it carries three labelled toggle
-            // groups and needs ~2100px of viewport before it stops wrapping, so
-            // every claim below is written to be WRAP-INVARIANT instead. A test
-            // that passes only above the wrap point is a test about the wrap
-            // point.
+            // desktop. The header row is `nowrap` since req #3241 so it is one
+            // line at every width, but every claim below is still written to be
+            // WIDTH-INVARIANT — DOM containment and sibling order, never a
+            // y-coordinate — because a test that only holds at one viewport is a
+            // test about that viewport.
             await page.setViewportSize({ width: 1800, height: 1000 });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
 
@@ -1073,17 +1089,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    row, and EVERYTHING lives on `pipeline-header-row` — mode
             //    switch first, description button last.
             //
-            //    WRAP-INVARIANT, like every other assertion about this row: it
-            //    carries the mode switch, four labelled toggle groups and the
-            //    level selector, so it legitimately wraps on a narrow viewport.
-            //    DOM containment and sibling order say the same thing at every
-            //    width; a y-coordinate comparison would not.
+            //    WIDTH-INVARIANT, like every other assertion about this row: DOM
+            //    containment and sibling order say the same thing at every
+            //    width, which a y-coordinate comparison would not. Since req
+            //    #3241 the row is also literally one LINE at every width — that
+            //    is asserted separately in 1b, by measurement, because it is now
+            //    a requirement rather than an observation.
             const headerRow = page.getByTestId('pipeline-header-row');
             await expect(headerRow).toBeVisible();
             await expect(page.getByTestId('pipeline-view-row'),
                 'the view row is gone, not hidden').toHaveCount(0);
             for (const id of ['pipeline-detail-mode-toggle', 'pipeline-title',
-                'pipeline-accounting', 'pipeline-viz-stepwidth-toggle',
+                'pipeline-viz-level-control', 'pipeline-viz-stepwidth-toggle',
                 'pipeline-viz-colorkey-toggle', 'pipeline-viz-reset',
                 'pipeline-description-btn']) {
                 await expect(page.locator(`[data-testid="pipeline-header-row"]`
@@ -1095,21 +1112,63 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // unlisted — an element that quietly came back would otherwise
             // re-crowd the row, or the canvas corner, with nothing to notice
             // it by. The `Reqs:` and `Step:` controls were removed outright;
-            // the level selector MOVED INTO THE KEY on the canvas, so it is
-            // absent here and present there (PIPE-16 owns that half); the
-            // status chip (zoom level name, "pinned", the drag/scroll hint)
+            // the status chip (zoom level name, "pinned", the drag/scroll hint)
             // was DELETED, not moved — nowhere replaces it, by design (D2).
             for (const id of ['pipeline-viz-reqlayout-toggle',
                 'pipeline-viz-steplabel-toggle', 'pipeline-status-chip',
                 'pipeline-machine-chip', 'pipeline-viz-zoom-level']) {
                 await expect(page.getByTestId(id), `${id} is gone`).toHaveCount(0);
             }
-            await expect(page.locator('[data-testid="pipeline-header-row"]'
-                + ' [data-testid="pipeline-viz-level-control"]'),
-            'the level selector left the header row').toHaveCount(0);
+            // ── THE MOVE req #3214's TITLE PROMISED, delivered by req #3241 ──
+            //    These two assertions are INVERTED from what they said before:
+            //    the level selector was in the key, and the earlier work left it
+            //    there. It is in the header now, LEFT OF WIDTH, and the key no
+            //    longer carries it — asserted from both ends, because "present
+            //    in the header" alone would also pass on a duplicate.
             await expect(page.locator('[data-testid="pipeline-viz-legend"]'
                 + ' [data-testid="pipeline-viz-level-control"]'),
-            'the level selector is inside the key').toHaveCount(1);
+            'the level selector left the key').toHaveCount(0);
+            await expect(page.getByTestId('pipeline-viz-level-control'),
+                'there is exactly one level selector on the page').toHaveCount(1);
+            const leftOfWidth = await page.evaluate(() => {
+                const row = document.querySelector(
+                    '[data-testid="pipeline-header-row"]')!;
+                const kids = Array.from(row.children);
+                const idx = (sel: string) =>
+                    kids.findIndex((el) => el.matches(sel) || !!el.querySelector(sel));
+                return {
+                    level: idx('[data-testid="pipeline-viz-level-control"]'),
+                    width: idx('[data-testid="pipeline-viz-stepwidth-toggle"]'),
+                };
+            });
+            expect(leftOfWidth.level, 'the level selector is a child of the row')
+                .toBeGreaterThanOrEqual(0);
+            expect(leftOfWidth.level,
+                'the level selector sits immediately LEFT of the Width control')
+                .toBe(leftOfWidth.width - 1);
+            // And the pan exemption really travelled with it: the key's own
+            // `data-viz-chrome="level"` wrapper is gone, and the ONE remaining
+            // exemption over the canvas is the key's collapse button. A stray
+            // exemption left behind would silently make a dead region of the
+            // canvas unpannable.
+            const vizChrome = await page.evaluate(() => Array.from(
+                document.querySelectorAll('[data-viz-chrome]'))
+                .map((el) => el.getAttribute('data-viz-chrome')));
+            expect(vizChrome, 'the collapse button is the only canvas chrome left')
+                .toEqual(['legend']);
+            // The accounting line is what LEFT the row to pay for the selector
+            // (req #3241). It is not deleted — it is on the breadcrumb line
+            // above, which already existed and had the width to spare. Asserted
+            // from both ends for the same reason as the selector.
+            await expect(page.locator('[data-testid="pipeline-header-row"]'
+                + ' [data-testid="pipeline-accounting"]'),
+            'the accounting line left the header row').toHaveCount(0);
+            await expect(page.locator('[data-testid="pipeline-subheader-row"]'
+                + ' [data-testid="pipeline-accounting"]'),
+            'the accounting line is on the breadcrumb line').toHaveCount(1);
+            await expect(page.getByTestId('pipeline-accounting'),
+                'and it still says what it always said')
+                .toContainText(/\d+ steps? — \d+ complete · \d+ running/);
             // Production's order at the two ends that the user reads by: the mode
             // switch opens the row and the description button closes it. Asserted
             // by DOM position among the row's own children, so a wrap cannot
@@ -1129,44 +1188,104 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(ends.last, 'the description button closes the row')
                 .toBe('pipeline-description-btn');
 
-            // 1b. WHAT THE ONE ROW COSTS, measured rather than guessed. Merging
-            //     the bars back put the mode switch, the plan's identity and
-            //     accounting, FOUR labelled toggle groups, the level selector and
-            //     three trailing controls on one line — so it wraps, and the user
-            //     should hear the width from us. Measured as the row's own
-            //     natural content width plus the page chrome around it; no
-            //     viewport sweep, so it costs the suite nothing.
-            const rowCost = await page.evaluate(() => {
+            // 1b. ONE ROW IS NOW A PROPERTY, NOT AN OBSERVATION (req #3241).
+            //     Before this it was a `flexWrap: 'wrap'` row measured to wrap
+            //     below ~2180px, and every claim about it was written to be
+            //     wrap-invariant so the suite passed on both sides of that
+            //     threshold — which is another way of saying nothing asserted
+            //     the thing the user asked for. It does now.
+            //
+            //     THE MEASUREMENT IS RATIO, NOT ABSOLUTE: a wrapped flex row is
+            //     N line-boxes tall, so the row's own height against its tallest
+            //     CHILD's height answers "how many lines?" exactly, at any
+            //     viewport and under any future type-scale change. An absolute
+            //     px bound would be a test about MUI's small-control height.
+            const rowMetrics = async () => page.evaluate(() => {
                 const row = document.querySelector(
                     '[data-testid="pipeline-header-row"]') as HTMLElement;
                 const gap = parseFloat(getComputedStyle(row).gap) || 0;
                 const kids = Array.from(row.children) as HTMLElement[];
                 let content = 0;
                 let n = 0;
+                let tallest = 0;
                 for (const k of kids) {
-                    const w = k.getBoundingClientRect().width;
-                    if (w < 0.5) continue;
+                    const r = k.getBoundingClientRect();
+                    if (r.width < 0.5) continue;
                     n += 1;
+                    tallest = Math.max(tallest, r.height);
                     // The flexGrow spacer absorbs slack and is not content.
                     if (!k.dataset.testid && !k.textContent?.trim()
                         && k.children.length === 0) continue;
-                    content += w;
+                    content += r.width;
                 }
-                const chrome = window.innerWidth - row.getBoundingClientRect().width;
+                // THE ROW'S INCOMPRESSIBLE WIDTH: everything that declares
+                // `flex-shrink: 0`, plus the gaps. This is the figure that
+                // decides whether the page gains a horizontal scrollbar, and it
+                // is INDEPENDENT of the fixture — whose plan title is a long
+                // `e2e-<stamp>-…` string, i.e. a large elastic member that
+                // would mask a too-wide control set at any viewport a sweep
+                // happens to pick.
+                const incompressible = kids
+                    .filter((k) => k.getBoundingClientRect().width >= 0.5
+                        && getComputedStyle(k).flexShrink === '0')
+                    .reduce((sum, k) => sum + k.getBoundingClientRect().width, 0);
                 return {
                     content: Math.round(content + gap * Math.max(0, n - 1)),
-                    chrome: Math.round(chrome),
+                    incompressible: Math.round(
+                        incompressible + gap * Math.max(0, n - 1)),
+                    chrome: Math.round(window.innerWidth
+                        - row.getBoundingClientRect().width),
                     rowHeight: Math.round(row.getBoundingClientRect().height),
+                    tallestChild: Math.round(tallest),
+                    // The one elastic member. Its measured width vs. its own
+                    // scrollWidth is what "it ellipsized" means.
+                    titleClipped: (() => {
+                        const t = row.querySelector(
+                            '[data-testid="pipeline-title"]') as HTMLElement | null;
+                        return t ? t.scrollWidth > t.clientWidth + 1 : false;
+                    })(),
+                    docOverflow: document.documentElement.scrollWidth
+                        - document.documentElement.clientWidth,
                 };
             });
+            const at1800 = await rowMetrics();
             // eslint-disable-next-line no-console
-            console.log(`[PIPE-18] header row natural content=${rowCost.content}px `
-                + `chrome=${rowCost.chrome}px wraps below ~`
-                + `${rowCost.content + rowCost.chrome}px viewport `
-                + `(height at 1800px = ${rowCost.rowHeight}px)`);
-            // It fits one line on a wide desktop and is honest about needing one.
-            expect(rowCost.content, 'the one row is wider than a 1440px laptop')
-                .toBeGreaterThan(1000);
+            console.log(`[PIPE-18] header row @1800px: content=${at1800.content}px `
+                + `incompressible=${at1800.incompressible}px `
+                + `chrome=${at1800.chrome}px height=${at1800.rowHeight}px `
+                + `(tallest child ${at1800.tallestChild}px) `
+                + `→ page scrolls sideways below `
+                + `~${at1800.incompressible + at1800.chrome}px viewport`);
+            expect(at1800.rowHeight,
+                'the header is ONE line at 1800px — not two, not three')
+                .toBeLessThanOrEqual(at1800.tallestChild + 2);
+            expect(at1800.titleClipped,
+                'at 1800px there is room for the whole plan name').toBe(false);
+            // THE BUDGET. `nowrap` converts what used to be a wrap into page
+            // overflow, so the controls now have a width CEILING rather than a
+            // soft cost — and this is the number that expresses it. 780px is the
+            // row's own width at a 1024px viewport with the sidebar expanded
+            // (1024 − 180 sidebar − 48 padding − 16 scrollbar), so holding under
+            // it is what makes "one row, no sideways scroll" true across the
+            // whole desktop range this page is used at. Measured 763px today;
+            // a new control on this row that breaks the promise fails HERE,
+            // with the arithmetic in front of whoever added it, instead of
+            // silently on somebody's 1152px window.
+            //
+            // IT EXCLUDES THE ORCHESTRATION CHIP, which is `flexShrink: 1` and
+            // therefore not "incompressible" — and that exclusion is safe rather
+            // than merely convenient, which is worth recording because the
+            // arithmetic suggests otherwise. A small MUI Chip carries 8px of
+            // label padding a side, so a chip "floor" of ~18px is the natural
+            // guess; measured, the label's `overflow: hidden` collapses that
+            // padding along with the root, and the chip renders 6px at a 1024px
+            // viewport and 0-2px below it (2px being the `stale` variant's
+            // border). Under 8px at the width this budget is about — inside the
+            // 17px of headroom, in a fixture that never renders one anyway
+            // because it seeds no orchestration claim.
+            expect(at1800.incompressible,
+                "the row's controls fit a 1024px viewport with the title at zero")
+                .toBeLessThanOrEqual(780);
 
             // 2. The step-width control widens the WORLD, read from `data-world`.
             //
@@ -1268,6 +1387,127 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             });
             expect(overflow.overflowX).toBe('hidden');
             expect(overflow.document).toBeLessThanOrEqual(0);
+
+            // 6. ONE ROW ON A REAL LAPTOP, TOO (req #3241). The old row wrapped
+            //    below ~2180px, so a 1440px MacBook saw two lines and a 1280px
+            //    window saw three — i.e. the width that mattered was the one
+            //    nothing asserted. This runs LAST in the test on purpose: a
+            //    viewport change re-fits the canvas, so it must not land in the
+            //    middle of the transform claims above.
+            //
+            //    The title is allowed to ellipsize here — that is the declared
+            //    cost of the choice, and it is CHECKED rather than assumed, so a
+            //    future change that clips a CONTROL instead cannot pass by
+            //    quietly satisfying the height bound.
+            //
+            //    Down to 1024, the narrowest viewport that still gets the 180px
+            //    sidebar and therefore the worst ratio of chrome to content this
+            //    page ever sees. Note the height check is nearly tautological
+            //    under `nowrap` — it guards a future revert to `wrap`, nothing
+            //    more. `docOverflow` and the per-control clip check are the two
+            //    claims with teeth here, and the `incompressible` budget above
+            //    is what makes them fixture-independent.
+            for (const width of [1440, 1280, 1152, 1024]) {
+                await page.setViewportSize({ width, height: 1000 });
+                await expect(page.getByTestId('pipeline-header-row')).toBeVisible();
+                const m = await rowMetrics();
+                // eslint-disable-next-line no-console
+                console.log(`[PIPE-18] header row @${width}px: `
+                    + `content=${m.content}px incompressible=${m.incompressible}px `
+                    + `height=${m.rowHeight}px `
+                    + `(tallest child ${m.tallestChild}px, `
+                    + `title ellipsized=${m.titleClipped})`);
+                expect(m.rowHeight, `the header is ONE line at ${width}px`)
+                    .toBeLessThanOrEqual(m.tallestChild + 2);
+                expect(m.docOverflow,
+                    `the one row does not drag the page sideways at ${width}px`)
+                    .toBeLessThanOrEqual(0);
+                // Every CONTROL keeps its natural size — only the title gives.
+                for (const id of ['pipeline-detail-mode-toggle',
+                    'pipeline-viz-level-control', 'pipeline-viz-stepwidth-toggle',
+                    'pipeline-viz-colorkey-toggle', 'pipeline-viz-reset',
+                    'pipeline-reqcounts-toggle', 'pipeline-description-btn']) {
+                    const el = page.getByTestId(id);
+                    await expect(el, `${id} is still visible at ${width}px`)
+                        .toBeVisible();
+                    const clipped = await el.evaluate(
+                        (n: HTMLElement) => n.scrollWidth > n.clientWidth + 1);
+                    expect(clipped, `${id} is not compressed at ${width}px`)
+                        .toBe(false);
+                }
+            }
+        });
+
+    // ── PIPE-20: the met/total counts are ON without being asked (req #3241) ─
+    //
+    // Req #3225 built this correctly on both surfaces and defaulted it OFF, so
+    // the user who asked to SEE the numbers had to find a toggle first. Req
+    // #3241 flipped the default. NOTHING HERE TOUCHES A PREFERENCE before the
+    // first assertion — that is the whole claim, and pinning the key would
+    // silently make this a test of the pinned value instead.
+
+    test('PIPE-20: met/total shows on the plan name and epic bands by default',
+        async ({ page }) => {
+            const counts = plan.requirementCounts.overall;
+            expect(counts.total, 'the fixture has requirements to count')
+                .toBeGreaterThan(0);
+            const title = String(fixture.models.main.pipeline.title);
+
+            // 1. THE LIST PAGE, arrived at cold. It carries no control for this
+            //    preference at all — it only reads what the detail page's toggle
+            //    last wrote — so a default of `off` made the numbers unreachable
+            //    from here without visiting another page first.
+            await page.goto('/swarm/pipelines');
+            await expect(page.getByTestId('pipelines-cards-view'))
+                .toBeVisible({ timeout: 30000 });
+            await expect(page.getByTestId(`pipeline-card-${fixture.mainPipelineId}`),
+                'the card names the plan AND its met/total, with nothing enabled')
+                .toContainText(`${title} ${counts.met}/${counts.total}`);
+
+            // 2. THE PLAN PAGE, same cold start: the header title and the
+            //    breadcrumb both carry it, and the toggle reports itself ON
+            //    rather than merely behaving as though it were.
+            await page.setViewportSize({ width: 1800, height: 1000 });
+            await openPlanVisualizer(page, fixture.mainPipelineId);
+            await expect(page.getByTestId('pipeline-title'))
+                .toHaveText(`${title} ${counts.met}/${counts.total}`);
+            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
+                .toHaveClass(/MuiButton-contained/);
+
+            // 3. THE EPIC BAND LABELS — the surface the req #3225 header-width
+            //    argument never applied to, since they are drawn on the canvas.
+            //    The floating chips are the DOM half of that label and carry the
+            //    same `epicLabel` the canvas draws, so they are assertable text.
+            //    POLLED, not read once: chip placement depends on the
+            //    ResizeObserver's first report AND on the key's measured rect
+            //    (`legendSize`), which lands on a later commit and displaces
+            //    chips — so a single `allInnerTexts()` taken the moment the
+            //    canvas turns visible can legitimately see zero of them.
+            const chipTexts = async () => page.locator(
+                '.pipeline-viz-epic-name').allInnerTexts();
+            const countedChips = async () =>
+                (await chipTexts()).filter((t) => /\s\d+\/\d+$/.test(t)).length;
+            //    "no chips at all" and "chips without counts" are DIFFERENT
+            //    failures and must not share a message — and without this,
+            //    step 4's `.toBe(0)` would also pass vacuously on a plan that
+            //    rendered no chips.
+            await expect.poll(async () => (await chipTexts()).length,
+                { message: 'the fixture draws epic chips to read' })
+                .toBeGreaterThan(0);
+            await expect.poll(countedChips,
+                { message: 'at least one epic band label carries its met/total' })
+                .toBeGreaterThan(0);
+
+            // 4. AND IT IS STILL A CHOICE, not a hardcode: turning it off takes
+            //    the numbers off BOTH surfaces. Without this, a default-on that
+            //    ignored the toggle entirely would pass every check above.
+            await page.getByTestId('pipeline-reqcounts-toggle').click();
+            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
+                .toHaveClass(/MuiButton-outlined/);
+            await expect(page.getByTestId('pipeline-title')).toHaveText(title);
+            await expect.poll(countedChips,
+                { message: 'turning Counts off clears the band labels too' })
+                .toBe(0);
         });
 
     // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────
@@ -1400,6 +1640,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    words, "· pinned", was deleted outright; this control was
             //    already the thing a reader pins or clears a level FROM, so
             //    removing the caption removed no signal without another home).
+            //
+            //    Its HOME is the page header since req #3241 (PIPE-18 owns that
+            //    claim). Not one locator here changed with the move, which is
+            //    the point of `testIdPrefix`: the control's behaviour is the
+            //    same control's behaviour wherever it is mounted.
             await expect(control).toBeVisible();
             await expect(control).toContainText('Detail:');
             for (const id of ['auto', '1', '2', '3']) {
@@ -1540,7 +1785,8 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // name drawn OVER a dashed batch rectangle must beat it — and the
             // Substrate plan draws no boxes at all.
             const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
-                { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
+                { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null,
+                    epicCounts: epicCountsOf(batchPlan) });
             const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
             const container = page.getByTestId('pipeline-plan-visualizer');
             const box = (await canvas.boundingBox())!;
@@ -1675,9 +1921,27 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(await hover(at(free!.x, free!.y))).toMatchObject({ kind: 'batch' });
 
             // ── D6: the epic chip names what its click does ─────────────────
+            //
+            // Against `epicLabel`, NOT `epic` (req #3241). Both attributes below
+            // are interpolated from the chip's RENDERED text, and since the
+            // Counts toggle defaults on that text is `${epic} ${met}/${total}`.
+            // Reading the bare name here would assert a label the page stopped
+            // producing — and `epicLabel` is exactly `epic` whenever the counts
+            // are off, so this reads correctly in both states rather than
+            // hard-coding the current default.
             const epicBand = layout.bands.find(
                 (b: { epicId: number | null }) => b.epicId != null) as
-                { epicId: number; epic: string; paused: boolean };
+                { epicId: number; epic: string; epicLabel: string; paused: boolean };
+            const epicText = epicBand.epicLabel || epicBand.epic;
+            // The precondition guards that the FIXTURE exercises the counted
+            // path, not that this particular band shows a number. Asserting the
+            // suffix on `epicText` would contradict the comment above and would
+            // fail on CORRECT behaviour: `requirementCounts` skips `tracking`
+            // requirements, so an epic whose requirements are all containers
+            // legitimately gets a band with no bucket and `epicBandLabelText`
+            // degrades it to the plain name.
+            expect(epicCountsOf(batchPlan).size,
+                'the fixture exercises the counted band label').toBeGreaterThan(0);
             const chip = page.getByTestId(`pipeline-viz-epic-${epicBand.epicId}`);
             await expect(chip).toHaveAttribute('title', 'Zoom pipeline epic');
             // The accessible name still carries WHICH epic — a tooltip that
@@ -1686,11 +1950,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // label rather than a second announced element (the bubble beside
             // the name is colour-only, and colour alone is not accessible).
             await expect(chip).toHaveAttribute(
-                'aria-label', `Zoom pipeline epic ${epicBand.epic}`
+                'aria-label', `Zoom pipeline epic ${epicText}`
                     + (epicBand.paused ? ' — paused' : ' — active'));
             // …and the ↗ beside it still names itself distinctly, which is what
             // makes the chip two controls rather than one ambiguous one.
             await expect(page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`))
-                .toHaveAttribute('title', `Open “${epicBand.epic}” in the features view`);
+                .toHaveAttribute('title', `Open “${epicText}” in the features view`);
         });
 });

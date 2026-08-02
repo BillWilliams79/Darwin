@@ -62,6 +62,39 @@ export const PLAN_REQUIREMENT_FIELDS =
     'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking,'
     + 'ai_model,effort,started_at,completed_at';
 
+// ── The met/total counts preference (req #3225, defaulted ON by req #3241) ──
+// ONE key and ONE default, because TWO pages read this preference and only one of
+// them owns a control for it: the plan detail header writes it, and the plan LIST
+// page reads it on its own next mount to title its cards and table rows. Two
+// hand-copied string literals is how the two silently disagree — and the failure
+// is invisible, because a page reading the wrong key simply falls back to the
+// default and shows a plausible answer.
+//
+// THE DEFAULT IS 'on' (req #3241). It shipped 'off' on a header-width argument
+// that req #3241 settled directly: the header is now `nowrap` with a considered
+// elastic member, and the argument never applied to the epic band labels — which
+// are drawn on the canvas — at all. The user asked to SEE the numbers; a default
+// that hides them behind a control they have to find first is not that.
+//
+// ── AND THE KEY IS BUMPED, or the flip does not reach the person who asked ──
+// `useViewPreference` prefers a STORED value over the default it is handed, and
+// `changeView` writes localStorage on every click. So anyone who pressed Counts
+// and pressed it again — which is exactly what someone evaluating the feature
+// does — holds `'off'` in localStorage, and under the old key that value would
+// outrank this default in every future tab, permanently. An open tab is worse
+// still: its sessionStorage was seeded with `'off'` at mount and a reload does
+// not clear it.
+//
+// A stored `'off'` under the OLD key is therefore ambiguous — it means either
+// "I don't want these" or "this is what the old default gave me" — and the two
+// are indistinguishable. The tie-break is age: req #3225 merged and req #3241
+// was filed to correct it the same day, so a stored `'off'` is overwhelmingly
+// the old default rather than a considered choice. A new key discards the
+// ambiguous value and lets the new default actually apply; the control is
+// unchanged, so anyone who does want them off is one click from it.
+export const REQ_COUNTS_STORAGE_KEY = 'darwin-pipeline-req-counts-v2';
+export const DEFAULT_REQ_COUNTS = 'on';
+
 /**
  * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.
  *

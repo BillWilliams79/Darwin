@@ -93,7 +93,6 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import { semanticLevel } from '../konvaSwarmModel';
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
@@ -117,7 +116,7 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
-    PLAN_LEVEL_NUMBER, EPIC_PAUSE_BUBBLE_D, pauseBubbleColor,
+    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor,
 } from './pipelinePlanLayout';
 import '../../CalendarFC/swarmVisualizer.css';
 
@@ -128,15 +127,18 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 // is the MAX of the three and therefore constant — see the key's own comment.
 const REQ_KEY_SCALES = ['state', 'machine', 'none'];
 
-// Interactive chrome layered OVER the canvas (req #3168): the key, the only
-// occupant left since the reset control and the status chip moved out (req
-// #3216 — reset joined the header's zoom controls, the chip was deleted
-// outright). d3-zoom's gesture filter and the manual click hit-test both
-// reject anything originating inside it, so a control can never double as a
-// pan gesture or as a click on the bead beneath it. Nothing else needs the
-// exclusion any more: what replaced the old bottom-right stack lives in the
-// page header, outside the container this behavior is bound to, so a
-// mousedown on it was never reachable as a pan gesture in the first place.
+// Interactive chrome layered OVER the canvas (req #3168). d3-zoom's gesture
+// filter and the manual click hit-test both reject anything originating inside
+// it, so a control can never double as a pan gesture or as a click on the bead
+// beneath it.
+//
+// EXACTLY ONE ELEMENT CARRIES IT NOW: the key's collapse button. The reset
+// control and the status chip left in req #3216, and the level selector left in
+// req #3241 — its `data-viz-chrome="level"` wrapper went with it, because an
+// exemption is only meaningful where the gesture filters can see it. Every one
+// of those now lives in the page header, OUTSIDE the container this behaviour is
+// bound to, so a mousedown on them was never reachable as a pan gesture in the
+// first place. Anything added back over the canvas needs the attribute again.
 const CHROME_SELECTOR = '[data-viz-chrome]';
 
 // The panel colour at the chip's declared opacity (req #3168 user directive:
@@ -241,7 +243,11 @@ export default function PipelinePlanVisualizer({
     // pattern, req #2407), so the panel is the canvas and nothing else.
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
-    onEffectiveLevel, onChangeLevelPref,
+    // `levelPref` IN, the level actually drawn OUT. The SETTER is gone (req
+    // #3241): the Auto/L1/L2/L3 control that called it moved to the page header,
+    // so this panel no longer writes the preference — it reads it, draws at that
+    // level, and reports which level that turned out to be.
+    onEffectiveLevel,
     // req #3225 — the page's own persisted toggle. Governs the epic band
     // label's count suffix here and the plan-name suffix on the page's own
     // header, from one shared preference.
@@ -1702,43 +1708,45 @@ export default function PipelinePlanVisualizer({
 
                     {keyOpen && (
                         <>
-                            {/* THE LEVEL SELECTOR, inside the key (user
-                                directive 2026-08-01). It belongs here on the
-                                key's own terms: everything else in this box says
-                                what a mark MEANS, and the level says which marks
-                                are drawn at all — the same subject. It also gets
-                                the control off a header row that had grown to
-                                2303px of natural content.
+                            {/* THE LEVEL SELECTOR IS GONE FROM HERE (req #3241).
+                                It moved to the page header, left of Width —
+                                which is what req #3214's title asked for and its
+                                work declined, leaving the control here and a
+                                dead import in PipelineDetail.jsx. The reason
+                                recorded for keeping it here was that the key
+                                already says what a mark MEANS and the level says
+                                which marks are drawn; that reading is fine, and
+                                it is not the user's, which is the only one that
+                                decides where a control lives.
 
-                                `pointerEvents: 'auto'` and `data-viz-chrome`
-                                because the key is otherwise inert: the box
-                                ignores the pointer so it can never swallow a
-                                drag-pan, and the two gesture filters reject
-                                anything starting on chrome. */}
-                            <Box data-viz-chrome="level"
-                                 sx={{ pointerEvents: 'auto', alignSelf: 'flex-start' }}>
-                                <SemanticLevelControl
-                                    // NUMBER, not the level string.
-                                    // `pinnedLevelOf` answers "which semantic
-                                    // level is pinned" ('out'|'mid'|'in') — the
-                                    // canvas's vocabulary. The shared control
-                                    // speaks `null | 1 | 2 | 3`, deliberately
-                                    // ignorant of what a level MEANS, so handing
-                                    // it 'out' leaves every chip unpressed and
-                                    // the control silently reports Auto.
-                                    pinnedLevel={levelPref === 'auto'
-                                        ? null : Number(levelPref)}
-                                    effectiveLevel={PLAN_LEVEL_NUMBER[level] ?? null}
-                                    onChangePinnedLevel={(lvl) => onChangeLevelPref?.(
-                                        lvl == null ? 'auto' : String(lvl))}
-                                    testIdPrefix="pipeline-viz"
-                                />
-                            </Box>
+                                THE KEY IS RE-PROPORTIONED TO WHAT REMAINS, not
+                                left with a hole: the step channel is now the
+                                FIRST group, so `KeyGroup`'s separating hairline
+                                and its top padding do not survive as an edge
+                                over nothing.
+
+                                `PLAN_KEY_MAX_W` needs no re-measurement for
+                                this. It is a CAP, and the box sizes to its
+                                widest line; the 186px control was never that
+                                line (the step channel's five swatches and names
+                                are), and even if it had been, a NARROWER key
+                                only ever gives the floating epic labels more
+                                room — the cap's whole purpose. The sweep behind
+                                that constant bounds the key's cost to the chips
+                                from above, so removing a row cannot invalidate
+                                it in either direction.
+
+                                The pan exemption travelled with the control in
+                                the only sense that matters: the `data-viz-chrome`
+                                Box that wrapped it is gone, and the key keeps its
+                                own on the collapse button below. The header is
+                                outside the container the gesture filters are
+                                bound to, so nothing there needs one. */}
 
                             {/* THE STEP channel. Running and next-up carry live
                                 motion in the key itself, because naming a rhythm
                                 in words is not the same as showing it. */}
-                            <KeyGroup title="step">
+                            <KeyGroup title="step" first>
                                 <LegendDot fill={P.doneFill} label="Complete" />
                                 <LegendDot fill={P.runningFill} label="Running"
                                            animated="pipeKeyPulse" />
@@ -1792,10 +1800,12 @@ export default function PipelinePlanVisualizer({
                     corner forever. The level and the pinned state are each
                     still named elsewhere — `data-level` on the container
                     (published for the same reason `data-transform` is, a few
-                    lines up) and the key's own `SemanticLevelControl` (the
+                    lines up) and the `SemanticLevelControl` itself (the
                     filled/outlined Auto|L1|L2|L3 chips), which was ALREADY the
                     control a reader used to pin or clear a level, so removing
-                    this chip removes no signal that had no other home. */}
+                    this chip removes no signal that had no other home. That
+                    control is in the PAGE HEADER since req #3241; it was in the
+                    key when this note was written. */}
 
                 {card && (
                     <PlanDataCard card={card} timezone={timezone} level={level}
