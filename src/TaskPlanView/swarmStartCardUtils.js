@@ -25,7 +25,7 @@ export const sortSwarmReadyItems = (items) => {
 export const PIPELINE_FILTERED_STATUSES = ['authoring', 'approved', 'swarm_ready'];
 
 /**
- * Per-status counts for the chip badges, plus what the pipeline exclusion removed.
+ * Per-status counts for the chip badges, applying the pipeline exclusion.
  *
  * Pure so the "which chips filter" decision is pinned by tests rather than only
  * by a rendered card.
@@ -33,10 +33,10 @@ export const PIPELINE_FILTERED_STATUSES = ['authoring', 'approved', 'swarm_ready
  * INVARIANT THIS DEPENDS ON: the card counts from `useAllRequirements` while it
  * lists from `useRequirementsByStatus`, and applies NO closed-category filter to
  * EITHER — unlike RequirementsTableView, which filters its rows through
- * `categoryMap`. That is what makes `hidden[status]` exactly the number of rows
- * dropped from that chip's list. Adding a closed-category guard to one source and
- * not the other would desynchronize the count from the list AND overcount the
- * note, in the same edit. Today the pipelined-in-closed-category population is 0.
+ * `categoryMap`. That is what keeps the count in sync with the list it's paired
+ * with. Adding a closed-category guard to one source and not the other would
+ * desynchronize the count from the list. Today the pipelined-in-closed-category
+ * population is 0.
  *
  * @param {Array<{id: number, requirement_status: string}>} requirements
  * @param {string[]} statuses      the chip vocabulary; every key is initialized to 0

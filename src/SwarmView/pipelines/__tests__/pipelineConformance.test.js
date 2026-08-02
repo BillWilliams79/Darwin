@@ -367,18 +367,19 @@ describe('pipeline conformance — the anchors', () => {
         expect(c.expect.batches, 'the server keeps them apart').toEqual([]);
     });
 
-    it('requirement_counts excludes tracking and keeps terminal statuses in '
-        + 'the denominator (req #3225)', () => {
+    it('requirement_counts excludes tracking and counts terminal statuses in '
+        + 'the numerator (req #3269, correcting req #3225)', () => {
         // The two decisions the requirement asked to be stated, not guessed:
         // a TRACKING requirement moves neither side of the ratio (even a
-        // `met` one), and wontfix/deferred count toward the denominator but
-        // never the numerator.
+        // `met` one), and wontfix/deferred count toward BOTH the denominator
+        // AND the numerator, exactly like `met` — they are already
+        // `TERMINAL_REQUIREMENT_STATUSES`.
         const c = byName('requirement-counts-tracking-and-terminal-statuses');
         const observed = observe(c.model, c.now).requirement_counts;
-        expect(observed.overall).toEqual({ met: 2, total: 5 });
+        expect(observed.overall).toEqual({ met: 4, total: 5 });
         expect(observed.by_epic).toEqual([
-            { epic_id: 21, met: 2, total: 3 },
-            { epic_id: 22, met: 0, total: 2 },
+            { epic_id: 21, met: 3, total: 3 },
+            { epic_id: 22, met: 1, total: 2 },
         ]);
     });
 

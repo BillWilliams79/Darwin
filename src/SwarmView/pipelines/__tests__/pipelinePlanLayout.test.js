@@ -10,14 +10,16 @@
 import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
+import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
-    PLAN_VIZ_PALETTE, placeEpicChips, collectWorldObstacles, EPIC_CHIP_OPEN_LINK_W,
+    PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, EPIC_CHIP_CHAR_W,
-    EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H,
+    EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
+    EPIC_CHIP_PAD_W,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
@@ -29,6 +31,7 @@ import {
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
+    stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
 } from '../pipelinePlanLayout';
@@ -50,15 +53,6 @@ const beadRect = (n) => ({
     x: n.x - BEAD_RADIUS, y: n.y - BEAD_RADIUS,
     w: 2 * BEAD_RADIUS, h: 2 * BEAD_RADIUS,
 });
-
-// `placeEpicChips`'s `worldObstacles` (req #3210) is assembled by
-// `collectWorldObstacles` — deliberately the CALLER's job, since the layout
-// module has no notion of the component's semantic-level draw gate on its
-// own. Defaulting `drawsKind` here to "draw everything" is the conservative
-// (superset) case a level-aware caller only ever narrows from, so a chip this
-// function refuses to place would also be refused in production at SOME
-// level, never the reverse.
-const worldObstaclesOf = (layout) => collectWorldObstacles(layout);
 
 // The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
 // arc may cross only beads that are part of its own chain — a transitive
@@ -814,6 +808,368 @@ describe('launch-batch box geometry', () => {
     });
 });
 
+// ── req #3256 — the batch letter's corridor, and the dead lane in its box ────
+// Both halves were MEASURED on the live plan (pipeline 2, 2026-08-02) before
+// anything moved: a `batch A` letter parked in the band header dropped a 689px
+// dashed leader to a box near the bottom of a 27-lane band, and that box spanned
+// lanes 7/9/10/11 with an empty row at 8 whose only occupant sat one column to
+// the left. This fixture reproduces the SHAPE rather than the plan: a gate step
+// plus four batch-mates at two depths in a many-lane band, with neighbouring
+// steps in the same column able to take a lane between the mates.
+// The bound on how far a batch letter may climb looking for clear space,
+// DERIVED here from published band geometry exactly as the module derives it —
+// the bead row of the lane above the box. A retyped constant would agree with a
+// changed layout by accident, and there is no fixed number to retype anyway:
+// the room above a box is one lane pitch, and a lane pitch grows with the
+// requirement stack its lane carries (req #3119).
+// The batch letter climbs to the first clear slot above its box and may not
+// leave the band doing it — its floor is the band's own reserved letter strip,
+// where the fallback would put it. There is no tighter bound to assert and
+// deliberately so: see the ceiling's comment in the module.
+const letterCeilingY = (layout, box) => layout.bands[box.bandIndex].y + 26;
+const letterCeiling = (layout, box, label) => label.y >= letterCeilingY(layout, box);
+
+// The two bead invariants the Substrate fixture asserts, re-run over a given
+// layout. The batch letter MOVED in req #3256 and the module-level versions of
+// these only ever see a fixture that produces zero batch boxes, so a letter
+// landing on a bead — which is exactly what a first cut of that move did, on
+// every congested column — was invisible to them.
+// Same kind filter and same own-bead exemption as the module-level version, so
+// the two cannot say different things about one layout.
+function assertNoLabelOnBead(layout, name) {
+    for (const l of layout.labels) {
+        if (!['step', 'title', 'batch'].includes(l.kind)) continue;
+        for (const [stepId, n] of layout.nodes) {
+            if (l.stepId === stepId) continue;
+            const cx = Math.max(l.x, Math.min(n.x, l.x + l.w));
+            const cy = Math.max(l.y, Math.min(n.y, l.y + l.h));
+            const d = Math.hypot(n.x - cx, n.y - cy);
+            if (d < BEAD_HIT_RADIUS) {
+                throw new Error(`label on bead (${name}): ${l.kind} label `
+                    + `${JSON.stringify(l)} reaches step ${stepId}'s hit circle at `
+                    + `(${n.x}, ${n.y}) — distance ${d.toFixed(1)} < ${BEAD_HIT_RADIUS}`);
+            }
+        }
+    }
+}
+
+describe('batch letters and box lane spans (req #3256)', () => {
+    // Mates land at two depths because req #3188 keys the launch on the
+    // REMAINING gate: step 20/21 gate on the complete root, 22/23 on a complete
+    // step one column deeper, so all four share an empty remaining gate and one
+    // launch key while sitting in two columns. Eight complete fillers hanging
+    // off the same root are what force the dep-adjacent lane INSERTION path —
+    // each finds its anchor lane taken and opens a fractional lane below it,
+    // which is what lands inside the batch's reserved run.
+    //
+    // AGAINST req #3229's RUN, not the one it replaced. That requirement made
+    // the run per (letter, column) and published `runIntervals` so nothing else
+    // enters one — but it enforces the interval AT ITS OWN COLUMN, which is the
+    // cell question. The fractional lane these fillers open is at another
+    // column, so it clears every check #3229 added and still becomes a lane row
+    // between two mates at the band-wide renumber. Measured on the 400-plan
+    // corpus with #3229 merged and nothing else: 1084 of 3848 boxes spanning a
+    // row no member occupies, zero of them enclosing a foreign bead.
+    const denseReads = (() => {
+        const steps = [];
+        const stepDeps = [];
+        const stepRequirements = [];
+        const requirements = [];
+        let rid = 9000;
+        const mk = (id, title, deps, status) => {
+            steps.push({ id, pipeline_fk: 1, title, run: 'auto', notes: null,
+                completed_at: null });
+            for (const d of deps) {
+                stepDeps.push({ id: id * 100 + d, step_fk: id, dep_step_fk: d,
+                    time_at: null });
+            }
+            for (let k = 0; k < 3; k++) {
+                rid += 1;
+                stepRequirements.push({ id: id * 50 + k, step_fk: id, requirement_fk: rid });
+                requirements.push({
+                    id: rid, title: `A fairly long requirement title ${rid}`,
+                    requirement_status: status, feature_fk: 701, tracking: 0,
+                    machine_fk: 2, started_at: null,
+                    completed_at: status === 'met' ? '2026-07-01T00:00:00Z' : null,
+                });
+            }
+        };
+        mk(1, 'The root gate step with a long name', [], 'met');
+        for (let i = 2; i <= 9; i++) mk(i, `Filler step number ${i} with a long name`, [1], 'met');
+        mk(10, 'Satisfied gate for the batch', [1], 'met');
+        mk(20, 'Batch mate one long title here', [1], 'swarm_ready');
+        mk(21, 'Batch mate two long title here', [1], 'swarm_ready');
+        mk(22, 'Batch mate three long title here', [10], 'swarm_ready');
+        mk(23, 'Batch mate four long title here', [10], 'swarm_ready');
+        for (let i = 30; i <= 36; i++) mk(i, `Deep filler ${i} with a long name`, [10], 'met');
+        return {
+            steps,
+            stepDeps,
+            stepRequirements,
+            requirements,
+            features: [{ id: 701, title: 'Dense Feature', epic_fk: 71 }],
+            epics: [{ id: 71, title: 'A Dense Epic With A Long Title' }],
+            machines: MACHINES,
+        };
+    })();
+
+    const densePlan = orderedPlan(buildPipelineModel({
+        pipeline: { id: 1, title: 'dense', pipeline_status: 'active', machine_fk: 2 },
+        ...denseReads,
+    }), { now: NOW });
+
+    it('groups all four mates into one batch across two depths', () => {
+        expect(densePlan.batches).toHaveLength(1);
+        expect(densePlan.batches[0].stepIds.slice().sort((a, b) => a - b))
+            .toEqual([20, 21, 22, 23]);
+    });
+
+    it('gives the band more lanes than the batch, so the run must survive them', () => {
+        const layout = computePlanLayout(densePlan.rows, densePlan.batches);
+        const band = layout.bands[layout.nodes.get(20).bandIndex];
+        expect(band.sub).toBeGreaterThan(8);
+    });
+
+    for (const opts of COMBOS) {
+        const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
+
+        // DELIVERABLE 2. A dashed box is a claim about which steps launch
+        // together; a lane row inside it that no member occupies reads as a
+        // fifth, nameless member and is what produced the doubled first-to-
+        // second gap in the reported screenshot.
+        it(`encloses no lane its own members do not occupy (${name})`, () => {
+            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
+            expect(layout.batchBoxes.length).toBeGreaterThan(0);
+            for (const box of layout.batchBoxes) {
+                const lanes = box.stepIds.map((id) => layout.nodes.get(id).lane)
+                    .sort((a, b) => a - b);
+                const span = lanes[lanes.length - 1] - lanes[0] + 1;
+                expect(span,
+                    `batch ${box.letter} box spans ${span} lane rows for `
+                    + `${lanes.length} members (lanes ${lanes.join(',')})`)
+                    .toBe(lanes.length);
+            }
+        });
+
+        // DELIVERABLE 1. No leader at all here — the letter is its box's
+        // caption, inside the box's x-range and a few pixels above it, which is
+        // the whole point of taking it off the band header. Under the old
+        // placement the SAME fixture drew leaders of 1629–2191px.
+        it(`anchors every batch letter to its own box (${name})`, () => {
+            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
+            const letters = layout.labels.filter((x) => x.kind === 'batch');
+            expect(letters).toHaveLength(layout.batchBoxes.length);
+            letters.forEach((l, i) => {
+                const box = layout.batchBoxes[i];
+                expect(l.leader, `batch ${l.letter} still needs a leader`).toBeNull();
+                expect(l.x).toBeGreaterThanOrEqual(box.x);
+                expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
+                expect(box.y - (l.y + l.h), `batch ${l.letter} rise above its box`)
+                    .toBeGreaterThanOrEqual(0);
+                expect(letterCeiling(layout, box, l)).toBe(true);
+            });
+        });
+
+        // The invariant this module exists to prove, on the fixture the two
+        // fixes above were tuned against — moving text near a box top is
+        // exactly how the epic-label × batch-letter collision shipped once.
+        it(`holds zero label overlap and no label-on-bead, dense fixture (${name})`, () => {
+            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
+            assertNoLabelOverlap(layout, `dense batch fixture (${name})`);
+            assertNoLabelOnBead(layout, `dense batch fixture (${name})`);
+        });
+    }
+
+    // ── The CONGESTED column, where the letter cannot sit ON its box ─────────
+    // Three complete chains push the batch onto a deep lane, and the step
+    // directly above it in the SAME column carries a requirement stack whose
+    // marks cover both ends of the box. The letter has to climb through that
+    // stack, and the drop-line — which the common case above no longer draws —
+    // is what keeps it and its box one thing. Measured here: 42–87px, against
+    // the 407–689px the header-strip placement drew on the live plan.
+    //
+    // This is where the letter runs out of room, so it is where the BEAD sweep
+    // is load-bearing. A first cut of req #3256 clashed against labels only, and
+    // since a requirement mark sits 14px under its bead, displacing off one put
+    // the letter's top edge exactly on that bead's centre — in every congested
+    // case. Hence the bead assertion below as well as the overlap one.
+    //
+    // NOT the header-strip fallback: that branch places the letter AT the
+    // ceiling, and these rows all land above it. It has no test and no measured
+    // input reaches it — 0 of 3848 boxes in the sweep below, 0 of 78,692 in an
+    // independent adversarial sweep at review. It is kept as the module's
+    // totality guarantee (the reserved strip is free by construction), on the
+    // same reasoning the cross-band segmentation defence above is kept.
+    const congestedPlan = (nReq) => {
+        const steps = [];
+        const stepDeps = [];
+        const stepRequirements = [];
+        const requirements = [];
+        let rid = 8000;
+        const mk = (id, title, deps, status) => {
+            steps.push({ id, pipeline_fk: 1, title, run: 'auto', notes: null,
+                completed_at: null });
+            for (const d of deps) {
+                stepDeps.push({ id: id * 100 + d, step_fk: id, dep_step_fk: d, time_at: null });
+            }
+            for (let k = 0; k < nReq; k++) {
+                rid += 1;
+                stepRequirements.push({ id: id * 50 + k, step_fk: id, requirement_fk: rid });
+                requirements.push({
+                    id: rid, title: `Requirement title ${rid} that is quite long indeed`,
+                    requirement_status: status, feature_fk: 801, tracking: 0,
+                    machine_fk: 2, started_at: null,
+                    completed_at: status === 'met' ? '2026-07-01T00:00:00Z' : null,
+                });
+            }
+        };
+        mk(1, 'Root gate step', [], 'met');
+        for (let i = 0; i < 3; i++) {
+            mk(10 + i, `Mid step ${i} with a long name`, [1], 'met');
+            mk(40 + i, `Deep step ${i} with a long name`, [10 + i], 'met');
+        }
+        mk(30, 'Satisfied batch gate', [1], 'met');
+        mk(20, 'Batch mate one', [30], 'swarm_ready');
+        mk(21, 'Batch mate two', [30], 'swarm_ready');
+        return orderedPlan(buildPipelineModel({
+            pipeline: { id: 1, title: 'congested', pipeline_status: 'active', machine_fk: 2 },
+            steps,
+            stepDeps,
+            stepRequirements,
+            requirements,
+            features: [{ id: 801, title: 'Congested Feature', epic_fk: 81 }],
+            epics: [{ id: 81, title: 'A Congested Epic' }],
+            machines: MACHINES,
+        }), { now: NOW });
+    };
+
+    // The stack grows by one line per requirement and the letter's climb grows
+    // with it — which is exactly why the ceiling is DERIVED from the band's
+    // laneY and not a constant. A 96px window held at three requirements and
+    // dropped the letter back to the band header — a 455px leader — at four.
+    for (const nReq of [1, 2, 3, 4]) {
+        it(`draws a drop-line joining letter to box, ${nReq} req(s) above`, () => {
+            const p = congestedPlan(nReq);
+            expect(p.batches).toHaveLength(1);
+            const layout = computePlanLayout(p.rows, p.batches,
+                { reqLayout: 'horizontal', stepLabel: 'id' });
+            const letters = layout.labels.filter((x) => x.kind === 'batch');
+            expect(letters).toHaveLength(layout.batchBoxes.length);
+            let withLeader = 0;
+            letters.forEach((l, i) => {
+                const box = layout.batchBoxes[i];
+                expect(Math.min(...box.stepIds.map((id) => layout.nodes.get(id).lane)),
+                    'the batch must be pushed off lane 0 for this to test anything')
+                    .toBeGreaterThan(0);
+                expect(letterCeiling(layout, box, l),
+                    `batch ${l.letter} climbed past the lane above's bead row`).toBe(true);
+                expect(l.x).toBeGreaterThanOrEqual(box.x);
+                expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
+                if (l.leader) {
+                    withLeader++;
+                    expect(l.leader.y2).toBe(box.y);
+                    expect(l.leader.y1).toBeGreaterThan(l.y);
+                    expect(l.leader.y2 - l.leader.y1).toBeLessThanOrEqual(
+                        box.y - letterCeilingY(layout, box));
+                }
+            });
+            expect(withLeader, 'this fixture exists to exercise the leader branch')
+                .toBeGreaterThan(0);
+            assertNoLabelOverlap(layout, `congested column, ${nReq} req(s)`);
+            assertNoLabelOnBead(layout, `congested column, ${nReq} req(s)`);
+        });
+    }
+
+    // ── The sweep the two fixtures above cannot be ──────────────────────────
+    // Both fixtures are shapes somebody REASONED their way to, and the module's
+    // failure mode is precisely that a shape nobody reasoned about breaks a
+    // constant. So the same four properties run over generated plans too, from
+    // a FIXED seed — deterministic, no snapshot, and a counter-example arrives
+    // as a plan this file can print rather than as a flake.
+    //
+    // SIZED AGAINST A MEASURED DEFECT RATE, not by feel: the label-on-bead bug
+    // this suite was extended for showed up on 1.3% of letters, so a 200-box
+    // sweep would have let a regression through about one run in fifteen. 300
+    // plans is ~1500 boxes and still well under a second.
+    it('holds every batch property over seeded random plans', () => {
+        let seed = 12345;
+        const rnd = () => {
+            seed = (seed * 1103515245 + 12345) % 2147483648;
+            return seed / 2147483648;
+        };
+        const STATUSES = ['met', 'development', 'approved', 'swarm_ready', 'authoring'];
+        let boxes = 0;
+        for (let it = 0; it < 300; it++) {
+            const nSteps = 6 + Math.floor(rnd() * 22);
+            const nEpics = 1 + Math.floor(rnd() * 3);
+            const steps = [];
+            const stepDeps = [];
+            const stepRequirements = [];
+            const requirements = [];
+            const features = [];
+            const epics = [];
+            for (let e = 1; e <= nEpics; e++) {
+                epics.push({ id: e, title: `Epic ${e} with a longish title` });
+                features.push({ id: 100 + e, title: `Feature ${e}`, epic_fk: e });
+            }
+            let rid = 5000;
+            for (let s = 1; s <= nSteps; s++) {
+                steps.push({ id: s, pipeline_fk: 1, run: 'auto', notes: null,
+                    completed_at: null, title: `Step ${s} with a moderately long name` });
+                const nd = Math.floor(rnd() * 3);
+                for (let k = 0; k < nd; k++) {
+                    const d = 1 + Math.floor(rnd() * (s - 1));
+                    if (d >= 1 && d < s) {
+                        stepDeps.push({ id: s * 100 + k, step_fk: s, dep_step_fk: d,
+                            time_at: null });
+                    }
+                }
+                const st = STATUSES[Math.floor(rnd() * STATUSES.length)];
+                const nr = 1 + Math.floor(rnd() * 4);
+                const f = 101 + Math.floor(rnd() * nEpics);
+                for (let k = 0; k < nr; k++) {
+                    rid += 1;
+                    stepRequirements.push({ id: s * 50 + k, step_fk: s, requirement_fk: rid });
+                    requirements.push({ id: rid, requirement_status: st, feature_fk: f,
+                        tracking: 0, machine_fk: null,
+                        title: `Requirement title ${rid} of some length`,
+                        started_at: st === 'development' ? '2026-07-20T00:00:00Z' : null,
+                        completed_at: st === 'met' ? '2026-07-01T00:00:00Z' : null });
+                }
+            }
+            const p = orderedPlan(buildPipelineModel({
+                pipeline: { id: 1, title: 'fuzz', pipeline_status: 'active' },
+                steps, stepRequirements, stepDeps, requirements, features, epics,
+                machines: [],
+            }), { now: NOW });
+            if (!p.batches.length) continue;
+            for (const opts of COMBOS) {
+                const where = `seed plan ${it} (${opts.reqLayout} × ${opts.stepLabel})`;
+                const layout = computePlanLayout(p.rows, p.batches, opts);
+                assertNoLabelOverlap(layout, where);
+                assertNoLabelOnBead(layout, where);
+                const letters = layout.labels.filter((l) => l.kind === 'batch');
+                expect(letters).toHaveLength(layout.batchBoxes.length);
+                layout.batchBoxes.forEach((box, i) => {
+                    boxes++;
+                    const lanes = box.stepIds.map((id) => layout.nodes.get(id).lane)
+                        .sort((a, b) => a - b);
+                    expect(lanes[lanes.length - 1] - lanes[0] + 1,
+                        `${where}: batch ${box.letter} box spans a lane no member occupies `
+                        + `(lanes ${lanes.join(',')})`).toBe(lanes.length);
+                    const l = letters[i];
+                    expect(letterCeiling(layout, box, l),
+                        `${where}: batch ${l.letter} climbed past the lane above`).toBe(true);
+                    expect(l.x).toBeGreaterThanOrEqual(box.x);
+                    expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
+                });
+            }
+        }
+        // Guards the sweep against silently generating nothing to look at.
+        expect(boxes).toBeGreaterThan(1000);
+    });
+});
+
 describe('bead vocabulary (POC roles)', () => {
     const rowById = new Map(plan.rows.map((r) => [r.id, r]));
 
@@ -972,21 +1328,89 @@ describe('readable default scale (req #3168)', () => {
     });
 });
 
-describe('floating epic chips (req #3168)', () => {
+// ── The epic name, pinned to its own band (req #3119 → #3168 → req #3257) ──
+// ONE RULE (user directive 2026-08-02): the name is drawn at the TOP-LEFT
+// CORNER OF THE INTERSECTION of its band's rectangle with the visible content
+// area, carrying the same margin it would have from the band's own top-left
+// corner — and it never escapes that rectangle on any edge.
+//
+// The suite is organised as the requirement states it: the three sweeps that
+// hold at every zoom and pan first, then one test per clause, then the two
+// obstacles that may still bind (the on-screen key, the band's own epic lane),
+// then the guarantee req #3210 used to buy with a special case and this rule
+// has to keep on its own.
+describe('epic name pinned to its band, clamped to the viewport (req #3257)', () => {
     const layout = computePlanLayout(plan.rows, plan.batches,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
-    // `worldObstacles` mirrors what PipelinePlanVisualizer.jsx actually
-    // assembles (req #3210) — the sticky chips this function can now also
-    // return need it to stay clear of drawn content, so a suite that omits it
-    // would be asserting against a configuration production never uses.
-    const chipsAt = (transform, keepOut = null) => placeEpicChips({
+
+    // The module's own `CHIP_MARGIN_X` / `CHIP_MARGIN_Y` — private to it, and
+    // restated here BECAUSE they are the contract: "the same margin it would
+    // have from the band's own top-left corner" is the requirement's own
+    // wording, and a silent change to either is a change to the rule.
+    const MX = 6;
+    const MY = 2;
+
+    const chipsAt = (transform, keepOut = null, overrides = {}) => placeEpicChips({
         bands: layout.bands, transform, viewport: VIEWPORT,
-        worldWidth: layout.width, keepOut,
-        worldObstacles: worldObstaclesOf(layout),
+        worldWidth: layout.width, keepOut, ...overrides,
     });
 
-    it('draws one chip per band at the default view', () => {
+    // THE BAND'S RECTANGLE, in screen px — the same rect the canvas draws
+    // (`x={2}`, `width={layout.width - 4}` in PipelinePlanVisualizer's band
+    // Rects). Everything below is asserted against THIS, because "inside its
+    // own rectangle" is the whole requirement.
+    const bandRect = (band, t, worldWidth = layout.width) => ({
+        x: t.x + 2 * t.k,
+        y: t.y + band.y * t.k,
+        w: (worldWidth - 4) * t.k,
+        h: band.height * t.k,
+    });
+    const contentArea = (topInset = 0) => ({
+        x: 0, y: topInset, w: VIEWPORT.w, h: VIEWPORT.h - topInset,
+    });
+    const contains = (outer, inner, eps = 0.01) =>
+        inner.x >= outer.x - eps && inner.y >= outer.y - eps
+        && inner.x + inner.w <= outer.x + outer.w + eps
+        && inner.y + inner.h <= outer.y + outer.h + eps;
+
+    // The chip's own measured box, from the module's PUBLISHED constants. Used
+    // to say what "there was room for a name" means without guessing — and it
+    // doubles as a check that the exported metrics really are the ones the
+    // placement reads.
+    const chipMetrics = (band, k) => {
+        const laneH = (band.epicLaneH ?? band.headerH) * k;
+        if (laneH - 2 * MY < EPIC_CHIP_MIN_H) return null;
+        const h = Math.min(EPIC_CHIP_H, laneH - 2 * MY);
+        const scale = h / EPIC_CHIP_H;
+        const text = band.epicLabel || band.epic;
+        const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+            + EPIC_PAUSE_BUBBLE_W;
+        return { w, h };
+    };
+
+    // A SWEEP IN BOTH AXES: every zoom the panel can reach, crossed with pans
+    // that actually traverse the plan at that zoom rather than a fixed handful
+    // of offsets that stop being interesting once k changes.
+    const SWEEP_K = [0.05, 0.1, 0.2, 0.39, 0.55, 0.8, 1, 1.4, 2, 2.5];
+    const sweep = function* () {
+        for (const k of SWEEP_K) {
+            const spanY = layout.height * k + VIEWPORT.h;
+            const spanX = layout.width * k + VIEWPORT.w;
+            for (let i = 0; i <= 6; i++) {
+                for (let j = 0; j <= 4; j++) {
+                    yield {
+                        x: VIEWPORT.w - (spanX * j) / 4,
+                        y: VIEWPORT.h - (spanY * i) / 6,
+                        k,
+                    };
+                }
+            }
+        }
+    };
+
+    it('draws one chip per band at the default view, each naming its own band', () => {
         const chips = chipsAt({ x: 0, y: 0, k: K_READABLE });
         expect(chips.length).toBeGreaterThan(0);
         expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
@@ -995,25 +1419,173 @@ describe('floating epic chips (req #3168)', () => {
         }
     });
 
-    // The chip is a fixed SCREEN height clamped into a header reserved in WORLD
-    // units, so below some k the header is shorter than the chip and neighbouring
-    // bands' chips land on each other.
-    //
-    // MEASURED, not assumed: the Substrate fixture does NOT reach this. Its four
-    // bands are 160–604 world px tall and 294+ apart, and by the k at which that
-    // spacing falls under the chip's 24px the chips are already suppressed by the
-    // width test (a 3000px world is 150 screen px at k=0.05 and no chip fits).
-    // Zero collisions were found under the OLD rule over k ∈ [0.05, 2.5] × four
-    // pans, so a fixture-only assertion here would be vacuous.
-    //
-    // The reachable shape is MANY SHORT bands — a plan of one-lane steps, ~150
-    // world px per band — zoomed out. Under the old rule that collides 70 times
-    // over k ∈ [0.05, 0.5]; the fixture is asserted alongside it so the ordinary
-    // case is covered too.
-    // Shaped like a real band since req #3168 gave the epic its own lane:
-    // `epicLaneH` is the clear strip the chip is confined to, `headerH` the whole
-    // reservation. A synthetic band that omits `epicLaneH` exercises the fallback
-    // rather than the shipped geometry.
+    // ── (a) CONTAINED IN ITS OWN RECTANGLE — the requirement's core claim ───
+    it('every chip is inside its own band\'s rectangle, at every zoom and pan', () => {
+        let drawn = 0;
+        for (const t of sweep()) {
+            for (const chip of chipsAt(t)) {
+                drawn++;
+                expect(contains(bandRect(chip.band, t), chip),
+                    `"${chip.text}" escaped its own rectangle at `
+                    + `k=${t.k} x=${t.x.toFixed(0)} y=${t.y.toFixed(0)}`)
+                    .toBe(true);
+            }
+        }
+        // A rule that drew nothing would pass the loop above.
+        expect(drawn).toBeGreaterThan(200);
+    });
+
+    // ── (a) CONTAINED IN THE VISIBLE CONTENT AREA — and the exact, named
+    // exceptions, which are clauses 3 and 4 themselves: a name leaves WITH its
+    // rectangle, so for the last chip's-worth of that rectangle's life its box
+    // legitimately hangs over the panel edge and the overlay's `overflow:
+    // hidden` cuts it off. Asserted as an IMPLICATION rather than waived —
+    // every excursion has to be explained by its own band being that close to
+    // gone on that side.
+    it('every chip is inside the visible content area on the ENTERING sides, '
+        + 'and leaves it only where its own rectangle is pushing it off', () => {
+        // Transforms that put a band ON ITS WAY OUT over the top / the left, so
+        // the two permitted excursions are actually exercised rather than
+        // permitted in the abstract (a sweep alone never reaches them: the
+        // window is a chip's width or height wide).
+        const LEAVING = [];
+        for (const band of layout.bands) {
+            for (const k of [0.5, 1, 2]) {
+                for (const d of [2, 8, 16, 26, 40]) {
+                    // the band's BOTTOM edge d px below the content area's top
+                    LEAVING.push({ x: 0, y: d - (band.y + band.height) * k, k });
+                    // the band's RIGHT edge d px right of the content area's left
+                    LEAVING.push({ x: d - (layout.width - 2) * k, y: 0, k });
+                }
+            }
+        }
+        let offTop = 0;
+        let offLeft = 0;
+        for (const t of [...sweep(), ...LEAVING]) {
+            for (const chip of chipsAt(t)) {
+                const r = bandRect(chip.band, t);
+                const [left, right] = [r.x, r.x + r.w];
+                const [top, bottom] = [r.y, r.y + r.h];
+                // THE ENTERING SIDES ARE HARD CONTAINMENT. A band arriving from
+                // the bottom or the right is not being pushed anywhere, so a box
+                // past those edges is one the reader simply cannot see.
+                expect(chip.x + chip.w, `"${chip.text}" hangs off the RIGHT at `
+                    + `k=${t.k} x=${t.x.toFixed(0)} — nothing is pushing it there`)
+                    .toBeLessThanOrEqual(VIEWPORT.w + 0.01);
+                expect(chip.y + chip.h, `"${chip.text}" hangs off the BOTTOM at `
+                    + `k=${t.k} y=${t.y.toFixed(0)} — nothing is pushing it there`)
+                    .toBeLessThanOrEqual(VIEWPORT.h + 0.01);
+                // THE LEAVING SIDES may overhang, but only where the band's own
+                // far edge is within a chip of the content area's near edge —
+                // clauses 3 and 4 themselves, asserted as an implication rather
+                // than waived.
+                if (chip.x < -0.01) {
+                    offLeft++;
+                    expect(right, `"${chip.text}" hangs off the LEFT at k=${t.k} `
+                        + 'but its rectangle is not leaving that way')
+                        .toBeLessThan(chip.w + 2 * MX + 0.01);
+                }
+                if (chip.y < -0.01) {
+                    offTop++;
+                    expect(bottom, `"${chip.text}" hangs off the TOP at k=${t.k} `
+                        + 'but its rectangle is not leaving that way')
+                        .toBeLessThan(chip.h + 2 * MY + 0.01);
+                }
+            }
+        }
+        // Both permitted excursions were REACHED. Without this the two
+        // implications above hold vacuously and the test proves nothing.
+        expect(offTop, 'no chip was ever pushed off the top').toBeGreaterThan(0);
+        expect(offLeft, 'no chip was ever pushed off the left').toBeGreaterThan(0);
+    });
+
+    it('stops emitting a name once it is WHOLLY outside the content area — the '
+        + 'last frame of the push-off is not drawn at all', () => {
+        // The push-off's final margin: `x + w` is `right - MX` and `y + h` is
+        // `bottom - MY`, so a rectangle with 1-6px left on screen would emit a
+        // box entirely off the panel. Asserted at the boundary from both sides
+        // so the guard is a measured edge, not a comfortable one.
+        const band = layout.bands[0];
+        const k = 1;
+        for (const [axis, transformAt, edgeOf] of [
+            ['top',
+                (d) => ({ x: 0, y: d - (band.y + band.height) * k, k }),
+                (chip) => chip.y + chip.h],
+            ['left',
+                (d) => ({ x: d - (layout.width - 2) * k, y: 0, k }),
+                (chip) => chip.x + chip.w],
+        ]) {
+            let lastDrawn = null;
+            for (let d = 40; d >= 1; d -= 1) {
+                const chip = chipsAt(transformAt(d)).find((c) => c.band === band);
+                if (chip) {
+                    expect(edgeOf(chip), `a wholly-invisible chip was emitted on the `
+                        + `${axis} at d=${d}`).toBeGreaterThan(0);
+                    lastDrawn = d;
+                } else if (lastDrawn !== null) {
+                    // Once it stops being drawn it never comes back as the band
+                    // continues to leave.
+                    expect(d).toBeLessThan(lastDrawn);
+                }
+            }
+            expect(lastDrawn, `the ${axis} sweep never drew a chip at all`)
+                .not.toBeNull();
+        }
+    });
+
+    // ── (b) EXACTLY ONE CHIP PER VISIBLE BAND ──────────────────────────────
+    // Stated as a biconditional: a band with a name has one, and a band with
+    // none fails one of the module's two DOCUMENTED refusals — its rectangle
+    // misses the content area, or the rectangle cannot hold a chip at all (too
+    // little epic lane for a legible one, or narrower than the name). Anything
+    // else silently missing is the defect this requirement exists to fix.
+    it('every band whose rectangle can hold a name returns exactly one chip, '
+        + 'and every band without one is refused for a stated reason', () => {
+        let named = 0;
+        for (const t of sweep()) {
+            const chips = chipsAt(t);
+            expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
+            for (const band of layout.bands) {
+                const r = bandRect(band, t);
+                const onScreen = r.x + r.w > 0 && r.x < VIEWPORT.w
+                    && r.y + r.h > 0 && r.y < VIEWPORT.h;
+                const m = chipMetrics(band, t.k);
+                // "ROOM FOR A NAME" is a property of the INTERSECTION, computed
+                // here from the rectangle and the panel rather than from the
+                // module's own arithmetic — the placement is proved below to
+                // draw whenever this holds, on both axes.
+                const iw = Math.min(r.x + r.w, VIEWPORT.w) - Math.max(r.x, 0);
+                const ih = Math.min(r.y + r.h, VIEWPORT.h) - Math.max(r.y, 0);
+                const roomy = onScreen && m !== null
+                    && iw >= m.w + 2 * MX && ih >= m.h + 2 * MY;
+                const chip = chips.find((c) => c.band === band);
+                if (roomy) {
+                    named++;
+                    expect(chip, `"${band.epic}" has ${iw.toFixed(0)}×${ih.toFixed(0)}px `
+                        + `of rectangle in view — room for its ${m.w.toFixed(0)}×`
+                        + `${m.h.toFixed(0)}px name — but was not drawn at k=${t.k} `
+                        + `x=${t.x.toFixed(0)} y=${t.y.toFixed(0)}`)
+                        .toBeTruthy();
+                    expect(chip.w).toBeCloseTo(m.w, 6);
+                    expect(chip.h).toBeCloseTo(m.h, 6);
+                } else if (chip) {
+                    // The converse: nothing is drawn for a band that is not on
+                    // screen at all.
+                    expect(onScreen, `"${band.epic}" drew a chip while off screen `
+                        + `at k=${t.k}`).toBe(true);
+                }
+            }
+        }
+        expect(named).toBeGreaterThan(200);
+    });
+
+    // ── (c) NO CHIP-ON-CHIP OVERLAP ────────────────────────────────────────
+    // Impossible BY CONSTRUCTION under this rule — bands never overlap in world
+    // Y, the chip is sized to its own band's epic lane and clamped inside its
+    // own rectangle, so two chips would have to share a rectangle to touch.
+    // Swept anyway, on the fixture AND on the many-short-bands shape that was
+    // the only geometry ever measured colliding (70 hits over k ∈ [0.05, 0.5]
+    // under the pre-#3168 rule).
     const SHORT_BANDS = Array.from({ length: 6 }, (_, i) => ({
         key: i, epicId: i + 1, epic: `Epic number ${i + 1}`, color: '#8ce99a',
         y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
@@ -1021,132 +1593,262 @@ describe('floating epic chips (req #3168)', () => {
     const assertNoChipOverlap = (chips, where) => {
         for (let i = 0; i < chips.length; i++) {
             for (let j = i + 1; j < chips.length; j++) {
-                if (rectsOverlap(chips[i], chips[j])) {
-                    throw new Error(`epic chips overlap ${where}: `
-                        + `${chips[i].text} vs ${chips[j].text}`);
-                }
+                expect(rectsOverlap(chips[i], chips[j]),
+                    `epic chips overlap ${where}: ${chips[i].text} vs ${chips[j].text}`)
+                    .toBe(false);
             }
         }
     };
 
     it('never overlaps another chip on the fixture, at any zoom or pan', () => {
-        for (const k of [0.12, 0.2, 0.28, 0.4, 0.55, 0.8, 1, 1.6, 2.4]) {
-            for (const y of [0, -200, -900, -2400, 300]) {
-                for (const x of [0, -300, -1200, 400]) {
-                    assertNoChipOverlap(chipsAt({ x, y, k }), `at k=${k} x=${x} y=${y}`);
-                }
-            }
+        for (const t of sweep()) {
+            assertNoChipOverlap(chipsAt(t),
+                `at k=${t.k} x=${t.x.toFixed(0)} y=${t.y.toFixed(0)}`);
         }
     });
 
-    it('never overlaps another chip on SHORT bands zoomed out — the reachable case', () => {
+    it('never overlaps another chip on SHORT bands zoomed out — the one shape '
+        + 'chip-on-chip was ever measured on', () => {
         let drawn = 0;
         for (let k = 0.05; k <= 0.5; k += 0.01) {
-            const chips = placeEpicChips({
-                bands: SHORT_BANDS, transform: { x: 0, y: 0, k },
-                viewport: VIEWPORT, worldWidth: 3000,
-            });
-            drawn += chips.length;
-            assertNoChipOverlap(chips, `on short bands at k=${k.toFixed(2)}`);
-        }
-        // The sweep has to actually DRAW chips, or it proves nothing: a
-        // displacement pass that hid everything would pass the loop above.
-        // 255 chips are drawn over the sweep; the floor is set well under that so
-        // it fails on a collapse rather than on a nudge.
-        expect(drawn).toBeGreaterThan(150);
-    });
-
-    // The chip is measured against ONE metric, and the component must not carry
-    // its own. It did — a 7.3px/char leftover from the pre-req-#3119 12px chip,
-    // against a chip that has rendered at 15px since — which under-measured every
-    // name by ~22% and quietly defeated both the keep-out and this file's sweeps,
-    // because the tests read the same wrong number (review finding).
-    it('measures the chip with the layout module\'s own epic metric', () => {
-        expect(EPIC_CHIP_CHAR_W).toBeCloseTo(9.15, 6);   // CHW_EPIC, font 15
-        const [chip] = placeEpicChips({
-            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
-                y: 8, height: 400, headerH: 46 }],
-            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
-        });
-        // + EPIC_PAUSE_BUBBLE_W (req #3226) — the pause bubble's own flat,
-        // unconditional reservation, added to every chip's measured width.
-        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
-    });
-
-    // THE COLLISION THAT IS REAL ON THE FIXTURE. Measured under the old rule:
-    // 280 chip-under-legend hits over k ∈ [0.05, 2.5] × four pans × a 420px
-    // legend — the band's clamped x lands in the top-right corner whenever the
-    // world is narrow on screen or panned right, and the legend drew over the
-    // epic name. Unlike the chip-vs-chip case above, this one needs no
-    // constructed geometry.
-    it('never overlaps the legend it shares the top-right corner with', () => {
-        // The legend's real geometry: `top: 8, right: 10` in the panel, with a
-        // width that depends on which keys are showing.
-        for (const legendW of [220, 420, 700]) {
-            const keepOut = { x: VIEWPORT.w - 10 - legendW, y: 8, w: legendW, h: 30 };
-            for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
-                for (const y of [0, -150, -900]) {
-                    // x=1200 is where the old rule was measured colliding most:
-                    // a right-panned band's visible sliver starts under the
-                    // legend, and the chip clamped into it went with it.
-                    for (const x of [0, -400, 600, 1200]) {
-                        for (const chip of chipsAt({ x, y, k }, keepOut)) {
-                            expect(rectsOverlap(chip, keepOut),
-                                `chip "${chip.text}" under the legend `
-                                + `at k=${k} x=${x} y=${y}`)
-                                .toBe(false);
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // THE DIRECTIVE (user, 2026-08-01): "the epic must not overwrite or ride in
-    // the same swim lane as the top most steps — give the epic its own swim lane
-    // to eliminate collision."
-    //
-    // The reservation is world geometry and the chip is screen geometry, so this
-    // is asserted where the collision actually happens: the layout's own label
-    // rects PROJECTED INTO SCREEN SPACE against the placed chips. That is the
-    // only frame in which the two are comparable, and asserting it in world units
-    // is exactly the mistake that let the old 46px header look sufficient.
-    //
-    // Measured before the fix, on the fixture at the page's OWN default scale
-    // (k=0.8): every band's chip overlapped a lane-0 step label. The header
-    // reserved ~25 world px above that label, i.e. 20 screen px, against a 24px
-    // chip.
-    it('never touches a step, requirement or title label — at any zoom', () => {
-        for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5]) {
-            for (const y of [0, -120, -600, -1400]) {
-                const chips = chipsAt({ x: 0, y, k });
-                const content = layout.labels.filter((l) => l.stepId != null);
+            for (const y of [0, -200, -600, 300]) {
+                const chips = placeEpicChips({
+                    bands: SHORT_BANDS, transform: { x: 0, y, k },
+                    viewport: VIEWPORT, worldWidth: 3000,
+                });
+                drawn += chips.length;
+                assertNoChipOverlap(chips, `on short bands at k=${k.toFixed(2)} y=${y}`);
                 for (const chip of chips) {
-                    for (const l of content) {
-                        const screen = {
-                            x: 0 + l.x * k, y: y + l.y * k,
-                            w: l.w * k, h: l.h * k,
-                        };
-                        if (rectsOverlap(chip, screen)) {
-                            throw new Error(
-                                `epic "${chip.text}" collides with ${l.kind} label of step `
-                                + `${l.stepId} at k=${k} y=${y}`);
-                        }
+                    expect(contains(bandRect(chip.band, { x: 0, y, k }, 3000), chip),
+                        `"${chip.text}" escaped its rectangle at k=${k.toFixed(2)}`)
+                        .toBe(true);
+                }
+            }
+        }
+        // A pass that hid everything would satisfy the loop above. 374 chips are
+        // drawn over this sweep; the floor is set well under that so it fails on
+        // a collapse rather than on a nudge.
+        expect(drawn).toBeGreaterThan(250);
+    });
+
+    // ── CLAUSE 1 — band fully in view ──────────────────────────────────────
+    it('sits in its OWN rectangle\'s top-left corner when the band is fully in '
+        + 'view, so two bands at different x have their names at different x', () => {
+        const t = { x: 40, y: 0, k: K_READABLE };
+        const left = t.x + 2 * t.k;
+        for (const chip of chipsAt(t)) {
+            expect(chip.x).toBeCloseTo(left + MX, 6);
+            expect(chip.y).toBeCloseTo(t.y + chip.band.y * t.k + MY, 6);
+        }
+        // Same bands, world shifted right: every name moves WITH its rectangle
+        // rather than staying in a shared column at the plan's screen edge.
+        const shifted = chipsAt({ ...t, x: t.x + 120 });
+        for (const chip of shifted) {
+            expect(chip.x).toBeCloseTo(left + 120 + MX, 6);
+        }
+    });
+
+    // ── CLAUSE 2 — the band's top edge scrolls above the content area ───────
+    it('stops at the top of the visible content area and STAYS there while the '
+        + 'band does, however deep the pan', () => {
+        const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        // Four screens deep into the tallest band — the case the requirement
+        // names ("panned four screens deep into a tall band"). The fixture's
+        // tallest band is 641 world px, so k has to carry it past 4 × 900
+        // screen px; the assertion below is what makes this the test it claims
+        // to be rather than a shallow pan dressed up as a deep one.
+        const k = 6;
+        expect(band.height * k).toBeGreaterThan(4 * VIEWPORT.h);
+        const seen = new Set();
+        for (const depth of [10, 200, VIEWPORT.h, 2 * VIEWPORT.h]) {
+            const t = { x: 0, y: -(band.y * k) - depth, k };
+            const chip = chipsAt(t).find((c) => c.band === band);
+            expect(chip, `no name ${depth}px into "${band.epic}"`).toBeTruthy();
+            expect(chip.y).toBeCloseTo(MY, 6);
+            seen.add(chip.x);
+        }
+        // It does not drift sideways as the pan deepens either.
+        expect(seen.size).toBe(1);
+    });
+
+    // THE #3254 HANDSHAKE, asserted rather than assumed. That requirement pins
+    // the time ruler to the viewport top and exposes `rulerScreenBottom(t)` as
+    // the ONE number this one clamps below; the component passes it as
+    // `topInset`. Read from the SAME transform, so the two cannot disagree —
+    // and it scales with zoom, which is why a constant offset would be wrong at
+    // every zoom but one.
+    it('clamps below the PINNED RULER at every zoom, reading req #3254\'s own '
+        + 'rulerScreenBottom rather than a guessed offset', () => {
+        const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        for (const k of [0.5, 1, 2, 4]) {
+            const t = { x: 0, y: -(band.y * k) - 400 * k, k };
+            const inset = rulerScreenBottom(t);
+            // The strip is pinned, so its bottom edge is a function of zoom —
+            // the premise that makes a hand-picked constant wrong.
+            expect(inset).toBeCloseTo(RULER_H * k, 6);
+            const chip = chipsAt(t, null, { topInset: inset })
+                .find((c) => c.band === band);
+            expect(chip, `no name below the ruler at k=${k}`).toBeTruthy();
+            expect(chip.y, `name slid UNDER the pinned ruler at k=${k}`)
+                .toBeGreaterThanOrEqual(inset);
+            expect(chip.y).toBeCloseTo(inset + MY, 6);
+        }
+    });
+
+    it('stops just BELOW pinned header chrome, never underneath it', () => {
+        const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        const k = 6;
+        const t = { x: 0, y: -(band.y * k) - 600, k };
+        for (const topInset of [0, 48, 120]) {
+            const chip = chipsAt(t, null, { topInset }).find((c) => c.band === band);
+            expect(chip, `no name below ${topInset}px of chrome`).toBeTruthy();
+            expect(chip.y).toBeCloseTo(topInset + MY, 6);
+        }
+    });
+
+    // ── CLAUSE 3 — the band's bottom edge reaches the clamp line ────────────
+    it('is pushed off the top by its OWN rectangle as that rectangle leaves — '
+        + 'it does not linger, and it never jumps to another band', () => {
+        const band = layout.bands[1];
+        const k = 1;
+        const topInset = 40;
+        const bottomOf = (yPan) => yPan + (band.y + band.height) * k;
+        // Walk the band's BOTTOM edge down onto the clamp line.
+        let prevY = Infinity;
+        let lastSeenBottom = null;
+        for (let bottom = topInset + 120; bottom >= topInset - 30; bottom -= 3) {
+            const t = { x: 0, y: bottom - (band.y + band.height) * k, k };
+            const chip = chipsAt(t, null, { topInset }).find((c) => c.band === band);
+            if (bottom > topInset) {
+                expect(chip, `no name with ${(bottom - topInset).toFixed(0)}px of `
+                    + '"' + band.epic + '" still below the clamp line').toBeTruthy();
+            }
+            if (!chip) {
+                // Gone — and only once its rectangle is gone.
+                expect(bottomOf(t.y)).toBeLessThanOrEqual(topInset + 0.01);
+                continue;
+            }
+            lastSeenBottom = bottom;
+            // Monotone: it only ever moves UP as the band does, never back down
+            // and never stalls at the clamp while the band slides past it.
+            expect(chip.y).toBeLessThanOrEqual(prevY + 0.01);
+            prevY = chip.y;
+            // Still inside its own rectangle, never another band's.
+            expect(contains(bandRect(band, t), chip)).toBe(true);
+            expect(chip.y + chip.h).toBeLessThanOrEqual(bottomOf(t.y) + 0.01);
+        }
+        // It genuinely left the screen rather than the loop running out.
+        expect(lastSeenBottom).not.toBeNull();
+        expect(prevY).toBeLessThan(topInset);
+    });
+
+    // ── CLAUSE 4 — the band's left edge scrolls off the left ────────────────
+    it('stays just inside the content area\'s left edge with the same margin, '
+        + 'and never leaves the rectangle on the right', () => {
+        const k = 1;
+        for (const x of [-50, -400, -2000]) {
+            const t = { x, y: 0, k };
+            const chips = chipsAt(t);
+            expect(chips.length).toBeGreaterThan(0);
+            for (const chip of chips) {
+                expect(chip.x, `left-clamped name at x=${x}`).toBeCloseTo(MX, 6);
+            }
+        }
+        // Symmetrically: pan so the band's RIGHT edge is 120px from the content
+        // area's left — less than any name is wide — and every name is pushed
+        // off the left WITH the rectangle instead of staying at the margin.
+        const nearlyGone = { x: -(layout.width * k) + 122, y: 0, k };
+        const leaving = chipsAt(nearlyGone);
+        expect(leaving.length).toBeGreaterThan(0);
+        let pushedOff = 0;
+        for (const chip of leaving) {
+            const r = bandRect(chip.band, nearlyGone);
+            expect(chip.x + chip.w).toBeLessThanOrEqual(r.x + r.w - MX + 0.01);
+            expect(contains(r, chip)).toBe(true);
+            if (chip.x < 0) pushedOff++;
+        }
+        expect(pushedOff, 'no name was actually pushed off the left edge')
+            .toBe(leaving.length);
+    });
+
+    // ── THE ONE OBSTACLE THAT MAY STILL BIND ───────────────────────────────
+    // The on-screen key. Resolved by CLIPPING or DROPPING, never by sliding the
+    // name out of its own rectangle — which is the defect req #3257 names.
+    it('clips or drops against the key, and NEVER displaces sideways to dodge it', () => {
+        for (const legendW of [220, 420, 700]) {
+            // The key's REAL geometry since req #3255 — bottom-center, the
+            // same formula PipelinePlanVisualizer.jsx computes. A suite that
+            // kept the old top-right shape would assert against a keep-out
+            // production no longer produces.
+            const keepOut = { x: (VIEWPORT.w - legendW) / 2,
+                y: VIEWPORT.h - 12 - 30, w: legendW, h: 30 };
+            for (const t of sweep()) {
+                const bare = new Map(chipsAt(t).map((c) => [c.key, c]));
+                for (const chip of chipsAt(t, keepOut)) {
+                    expect(rectsOverlap(chip, keepOut),
+                        `"${chip.text}" under the key at k=${t.k}`).toBe(false);
+                    // Same x as it would have had with no key at all: the key
+                    // takes width off the chip, it never moves it.
+                    const unobstructed = bare.get(chip.key);
+                    expect(unobstructed).toBeTruthy();
+                    expect(chip.x).toBeCloseTo(unobstructed.x, 6);
+                    expect(chip.y).toBeCloseTo(unobstructed.y, 6);
+                    expect(chip.w).toBeLessThanOrEqual(unobstructed.w + 0.01);
+                    // A narrower chip is always a CLIPPED one. (The converse is
+                    // not asserted: `unobstructed` can itself already be clipped
+                    // by the panel edge, in which case the key changes nothing.)
+                    if (chip.w < unobstructed.w - 1e-9) expect(chip.clipped).toBe(true);
+                    if (chip.clipped) {
+                        // The floor is stated in CHARACTERS OF THE NAME, and in
+                        // the same scaled units the chip's own width is measured
+                        // in: a box clipped to its padding and the pause dot
+                        // would show the dot and none of the name.
+                        const scale = chip.h / EPIC_CHIP_H;
+                        expect(chip.w).toBeGreaterThanOrEqual(
+                            EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                            + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
                     }
+                    expect(contains(bandRect(chip.band, t), chip)).toBe(true);
                 }
             }
         }
     });
 
-    it('stays inside its own epic lane, scaling down rather than overflowing', () => {
-        for (const k of [0.15, 0.25, 0.39, 0.6, 1, 2]) {
-            for (const chip of chipsAt({ x: 0, y: 0, k })) {
-                const band = layout.bands.find((b) => b.epic === chip.text);
-                const laneTop = 0 + band.y * k;
-                const laneBottom = 0 + (band.y + band.headerH) * k;
-                expect(chip.y, `k=${k} ${chip.text} above its lane`)
-                    .toBeGreaterThanOrEqual(Math.min(laneTop, 2) - 0.01);
-                expect(chip.y + chip.h, `k=${k} ${chip.text} past its lane`)
+    it('drops rather than draws an unreadable sliver when the key leaves too '
+        + 'little room', () => {
+        // A key spanning nearly the whole panel and TALL ENOUGH TO REACH EVERY
+        // BAND'S CHIP ROW — the height matters, or the test asserts a refusal
+        // against chips that were never candidates for it.
+        const keepOut = { x: 4, y: 0, w: VIEWPORT.w - 8, h: VIEWPORT.h };
+        const t = { x: 0, y: 0, k: 1 };
+        const bare = chipsAt(t);
+        expect(bare.length).toBeGreaterThan(0);
+        const withKey = chipsAt(t, keepOut);
+        // WITNESS THE DROP. Without this the loop below asserts nothing: it
+        // would pass just as well on a chip the key never touched.
+        expect(withKey.length,
+            'the key left no honest room, so every name must be dropped')
+            .toBe(0);
+        for (const chip of withKey) {
+            expect(rectsOverlap(chip, keepOut)).toBe(false);
+        }
+    });
+
+    // ── THE BAND'S OWN EPIC LANE ───────────────────────────────────────────
+    // The per-band SCALE SHRINK survives req #3257 unchanged: the chip is sized
+    // to the reserved strip above lane 0 so it never rides in the top steps'
+    // lane, and is dropped below `EPIC_CHIP_MIN_H` rather than drawn over them.
+    it('stays inside its own epic lane while the band\'s top is in view, '
+        + 'scaling down rather than overflowing', () => {
+        for (const t of sweep()) {
+            for (const chip of chipsAt(t)) {
+                const band = chip.band;
+                const top = t.y + band.y * t.k;
+                if (top < 0) continue;   // clamped — clause 2, tested above
+                const laneBottom = t.y + (band.y + band.epicLaneH) * t.k;
+                expect(chip.y, `${chip.text} above its lane at k=${t.k}`)
+                    .toBeGreaterThanOrEqual(top - 0.01);
+                expect(chip.y + chip.h, `${chip.text} past its lane at k=${t.k}`)
                     .toBeLessThanOrEqual(laneBottom + 0.01);
                 // Scaled, never clipped: the drawn font matches the measured box.
                 expect(chip.fontSize / chip.h)
@@ -1155,400 +1857,167 @@ describe('floating epic chips (req #3168)', () => {
         }
     });
 
-    it('keeps every chip wholly inside the panel', () => {
-        for (const k of [0.15, 0.5, 1, 2]) {
-            for (const x of [0, -600, -2000, 500]) {
-                for (const chip of chipsAt({ x, y: -400, k })) {
-                    expect(chip.x).toBeGreaterThanOrEqual(0);
-                    expect(chip.y).toBeGreaterThanOrEqual(0);
-                    expect(chip.x + chip.w).toBeLessThanOrEqual(VIEWPORT.w);
-                    expect(chip.y + chip.h).toBeLessThanOrEqual(VIEWPORT.h);
+    it('never touches a step, requirement or title label while the band\'s own '
+        + 'top is in view — the lane is what buys that', () => {
+        const content = layout.labels.filter((l) => l.stepId != null);
+        for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5]) {
+            for (const y of [0, -120, -600, -1400]) {
+                const t = { x: 0, y, k };
+                for (const chip of chipsAt(t)) {
+                    if (t.y + chip.band.y * k < 0) continue;  // clamped, see below
+                    for (const l of content) {
+                        const screen = { x: l.x * k, y: y + l.y * k, w: l.w * k, h: l.h * k };
+                        expect(rectsOverlap(chip, screen),
+                            `epic "${chip.text}" collides with ${l.kind} label of `
+                            + `step ${l.stepId} at k=${k} y=${y}`).toBe(false);
+                    }
                 }
             }
+        }
+    });
+
+    // The DELIBERATE consequence of the rule, stated so it reads as a decision
+    // rather than as an oversight: once the band's top has scrolled past, the
+    // clamped name sits over that band's own content and DRAWS OVER IT on its
+    // 60%-opaque panel. The requirement says so in as many words — the
+    // alternative is the name wandering out of its rectangle, or vanishing.
+    it('draws OVER its own band\'s content once clamped, rather than moving out '
+        + 'of its rectangle to avoid it', () => {
+        const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        const k = 1;
+        const t = { x: 0, y: -(band.y * k) - 400, k };
+        const chip = chipsAt(t).find((c) => c.band === band);
+        expect(chip).toBeTruthy();
+        expect(chip.x).toBeCloseTo(t.x + 2 * k + MX, 6);
+        expect(chip.y).toBeCloseTo(MY, 6);
+    });
+
+    // ── REQ #3210'S GUARANTEE, RE-VERIFIED ─────────────────────────────────
+    // Its neighbour-only sticky pass is gone, subsumed by clause 2 applying to
+    // every band. What it bought — a reader who has focused one epic can still
+    // see its neighbours in the stack — has to still hold under the new rule,
+    // and is checked here against the REAL production trigger
+    // (`epicFocusTransform`, req #3204), swept over every band.
+    it('a focused band\'s neighbours are still named, under the real focus '
+        + 'transform, for every band in the stack', () => {
+        const kFit = VIEWPORT.w / layout.width;
+        const kDefault = Math.max(kFit, K_READABLE);
+        expect(layout.bands.length).toBeGreaterThanOrEqual(3);
+        for (let i = 0; i < layout.bands.length; i++) {
+            const band = layout.bands[i];
+            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault);
+            expect(t, `band ${i} ("${band.epic}") produced no focus transform`)
+                .toBeTruthy();
+            const chips = chipsAt(t);
+            expect(chips.some((c) => c.band === band),
+                `focused band ${i} ("${band.epic}") drew no name for itself`).toBe(true);
+            for (const j of [i - 1, i + 1]) {
+                if (j < 0 || j >= layout.bands.length) continue;
+                const neighbour = layout.bands[j];
+                expect(chips.some((c) => c.band === neighbour),
+                    `focusing band ${i} ("${band.epic}") left its neighbour `
+                    + `"${neighbour.epic}" unnamed`).toBe(true);
+            }
+        }
+    });
+
+    // ── The metrics the requirement froze ──────────────────────────────────
+    it('leaves the epic label font and its width metric exactly as they were', () => {
+        expect(EPIC_CHIP_FONT).toBe(15);
+        expect(EPIC_CHIP_CHAR_W).toBeCloseTo(9.15, 6);   // CHW_EPIC, font 15
+        expect(EPIC_CHIP_H).toBe(24);
+    });
+
+    it('measures the chip with the layout module\'s own published metrics', () => {
+        const [chip] = placeEpicChips({
+            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        // The ↗ control's flat footprint is now reserved on EVERY chip (req
+        // #3257), not only the sticky ones #3210 added it for: the measured box
+        // is what keeps the name inside its own rectangle and clear of the key,
+        // so 24 unmeasured px is 24 px that hangs past the edge it was clamped to.
+        expect(chip.w).toBeCloseTo(
+            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+        expect(chip.clipped).toBe(false);
+    });
+
+    it('omits the ↗ reservation on the "No epic" band, which has no ↗ to draw', () => {
+        const [chip] = placeEpicChips({
+            bands: [{ key: null, epicId: null, epic: 'X'.repeat(20), color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        expect(chip.key).toBe('none');
+        expect(chip.w).toBeCloseTo(
+            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W, 6);
+    });
+
+    // ── LEAVING SLIDES OFF; ENTERING WAITS (or is clipped) ─────────────────
+    it('withholds a name from a band ENTERING from the bottom until it fits, '
+        + 'rather than emitting a box below the panel', () => {
+        const band = layout.bands[0];
+        const k = 1;
+        // Walk the band's TOP edge up from below the panel. `h` comes from the
+        // lane, so read it off a chip rather than assuming EPIC_CHIP_H.
+        const settled = chipsAt({ x: 0, y: -(band.y * k), k })
+            .find((c) => c.band === band);
+        const h = settled.h;
+        let firstSeen = null;
+        for (let top = VIEWPORT.h; top >= VIEWPORT.h - 60; top -= 1) {
+            const t = { x: 0, y: top - band.y * k, k };
+            const chip = chipsAt(t).find((c) => c.band === band);
+            if (!chip) continue;
+            // Whenever it IS drawn, it is wholly on screen.
+            expect(chip.y + chip.h).toBeLessThanOrEqual(VIEWPORT.h + 0.01);
+            if (firstSeen === null) firstSeen = top;
+        }
+        // It appears exactly when its own box fits below the band's top edge,
+        // not a pixel earlier and not late.
+        expect(firstSeen).toBeCloseTo(VIEWPORT.h - MY - h, 0);
+    });
+
+    it('CLIPS the name of a band ENTERING from the right rather than dropping '
+        + 'it — width is clippable, height is not', () => {
+        const k = 1;
+        // The band's LEFT edge 140px from the panel's right edge: less than any
+        // name on this fixture is wide, comfortably more than the floor.
+        const t = { x: (VIEWPORT.w - 140) - 2 * k, y: 0, k };
+        const chips = chipsAt(t);
+        expect(chips.length).toBeGreaterThan(0);
+        for (const chip of chips) {
+            expect(chip.clipped, `"${chip.text}" was not clipped at the panel edge`)
+                .toBe(true);
+            expect(chip.x + chip.w).toBeLessThanOrEqual(VIEWPORT.w + 0.01);
+            expect(chip.x).toBeCloseTo(VIEWPORT.w - 140 + MX, 6);
         }
     });
 
     it('renders nothing for a band panned off either axis', () => {
         expect(chipsAt({ x: 0, y: -100000, k: 1 })).toEqual([]);
         expect(chipsAt({ x: 100000, y: 0, k: 1 })).toEqual([]);
+        expect(chipsAt({ x: -100000, y: 0, k: 1 })).toEqual([]);
     });
 
-    it('is inert on a degenerate transform or an unmeasured panel', () => {
+    it('is inert on a degenerate transform, an unmeasured panel or world, or '
+        + 'chrome taller than the panel', () => {
         expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 0 },
             viewport: VIEWPORT, worldWidth: layout.width })).toEqual([]);
         expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
             viewport: { w: 0, h: 0 }, worldWidth: layout.width })).toEqual([]);
+        // No `worldWidth` means no right edge: every comparison against NaN is
+        // false, so without this guard the function emitted chips at `x: NaN`
+        // and the renderer turned them into `left: NaN`.
+        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
+            viewport: VIEWPORT })).toEqual([]);
+        expect(chipsAt({ x: 0, y: 0, k: 1 }, null, { topInset: VIEWPORT.h + 10 }))
+            .toEqual([]);
+        // A nonsense inset is bounded, not honoured.
+        expect(chipsAt({ x: 0, y: 0, k: 1 }, null, { topInset: -500 }).length)
+            .toBe(chipsAt({ x: 0, y: 0, k: 1 }).length);
         expect(placeEpicChips()).toEqual([]);
-    });
-});
-
-// ── `collectWorldObstacles` (req #3210) ─────────────────────────────────────
-// The sticky chips' collision source is assembled by a PURE function
-// precisely so the caller-side semantic-level gate — otherwise only provable
-// by rendering PipelinePlanVisualizer.jsx — is a testable property of plain
-// data (review finding: an earlier version of this assembly lived only in
-// the component and had no coverage at all).
-describe('collectWorldObstacles (req #3210)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
-        { reqLayout: 'vertical', stepLabel: 'title' });
-
-    it('includes one rect per bead, at the bead radius, when nothing is eligible', () => {
-        const out = collectWorldObstacles(layout);
-        const beads = [...layout.nodes.values()].map(beadRect);
-        expect(out.length).toBeGreaterThanOrEqual(beads.length);
-        for (const b of beads) {
-            expect(out.some((o) => o.x === b.x && o.y === b.y && o.w === b.w && o.h === b.h))
-                .toBe(true);
-        }
-    });
-
-    it('widens an ELIGIBLE step\'s footprint to the halo radius, not the bead radius', () => {
-        const [firstRow] = plan.rows;
-        const eligibleStepIds = new Set([firstRow.id]);
-        const node = layout.nodes.get(firstRow.id);
-        const withHalo = collectWorldObstacles(layout, { eligibleStepIds });
-        const withoutHalo = collectWorldObstacles(layout);
-        const haloRect = withHalo.find((o) => o.x < node.x && o.x + o.w > node.x
-            && Math.abs((o.x + o.w / 2) - node.x) < 0.01 && Math.abs((o.y + o.h / 2) - node.y) < 0.01);
-        const bareRect = withoutHalo.find((o) => Math.abs((o.x + o.w / 2) - node.x) < 0.01
-            && Math.abs((o.y + o.h / 2) - node.y) < 0.01);
-        expect(haloRect.w).toBeGreaterThan(bareRect.w);
-        expect(haloRect.w).toBeCloseTo(2 * (NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2), 6);
-        expect(bareRect.w).toBeCloseTo(2 * BEAD_RADIUS, 6);
-    });
-
-    it('excludes epic labels — never drawn in the world — regardless of drawsKind', () => {
-        const out = collectWorldObstacles(layout, { drawsKind: () => true });
-        const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
-        expect(epicLabels.length).toBeGreaterThan(0);
-        for (const l of epicLabels) {
-            expect(out.some((o) => o.x === l.x && o.y === l.y && o.w === l.w && o.h === l.h))
-                .toBe(false);
-        }
-    });
-
-    it('honours the caller\'s drawsKind gate — a suppressed kind contributes no rect', () => {
-        const stepLabels = layout.labels.filter((l) => l.kind === 'step');
-        expect(stepLabels.length).toBeGreaterThan(0);
-        const withStep = collectWorldObstacles(layout, { drawsKind: () => true });
-        const withoutStep = collectWorldObstacles(layout, { drawsKind: (k) => k !== 'step' });
-        for (const l of stepLabels) {
-            expect(withStep.some((o) => o.x === l.x && o.y === l.y)).toBe(true);
-            expect(withoutStep.some((o) => o.x === l.x && o.y === l.y)).toBe(false);
-        }
-        // Nothing else moved — the gate is scoped to the ONE kind it names.
-        expect(withoutStep.length).toBe(withStep.length - stepLabels.length);
-    });
-
-    // The Substrate Rebuild fixture draws ZERO batch boxes (its nearest pair
-    // differs in run mode — see 'launch-batch box geometry' above), so a
-    // genuine one is built locally, minimally, rather than reused across
-    // `describe` blocks (each is its own closure).
-    it('normalizes batch-box width/height into the shared w/h rect shape', () => {
-        const batchReads = {
-            steps: [
-                { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
-                    completed_at: '2026-07-01T00:00:00' },
-                { id: 2, pipeline_fk: 1, title: 'batch mate A', run: 'auto', notes: null,
-                    completed_at: null },
-                { id: 3, pipeline_fk: 1, title: 'batch mate B', run: 'auto', notes: null,
-                    completed_at: null },
-            ],
-            stepRequirements: [
-                { step_fk: 2, requirement_fk: 900 },
-                { step_fk: 3, requirement_fk: 901 },
-            ],
-            stepDeps: [
-                { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
-                { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
-            ],
-            requirements: [
-                { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-                { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-            ],
-            features: [{ id: 101, title: 'Wave One', epic_fk: 11 }],
-            epics: [{ id: 11, title: 'Batch Epic' }],
-            machines: MACHINES,
-        };
-        const batchPlan = orderedPlan(buildPipelineModel({
-            pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
-            ...batchReads,
-        }), { now: NOW });
-        expect(batchPlan.batches).toHaveLength(1);
-        const batchLayout = computePlanLayout(batchPlan.rows, batchPlan.batches);
-        expect(batchLayout.batchBoxes.length).toBeGreaterThan(0);
-        const out = collectWorldObstacles(batchLayout);
-        for (const b of batchLayout.batchBoxes) {
-            expect(out.some((o) => o.x === b.x && o.y === b.y
-                && o.w === b.width && o.h === b.height)).toBe(true);
-        }
-    });
-
-    it('includes every arc bbox', () => {
-        const out = collectWorldObstacles(layout);
-        for (const a of layout.arcs) {
-            expect(out.some((o) => o.x === a.bbox.x && o.y === a.bbox.y
-                && o.w === a.bbox.w && o.h === a.bbox.h)).toBe(true);
-        }
-    });
-
-    it('is inert on a null/undefined layout rather than throwing', () => {
-        expect(collectWorldObstacles(null)).toEqual([]);
-        expect(collectWorldObstacles(undefined)).toEqual([]);
-        expect(collectWorldObstacles({})).toEqual([]);
-    });
-});
-
-// ── Sticky prev/next epic chips (req #3210) ────────────────────────────────
-// "The epics above and below the displayed epic ... stick" — when the epic
-// immediately before/after the visible band range is scrolled entirely off
-// screen (the common case once a reader has focused one epic, req #3204),
-// its name pins to the corresponding viewport edge instead of vanishing, and
-// stays clickable to focus that band in turn.
-describe('sticky prev/next epic chips (req #3210)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
-        { reqLayout: 'vertical', stepLabel: 'title' });
-    const VIEWPORT = { w: 1500, h: 900 };
-    // `worldObstacles` defaults to the layout's own (via `worldObstaclesOf`) —
-    // matching what PipelinePlanVisualizer.jsx actually assembles — so this
-    // suite exercises the collision sources the sticky chips are checked
-    // against in production, not an easier configuration that omits them.
-    const chipsAt = (transform, keepOut = null, overrides = {}) => placeEpicChips({
-        bands: layout.bands, transform, viewport: VIEWPORT,
-        worldWidth: layout.width, keepOut,
-        worldObstacles: worldObstaclesOf(layout),
-        ...overrides,
-    });
-    // The same kFit/kDefault the component computes (PipelinePlanVisualizer.jsx).
-    const kFit = VIEWPORT.w / layout.width;
-    const kDefault = Math.max(kFit, K_READABLE);
-
-    // The fixture needs at least 3 bands for "above" and "below" to both be
-    // exercisable in the same suite.
-    it('the fixture carries enough bands to exercise both directions', () => {
-        expect(layout.bands.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it('draws no sticky chip when every band already fits on screen', () => {
-        // Fit-to-both-axes at the origin — the same "contain" idiom
-        // `factoryDefaultScale` uses — puts the whole plan in view, so there is
-        // no off-screen neighbour for either edge to represent.
-        const k = Math.min(VIEWPORT.w / layout.width, VIEWPORT.h / layout.height);
-        const chips = chipsAt({ x: 0, y: 0, k });
-        expect(chips.some((c) => c.sticky)).toBe(false);
-    });
-
-    // THE REVIEW FINDING, closed: `epicFocusTransform` — the ACTUAL production
-    // trigger (req #3204's "click an epic name to zoom to it") — is what this
-    // feature has to fire under, not a hand-picked transform. `FOCUS_PAD`
-    // (screen px) dwarfing `BAND_GAP` (world px) at every k the focus clamp can
-    // reach means a neighbour's own trailing content sliver always still
-    // technically intersects the viewport, so a first cut of this feature
-    // (gated on rect intersection) never engaged here — measured in review: 0
-    // sticky chips across every band on this fixture at its real focus
-    // transform. Swept over EVERY band so a fix that works on one but not
-    // another (a real risk given `FOCUS_PAD`/`BAND_GAP`'s ratio is roughly
-    // constant but band heights are not) cannot hide.
-    it('fires under the REAL epic-focus transform, for every band in the stack', () => {
-        for (let i = 0; i < layout.bands.length; i++) {
-            const band = layout.bands[i];
-            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault);
-            expect(t, `band ${i} ("${band.epic}") did not produce a focus transform`)
-                .toBeTruthy();
-            const chips = chipsAt(t);
-            // The focused band's own name is on screen — the feature's whole
-            // premise is that this alone is not enough.
-            expect(chips.some((c) => !c.sticky && c.band === band),
-                `band ${i} ("${band.epic}") drew no natural chip for itself`)
-                .toBe(true);
-            // "At least three names on screen" means the NEIGHBOUR'S IDENTITY
-            // is visible, not specifically that it arrives via a sticky chip —
-            // natural chips are anchored to a band's OWN top (the epic lane),
-            // so a band peeking in from BELOW (the next one down, focusing
-            // head-first into view) routinely earns its own natural chip
-            // without any help; a band peeking in from ABOVE (the tail of the
-            // one before, focusing in feet-first) never can, which is
-            // precisely the case the sticky exists for. Assert the fact that
-            // matters — the neighbour is named somehow — for both directions,
-            // and additionally require STICKY specifically on the top edge,
-            // since that direction has no other path to a name at all.
-            const namedBy = (target) => chips.find((c) => c.band === target);
-            if (i > 0) {
-                const prev = layout.bands[i - 1];
-                const shown = namedBy(prev);
-                expect(shown, `band ${i} ("${band.epic}") — "${prev.epic}" is not `
-                    + 'named on screen at all').toBeTruthy();
-                expect(shown.sticky, `band ${i} ("${band.epic}") — "${prev.epic}" `
-                    + 'is shown but not as a sticky-top').toBe('top');
-            } else {
-                expect(chips.some((c) => c.sticky === 'top')).toBe(false);
-            }
-            if (i < layout.bands.length - 1) {
-                const next = layout.bands[i + 1];
-                expect(namedBy(next), `band ${i} ("${band.epic}") — "${next.epic}" `
-                    + 'is not named on screen at all').toBeTruthy();
-            } else {
-                expect(chips.some((c) => c.sticky === 'bottom')).toBe(false);
-            }
-        }
-    });
-
-    it('pins the epic above to the top edge once it scrolls fully off, '
-        + 'clickable back to that same band', () => {
-        const target = layout.bands[1];
-        const k = 5;
-        const topOfNext = 30;   // band[1]'s screen top — inside its own budget
-        const t = { x: 0, y: -(target.y * k) + topOfNext, k };
-        const chips = chipsAt(t);
-        const sticky = chips.find((c) => c.sticky === 'top');
-        expect(sticky).toBeTruthy();
-        expect(sticky.band).toBe(layout.bands[0]);
-        expect(sticky.text).toBe(layout.bands[0].epicLabel || layout.bands[0].epic);
-        expect(sticky.epicId).toBe(layout.bands[0].epicId);
-        // Confined to the blank strip above band[1]'s own screen top — the
-        // "swim lane" — never past it.
-        expect(sticky.y).toBeGreaterThanOrEqual(0);
-        expect(sticky.y + sticky.h).toBeLessThanOrEqual(topOfNext + 0.01);
-        // Scaled honestly, same invariant the natural chips assert.
-        expect(sticky.fontSize / sticky.h).toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 6);
-        // band[1] itself is still on screen with room for its OWN chip too —
-        // both the current epic and the one above it are visible at once.
-        expect(chips.some((c) => !c.sticky && c.band === layout.bands[1])).toBe(true);
-    });
-
-    it('never draws a sticky chip for a side with no neighbouring band', () => {
-        // band[0] is the FIRST band in the stack: however much blank margin sits
-        // above it, there is nothing above to name — same for the LAST band and
-        // the bottom edge.
-        const first = layout.bands[0];
-        const chipsTop = chipsAt({ x: 0, y: -(first.y * 1) + 200, k: 1 });
-        expect(chipsTop.some((c) => c.sticky === 'top')).toBe(false);
-
-        const lastIdx = layout.bands.length - 1;
-        const last = layout.bands[lastIdx];
-        const chipsBottom = chipsAt({
-            x: 0, y: (VIEWPORT.h - 200) - (last.y + last.height) * 1, k: 1,
-        });
-        expect(chipsBottom.some((c) => c.sticky === 'bottom')).toBe(false);
-    });
-
-    it('draws nothing on that edge when the gap is honestly too small '
-        + `(below ${EPIC_CHIP_MIN_H}px)`, () => {
-        const target = layout.bands[1];
-        const k = 5;
-        // Only 6px of budget above band[1] — under EPIC_CHIP_MIN_H once the 4px
-        // margin is subtracted, so this is the same "nowhere honest left"
-        // refusal the natural chips make rather than a chip too small to read.
-        const t = { x: 0, y: -(target.y * k) + 6, k };
-        const chips = chipsAt(t);
-        expect(chips.some((c) => c.sticky === 'top')).toBe(false);
-    });
-
-    it('never collides with the legend keep-out even when a sticky chip '
-        + 'would otherwise land under it', () => {
-        const target = layout.bands[1];
-        const k = 5;
-        const topOfNext = 30;
-        // Panned so the natural (left-aligned) x for every chip sits under a
-        // top-right legend — the exact shape the non-sticky version of this
-        // collision is measured against elsewhere in this file.
-        const t = { x: 900, y: -(target.y * k) + topOfNext, k };
-        const keepOut = { x: VIEWPORT.w - 10 - 420, y: 8, w: 420, h: 30 };
-        for (const chip of chipsAt(t, keepOut)) {
-            expect(rectsOverlap(chip, keepOut),
-                `chip "${chip.text}" (sticky=${chip.sticky || 'no'}) under the legend`)
-                .toBe(false);
-        }
-    });
-
-    // THE OTHER REVIEW FINDING: a sticky chip is not confined to its own
-    // band's reserved epic lane the way a natural chip is (it's anchored to
-    // the viewport edge instead), so it needs an explicit collision source for
-    // the one thing genuinely drawn in that margin — a dependency arc crossing
-    // in from an off-screen band. Built directly rather than found on the
-    // fixture: a synthetic arc whose bbox sits exactly where the sticky-top
-    // slot would otherwise place its chip.
-    it('steps aside from a dependency arc crossing into its margin, rather '
-        + 'than drawing over it', () => {
-        const target = layout.bands[1];
-        const k = 5;
-        const topOfNext = 30;
-        const t = { x: 0, y: -(target.y * k) + topOfNext, k };
-        // Where the natural (unobstructed) sticky-top would land, in WORLD
-        // units — back-computed from the chip's own placement formula so the
-        // synthetic obstacle genuinely overlaps it rather than merely being
-        // nearby. Stands in for an arc's `bbox` (a rect either way, once past
-        // `computePlanLayout`'s own Bézier-hull computation — see that
-        // function's comment) — what matters here is that `worldObstacles`
-        // carries it, exactly as PipelinePlanVisualizer.jsx's own assembly
-        // folds `layout.arcs`' bboxes in.
-        const bareChip = chipsAt(t).find((c) => c.sticky === 'top');
-        expect(bareChip).toBeTruthy();
-        const blockingRect = {
-            x: (bareChip.x - t.x) / k, y: (bareChip.y - t.y) / k,
-            w: bareChip.w / k, h: bareChip.h / k,
-        };
-        const chips = chipsAt(t, null,
-            { worldObstacles: [...worldObstaclesOf(layout), blockingRect] });
-        const arcScreen = {
-            x: t.x + blockingRect.x * k, y: t.y + blockingRect.y * k,
-            w: blockingRect.w * k, h: blockingRect.h * k,
-        };
-        for (const chip of chips) {
-            expect(rectsOverlap(chip, arcScreen),
-                `chip "${chip.text}" (sticky=${chip.sticky || 'no'}) over the blocking arc`)
-                .toBe(false);
-        }
-    });
-
-    it('never overlaps another chip, sticky or not, on the fixture at any '
-        + 'zoom or pan', () => {
-        for (const k of [0.5, 1, 2, 5, 8]) {
-            for (const y of [0, -60, -400, -1200]) {
-                for (const x of [0, -300, 400]) {
-                    const chips = chipsAt({ x, y, k });
-                    for (let i = 0; i < chips.length; i++) {
-                        for (let j = i + 1; j < chips.length; j++) {
-                            expect(rectsOverlap(chips[i], chips[j]),
-                                `${chips[i].text} (sticky=${chips[i].sticky || 'no'}) vs `
-                                + `${chips[j].text} (sticky=${chips[j].sticky || 'no'}) `
-                                + `at k=${k} x=${x} y=${y}`)
-                                .toBe(false);
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    it('never lets a sticky chip touch a step, requirement or title label, '
-        + 'sweeping the same k/pan range as the natural chips', () => {
-        const content = layout.labels.filter((l) => l.stepId != null);
-        for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5, 5]) {
-            for (const y of [0, -120, -600, -1400]) {
-                const chips = chipsAt({ x: 0, y, k }).filter((c) => c.sticky);
-                for (const chip of chips) {
-                    for (const l of content) {
-                        const screen = {
-                            x: 0 + l.x * k, y: y + l.y * k, w: l.w * k, h: l.h * k,
-                        };
-                        expect(rectsOverlap(chip, screen),
-                            `sticky "${chip.text}" (${chip.sticky}) collides with `
-                            + `${l.kind} label of step ${l.stepId} at k=${k} y=${y}`)
-                            .toBe(false);
-                    }
-                }
-            }
-        }
-    });
-
-    it('is inert with one band or fewer — nothing to be adjacent to', () => {
-        const [chip] = placeEpicChips({
-            bands: [{ key: 1, epicId: 1, epic: 'Solo', color: '#fff',
-                y: 8, height: 400, headerH: 46 }],
-            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
-        });
-        expect(chip.sticky).toBeUndefined();
     });
 });
 
@@ -1628,7 +2097,11 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         expect(chip.text).toBe('X'.repeat(20));
-        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
+        // + EPIC_CHIP_OPEN_LINK_W since req #3257 — the ↗ control's flat
+        // footprint is reserved on every chip now that the measured box is what
+        // keeps the name inside its own rectangle.
+        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -1765,7 +2238,9 @@ describe('the pause status bubble (req #3226)', () => {
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
-        expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18 + EPIC_PAUSE_BUBBLE_W, 6);
+        // + EPIC_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
+        expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
@@ -2086,7 +2561,7 @@ describe('the TRI-STATE colour key (req #3168, directive 3)', () => {
     });
 });
 
-describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)', () => {
+describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-measured #3257)", () => {
     const layout = computePlanLayout(plan.rows, plan.batches,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
@@ -2105,8 +2580,10 @@ describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)
     ];
 
     it('never lets a chip land under the key, at any key size, zoom or pan', () => {
+        let checked = 0;
         for (const size of KEY_SIZES) {
-            const keepOut = { x: VIEWPORT.w - 10 - size.w, y: 8, w: size.w, h: size.h };
+            const keepOut = { x: (VIEWPORT.w - size.w) / 2,
+                y: VIEWPORT.h - 12 - size.h, w: size.w, h: size.h };
             for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
                 for (const y of [0, -150, -900]) {
                     for (const x of [0, -400, 600, 1200]) {
@@ -2115,6 +2592,7 @@ describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)
                             viewport: VIEWPORT, worldWidth: layout.width, keepOut,
                         });
                         for (const chip of chips) {
+                            checked++;
                             expect(rectsOverlap(chip, keepOut),
                                 `chip "${chip.text}" under the ${size.label} key `
                                 + `at k=${k} x=${x} y=${y}`).toBe(false);
@@ -2123,101 +2601,172 @@ describe('the KEY is a keep-out, and it may not cost the epic labels (req #3168)
                 }
             }
         }
+        // A pass that drew nothing would satisfy the loop above. 311 chips are
+        // checked; the floor is well under that so it fails on a collapse.
+        expect(checked, 'the sweep checked real chips').toBeGreaterThan(200);
     });
 
-    it('DROPS NO CHIP the small key drew — the growth costs the epics nothing', () => {
-        // The claim the constraint actually makes: a bigger key steals space
-        // from the epic labels. Measured as a DIFFERENCE against the key this
-        // replaces (the ~420×30 bead legend), band for band, so a regression is
-        // named rather than inferred from a total.
-        const OLD = { w: 420, h: 30 };
-        let compared = 0;
+    it('costs names by CLIPPING or DROPPING them, NEVER by moving them out of '
+        + 'their own rectangles', () => {
+        // The mechanism, asserted rather than described (req #3257). Under
+        // #3168 a chip that met the key slid sideways; a name now belongs to its
+        // band's rectangle, so the key may only take WIDTH off it or take it
+        // away entirely. Every surviving chip must therefore sit at exactly the
+        // x it would have had with no key at all.
+        let checked = 0;
         for (const size of KEY_SIZES) {
+            const keepOut = { x: (VIEWPORT.w - size.w) / 2,
+                y: VIEWPORT.h - 12 - size.h, w: size.w, h: size.h };
             for (const k of [0.2, 0.5, 0.8, 1.5]) {
                 for (const y of [0, -150, -900]) {
-                    for (const x of [0, -400, 600]) {
-                        const t = { x, y, k };
-                        const before = placeEpicChips({
-                            bands: layout.bands, transform: t, viewport: VIEWPORT,
-                            worldWidth: layout.width,
-                            keepOut: { x: VIEWPORT.w - 10 - OLD.w, y: 8, ...OLD },
-                        });
-                        const after = placeEpicChips({
-                            bands: layout.bands, transform: t, viewport: VIEWPORT,
-                            worldWidth: layout.width,
-                            keepOut: { x: VIEWPORT.w - 10 - size.w, y: 8,
-                                w: size.w, h: size.h },
-                        });
-                        const lost = before.map((c) => c.key)
-                            .filter((key) => !after.some((c) => c.key === key));
-                        expect(lost,
-                            `${size.label} key drops epic chip(s) at k=${k} x=${x} y=${y}`)
-                            .toEqual([]);
-                        compared += before.length;
+                    for (const x of [0, -400, 600, 1200]) {
+                        const args = { bands: layout.bands, transform: { x, y, k },
+                            viewport: VIEWPORT, worldWidth: layout.width };
+                        const bare = new Map(
+                            placeEpicChips(args).map((c) => [c.key, c]));
+                        for (const chip of placeEpicChips({ ...args, keepOut })) {
+                            checked++;
+                            const was = bare.get(chip.key);
+                            expect(was, `the ${size.label} key CREATED a chip`).toBeTruthy();
+                            expect(chip.x, `"${chip.text}" moved sideways to dodge the `
+                                + `${size.label} key at k=${k} x=${x} y=${y}`)
+                                .toBeCloseTo(was.x, 6);
+                            expect(chip.y).toBeCloseTo(was.y, 6);
+                            expect(chip.w).toBeLessThanOrEqual(was.w + 1e-9);
+                        }
                     }
                 }
             }
         }
-        // The sweep has to have drawn chips, or it proves nothing.
-        expect(compared, 'the sweep compared real chips').toBeGreaterThan(100);
+        expect(checked, 'the sweep checked real chips').toBeGreaterThan(200);
     });
 
-    it('the WIDTH cap is what buys that — height stays FLAT past a small floor, '
-        + 'width is not', () => {
-        // The boundary is asserted from BOTH sides, so the cap is a measured
-        // number rather than a comfortable one. MEASURED over
-        // k ∈ {0.2…2} × 4 pans × 6 x-offsets, 233 chips: zero lost at width ≤ 420
-        // at EVERY height from 30 to 180; one lost at 500, 8-10 at 600, 15-20 at
-        // 700. The mechanism is that `placeEpicChips` displaces horizontally
-        // only — a chip may never move to another band's line — so a keep-out's
-        // height costs nothing and its width costs everything.
-        const OLD = { w: 420, h: 30 };
-        const sweep = (w, h) => {
-            let lost = 0;
+    // ── WHAT THE KEY COSTS, RE-MEASURED (req #3257) ────────────────────────
+    // THE OLD INVARIANT IS FALSE AND IS NOT CARRIED FORWARD. Until #3257 this
+    // block asserted "the key's WIDTH is its entire cost to the epic labels; its
+    // HEIGHT is free", and the mechanism was displacement: a chip that met the
+    // key slid sideways, so a taller key only changed WHICH chips moved. Under
+    // clip-or-drop a taller key exposes more band rows to it, and those chips
+    // have nowhere to go.
+    //
+    // RE-MEASURED AGAIN once req #3255 moved the key to BOTTOM-CENTER — which
+    // changed both the magnitude and WHICH AXIS IS STEEPER, so the top-right
+    // numbers could not simply be carried over.
+    //
+    // MEASURED 2026-08-02 on the Substrate fixture (1500×900 panel), over
+    // k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} × y ∈ {0, −150, −500, −900} ×
+    // x ∈ 0…1400 step 50 — 1566 chips drawn with no key at all:
+    //
+    //   at w=470:   h  30    60   100   140   180
+    //               dropped  11    22    44    55    77
+    //
+    //   at h=30:    w  90   300   420   470   600   900  1100
+    //               dropped   3     7    10    11    13    19    23
+    //
+    // TWO FINDINGS, both of which contradict the pre-#3255 shape of this block:
+    //
+    //  1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A
+    //     name is pinned to its band's LEFT edge, and the bottom-center key no
+    //     longer sits where those names land.
+    //  2. HEIGHT IS NOW THE STEEPER AXIS, the reverse of the top-right era: the
+    //     range costs 66 names in height against 20 in width. A bottom-anchored
+    //     box grows UPWARD into more band rows, while its width only ever spans
+    //     the middle of the panel where few chip x-positions fall.
+    //
+    // `PLAN_KEY_MAX_W` therefore now caps the CHEAPER dimension. That is not a
+    // bug introduced here — the cap predates the move and the key is far cheaper
+    // overall — but it does mean the cap is no longer the defence it was named
+    // for, and the honest guard for a bottom-center key would be on HEIGHT.
+    // Recorded rather than silently re-asserted; changing the cap belongs to
+    // req #3255's own surface, not to this one.
+    const costOf = (w, h) => {
+        let dropped = 0;
+        for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
+            for (const y of [0, -150, -500, -900]) {
+                for (let x = 0; x <= 1400; x += 50) {
+                    const args = { bands: layout.bands, transform: { x, y, k },
+                        viewport: VIEWPORT, worldWidth: layout.width };
+                    const bare = placeEpicChips(args);
+                    const withKey = placeEpicChips({ ...args,
+                        keepOut: { x: (VIEWPORT.w - w) / 2,
+                            y: VIEWPORT.h - 12 - h, w, h } });
+                    dropped += bare.filter(
+                        (c) => !withKey.some((d) => d.key === c.key)).length;
+                }
+            }
+        }
+        return dropped;
+    };
+
+    it('costs epic names in BOTH dimensions, monotonically — the pre-#3257 '
+        + '"height is free" invariant no longer holds', () => {
+        const byHeight = [30, 60, 100, 140, 180].map((h) => costOf(PLAN_KEY_MAX_W, h));
+        for (let i = 1; i < byHeight.length; i++) {
+            expect(byHeight[i], `height ${[30, 60, 100, 140, 180][i]} vs the one below`)
+                .toBeGreaterThanOrEqual(byHeight[i - 1]);
+        }
+        // The falsification itself, asserted so nobody can quietly restore the
+        // old claim: growing the key from one row to the worst case DOES cost.
+        expect(byHeight[byHeight.length - 1],
+            'a tall key must cost MORE names than a short one — "height is free" '
+            + 'was true only of the displacement pass #3257 deleted')
+            .toBeGreaterThan(byHeight[0]);
+
+        const WIDTHS = [90, 300, 420, PLAN_KEY_MAX_W, 600, 900, 1100];
+        const byWidth = WIDTHS.map((w) => costOf(w, 30));
+        for (let i = 1; i < byWidth.length; i++) {
+            expect(byWidth[i], `width ${WIDTHS[i]} vs ${WIDTHS[i - 1]}`)
+                .toBeGreaterThanOrEqual(byWidth[i - 1]);
+        }
+        // The curve is a real curve and not a constant: the widest key costs
+        // an order of magnitude more names than the collapsed one.
+        expect(byWidth[byWidth.length - 1],
+            'a 1100px key vs a collapsed one').toBeGreaterThan(5 * byWidth[0]);
+    });
+
+    it('HEIGHT is the steeper axis now that the key sits bottom-center — so '
+        + 'PLAN_KEY_MAX_W caps the cheaper dimension', () => {
+        const base = costOf(PLAN_KEY_MAX_W, 30);
+        const tallCost = costOf(PLAN_KEY_MAX_W, 180) - base;
+        const wideCost = costOf(900, 30) - base;
+        expect(tallCost, 'growing the key to its worst-case height').toBeGreaterThan(0);
+        expect(wideCost, 'a 900px key must still cost names').toBeGreaterThan(0);
+        // THE INVERSION, pinned so it cannot revert silently. Under the
+        // top-right key width was steeper (155 vs 69); bottom-center reverses it
+        // (66 vs 20). If a future move puts width back on top, this fails and
+        // the comment above gets re-measured rather than quietly rotting.
+        expect(tallCost, 'height must cost more than width for a BOTTOM-anchored '
+            + 'key — if this fails, the key moved again and the table above is stale')
+            .toBeGreaterThan(wideCost);
+    });
+
+    it('the bottom-center move made the key far cheaper than the top-right one', () => {
+        // The #3255 move is worth a number, not just a note: at the cap, a
+        // top-right key dropped 187 names over this sweep and a bottom-center
+        // one drops 11. Asserted as an order of magnitude so it tracks the
+        // finding rather than a specific fixture count.
+        const topRight = (() => {
+            let dropped = 0;
             for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
                 for (const y of [0, -150, -500, -900]) {
-                    for (const x of [0, -400, -1000, 300, 600, 740]) {
-                        const t = { x, y, k };
-                        const args = {
-                            bands: layout.bands, transform: t, viewport: VIEWPORT,
-                            worldWidth: layout.width,
-                        };
-                        const before = placeEpicChips({ ...args,
-                            keepOut: { x: VIEWPORT.w - 10 - OLD.w, y: 8, ...OLD } });
-                        const after = placeEpicChips({ ...args,
-                            keepOut: { x: VIEWPORT.w - 10 - w, y: 8, w, h } });
-                        lost += before.filter(
-                            (c) => !after.some((d) => d.key === c.key)).length;
+                    for (let x = 0; x <= 1400; x += 50) {
+                        const args = { bands: layout.bands, transform: { x, y, k },
+                            viewport: VIEWPORT, worldWidth: layout.width };
+                        const bare = placeEpicChips(args);
+                        const withKey = placeEpicChips({ ...args,
+                            keepOut: { x: VIEWPORT.w - 10 - PLAN_KEY_MAX_W, y: 8,
+                                w: PLAN_KEY_MAX_W, h: 30 } });
+                        dropped += bare.filter(
+                            (c) => !withKey.some((d) => d.key === c.key)).length;
                     }
                 }
             }
-            return lost;
-        };
-        // RE-MEASURED 2026-08-02 (req #3226 widened every epic chip by
-        // `EPIC_PAUSE_BUBBLE_W`, the pause bubble's flat reservation, so chips
-        // have less slack to escape a keep-out by displacing sideways): height
-        // is no longer PERFECTLY free at every point (h=30 loses 1 chip, h=60
-        // loses 3 — a one-time step as the key grows past its smallest size),
-        // but it is FLAT from h=60 to h=180, which is the property that
-        // actually matters: growing the key from one row to three (the whole
-        // reason it needs a THIRD height at all) costs nothing further. A
-        // small absolute ceiling, not a comparison to h=30 (the pre-#3226
-        // shape of this assertion) — that comparison is false by construction
-        // now, since widening every chip is exactly what moved h=30 off the
-        // flat line it used to share with every other height.
-        const atFloor = sweep(PLAN_KEY_MAX_W, 30);
-        expect(atFloor, 'height 30 at the cap').toBeLessThanOrEqual(5);
-        const grown = [60, 100, 140, 180].map((h) => sweep(PLAN_KEY_MAX_W, h));
-        expect(new Set(grown).size, 'flat from h=60 to h=180').toBe(1);
-        expect(grown[0], 'height ≥60 at the cap').toBeLessThanOrEqual(5);
-        // …and the cap is NOT vacuous: a key MUCH wider than it really does drop
-        // epic names, which is the finding that put a pixel cap on this element
-        // instead of a percentage. (The 2026-08-01 raise from 420 to 470 sits
-        // inside a flat stretch of that curve — see PLAN_KEY_MAX_W — so the cap
-        // is asserted where it still bites rather than where it no longer does.)
-        expect(sweep(900, 30), 'a 900px key must still cost chips')
-            .toBeGreaterThan(0);
-        expect(sweep(1100, 30)).toBeGreaterThanOrEqual(sweep(900, 30));
+            return dropped;
+        })();
+        expect(topRight, 'the old top-right key cost real names').toBeGreaterThan(100);
+        expect(costOf(PLAN_KEY_MAX_W, 30) * 5,
+            'the bottom-center key must be far cheaper than the top-right one')
+            .toBeLessThan(topRight);
     });
 });
 
@@ -3532,6 +4081,53 @@ describe('time ruler (req #3207)', () => {
     });
 });
 
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — attached to the top of the
+// timeline, so panning down scrolled it away with the rest of the plan.
+// `stickyRulerY`/`rulerScreenBottom` are the pure pin primitives the canvas
+// now anchors the ruler's Group to instead of `t.y` directly — same shape as
+// `computeDayHeaders`' `Math.max(axisH, screenY)`, simplified to the one-strip
+// case (nothing pushes it, nothing for it to drop behind).
+describe('sticky ruler pin (req #3254)', () => {
+    it('draws at the natural position while the world has not scrolled past the top', () => {
+        expect(stickyRulerY({ x: 0, y: 0, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: 40, k: 1 })).toBe(40);
+        expect(stickyRulerY({ x: 0, y: 200, k: 2.5 })).toBe(200);
+    });
+
+    it('clamps flush to the viewport top once the natural position scrolls past it', () => {
+        expect(stickyRulerY({ x: 0, y: -1, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -600, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -3000, k: 3 })).toBe(0);
+    });
+
+    it('degrades safely on a missing or malformed transform', () => {
+        expect(stickyRulerY(null)).toBe(0);
+        expect(stickyRulerY(undefined)).toBe(0);
+        expect(stickyRulerY({})).toBe(0);
+    });
+
+    it("rulerScreenBottom is the pinned Y plus the strip's own scaled height", () => {
+        // Scrolled past — pinned to 0, so the bottom edge is exactly RULER_H
+        // scaled by k, the number req #3257 clamps epic names below.
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 2 })).toBe(RULER_H * 2);
+        // Not yet scrolled past — natural position adds to the strip height.
+        expect(rulerScreenBottom({ x: 0, y: 50, k: 1 })).toBe(50 + RULER_H);
+    });
+
+    it('accepts a custom ruler height, defaulting to RULER_H', () => {
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 }, 20)).toBe(20);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 1 })).toBe(RULER_H);
+    });
+
+    it('degrades safely on a missing or zero/negative k', () => {
+        expect(rulerScreenBottom(null)).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 0 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: -1 })).toBe(RULER_H);
+    });
+});
+
 // ── The epic band palette (req #3219, "no brown, no muddy tones on dark") ───
 //
 // DIRT NEVER COMES BACK. Two dimensions, per the requirement: every entry must
@@ -3677,4 +4273,218 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         expect(layout.bands[wrapIdx].color).toBe(layout.bands[0].color);
         expect(layout.bands[wrapIdx].epicId).not.toBe(layout.bands[0].epicId);
     });
+});
+
+// ── The cell invariant, over a fuzz corpus (req #3229) ──────────────────────
+// "Never two beads on one `(band, column, lane)` cell" is this module's oldest
+// invariant, it has an assertion in the plan-scale block above, and it was still
+// violated in the field. Every fixture this suite owns — Substrate (34 real
+// rows), the timed Substrate, the cross-epic plan — satisfies it. The shape that
+// breaks it is a plan with SEVERAL launch batches whose mates sit at DIFFERENT
+// dependency depths, which is a graph nobody hand-writes and which req #3188
+// made reachable when it regrouped batches on the REMAINING gate instead of a
+// shared dep set.
+//
+// So the corpus, not another fixture: 150 deterministic plans (see
+// `timedFuzzPlans.js` for the generator's shape argument), each laid out WITH
+// and WITHOUT a time axis. Deterministic means a failure names a seed and that
+// seed is a permanent repro — `makeTimedPlan(<seed>)` is the whole reproducer.
+//
+// The BEFORE measurement, kept because it is what the corpus is sized for: the
+// shipped 400 plans collide on seeds 89, 303 and 358 against the pre-fix module.
+// The original 150-plan cut collided on seed 115 at `(0, 2, 3)` between steps 13
+// and 11 — batch A's run allocated at column 0 and consumed at column 2, batch
+// B's run allocated in between — WITH and WITHOUT the axis (columns 5 and 2),
+// which is how the "the time axis causes it" reading was refuted.
+describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
+    const corpus = timedFuzzCorpus();
+
+    const cellCollisions = (layout) => {
+        const seen = new Map();
+        const out = [];
+        for (const n of layout.nodes.values()) {
+            const cell = `${n.bandIndex}|${n.depth}|${n.lane}`;
+            if (seen.has(cell)) out.push(`${cell}: steps ${seen.get(cell)} and ${n.id}`);
+            seen.set(cell, n.id);
+        }
+        return out;
+    };
+
+    it('the corpus is non-vacuous, and carries the hazard shape', () => {
+        // The precondition guard req #3207 added, for exactly the reason it
+        // added it: 16 plan-scale tests once asserted over an empty array in
+        // total silence, and shipped that way. A fuzz corpus is MORE exposed to
+        // that, not less — a generator that quietly stopped producing batches
+        // would leave three green tests asserting nothing about the defect they
+        // were written for. So the shape is asserted, not just the row count:
+        // the MULTI-COLUMN BATCH is the thing the fix is about.
+        let rows = 0;
+        let batches = 0;
+        let multiColumnBatches = 0;
+        let hazardPlans = 0;
+        let dated = 0;
+        for (const { reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            rows += plan.rows.length;
+            batches += plan.batches.length;
+            let wide = 0;
+            for (const b of plan.batches) {
+                const cells = new Set(b.stepIds
+                    .map((id) => layout.nodes.get(id)).filter(Boolean)
+                    .map((n) => `${n.bandIndex}|${n.depth}`));
+                if (cells.size >= 2) wide += 1;
+            }
+            multiColumnBatches += wide;
+            // A multi-column batch sharing its plan with another batch — the
+            // precise shape that produced the collision.
+            if (wide >= 1 && plan.batches.length >= 2) hazardPlans += 1;
+            dated += [...plan.timeAxis.stepStarts.values()]
+                .filter((s) => s && s.kind === 'dated').length;
+        }
+        expect(corpus).toHaveLength(400);
+        expect(rows).toBeGreaterThan(5000);
+        expect(batches).toBeGreaterThan(200);
+        expect(multiColumnBatches).toBeGreaterThan(100);
+        expect(hazardPlans).toBeGreaterThan(20);
+        expect(dated).toBeGreaterThan(2000);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — with a time axis', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — without one', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches);
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    // The user-visible consequence of a shared cell, asserted independently of
+    // the cell arithmetic: two coincident beads and two labels drawn on top of
+    // each other. Run over all four view combinations, because label geometry —
+    // unlike lane assignment — depends on both of them.
+    describe.each(COMBOS)('$reqLayout reqs × $stepLabel labels', (opts) => {
+        it('gives every bead its own position, and draws no label over another', () => {
+            for (const { seed, reads } of corpus) {
+                const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                const layout = computePlanLayout(plan.rows, plan.batches,
+                    { ...opts, timeAxis: plan.timeAxis });
+                const seen = new Map();
+                for (const n of layout.nodes.values()) {
+                    const pos = `${n.x}|${n.y}`;
+                    expect(seen.has(pos),
+                        `seed ${seed}: steps ${seen.get(pos)} and ${n.id} coincide at ${pos}`)
+                        .toBe(false);
+                    seen.set(pos, n.id);
+                }
+                assertNoLabelOverlap(layout, `seed ${seed}`);
+            }
+        });
+    });
+});
+
+// ── The batch box encloses ONLY its members (req #3229) ─────────────────────
+// A companion to the cell invariant above, and the reason it is here rather
+// than folded in: the two break through the SAME mechanism (a batch lane run
+// allocated in raw values over a lane space that is fractional until the
+// ordinal renumber) but they are different promises to the reader. A shared
+// cell draws two beads on top of each other; a run that is contiguous when
+// allocated and NOT contiguous after renumbering draws a launch-unit box
+// around a step that is not in the launch unit.
+//
+// THE FIVE-STEP CASE IS HAND-BUILT ON PURPOSE. The corpus below is what proved
+// the fix, but this shape needs no fuzzing at all — which is exactly why it
+// must not be corpus-only. Steps 5 and 6 are batch A and take raw lanes 0 and
+// 1; step 7 then finds its dep's lane occupied, mints the midpoint 0.5 through
+// dep-adjacent insertion, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — leaving
+// the non-member ordinally BETWEEN the two mates, inside their box.
+describe('launch-batch boxes enclose only their members (req #3229)', () => {
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 1, epic: 'E1',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+
+    const enclosedNonMembers = (layout) => {
+        const out = [];
+        for (const box of layout.batchBoxes) {
+            const members = new Set(box.batchStepIds);
+            for (const n of layout.nodes.values()) {
+                if (members.has(n.id)) continue;
+                if (n.x > box.x && n.x < box.x + box.width
+                    && n.y > box.y && n.y < box.y + box.height) {
+                    out.push(`batch ${box.letter} encloses step ${n.id}`);
+                }
+            }
+        }
+        return out;
+    };
+
+    it('keeps an inserted lane out of a batch run — five steps, no fuzzing', () => {
+        const rows = [mk(1, []), mk(2, []), mk(5, [1]), mk(6, [2]), mk(7, [1])];
+        const layout = computePlanLayout(rows, [{ letter: 'A', stepIds: [5, 6] }]);
+        // The precondition: the box has to actually be drawn, or this asserts
+        // nothing. Two mates in one column is one segment.
+        expect(layout.batchBoxes.length).toBeGreaterThan(0);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    // THE OTHER SIDE OF THE SAME DEFECT, and the one the corpus does NOT reach
+    // — found in the second code-review round, measured at 7 cases per 40,000
+    // layouts with none inside the shipped 400. `runIntervals` stops a later
+    // step entering a published run; this is a run being allocated AROUND a
+    // bead that is already sitting there. Batch B has a single mate at column
+    // 2, so it publishes no interval, and step 6 takes a fractional lane off
+    // its dep chain; batch C is then dep-anchored to a fractional `start` and
+    // its two lanes straddle it. Checking only `start + k` never looks between
+    // them. Ordinals come out `7@l0, 6@l1, 8@l2` — box C around a non-member.
+    it('never allocates a run AROUND a bead already inside it', () => {
+        const rows = [mk(1, []), mk(2, []), mk(3, []), mk(4, [1]), mk(5, [1]),
+            mk(6, [5]), mk(7, [4]), mk(8, [4]), mk(10, [6])];
+        const layout = computePlanLayout(rows, [
+            { letter: 'B', stepIds: [6, 10] },
+            { letter: 'C', stepIds: [7, 8] },
+        ]);
+        // Precondition: batch C must actually draw a box at step 6's column,
+        // or the assertion below is about nothing.
+        const n6 = layout.nodes.get(6);
+        expect(layout.batchBoxes.some((b) => b.letter === 'C' && b.depth === n6.depth))
+            .toBe(true);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    describe.each([{ axis: true }, { axis: false }])('over the corpus, axis=$axis',
+        ({ axis }) => {
+            it('never draws a launch-unit box around a non-member', () => {
+                const failures = [];
+                let boxes = 0;
+                for (const { seed, reads } of timedFuzzCorpus()) {
+                    const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                    const layout = computePlanLayout(plan.rows, plan.batches,
+                        axis ? { timeAxis: plan.timeAxis } : {});
+                    boxes += layout.batchBoxes.length;
+                    for (const f of enclosedNonMembers(layout)) {
+                        failures.push(`seed ${seed} — ${f}`);
+                    }
+                }
+                // Non-vacuity: the corpus must actually DRAW boxes.
+                expect(boxes).toBeGreaterThan(200);
+                expect(failures).toEqual([]);
+            });
+        });
 });
