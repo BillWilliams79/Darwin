@@ -366,11 +366,13 @@ export default function PipelinePlanVisualizer({
     // a ref would never re-run and the canvas would stay blank forever (review
     // finding). A ref callback re-fires every effect when the node appears.
     const [containerEl, setContainer] = useState(null);
-    // The key is a floating overlay in the panel's top-right corner, and the
-    // epic chips clamp into the same corner whenever a band's header strip
-    // reaches it — so the two collided, with the key on top and the epic name
-    // unreadable underneath (req #3168, "epic title collisions"). Its rect is
-    // MEASURED rather than assumed, and measuring is what lets the key GROW into
+    // The key is a floating overlay parked at viewport middle-bottom (req
+    // #3255; was the panel's top-right corner), and the epic chips clamp into
+    // the same region whenever a band's header strip or a bottom-pinned sticky
+    // chip reaches it — so the two collided, with the key on top and the epic
+    // name unreadable underneath (req #3168, "epic title collisions"). Its
+    // rect is MEASURED rather than assumed, and measuring is what lets the key
+    // GROW into
     // the complete vocabulary without anyone re-tuning a constant: its size
     // depends on the live colour key (a status scale filtered to the plan, or one
     // entry per machine), on whether a batch box is drawn, and on whether the
@@ -996,9 +998,10 @@ export default function PipelinePlanVisualizer({
     // pure function precisely so that overlap is testable, and the chips were the
     // one exception. They were also the one thing on the page still colliding:
     // with each other when the band header shrinks below the chip's fixed screen
-    // height, and with the legend they clamp underneath in the top-right corner.
-    // Both are now avoided by the same displacement pass, and both are asserted
-    // in vitest over a swept transform rather than by eye.
+    // height, and with the legend they clamp underneath (bottom-center, req
+    // #3255; was the top-right corner). Both are now avoided by the same
+    // displacement pass, and both are asserted in vitest over a swept transform
+    // rather than by eye.
     //
     // The chip's METRICS come from the layout module too (`EPIC_CHIP_H`,
     // `EPIC_CHIP_CHAR_W`), and are deliberately not passed from here: this file
@@ -1013,7 +1016,8 @@ export default function PipelinePlanVisualizer({
         viewport: size,
         worldWidth: layout.width,
         keepOut: legendSize
-            ? { x: size.w - 10 - legendSize.w, y: 8, w: legendSize.w, h: legendSize.h }
+            ? { x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h,
+                w: legendSize.w, h: legendSize.h }
             : null,
         // Sticky prev/next chips (req #3210) pin to the viewport edge rather
         // than to their own band, so — unlike the natural chips, which are
@@ -1656,12 +1660,22 @@ export default function PipelinePlanVisualizer({
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
                     collapsed from another session. Every visit opens with the key
-                    shown, which is what "displayed in the upper right" asks. */}
+                    shown.
+
+                    PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
+                    top-right corner: that corner sat in the typical down-and-
+                    to-the-right reading flow of the epics, so the key kept
+                    landing under the eye instead of out of its way.
+                    Bottom-center is out of that flow on every plan shape.
+                    Centered with `left: 50%` + `translateX(-50%)` rather than
+                    a fixed width, because the key's own width is content-
+                    driven (`PLAN_KEY_MAX_W` caps it, doesn't fix it). */}
                 <Stack direction="column" spacing={0}
                        useFlexGap
                        ref={setLegendEl}
                        data-testid="pipeline-viz-legend"
-                       sx={{ position: 'absolute', top: 10, right: 12,
+                       sx={{ position: 'absolute', bottom: 12, left: '50%',
+                              transform: 'translateX(-50%)',
                               // A panel, not a wash: opaque enough that the plan
                               // never reads through the key's own type, with a
                               // soft edge so it sits ON the canvas rather than
@@ -1673,6 +1687,15 @@ export default function PipelinePlanVisualizer({
                               boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
                               pointerEvents: 'none', userSelect: 'none',
                               maxWidth: PLAN_KEY_MAX_W,
+                              // Collapsed, the panel's only child is the
+                              // absolutely-positioned toggle below, which does
+                              // not participate in flex layout — so the panel
+                              // has zero in-flow content. The 20px toggle at
+                              // `top: 3, right: 4` needs a padding box of at
+                              // least 24x23 to stay inside the panel; these
+                              // floors give it room with margin to spare
+                              // (req #3255 review finding).
+                              minWidth: 32, minHeight: 28,
                               '@keyframes pipeKeyPulse': {
                                   '0%, 100%': { opacity: 1 },
                                   '50%': { opacity: 0.45 },
@@ -1686,7 +1709,18 @@ export default function PipelinePlanVisualizer({
                         corner: in the flow it was a lone button on a line of its
                         own, which is most of what made the key look unfinished.
                         The sections keep their left edge and the control floats
-                        clear of them. */}
+                        clear of them.
+
+                        MADE MORE PROMINENT (req #3255): `P.dim` at 0.55 opacity
+                        read as barely-there chrome next to the key's own bright
+                        swatches, so the control most likely to be missed was the
+                        one that changes what the panel shows. `P.text` (the
+                        panel's own body colour, near-white) replaces `P.dim` as
+                        the resting colour, resting opacity goes to 0.85, and the
+                        hit target grows from 15px to 20px with the glyph's font
+                        size scaled to match — still the smallest interactive
+                        element on the canvas, just no longer the one you have to
+                        hunt for. */}
                     <Box component="button" type="button"
                          onClick={() => setKeyOpen((v) => !v)}
                          data-viz-chrome="legend"
@@ -1695,13 +1729,13 @@ export default function PipelinePlanVisualizer({
                          aria-label={keyOpen ? 'Collapse the key' : 'Expand the key'}
                          sx={{ pointerEvents: 'auto', cursor: 'pointer',
                                 position: 'absolute', top: 3, right: 4,
-                                width: 15, height: 15, p: 0,
+                                width: 20, height: 20, p: 0,
                                 display: 'flex', alignItems: 'center',
                                 justifyContent: 'center',
-                                fontFamily: MONO, fontSize: 11, lineHeight: 1,
-                                color: P.dim, background: 'transparent',
-                                border: 'none', borderRadius: '4px',
-                                opacity: 0.55,
+                                fontFamily: MONO, fontSize: 15, lineHeight: 1,
+                                color: P.text, background: 'transparent',
+                                border: 'none', borderRadius: '5px',
+                                opacity: 0.85,
                                 '&:hover': { opacity: 1, color: P.accent } }}>
                         {keyOpen ? '−' : '+'}
                     </Box>

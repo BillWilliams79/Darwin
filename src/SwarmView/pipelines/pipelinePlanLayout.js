@@ -426,7 +426,8 @@ export function reqIdStyle({ colorKey, status, machineColor } = {}) {
  *
  * For `state` it lists only the statuses the plan actually contains — the same
  * discipline the machine key already follows, and the reason the key stays
- * compact enough not to steal the top-right corner from the epic chips.
+ * compact enough not to steal the viewport middle-bottom (req #3255; was the
+ * top-right corner) from the epic chips.
  *
  * @param {Object} args
  * @param {('state'|'machine'|'none')} args.colorKey
