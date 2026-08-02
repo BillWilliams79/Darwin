@@ -116,7 +116,7 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
-    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor,
+    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY,
 } from './pipelinePlanLayout';
 import '../../CalendarFC/swarmVisualizer.css';
 
@@ -1026,6 +1026,16 @@ export default function PipelinePlanVisualizer({
 
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
+    // ── Sticky ruler-strip nodes (req #3254) ────────────────────────────────
+    // The baseline, the tick marks and the slot date/future/undated labels —
+    // everything that reads as "the header" — draw in a SEPARATE Konva Group
+    // (below) whose y is `stickyRulerY(t)` rather than `t.y`, so the strip
+    // pins to the top of the viewport instead of scrolling off with the
+    // timeline beneath it. The full-height separators and the future-region
+    // tint stay in `worldNodes`: they are background guides spanning the
+    // whole plan's vertical extent, not the header itself, and belong to the
+    // content they mark rather than to viewport chrome.
+    const stickyRulerNodes = [];
 
     layout.bands.forEach((band) => {
         worldNodes.push(
@@ -1046,27 +1056,41 @@ export default function PipelinePlanVisualizer({
         }
     });
 
-    // ── The time ruler (req #3207) ──────────────────────────────────────────
+    // ── The time ruler (req #3207, sticky since req #3254) ──────────────────
     // Drawn AFTER the band washes and BEFORE the arcs and beads: the rules and
     // the future tint are background furniture that must sit over the band fill
     // (a 6% wash would otherwise swallow them) and under everything a reader
     // actually reads. The label TEXT is not here — it rides `layout.labels` as
     // `kind: 'slot'` so the zero-overlap contract covers it, and is drawn in the
-    // label loop below with every other piece of text on the surface.
+    // label loop below with every other piece of text on the surface — into
+    // `stickyRulerNodes`, same as the baseline and ticks here, not `worldNodes`.
     {
         const R = layout.ruler || { h: 0, slots: [], futureX: null };
         // The FUTURE REGION, first, so the rules draw on top of its edge. A rule
         // alone says where the boundary is; it does not say which side of it has
-        // not happened yet.
+        // not happened yet. WORLD space — it tints the whole plan's height, not
+        // just the header strip.
         if (R.futureX != null && R.futureX < layout.width) {
             worldNodes.push(
                 <Rect key="ruler-future" x={R.futureX} y={0}
                       width={layout.width - R.futureX} height={layout.height}
                       fill={P.wire} opacity={0.07} listening={false} />);
         }
+        // The strip's OWN opaque backing (req #3254, code-review finding): once
+        // pinned, the strip floats over whatever band content scrolled up to
+        // meet it, and neither the ticks nor the date text otherwise carry any
+        // fill — so without this a date could render as text bleeding through
+        // a step title rather than legibly over it. Same colour and the same
+        // "chrome gets its own opaque plate" move as the shared top time-axis
+        // in `KonvaSwarmCanvas.jsx` (`background: C.axisBg`), the truer sibling
+        // of this strip than the per-row day headers (which float with no
+        // backing because they are never more than one line of text wide).
+        stickyRulerNodes.push(
+            <Rect key="ruler-sticky-bg" x={0} y={0} width={layout.width} height={R.h}
+                  fill={P.panel} listening={false} />);
         // The strip's baseline — what makes the ticks read as one ruler rather
-        // than as a row of unrelated marks.
-        worldNodes.push(
+        // than as a row of unrelated marks. STICKY: part of the header itself.
+        stickyRulerNodes.push(
             <Line key="ruler-baseline"
                   points={[0, R.h - 2, layout.width, R.h - 2]}
                   stroke={P.line} strokeWidth={1} opacity={0.7}
@@ -1077,7 +1101,8 @@ export default function PipelinePlanVisualizer({
             // three days apart — and the dashes are how the ruler says so
             // without spending a second label on it. `gapDays` is null on the
             // first dated slot and on the undated/future ones, where there is no
-            // predecessor to have skipped anything.
+            // predecessor to have skipped anything. WORLD space — the boundary
+            // runs the whole plan's height, same reasoning as the future tint.
             const gapped = s.gapDays != null && s.gapDays > 1;
             // The first slot's rule would land in the left gutter, where it
             // marks nothing: there is no earlier slot for it to divide from.
@@ -1092,8 +1117,8 @@ export default function PipelinePlanVisualizer({
             // The tick itself, in the strip, at every slot — including the ones
             // whose LABEL was thinned away. The tick is 1px of geometry and can
             // never collide, so a degraded ruler still shows every boundary it
-            // has; only the dates thin out.
-            worldNodes.push(
+            // has; only the dates thin out. STICKY: part of the header strip.
+            stickyRulerNodes.push(
                 <Line key={`ruler-tick-${s.key}`}
                       points={[s.x, R.h - 9, s.x, R.h - 2]}
                       stroke={P.dim} strokeWidth={1} opacity={0.8}
@@ -1301,7 +1326,21 @@ export default function PipelinePlanVisualizer({
             // would make a plan with no timestamps read as a plan that is
             // entirely in the future, which is the opposite claim.
             const accented = label.slotKind === 'future';
-            worldNodes.push(
+            // STICKY (req #3254): part of the header strip, not the world —
+            // see `stickyRulerNodes`'s own comment above. `label.x`/`label.y`
+            // are unchanged (the vitest zero-overlap sweep, which runs at a
+            // fixed transform with no pan, still covers this rect exactly as
+            // it did before), but the sweep's guarantee is a LAYOUT-time one:
+            // it does NOT extend across a live pan, because this is now the
+            // one label kind whose SCREEN position is `stickyRulerY(t)` where
+            // every other label's is `t.y`. Once the strip pins (`t.y < 0`),
+            // a step or requirement label scrolled up near the viewport top
+            // can land under it on screen — the same trade-off the sticky
+            // epic chips already accept (their own comment: "a sticky chip
+            // landed on a live bead" was a known, documented cost, not a
+            // defect to chase to zero). `collectWorldObstacles` excludes this
+            // kind for the identical reason it already excludes `'epic'`.
+            stickyRulerNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.slot} fontFamily={MONO}
                       fill={accented ? P.accent : P.dim}
@@ -1391,6 +1430,14 @@ export default function PipelinePlanVisualizer({
                  // proof that thinning ran.
                  data-ruler={`${layout.ruler.slots.length},${
                      layout.ruler.slots.filter((s) => s.showLabel).length}`}
+                 // The sticky ruler's actual rendered Y (req #3254) — same
+                 // device and same reason as `data-transform`: whether the
+                 // strip is genuinely pinned to the viewport top rather than
+                 // scrolling off with the world is otherwise only observable
+                 // as pixels. `stickyRulerY(t)` is exactly what the sticky
+                 // Group below is drawn at, so this can never drift from what
+                 // the canvas actually did.
+                 data-ruler-y={stickyRulerY(t).toFixed(2)}
                  data-level={level}
                  data-drawn={drawnKinds}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
@@ -1417,6 +1464,18 @@ export default function PipelinePlanVisualizer({
                         <Layer ref={layerRef}>
                             <Group x={t.x} y={t.y} scaleX={t.k} scaleY={t.k}>
                                 {worldNodes}
+                            </Group>
+                            {/* The sticky ruler strip (req #3254) — SAME x/scale
+                                as the world Group above (so ticks and labels
+                                still pan/zoom horizontally with the columns
+                                beneath them), but `y` is pinned via
+                                `stickyRulerY(t)` instead of `t.y`, decoupling it
+                                from vertical pan. Drawn AFTER the world Group so
+                                it floats on top of scrolled-under content, the
+                                same z-order a sticky header always wants. */}
+                            <Group x={t.x} y={stickyRulerY(t)} scaleX={t.k}
+                                   scaleY={t.k} listening={false}>
+                                {stickyRulerNodes}
                             </Group>
                         </Layer>
                     </Stage>
