@@ -1192,7 +1192,32 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             'the level selector left the key').toHaveCount(0);
             await expect(page.getByTestId('pipeline-viz-level-control'),
                 'there is exactly one level selector on the page').toHaveCount(1);
-            const leftOfWidth = await page.evaluate(() => {
+            // ── THE ROW IS GROUPED, AND THE GROUPS ARE SEPARATED (req #3261
+            //    P2 / S5) ──────────────────────────────────────────────────────
+            //    "Controls are grouped, groups separated by a vertical Divider"
+            //    is the single most legible thing the Build Visualizer does and
+            //    it is what makes twelve controls readable there. This row had
+            //    no separators at all, so five unrelated controls read as one
+            //    strip. The groups are
+            //      [mode] | [view: Reset, Level] | [display: Width, Colour] |
+            //      [status] | [description].
+            //
+            //    THE GROUP ORDER IS REQ #3242's, NOT P2's. P2 named
+            //    `[display: Counts, Width, Colour] | [zoom: Level, Reset]`
+            //    against a row that still had a Counts toggle; #3242 then
+            //    removed that toggle and moved Reset to sit immediately left of
+            //    the level selector, "ahead of the whole zoom/layout control
+            //    cluster rather than trailing it". That directive is later and
+            //    more specific, so the view group leads. What P2 asked for —
+            //    that there BE groups and that a rule separate them — is what is
+            //    asserted here, applied to the order the user asked for.
+            //
+            //    Asserted by DOM index among the row's own children plus the
+            //    position of the separators themselves, so it says "these are
+            //    one group and those are another" rather than "these two are
+            //    adjacent" — which a divider inserted between them would still
+            //    satisfy.
+            const layout = await page.evaluate(() => {
                 const row = document.querySelector(
                     '[data-testid="pipeline-header-row"]')!;
                 const kids = Array.from(row.children);
@@ -1200,14 +1225,32 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     kids.findIndex((el) => el.matches(sel) || !!el.querySelector(sel));
                 return {
                     level: idx('[data-testid="pipeline-viz-level-control"]'),
+                    reset: idx('[data-testid="pipeline-viz-reset"]'),
                     width: idx('[data-testid="pipeline-viz-stepwidth-toggle"]'),
+                    colour: idx('[data-testid="pipeline-viz-colorkey-toggle"]'),
+                    dividers: kids
+                        .map((el, i) => (el.classList.contains('MuiDivider-root')
+                            ? i : -1))
+                        .filter((i) => i >= 0),
                 };
             });
-            expect(leftOfWidth.level, 'the level selector is a child of the row')
-                .toBeGreaterThanOrEqual(0);
-            expect(leftOfWidth.level,
-                'the level selector sits immediately LEFT of the Width control')
-                .toBe(leftOfWidth.width - 1);
+            for (const [name, i] of Object.entries(layout)) {
+                if (name === 'dividers') continue;
+                expect(i as number, `${name} is a child of the header row`)
+                    .toBeGreaterThanOrEqual(0);
+            }
+            expect(layout.reset,
+                'Reset rides INSIDE the level control, so they are one child')
+                .toBe(layout.level);
+            expect(layout.width, 'Width and Colour are the display group')
+                .toBe(layout.colour - 1);
+            expect(layout.dividers.filter(
+                (i) => i > layout.level && i < layout.width).length,
+            'a rule separates the view group from the display group').toBe(1);
+            expect(layout.dividers.length,
+                'the ordinary row carries three rules — before view, before '
+                + 'display, before description (the status group is conditional '
+                + 'and this fixture seeds no orchestration claim)').toBe(3);
             // And the pan exemption really travelled with it: the key's own
             // `data-viz-chrome="level"` wrapper is gone, and the ONE remaining
             // exemption over the canvas is the key's collapse button. A stray
@@ -1265,23 +1308,34 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 let content = 0;
                 let n = 0;
                 let tallest = 0;
+                // Distinct flex LINES, by cross-axis centre. Under
+                // `alignItems: center` every child on one line shares the line's
+                // centre, so counting distinct centres counts lines exactly —
+                // and unlike the height bound below it stays a real claim now
+                // that the `flexItem` Dividers stretch to the line's own height
+                // and make `tallestChild` the line's cross size by construction.
+                const centres = new Set<number>();
                 for (const k of kids) {
                     const r = k.getBoundingClientRect();
                     if (r.width < 0.5) continue;
                     n += 1;
                     tallest = Math.max(tallest, r.height);
-                    // The flexGrow spacer absorbs slack and is not content.
+                    centres.add(Math.round(r.top + r.height / 2));
+                    // Separators and any zero-content child are chrome, not
+                    // content. (The flexGrow spacer this branch was written for
+                    // is gone since req #3261 — the title is the spacer now —
+                    // and the three Dividers match the same shape.)
                     if (!k.dataset.testid && !k.textContent?.trim()
                         && k.children.length === 0) continue;
                     content += r.width;
                 }
                 // THE ROW'S INCOMPRESSIBLE WIDTH: everything that declares
-                // `flex-shrink: 0`, plus the gaps. This is the figure that
-                // decides whether the page gains a horizontal scrollbar, and it
-                // is INDEPENDENT of the fixture — whose plan title is a long
-                // `e2e-<stamp>-…` string, i.e. a large elastic member that
-                // would mask a too-wide control set at any viewport a sweep
-                // happens to pick.
+                // `flex-shrink: 0`, plus the gaps. RECORDED, no longer a
+                // ceiling — since req #3261 the row scrolls its own band, so
+                // this number stopped deciding whether the PAGE gains a
+                // horizontal scrollbar. It is logged because it is still the
+                // honest measure of how much control this row carries, and a
+                // sudden jump in it is worth a human look.
                 const incompressible = kids
                     .filter((k) => k.getBoundingClientRect().width >= 0.5
                         && getComputedStyle(k).flexShrink === '0')
@@ -1293,13 +1347,33 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     chrome: Math.round(window.innerWidth
                         - row.getBoundingClientRect().width),
                     rowHeight: Math.round(row.getBoundingClientRect().height),
+                    // req #3261 — the row is its OWN scroll container now (S13),
+                    // so at the widths where it overflows the browser may put a
+                    // horizontal scrollbar INSIDE it. `offsetHeight -
+                    // clientHeight` is that scrollbar exactly (the row has no
+                    // border), and subtracting it keeps the one-line claim below
+                    // a claim about LINES rather than about whether the CI
+                    // browser draws classic or overlay scrollbars.
+                    scrollbarH: Math.round(row.offsetHeight - row.clientHeight),
+                    overflowX: getComputedStyle(row).overflowX,
+                    scrolls: row.scrollWidth > row.clientWidth + 1,
+                    lines: centres.size,
                     tallestChild: Math.round(tallest),
                     // The one elastic member. Its measured width vs. its own
-                    // scrollWidth is what "it ellipsized" means.
-                    titleClipped: (() => {
+                    // scrollWidth is what "it ellipsized" means; `titleBox` and
+                    // `titleNatural` are the two numbers behind that verdict, so
+                    // a failure says HOW short the row is rather than only that
+                    // it is.
+                    ...(() => {
                         const t = row.querySelector(
                             '[data-testid="pipeline-title"]') as HTMLElement | null;
-                        return t ? t.scrollWidth > t.clientWidth + 1 : false;
+                        return {
+                            titleClipped: t ? t.scrollWidth > t.clientWidth + 1 : false,
+                            titleBox: t ? Math.round(t.clientWidth) : 0,
+                            titleNatural: t ? Math.round(t.scrollWidth) : 0,
+                            titleTooltip: t?.getAttribute('aria-label')
+                                || t?.parentElement?.getAttribute('aria-label') || '',
+                        };
                     })(),
                     docOverflow: document.documentElement.scrollWidth
                         - document.documentElement.clientWidth,
@@ -1313,36 +1387,74 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 + `(tallest child ${at1800.tallestChild}px) `
                 + `→ page scrolls sideways below `
                 + `~${at1800.incompressible + at1800.chrome}px viewport`);
-            expect(at1800.rowHeight,
+            expect(at1800.lines,
                 'the header is ONE line at 1800px — not two, not three')
+                .toBe(1);
+            expect(at1800.rowHeight - at1800.scrollbarH,
+                'and the row is no taller than that line')
                 .toBeLessThanOrEqual(at1800.tallestChild + 2);
-            expect(at1800.titleClipped,
-                'at 1800px there is room for the whole plan name').toBe(false);
-            // THE BUDGET. `nowrap` converts what used to be a wrap into page
-            // overflow, so the controls now have a width CEILING rather than a
-            // soft cost — and this is the number that expresses it. 780px is the
-            // row's own width at a 1024px viewport with the sidebar expanded
-            // (1024 − 180 sidebar − 48 padding − 16 scrollbar), so holding under
-            // it is what makes "one row, no sideways scroll" true across the
-            // whole desktop range this page is used at. Measured 763px today;
-            // a new control on this row that breaks the promise fails HERE,
-            // with the arithmetic in front of whoever added it, instead of
-            // silently on somebody's 1152px window.
+            // ── THE ROW BELONGS TO THE PLAN, NOT TO ITS CHROME ───────────────
+            //    This used to assert `titleClipped === false` at 1800px — "there
+            //    is room for the whole plan name". That claim was never
+            //    fixture-independent and it stopped being TRUE for a reason
+            //    neither requirement got wrong: req #3242 lengthened the title
+            //    from `<name> <met>/<total>` to `<name> <N> Epics, <met>/<total>
+            //    Requirements`, and req #3261 P4 took it from `h6` to `h5` on
+            //    desktop (the size every other Darwin page uses). The FIXTURE's
+            //    name additionally carries a 22-character `e2e-<ms>-plan ` stamp
+            //    that no real plan has, so what the old assertion actually
+            //    measured was whether a synthetic name survived a type-scale
+            //    change. Measured on the merged tree: incompressible 769px
+            //    against 763px before — the control set did NOT grow.
             //
-            // IT EXCLUDES THE ORCHESTRATION CHIP, which is `flexShrink: 1` and
-            // therefore not "incompressible" — and that exclusion is safe rather
-            // than merely convenient, which is worth recording because the
-            // arithmetic suggests otherwise. A small MUI Chip carries 8px of
-            // label padding a side, so a chip "floor" of ~18px is the natural
-            // guess; measured, the label's `overflow: hidden` collapses that
-            // padding along with the root, and the chip renders 6px at a 1024px
-            // viewport and 0-2px below it (2px being the `stale` variant's
-            // border). Under 8px at the width this budget is about — inside the
-            // 17px of headroom, in a fixture that never renders one anyway
-            // because it seeds no orchestration claim.
-            expect(at1800.incompressible,
-                "the row's controls fit a 1024px viewport with the title at zero")
-                .toBeLessThanOrEqual(780);
+            //    So assert the property that was worth having, in a form the
+            //    fixture cannot skew: at a wide desktop the plan's NAME gets at
+            //    least as much of the row as every control combined. That fails
+            //    the moment chrome starts crowding out the thing the page is
+            //    about — which is what the old assertion was really guarding —
+            //    and it does not fail because somebody named a plan verbosely.
+            // eslint-disable-next-line no-console
+            console.log(`[PIPE-18] title @1800px: box=${at1800.titleBox}px `
+                + `natural=${at1800.titleNatural}px `
+                + `(ellipsized=${at1800.titleClipped})`);
+            expect(at1800.titleBox,
+                'at 1800px the plan name gets at least as much of the row as '
+                + 'all of its controls combined')
+                .toBeGreaterThanOrEqual(at1800.incompressible);
+            // And when it DOES ellipsize the reader can still recover it — the
+            // tooltip is the whole point of `noWrap` here, and since req #3242
+            // removed the breadcrumb it is the ONLY recovery path left.
+            expect(at1800.titleTooltip,
+                'the full plan name is on the title tooltip')
+                .toContain('Substrate Rebuild Pipeline');
+            expect(at1800.scrolls,
+                'at 1800px everything fits and there is no band to scroll')
+                .toBe(false);
+            // ── THE BUDGET IS GONE, AND ITS ABSENCE IS THE CLAIM (req #3261 P7,
+            //    S13) ─────────────────────────────────────────────────────────
+            //    This used to assert `incompressible <= 780px` — the row's own
+            //    width at a 1024px viewport — because `flexWrap: 'nowrap'` had
+            //    traded a wrap for PAGE overflow and 780px was the point at
+            //    which the whole document started scrolling sideways. The file's
+            //    own comment recorded the consequence: an incompressible 763px,
+            //    a ~1000px VIEWPORT FLOOR, 5px of document overflow at 980 and
+            //    25px at 960. So every control this page might ever want was
+            //    rationed against a number produced by a layout defect.
+            //
+            //    `SwarmView.jsx:253-263` answers the identical problem (req
+            //    #2802, same symptom, same page family) with `minWidth: 0` +
+            //    `overflowX: 'auto'` + `flexShrink: 0` children: overflow
+            //    scrolls the ROW'S OWN BAND and never reaches the document.
+            //    That is the property asserted now — declared here, and
+            //    exercised at every width in step 6 — and it is strictly
+            //    stronger than the budget, because a budget can only be held by
+            //    refusing controls while this holds however many the page grows.
+            expect(at1800.overflowX,
+                "the row is its own scroll container, so overflow can't reach "
+                + 'the page').toBe('auto');
+            // eslint-disable-next-line no-console
+            console.log('[PIPE-18] the row\'s incompressible width is '
+                + `${at1800.incompressible}px — recorded, no longer a ceiling`);
 
             // 2. The step-width control widens the WORLD, read from `data-world`.
             //
@@ -1364,10 +1476,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(beforeW, 'the world is published').toBeGreaterThan(0);
             const widthToggle = page.getByTestId('pipeline-viz-stepwidth-toggle');
             await expect(widthToggle).toBeVisible();
-            // By VALUE, not by accessible name: the buttons read "Width: S",
-            // "M", "L" and Playwright's name match is a case-insensitive
-            // substring, so `name: 'L'` also matches "Column width — compact".
-            await widthToggle.locator('button[value="wide"]').click();
+            // BY TEST ID, not by accessible name and no longer by `value`. The
+            // options are chips since req #3261 (S6 — one control vocabulary),
+            // and a chip has no `value` attribute to select on; matching by name
+            // was never safe here either, because Playwright's name match is a
+            // case-insensitive substring and `name: 'L'` also matches "Column
+            // width — compact". P9 also took the group's NAME out of its first
+            // option, so the chips read "S", "M", "L" under a "Width:" caption
+            // rather than "Width: S", "M", "L".
+            await expect(widthToggle, 'the group is named by a caption, not by '
+                + 'its first option').toContainText('Width:');
+            await page.getByTestId('pipeline-viz-width-wide').click();
             await expect.poll(worldW,
                 { message: 'Width: L must widen the world' })
                 .toBeGreaterThan(beforeW);
@@ -1423,7 +1542,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //     no longer show the whole plan. The fit-to-height property
             //     Width does not touch (only column width changes, not band
             //     height) must survive the click.
-            await widthToggle.locator('button[value="medium"]').click();
+            await page.getByTestId('pipeline-viz-width-medium').click();
             const [, , rk2] = (await container.getAttribute('data-transform'))!
                 .split(',').map(Number);
             expect(rk2 * (await worldH()),
@@ -1452,29 +1571,40 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    viewport change re-fits the canvas, so it must not land in the
             //    middle of the transform claims above.
             //
+            //    THE SWEEP NOW GOES BELOW THE OLD FLOOR (req #3261 P7). It used
+            //    to stop at 1024 because that was the last width the page
+            //    survived: `PipelineDetail.jsx` recorded 5px of document
+            //    overflow at 980 and 25px at 960, i.e. a ~1000px VIEWPORT FLOOR,
+            //    and stopping at 1024 is what let that stand untested. 960 and
+            //    900 are in the sweep precisely because they are the widths the
+            //    old row failed at, so the S13 band is asserted where it
+            //    actually had to change something.
+            //
             //    The title is allowed to ellipsize here — that is the declared
             //    cost of the choice, and it is CHECKED rather than assumed, so a
             //    future change that clips a CONTROL instead cannot pass by
             //    quietly satisfying the height bound.
             //
-            //    Down to 1024, the narrowest viewport that still gets the 180px
-            //    sidebar and therefore the worst ratio of chrome to content this
-            //    page ever sees. Note the height check is nearly tautological
-            //    under `nowrap` — it guards a future revert to `wrap`, nothing
-            //    more. `docOverflow` and the per-control clip check are the two
-            //    claims with teeth here, and the `incompressible` budget above
-            //    is what makes them fixture-independent.
-            for (const width of [1440, 1280, 1152, 1024]) {
+            //    `docOverflow` and the per-control clip check are the two claims
+            //    with teeth. The line count guards a future revert to `wrap`,
+            //    nothing more — and it is counted from distinct child CENTRES
+            //    rather than from the row's height, because the `flexItem`
+            //    Dividers stretch to the line and would make a height bound an
+            //    identity.
+            for (const width of [1440, 1280, 1152, 1024, 960, 900]) {
                 await page.setViewportSize({ width, height: 1000 });
                 await expect(page.getByTestId('pipeline-header-row')).toBeVisible();
                 const m = await rowMetrics();
                 // eslint-disable-next-line no-console
                 console.log(`[PIPE-18] header row @${width}px: `
                     + `content=${m.content}px incompressible=${m.incompressible}px `
-                    + `height=${m.rowHeight}px `
+                    + `height=${m.rowHeight}px (scrollbar ${m.scrollbarH}px) `
                     + `(tallest child ${m.tallestChild}px, `
-                    + `title ellipsized=${m.titleClipped})`);
-                expect(m.rowHeight, `the header is ONE line at ${width}px`)
+                    + `title ellipsized=${m.titleClipped}, `
+                    + `band scrolls=${m.scrolls})`);
+                expect(m.lines, `the header is ONE line at ${width}px`).toBe(1);
+                expect(m.rowHeight - m.scrollbarH,
+                    `and the row is no taller than that line at ${width}px`)
                     .toBeLessThanOrEqual(m.tallestChild + 2);
                 expect(m.docOverflow,
                     `the one row does not drag the page sideways at ${width}px`)
@@ -1510,6 +1640,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(counts.total, 'the fixture has requirements to count')
                 .toBeGreaterThan(0);
             const title = String(fixture.models.main.pipeline.title);
+            // `String()` is the wrapper that turns a MISSING field into the
+            // plausible-looking word "undefined", and that is exactly what
+            // happened here: the fixture's model carried no `title` at all, so
+            // step 1 below asserted `toContainText('undefined 37/54')` and this
+            // test failed on every run from the day it was written (req #3261 —
+            // the fixture now carries the title; this line is what stops the
+            // same silence returning).
+            expect(title, 'the fixture model names the plan')
+                .toMatch(/^e2e-\d+-plan .+/);
 
             // 1. THE LIST PAGE, arrived at cold. Its own card format is
             //    unchanged by req #3242 (that requirement touched the DETAIL
@@ -1565,8 +1704,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const key = page.getByTestId('pipeline-viz-legend');
             const reqScale = page.getByTestId('pipeline-viz-legend-reqscale');
             const toggle = page.getByTestId('pipeline-viz-colorkey-toggle');
-            const stateBtn = toggle.locator('button[value="state"]');
-            const machineBtn = toggle.locator('button[value="machine"]');
+            // Chips since req #3261 (S6 — one control vocabulary on the row), so
+            // there is no `button[value=…]` to select on and each option carries
+            // a test id of its own. The tri-state GESTURE and every `aria-pressed`
+            // claim below are unchanged: the exclusive group used to report the
+            // third position through MUI's own `onChange(_, null)`, and the chips
+            // spell the same rule out — clicking the pressed one stores 'none'.
+            const stateBtn = page.getByTestId('pipeline-viz-colorkey-state');
+            const machineBtn = page.getByTestId('pipeline-viz-colorkey-machine');
             const scaleOf = (name: string) =>
                 page.getByTestId(`pipeline-viz-legend-scale-${name}`);
 
@@ -1609,6 +1754,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    colour rather than beside a sample id — asserted through the
             //    fixture's own statuses and through the absence of the sample.
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'true');
+            // …and the group says what it selects (req #3261 P9). Two bare chips
+            // reading "State" and "Machine" name their own VALUES and leave the
+            // axis unstated, which is the same defect "Width: S | M | L" had with
+            // no first option to hide the name in.
+            await expect(toggle, 'the colour group carries its own caption')
+                .toContainText('Colour:');
             const seededStatuses = [...new Set(fixture.models.main.requirements
                 .map((r) => String(r.requirement_status)))];
             expect(seededStatuses.length,
@@ -1711,7 +1862,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    the point of `testIdPrefix`: the control's behaviour is the
             //    same control's behaviour wherever it is mounted.
             await expect(control).toBeVisible();
-            await expect(control).toContainText('Detail:');
+            // "View", not "Detail:" — req #3242's user directive renamed the
+            // caption on this page and did not re-point this assertion, so this
+            // test was failing on master before req #3261 merged into it. The
+            // Build Visualizer still passes `label` unset and gets the "Detail:"
+            // default, which is why the rename was invisible on that side.
+            await expect(control).toContainText('View');
             for (const id of ['auto', '1', '2', '3']) {
                 await expect(page.getByTestId(`pipeline-viz-level-${id}`)).toBeVisible();
             }
