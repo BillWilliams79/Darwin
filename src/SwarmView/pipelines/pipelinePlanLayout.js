@@ -1395,6 +1395,10 @@ export function computePlanLayout(rows, batches, {
             String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
         const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
+        // Every lane this band has ASSIGNED, whether or not the cell was free
+        // when the bead got there. `laneBeads` cannot answer that question —
+        // see the dep-adjacent insertion path below (req #3229).
+        const lanesUsed = new Set();
         const take = (d, lane, occupant) => {
             if (!used.has(d)) used.set(d, new Map());
             const cells = used.get(d);
@@ -1428,8 +1432,31 @@ export function computePlanLayout(rows, batches, {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
-        // A lane is usable only if (1) the cell is free, (2) every same-lane
-        // dependency arc into it crosses only in-chain beads, and (3) — the
+        // A batch RUN, as a raw-lane interval at one column — the box invariant's
+        // half of the bookkeeping (req #3229). `batchBoxes` draws one rect per
+        // (band, column) segment spanning its members' lanes, so the rect
+        // encloses a FOREIGN bead the moment any non-member's lane falls
+        // strictly between two mates' lanes at that column. Contiguity at
+        // allocation time does NOT establish that, because `start + k` is
+        // integer arithmetic over a lane space that is FRACTIONAL until the
+        // ordinal renumber at band close: the dep-adjacent insertion path mints
+        // `(al + below) / 2`, batched steps sort ahead of unbatched ones within
+        // a column, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — a non-member
+        // ordinally between two mates that were adjacent when allocated. Five
+        // steps reproduce it, so this was never a fuzz-only shape.
+        //
+        // This half stops a LATER step entering a published run. The other half
+        // — stopping a run being allocated AROUND a bead already sitting inside
+        // it — is `interiorClear` at the allocation site, and BOTH are needed.
+        const runIntervals = new Map(); // depth -> [{letter, lo, hi}]
+        // The run (of ANOTHER letter) that `lane` falls strictly inside, if any.
+        const enclosingRun = (d, lane, letter) =>
+            (runIntervals.get(d) || []).find((x) =>
+                x.letter !== letter && lane > x.lo && lane < x.hi);
+        // A lane is usable only if (1) the cell is free, (2) it is not inside
+        // another batch's run at this column (req #3229 — `runIntervals` above;
+        // own-letter mates are exempt, they ARE the run), (3) every same-lane
+        // dependency arc into it crosses only in-chain beads, and (4) — the
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
@@ -1439,6 +1466,7 @@ export function computePlanLayout(rows, batches, {
         // two ends.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
+            if (enclosingRun(d, lane, batchOf.get(r.id))) return false;
             for (const a of sameEpicDepsOf(r)) {
                 const al = laneById.get(a.id);
                 if (al === lane && !corridorOk(a, r, lane)) {
@@ -1471,27 +1499,102 @@ export function computePlanLayout(rows, batches, {
         // Same-band batch-mates take a CONTIGUOUS RUN of lanes, allocated when
         // the first mate places: the lowest run of members.length lanes that
         // all pass laneOk (dep-anchored candidates first, so a gate on this
-        // band's lane keeps its straight arc when possible). Mates share one
-        // dep set, so laneOk is member-independent and the pre-check holds for
-        // every mate; the sort keeps mates consecutive, so nothing else places
-        // between the pre-check and the last mate. A batch box therefore
-        // encloses exactly its members — never a foreign bead. (Review found
-        // the earlier next-free-lane packing letting mates spread around an
-        // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
-        const batchRunNext = new Map(); // letter -> next lane in this band's run
+        // band's lane keeps its straight arc when possible). (Review found the
+        // earlier next-free-lane packing letting mates spread around an occupied
+        // lane, boxing unrelated steps in ~15% of multi-batch plans.)
+        //
+        // A CONTIGUOUS RUN IS NOT ON ITS OWN THE BOX INVARIANT, and this comment
+        // used to claim it was — "a batch box therefore encloses exactly its
+        // members" was here, in the present tense, through two review rounds
+        // while being measurably false. Contiguity holds in RAW lane values; the
+        // box is drawn from ORDINALS. Making the box invariant true takes the
+        // run plus `runIntervals` plus `interiorClear`, all three, each for a
+        // different way a foreign bead gets between two mates.
+        //
+        // THE RUN IS PER (BAND, COLUMN), NOT PER BAND — req #3229, and the
+        // difference is a bead drawn on top of another bead. The run used to be
+        // allocated once per letter per band and handed out to every mate
+        // wherever it landed, on two safety arguments that req #3188 falsified
+        // when it regrouped batches on the REMAINING gate instead of a shared
+        // dep set, so mates legitimately sit at different DEPTHS:
+        //
+        //   1. "the pre-check holds for every mate" — it ran `laneOk` at the
+        //      FIRST mate's column. A mate two columns deeper consumed a lane
+        //      nothing had checked there.
+        //   2. "the sort keeps mates consecutive" — the sort is COLUMN first,
+        //      so mates of one letter are consecutive only WITHIN a column. A
+        //      whole second batch's run was allocated in between.
+        //
+        // Measured (fuzz seed 115, `timedFuzzPlans.js`): batch A's four-lane run
+        // was allocated at column 0, batch B's two-lane run at column 0 starting
+        // one lane below it, and at column 2 A's mate 13 and B's mate 11 both
+        // resolved to lane 3. `take()` is a deliberate no-op on an occupied
+        // cell, so the second bead was swallowed in silence. Reproduced with AND
+        // without a time axis — the axis changes which plans reach this, never
+        // whether the path is sound.
+        //
+        // Keying the run on `letter|column` makes BOTH arguments true as
+        // written: the pre-check runs at the column the lanes are consumed in,
+        // it checks each ACTUAL mate rather than assuming a shared dep set, and
+        // within one column same-letter mates ARE consecutive in the sort, so
+        // nothing places between the check and the last mate.
+        //
+        // THAT IS THE CELL INVARIANT ONLY. The BOX invariant needs `runIntervals`
+        // above and does not follow from per-column allocation — allocating
+        // `start + k` leaves the run contiguous in RAW values, and the ordinal
+        // renumber at band close can still slide a later fractional lane between
+        // two mates. Reviewing this change measured it going the wrong way: 38
+        // enclosed non-members over the corpus before, 32 after, with new
+        // instances at seeds 212 and 363 where a fractional dep-anchored `start`
+        // (which per-column allocation reaches far more often, deep columns
+        // being where fractional lanes live) bracketed an unrelated bead.
+        // With `runIntervals` AND `interiorClear`: 0 enclosed non-members over
+        // 40,000 layouts (20,000 generator seeds × axis on/off). `runIntervals`
+        // alone was 0 over the 400-plan corpus but still 7 at that scale — the
+        // scope on a measurement is part of the measurement.
+        const batchRunNext = new Map(); // `letter|column` -> next lane in that run
         for (const r of steps) {
             const d = colOf.get(r.id);
             const letter = batchOf.get(r.id);
             let lane = null;
             if (letter !== undefined) {
-                if (!batchRunNext.has(letter)) {
-                    const n = steps.filter((s) => batchOf.get(s.id) === letter).length;
-                    const runOk = (start) => {
-                        for (let k = 0; k < n; k++) {
-                            if (!laneOk(r, d, start + k)) return false;
+                const runKey = `${letter}|${d}`;
+                if (!batchRunNext.has(runKey)) {
+                    // This column's mates, in the order they will place — the
+                    // sort above is stable and column-major, so `steps` filtered
+                    // this way IS that order.
+                    const mates = steps.filter((s) => batchOf.get(s.id) === letter
+                        && colOf.get(s.id) === d);
+                    const mateIds = new Set(mates.map((m) => m.id));
+                    // THE RUN'S INTERIOR, not just its n lanes. `runIntervals`
+                    // stops a later step entering a published run; this stops a
+                    // run being allocated AROUND a bead that is already there,
+                    // which is the same box defect approached from the other
+                    // side. Checking `start + k` alone cannot see it: with an
+                    // INTEGER start the interior integers are the mates' own
+                    // lanes and nothing foreign can sit between them, but a
+                    // dep-anchored `start` is routinely FRACTIONAL, and then an
+                    // occupant at some other fraction inside `(start, hi)` is
+                    // examined by nothing — `free()` only ever looks at the
+                    // endpoints, and `enclosingRun` cannot help because the
+                    // interval does not exist yet. Nine steps reproduce it
+                    // (see the box tests); measured, it also survived at 7
+                    // cases per 40,000 layouts, none inside the 400-plan
+                    // corpus. Reserved corridor cells are NOT occupants here —
+                    // an arc running through the box crosses no bead.
+                    const interiorClear = (start) => {
+                        const hi = start + mates.length - 1;
+                        for (const v of lanesUsed) {
+                            if (!(v > start && v < hi)) continue;
+                            const o = occupant(d, v);
+                            if (o !== undefined && o !== RESERVED && !mateIds.has(o)) {
+                                return false;
+                            }
                         }
                         return true;
                     };
+                    const runOk = (start) => interiorClear(start)
+                        && mates.every((m, k) => laneOk(m, d, start + k));
                     let start = null;
                     for (const a of sameEpicDepsOf(r)) {
                         const al = laneById.get(a.id);
@@ -1501,10 +1604,17 @@ export function computePlanLayout(rows, batches, {
                         start = 0;
                         while (!runOk(start)) start += 1;
                     }
-                    batchRunNext.set(letter, start);
+                    batchRunNext.set(runKey, start);
+                    // Publish the interval so nothing else lands inside it —
+                    // see `runIntervals`. A one-mate segment spans no gap.
+                    if (mates.length > 1) {
+                        if (!runIntervals.has(d)) runIntervals.set(d, []);
+                        runIntervals.get(d).push(
+                            { letter, lo: start, hi: start + mates.length - 1 });
+                    }
                 }
-                lane = batchRunNext.get(letter);
-                batchRunNext.set(letter, lane + 1);
+                lane = batchRunNext.get(runKey);
+                batchRunNext.set(runKey, lane + 1);
             } else {
                 for (const a of sameEpicDepsOf(r)) {
                     const al = laneById.get(a.id);
@@ -1521,15 +1631,47 @@ export function computePlanLayout(rows, batches, {
                     // fractional during placement (0.5 sits between 0 and 1)
                     // and renumbered ordinally at band close, so a fresh value
                     // carries no cells, no corridors, and always places.
+                    //
+                    // "FRESH" IS DECIDED AGAINST `lanesUsed`, NOT `laneBeads`
+                    // (req #3229) — and this one is LATENT: no plan in the fuzz
+                    // corpus reaches it, before or after the batch-run fix
+                    // above, so it is hardening rather than a measured repro.
+                    // Kept because it is what makes the paragraph above TRUE as
+                    // written. `laneBeads` is populated by `take()`, which is a
+                    // deliberate no-op on an occupied cell, so a bead that
+                    // landed on an already-taken cell is ABSENT from it — a
+                    // later `below` scan steps over that lane and `al + 1`
+                    // resolves onto something that is anything but fresh. (That
+                    // is the mechanism req #3229 was filed against; measuring it
+                    // REFUTED it as this defect's cause, and left it standing as
+                    // a way the invariant could break next.) `lanesUsed` records
+                    // every lane this band has ASSIGNED, however the bead got
+                    // there, so `al + 1` is fresh only when nothing sits above
+                    // `al` at all, and otherwise the midpoint falls strictly
+                    // between two used values with nothing in between.
+                    //
+                    // This is the ONE path that bypasses `laneOk`, so it also
+                    // has to honour `runIntervals` itself. A midpoint can only
+                    // fall inside a run when the ANCHOR does — nothing is used
+                    // strictly between `al` and `below`, so a run bracketing the
+                    // midpoint must have `lo <= al`. Re-anchoring below that
+                    // run's last mate and retrying therefore terminates: the
+                    // anchor moves strictly upward through distinct run ends,
+                    // and there are finitely many runs at this column.
                     const anchors = sameEpicDepsOf(r)
                         .map((a) => laneById.get(a.id))
                         .filter((v) => v !== undefined);
                     if (anchors.length > 0) {
-                        const al = Math.min(...anchors);
-                        const below = [...laneBeads.keys()]
-                            .filter((v) => v > al)
-                            .sort((p, q) => p - q)[0];
-                        lane = below === undefined ? al + 1 : (al + below) / 2;
+                        let al = Math.min(...anchors);
+                        for (;;) {
+                            const below = [...lanesUsed]
+                                .filter((v) => v > al)
+                                .sort((p, q) => p - q)[0];
+                            lane = below === undefined ? al + 1 : (al + below) / 2;
+                            const run = enclosingRun(d, lane, letter);
+                            if (!run) break;
+                            al = run.hi;
+                        }
                     } else {
                         lane = 0;
                         while (!laneOk(r, d, lane)) lane += 1;
@@ -1537,6 +1679,7 @@ export function computePlanLayout(rows, batches, {
                 }
             }
             laneById.set(r.id, lane);
+            lanesUsed.add(lane);
             take(d, lane, r.id);
             // Reserve the corridor of every straight (same-lane) arc into this
             // step, so no LATER chain inherits a lane through it. take() never
