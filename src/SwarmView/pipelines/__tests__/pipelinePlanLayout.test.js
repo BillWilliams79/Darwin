@@ -708,6 +708,53 @@ describe('launch-batch box geometry', () => {
         });
     }
 
+    // ── req #3225 — epic label counts on TOP of long titles + batch letters ──
+    // `crossPlan`'s two epics (47/48 chars) are already close to the worst
+    // realistic case; double-digit counts push them further. THE ACCEPTANCE
+    // CRITERION ITSELF: the zero-overlap invariant must still hold once labels
+    // grow by a count suffix — wider labels COVERED BY the invariant, never
+    // drawn around it.
+    it('appends "met/total" to the band whose epic the map names', () => {
+        const [firstBand] = crossPlan.rows
+            .map((r) => r.epicId).filter((id) => id != null);
+        const epicCounts = new Map([[firstBand, { met: 3, total: 7 }]]);
+        const layout = computePlanLayout(crossPlan.rows, crossPlan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title', epicCounts });
+        const band = layout.bands.find((b) => b.epicId === firstBand);
+        expect(band.epicLabel).toBe(`${band.epic} 3/7`);
+        // THE SAME STRING measures the zero-overlap label rect — not a second,
+        // unchecked rectangle drawn beside the name.
+        const label = layout.labels.find((l) => l.kind === 'epic' && l.epicId === firstBand);
+        expect(label.text).toBe(band.epicLabel);
+        expect(label.w).toBeCloseTo(band.epicLabel.length * EPIC_CHIP_CHAR_W, 6);
+    });
+
+    it('accepts a plain object as well as a Map, matching the reqTitles convention', () => {
+        const [firstBand] = crossPlan.rows
+            .map((r) => r.epicId).filter((id) => id != null);
+        const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, {
+            epicCounts: { [firstBand]: { met: 2, total: 4 } },
+        });
+        const band = layout.bands.find((b) => b.epicId === firstBand);
+        expect(band.epicLabel).toBe(`${band.epic} 2/4`);
+    });
+
+    const WIDE_COUNTS = new Map([[11, { met: 99, total: 100 }], [12, { met: 0, total: 100 }]]);
+    for (const opts of COMBOS) {
+        const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels, counts on`;
+        it(`zero label overlap with long epic titles AND count suffixes (${name})`, () => {
+            const withCounts = computePlanLayout(crossPlan.rows, crossPlan.batches,
+                { ...opts, epicCounts: WIDE_COUNTS });
+            assertNoLabelOverlap(withCounts, name);
+            const beads = [...withCounts.nodes.values()].map(beadRect);
+            for (const label of withCounts.labels) {
+                for (const bead of beads) {
+                    expect(rectsOverlap(label, bead)).toBe(false);
+                }
+            }
+        });
+    }
+
     // Verification-round regression: two batches at the same depth in ONE band.
     // The first packing pass let a batch's mates spread around the other
     // batch's lanes, so its box enclosed all of them. The contiguous-run
@@ -1111,6 +1158,104 @@ describe('floating epic chips (req #3168)', () => {
         expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
             viewport: { w: 0, h: 0 }, worldWidth: layout.width })).toEqual([]);
         expect(placeEpicChips()).toEqual([]);
+    });
+});
+
+describe('epic band label counts, behind a toggle (req #3225)', () => {
+    const VIEWPORT = { w: 1500, h: 900 };
+
+    it('omitting epicCounts leaves every band label exactly as it reads today', () => {
+        const withCounts = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title' });
+        for (const band of withCounts.bands) {
+            expect(band.epicLabel).toBe(band.epic);
+        }
+        const epicLabels = withCounts.labels.filter((l) => l.kind === 'epic');
+        for (const label of epicLabels) {
+            const band = withCounts.bands.find((b) => b.epicId === label.epicId);
+            expect(label.text).toBe(band.epic);
+            expect(label.w).toBeCloseTo(band.epic.length * EPIC_CHIP_CHAR_W, 6);
+        }
+    });
+
+    it('leaves a band untouched when the map carries no entry for its epic', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { epicCounts: new Map([[999999, { met: 1, total: 1 }]]) });
+        for (const band of layout.bands) {
+            expect(band.epicLabel).toBe(band.epic);
+        }
+    });
+
+    it('never suffixes the "No epic" band, even with a non-empty counts map', () => {
+        // A bead with no epic has no requirement set to count against — a
+        // stray "0/0" would claim an answer that does not exist.
+        const reads = {
+            steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto',
+                notes: null, completed_at: '2026-07-01T00:00:00' }],
+            stepRequirements: [], stepDeps: [], requirements: [],
+            features: [], epics: [], machines: MACHINES,
+        };
+        const p = orderedPlan(buildPipelineModel({
+            pipeline: { id: 1, title: 'x', pipeline_status: 'active' }, ...reads,
+        }), { now: NOW });
+        expect(p.rows[0].epicId).toBeNull();
+        const layout = computePlanLayout(p.rows, p.batches,
+            { epicCounts: new Map([[1, { met: 1, total: 1 }]]) });
+        const noEpicBand = layout.bands.find((b) => b.epicId == null);
+        expect(noEpicBand.epicLabel).toBe(noEpicBand.epic);
+    });
+
+    it('placeEpicChips draws the epicLabel text and measures its width, not the bare name', () => {
+        const baseLayout = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title' });
+        const epicCounts = new Map(baseLayout.bands
+            .filter((b) => b.epicId != null)
+            .map((b) => [b.epicId, { met: 9, total: 99 }]));
+        const withCounts = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title', epicCounts });
+        const chips = placeEpicChips({
+            bands: withCounts.bands, transform: { x: 0, y: 0, k: K_READABLE },
+            viewport: VIEWPORT, worldWidth: withCounts.width,
+        });
+        expect(chips.length).toBeGreaterThan(0);
+        for (const chip of chips) {
+            const band = withCounts.bands.find((b) => b.key === chip.key
+                || (b.key == null && chip.key === 'none'));
+            expect(chip.text).toBe(band.epicLabel);
+            if (band.epicId != null) expect(chip.text).toMatch(/ 9\/99$/);
+        }
+    });
+
+    // placeEpicChips is also called directly, in tests and potentially by other
+    // callers, against hand-built band objects that predate this field — the
+    // fallback to `band.epic` must hold so those callers see no behaviour change.
+    it('placeEpicChips falls back to band.epic when a hand-built band omits epicLabel', () => {
+        const [chip] = placeEpicChips({
+            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        expect(chip.text).toBe('X'.repeat(20));
+        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18, 6);
+    });
+
+    it('the toggle is a pure display transform: the ONLY thing that changes '
+        + 'with epicCounts is band.epicLabel and the label/chip rects built from it', () => {
+        const without = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title' });
+        const withCounts = computePlanLayout(plan.rows, plan.batches, {
+            reqLayout: 'vertical', stepLabel: 'title',
+            epicCounts: new Map(without.bands
+                .filter((b) => b.epicId != null)
+                .map((b) => [b.epicId, { met: 1, total: 2 }])),
+        });
+        // Geometry — bead positions, column widths, world size — is untouched.
+        expect(withCounts.width).toBe(without.width);
+        expect(withCounts.colW).toEqual(without.colW);
+        expect([...withCounts.nodes.values()].map((n) => [n.x, n.y]))
+            .toEqual([...without.nodes.values()].map((n) => [n.x, n.y]));
+        expect(withCounts.bands.map((b) => ({ ...b, epicLabel: undefined })))
+            .toEqual(without.bands.map((b) => ({ ...b, epicLabel: undefined })));
     });
 });
 

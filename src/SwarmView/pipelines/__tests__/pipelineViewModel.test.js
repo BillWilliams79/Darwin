@@ -13,6 +13,7 @@ import {
     planRenderRows,
     pipelineSummary,
     pipelineSummaries,
+    pipelineRequirementCounts,
     hiddenPipelineStatusCounts,
     pipelinesEmptyMessage,
     machineTitle,
@@ -25,7 +26,7 @@ import {
     formatTimeGates,
     PLAN_REQUIREMENT_FIELDS,
 } from '../pipelineViewModel';
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from '../pipelineModel';
+import { STEP_DONE, STEP_RUNNING, STEP_PENDING, requirementCounts } from '../pipelineModel';
 import {
     STEPS,
     STEP_REQUIREMENTS,
@@ -184,6 +185,14 @@ describe('orderedPlan — engine run + self-check', () => {
     it('finds no launch batch in the Substrate Rebuild plan', () => {
         expect(plan.batches).toEqual([]);
         expect(plan.batchLetterByStepId.size).toBe(0);
+    });
+
+    it('carries requirementCounts straight from the engine (req #3225)', () => {
+        // No second derivation here — `orderedPlan` must hand back exactly
+        // what `requirementCounts(model)` computes, so the plan header and
+        // the plan visualizer print the same number from the same call.
+        expect(plan.requirementCounts).toEqual(requirementCounts(model()));
+        expect(plan.requirementCounts.overall.total).toBeGreaterThan(0);
     });
 });
 
@@ -370,6 +379,32 @@ describe('pipelineSummary / pipelineSummaries', () => {
 
     it('handles no pipelines at all', () => {
         expect(pipelineSummaries().size).toBe(0);
+    });
+});
+
+describe('pipelineRequirementCounts — the LIST page\'s per-plan met/total (req #3225)', () => {
+    it('matches the whole-plan overall bucket requirementCounts(model) computes', () => {
+        const map = pipelineRequirementCounts({
+            pipelines: [PIPELINE, OTHER_PIPELINE],
+            steps: READS.steps,
+            stepRequirements: READS.stepRequirements,
+            requirements: READS.requirements,
+        });
+        expect(map.get(1)).toEqual(requirementCounts(model()).overall);
+    });
+
+    it('gives a pipeline with no linked requirements an explicit zero, not a missing key', () => {
+        const map = pipelineRequirementCounts({
+            pipelines: [PIPELINE, OTHER_PIPELINE],
+            steps: READS.steps,
+            stepRequirements: READS.stepRequirements,
+            requirements: READS.requirements,
+        });
+        expect(map.get(2)).toEqual({ met: 0, total: 0 });
+    });
+
+    it('handles no pipelines at all', () => {
+        expect(pipelineRequirementCounts().size).toBe(0);
     });
 });
 

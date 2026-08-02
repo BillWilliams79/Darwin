@@ -1032,6 +1032,35 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 
 const reqStr = (row) => (row.reqIds || []).join(' ');
 
+// ── Epic band label text (req #3225) ─────────────────────────────────────
+//
+// THE COUNT SUFFIX IS AN ARGUMENT, NOT A ROW FIELD — the same reasoning as
+// `reqTitles` above: `epicCounts` is display data, and the engine's PlanRows
+// stay untouched by it. Unlike `reqTitles` though, this is measured into the
+// band's own label rectangle rather than a per-requirement mark, because the
+// zero-overlap contract is asserted over `layout.labels` and a count drawn
+// beside the name in a second rectangle would not be covered by it — exactly
+// the failure the requirement calls out by name.
+//
+// Absent for the "No epic" band (epicId null): a bead with no epic has no
+// requirement set to count against, and a stray "0/0" would claim an answer
+// that does not exist. Absent equally when `epicCounts` carries no entry for
+// a real epic — a truncated or stale counts map degrades to the plain name
+// rather than a wrong number.
+//
+// @param {?number} epicId
+// @param {string} epicName
+// @param {?(Map|Object)} epicCounts  epicId -> {met, total}, or null/undefined
+//                                    to leave every band's plain name alone
+// @returns {string}
+function epicBandLabelText(epicId, epicName, epicCounts) {
+    if (!epicCounts || epicId == null) return epicName;
+    const counts = typeof epicCounts.get === 'function'
+        ? epicCounts.get(epicId)
+        : (Object.hasOwn(epicCounts, epicId) ? epicCounts[epicId] : null);
+    return counts ? `${epicName} ${counts.met}/${counts.total}` : epicName;
+}
+
 /**
  * Compute the full Plan-mode layout.
  *
@@ -1047,11 +1076,14 @@ const reqStr = (row) => (row.reqIds || []).join(' ');
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
  *                             bands stack by epic id — see computeTimeColumns.
+ * @param {?(Map|Object)} [opts.epicCounts]  req #3225 — epicId -> {met, total}.
+ *                             Null/omitted (the toggle-off state) leaves every
+ *                             band's label exactly as it reads today.
  * @returns {Object} layout — see the shape assembled at the bottom
  */
 export function computePlanLayout(rows, batches, {
     reqLayout = 'horizontal', stepLabel = 'id', stepWidth = DEFAULT_STEP_WIDTH,
-    reqLabel = 'id', reqTitles = null, timeAxis = null,
+    reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
 } = {}) {
     const safeRows = Array.isArray(rows) ? rows : [];
     const safeBatches = Array.isArray(batches) ? batches : [];
@@ -1207,7 +1239,14 @@ export function computePlanLayout(rows, batches, {
     for (const r of safeRows) {
         const key = r.epicId != null ? r.epicId : null;
         if (!bandByKey.has(key)) {
-            bandByKey.set(key, { key, epicId: key, epic: r.epic || 'No epic', steps: [] });
+            const epic = r.epic || 'No epic';
+            bandByKey.set(key, {
+                key, epicId: key, epic,
+                // req #3225 — the SAME string measures the zero-overlap label
+                // rect and the floating chip; see the helper's own comment.
+                epicLabel: epicBandLabelText(key, epic, epicCounts),
+                steps: [],
+            });
             bandKeys.push(key);
         }
         bandByKey.get(key).steps.push(r);
@@ -1871,9 +1910,14 @@ export function computePlanLayout(rows, batches, {
         });
     }
     for (const band of bands) {
+        // req #3225 — `epicLabel` already carries the count suffix when the
+        // toggle is on (identical to `band.epic` when it is off), so this
+        // rectangle — the one the zero-overlap contract asserts over — grows
+        // to cover it rather than a second, unchecked box drawn beside it.
+        const bandText = band.epicLabel || band.epic;
         labels.push({
-            kind: 'epic', epicId: band.epicId, text: band.epic,
-            x: 12, y: band.y + 6, w: band.epic.length * CHW_EPIC, h: 16,
+            kind: 'epic', epicId: band.epicId, text: bandText,
+            x: 12, y: band.y + 6, w: bandText.length * CHW_EPIC, h: 16,
         });
     }
     // Batch letters live in the reserved header strip of a segment's band —
@@ -2070,7 +2114,12 @@ export function placeEpicChips({
         // measured at the size it is actually drawn — otherwise the shrink would
         // silently re-introduce the over-measurement the width metric fixed.
         const scale = h / labelH;
-        const w = band.epic.length * charW * scale + EPIC_CHIP_PAD_W * scale;
+        // req #3225 — `epicLabel` carries the count suffix when the toggle is
+        // on; hand-built band fixtures that predate the field fall back to
+        // the plain name, so this stays the identity transform for callers
+        // that never set it.
+        const bandText = band.epicLabel || band.epic;
+        const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale;
         const minY = top + 2;
         const maxY = Math.max(minY, laneBottom - h - 2);
         const y = Math.min(Math.max(2, minY), maxY);
@@ -2108,7 +2157,7 @@ export function placeEpicChips({
         out.push({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
-            text: band.epic,
+            text: bandText,
             color: band.color,
             // The band itself, so a click can fit it (req #3204). Carried rather
             // than re-looked-up by key: `band.key` is null for the "No epic"

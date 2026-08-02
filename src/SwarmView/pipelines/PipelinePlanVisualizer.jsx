@@ -241,6 +241,10 @@ export default function PipelinePlanVisualizer({
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
     onEffectiveLevel, onChangeLevelPref,
+    // req #3225 — the page's own persisted toggle. Governs the epic band
+    // label's count suffix here and the plan-name suffix on the page's own
+    // header, from one shared preference.
+    showReqCounts = false,
     // The header's Reset control (req #3216) lives outside this component, in
     // the zoom control group PipelineDetail.jsx owns, so the click has to
     // reach across that boundary. `resetViewNonce` is KonvaBuildCanvas's own
@@ -278,6 +282,18 @@ export default function PipelinePlanVisualizer({
     // `reqLabelText` in the layout module.
     const reqTitles = useMemo(
         () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
+    // req #3225 — the epic->{met,total} lookup `computePlanLayout` measures
+    // into the band label. Built from `plan.requirementCounts.byEpic`, the
+    // SAME derivation `orderedPlan` already ran (design rule 5: no second
+    // pass over the model just to feed this component). `null` while the
+    // toggle is off, so an unlit toggle costs the layout nothing beyond the
+    // one extra memo dependency — every band's label reads exactly as it did
+    // before this requirement.
+    const epicCounts = useMemo(() => {
+        if (!showReqCounts) return null;
+        return new Map((plan.requirementCounts?.byEpic || [])
+            .map((c) => [c.epicId, c]));
+    }, [showReqCounts, plan.requirementCounts]);
     // `plan.timeAxis` (req #3201) is what makes the horizontal axis read as a
     // calendar and stacks the bands by epic start. It comes from `orderedPlan`
     // rather than being derived here for the same reason cost does: two
@@ -285,10 +301,10 @@ export default function PipelinePlanVisualizer({
     const layout = useMemo(
         () => computePlanLayout(rows, plan.batches || [], {
             reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
-            timeAxis: plan.timeAxis || null,
+            timeAxis: plan.timeAxis || null, epicCounts,
         }),
         [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel, stepWidth,
-            reqLabel, reqTitles]);
+            reqLabel, reqTitles, epicCounts]);
 
     // ── The REQUIREMENT-ID channel (req #3119, tri-state req #3168) ─────────
     // Whatever the key, it rides the requirement ids and never the bead: the

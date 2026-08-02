@@ -268,6 +268,17 @@ export default function PipelineDetail() {
     // canvas and the page owns the chrome. That is what buys the visualizer a
     // full-height canvas: every row of chrome it used to carry is now shared.
     const [showCost, setShowCost] = useState(false);
+    // req #3225 — persisted (unlike showCost above) because the SAME toggle
+    // also governs the plan list page's Cards/Table titles, a different page
+    // component that must read the same choice on its own next mount rather
+    // than default back to off. `useViewPreference`'s per-tab sessionStorage
+    // is exactly that: this page writes it, the list page's own hook reads it
+    // fresh when React Router mounts that page. Off by default (the
+    // requirement's own recommendation) so the header row's default width is
+    // unchanged.
+    const [showReqCountsPref, setShowReqCountsPref] = useViewPreference(
+        'darwin-pipeline-req-counts', 'off');
+    const showReqCounts = showReqCountsPref === 'on';
     // Req #3179 — the goal text is behind the header's info button now. Shut it
     // when the route changes plans: this component is re-rendered, not remounted,
     // on an :id change, so an open dialog would otherwise stay open and re-title
@@ -500,6 +511,9 @@ export default function PipelineDetail() {
         () => orderedPlan(model, { now: new Date(), costIndex }),
         [model, costIndex]);
     const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
+    // req #3225 — the whole-plan met/total, read straight off `orderedPlan`'s
+    // own derivation (no second pass over `model`).
+    const planReqCounts = plan.requirementCounts?.overall;
 
     // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
     // and weaker claim ("a slice of this plan is being orchestrated") and is the
@@ -573,7 +587,11 @@ export default function PipelineDetail() {
                       data-testid="pipeline-breadcrumb-list">
                     Pipelines
                 </Link>
-                <Typography variant="body2" color="text.primary">{pipeline.title}</Typography>
+                <Typography variant="body2" color="text.primary">
+                    {pipeline.title}
+                    {showReqCounts && planReqCounts
+                        ? ` ${planReqCounts.met}/${planReqCounts.total}` : ''}
+                </Typography>
             </Breadcrumbs>
 
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
@@ -621,6 +639,8 @@ export default function PipelineDetail() {
 
                 <Typography variant="h6" sx={{ flexShrink: 0 }} data-testid="pipeline-title">
                     {pipeline.title}
+                    {showReqCounts && planReqCounts
+                        ? ` ${planReqCounts.met}/${planReqCounts.total}` : ''}
                 </Typography>
 
                 {/* Accounting — the whole plan, never a filtered view
@@ -637,6 +657,23 @@ export default function PipelineDetail() {
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
+
+                {/* req #3225 — visible in EITHER mode (the plan name reads it
+                    here, the epic band label reads it in Plan mode), so it
+                    lives outside the mode-conditional block below rather than
+                    joining one side of it. */}
+                <Tooltip title={'Show requirements met / total beside the plan '
+                    + 'name and every epic band label'}>
+                    <Button
+                        size="small"
+                        className="cal-toggle-btn"
+                        variant={showReqCounts ? 'contained' : 'outlined'}
+                        onClick={() => setShowReqCountsPref(showReqCounts ? 'off' : 'on')}
+                        data-testid="pipeline-reqcounts-toggle"
+                    >
+                        Counts
+                    </Button>
+                </Tooltip>
 
                 {activeMode === 'table' ? (
                     <Button
@@ -840,6 +877,7 @@ export default function PipelineDetail() {
                              focusEpicId={focusEpicId}
                              costError={!!costError}
                              showCost={showCost}
+                             showReqCounts={showReqCounts}
                              reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
                              stepWidth={stepWidth} reqLabel={reqLabel}
                              levelPref={planLevelPref}

@@ -1250,3 +1250,58 @@ export function aggregateStepCost(step, model, index) {
 export function aggregateRowCost(row, index) {
     return sumReqCost(row && row.reqIds, index);
 }
+
+// ── Requirement counts (req #3225) ──────────────────────────────────────────
+//
+// Met/total requirement counts, per epic and for the whole plan — DERIVED from
+// `model.requirements` alone, the same rows `buildPlanRows` already reads. Zero
+// extra cost: no new gateway read, no per-step fan-out, no stored counter.
+//
+// TRACKING REQUIREMENTS ARE EXCLUDED from both the numerator and the
+// denominator (req #3123's container exemption, matching the exclusion
+// `deriveStepState` applies to a step's gating set). A container carries no
+// acceptance criteria of its own; counting it either way would make a plan
+// that TRACKS ITSELF read as permanently short of — or trivially at — 100%.
+//
+// `wontfix`/`deferred` stay IN THE DENOMINATOR and OUT OF THE NUMERATOR
+// (req #3225's own recommendation): the ratio answers "how much of this is
+// FINISHED", not "how much has stopped moving" — a plan can sit permanently
+// short of its total, and that is the intended reading, not a stall.
+//
+// GROUPED BY THE REQUIREMENT'S OWN feature_fk -> epic chain, deliberately not
+// the step's dominant epic (rule 10's tie-break answers a different question —
+// which ONE epic a multi-requirement step bands under for display — while a
+// met/total count is a property of the requirement itself, independent of
+// which step happens to link it, or whether any step links it at all).
+//
+// `byEpic` is an ARRAY, not a Map, for the same reason `epicLabels` is: a Map
+// is not JSON-stable across the two engines (Python dict keys stringify, a JS
+// Map does not survive JSON at all), and the conformance corpus compares this
+// output for exact equality. Sorted by epic id ascending for a deterministic
+// order — nothing here depends on discovery order the way band colour does.
+//
+// @param {PipelineModel} model
+// @returns {{overall: {met: number, total: number},
+//            byEpic: {epicId: number, met: number, total: number}[]}}
+export function requirementCounts(model) {
+    const featuresById = indexById(model.features);
+    const overall = { met: 0, total: 0 };
+    const byEpic = new Map();
+    for (const req of (model && model.requirements) || []) {
+        if (!req || isTrackingRequirement(req)) continue;
+        const met = req.requirement_status === 'met';
+        overall.total += 1;
+        if (met) overall.met += 1;
+        const feature = req.feature_fk != null ? featuresById.get(req.feature_fk) : null;
+        const epicId = feature && feature.epic_fk != null ? feature.epic_fk : null;
+        if (epicId == null) continue;
+        const bucket = byEpic.get(epicId) || { epicId, met: 0, total: 0 };
+        bucket.total += 1;
+        if (met) bucket.met += 1;
+        byEpic.set(epicId, bucket);
+    }
+    return {
+        overall,
+        byEpic: [...byEpic.values()].sort((a, b) => a.epicId - b.epicId),
+    };
+}
