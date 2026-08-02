@@ -347,25 +347,54 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // themes by design (see PipelinePlanVisualizer's header — "the directive is to
 // keep THIS page's look"). A theme branch here could never fire, so writing one
 // would be dead code claiming to handle a case that does not exist.
-// ── How WIDE the on-screen key may be, and why that is the only limit ──────
-// The key's measured rect is the keep-out `placeEpicChips` displaces the
-// floating epic names around, and that displacement is HORIZONTAL ONLY by
-// design — moving a chip vertically would put it on another band's line, which
-// is a wrong label rather than a missing one. So the key's WIDTH is its entire
-// cost to the epic labels and its HEIGHT is free.
+// ── How WIDE the on-screen key may be, and why the cap is on width ─────────
+// The key's measured rect is the keep-out `placeEpicChips` resolves the epic
+// names against, and the resolution is HORIZONTAL ONLY by design — moving a
+// chip vertically would put it on another band's line, which is a wrong label
+// rather than a missing one.
 //
-// MEASURED on the Substrate fixture (3000×1592 world, 4 bands) over
-// k ∈ {0.2 … 2} × 4 pans × 6 x-offsets, 233 chips drawn, against the ~420×30
-// bead legend this key replaces:
+// SINCE req #3257 that resolution is a CLIP-OR-DROP, not a displacement: an
+// epic name is pinned to its own band's rectangle and may not slide sideways
+// out of it, so the width that would run under the key is cut off and a chip
+// with less than a few characters left is dropped outright.
 //
-//   width  300 340 380 420 | 500 600 700
-//   lost     0   0   0   0 |   1   8-10  15-20     (at EVERY height 30…180)
+// **THE OLD INVARIANT — "the key's WIDTH is its entire cost; its HEIGHT is
+// free" — IS FALSE UNDER THAT RULE AND IS NOT CARRIED FORWARD.** It was a
+// property of the displacement pass: a chip that met the key slid sideways and
+// still drew, so a taller key only changed WHICH chips moved. With nowhere to
+// slide, a taller key exposes more band rows to the keep-out and those chips
+// are lost.
 //
-// Zero chips lost at any height up to 180px while the width stays ≤ 420. That
-// is why the complete key is laid out as one row per CHANNEL stacked
-// vertically rather than as one long wrapping line: the shape that costs
-// nothing is TALL AND NARROW, and the shape the old legend had (`maxWidth:
-// '70%'`, i.e. up to ~1050px) is the one that drops epic names.
+// **AND THE KEY MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed both
+// the magnitude and which axis is steeper. RE-MEASURED 2026-08-02 on the
+// Substrate fixture (1500×900 panel) over k ∈ {0.2 … 2} × 4 pans × 29
+// x-offsets, 1566 chips drawn with no key, against the CURRENT bottom-center
+// geometry:
+//
+//   at w=470   height    30    60   100   140   180
+//              dropped   11    22    44    55    77
+//
+//   at h=30    width     90   300   420   470   600   900  1100
+//              dropped    3     7    10    11    13    19    23
+//
+// Two consequences, both the reverse of the top-right era:
+//
+//   1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A name
+//      is pinned to its band's LEFT edge, and a bottom-center box is no longer
+//      where those names land.
+//   2. HEIGHT IS NOW THE STEEPER AXIS — 66 names across the height range against
+//      20 across the width range — because a bottom-anchored box grows UPWARD
+//      into more band rows while its width only spans the panel's middle.
+//
+// So `PLAN_KEY_MAX_W` now caps the CHEAPER dimension. Not a regression — the
+// cap predates the move and the key is far cheaper overall — but it is no
+// longer the defence it was named for, and a bottom-center key's honest guard
+// would be on HEIGHT. Recorded here rather than silently re-asserted; changing
+// the cap belongs to req #3255's surface. Every number above is asserted in
+// `pipelinePlanLayout.test.js` (monotone in each dimension, height strictly
+// steeper than width, and the move strictly cheaper than the top-right key), so
+// they are measured rather than remembered — and the inversion fails loudly if
+// the key moves again.
 //
 // RAISED TO 470 on the user's directive (2026-08-01): "make the key wide enough
 // to fit the whole row of requirement statuses… the word requirement on one line
@@ -1300,9 +1329,8 @@ export function computePlanLayout(rows, batches, {
     // req #3226 — a band is PAUSED when the whole plan is paused (every band
     // suppressed alike, "No epic" included — pause is a plan-wide fact there
     // too) OR when this band's OWN epic is paused. Resolved once, here, rather
-    // than at render time in every consumer of `band` (the natural chip loop,
-    // the sticky pass, and any future one), the same reasoning `bandStartOf`
-    // below is memoized for.
+    // than at render time in every consumer of `band`, the same reasoning
+    // `bandStartOf` below is memoized for.
     const pausedEpicIdSet = new Set(pauseInfo?.pausedEpicIds || []);
     const planPaused = !!pauseInfo?.pipelinePaused;
     const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
@@ -1835,50 +1863,36 @@ export function computePlanLayout(rows, batches, {
             const x2 = b.x - BEAD_R - 1;
             const y2 = b.y;
             if (y1 === y2) {
-                // A 1px-tall AABB — see `bbox` below — so a degenerate straight
-                // arc still has SOME height for the sticky-chip avoidance check
-                // (req #3210) to test against, rather than a zero-height rect
-                // that can only ever collide by exact-Y coincidence.
                 arcs.push({
                     fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2,
-                    bbox: { x: Math.min(x1, x2), y: y1 - 1, w: Math.abs(x2 - x1), h: 2 },
                 });
                 continue;
             }
             const sameBand = a.bandIndex === b.bandIndex;
             const late = sameBand
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
+            // The arc carried a `bbox` (the convex hull of its own Bézier
+            // control points) from req #3210 until req #3257: its ONLY consumer
+            // was `collectWorldObstacles`, feeding the sticky epic chips'
+            // avoidance pass, and both are gone — an epic name is pinned to its
+            // band's rectangle now and draws OVER whatever it crosses. Computed
+            // on every arc of every layout, it was dead weight the moment that
+            // pass was, so it goes with it rather than waiting to be rediscovered
+            // as a field nobody reads.
             let path;
-            // `pts` is every X/Y pair the SVG path string below is built from —
-            // start, both cubic controls, and end. A cubic Bézier always lies
-            // within the convex hull of its control points (never bulges past
-            // them), so min/max over this exact set is a CONSERVATIVE but
-            // never-too-small bounding box (req #3210's `bbox`, below) — no
-            // curve sampling required, and it can only over- rather than
-            // under-estimate what the arc occupies on screen.
-            let pts;
             if (late) {
                 const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 const xb = Math.max(x1, x2 - bend);
                 path = `M${x1},${y1} L${xb},${y1} C${xb + bend * 0.45},${y1} `
                     + `${xb + bend * 0.55},${y2} ${x2},${y2}`;
-                pts = [[x1, y1], [xb, y1], [xb + bend * 0.45, y1], [xb + bend * 0.55, y2], [x2, y2]];
             } else {
                 const bend = Math.min((colW[a.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
                     + `${x1 + bend},${y2} L${Math.max(x2, x1 + bend)},${y2}`;
-                pts = [[x1, y1], [x1 + bend * 0.45, y1], [x1 + bend * 0.55, y2],
-                    [x1 + bend, y2], [Math.max(x2, x1 + bend), y2]];
             }
-            const xs = pts.map((p) => p[0]);
-            const ys = pts.map((p) => p[1]);
-            const bbox = {
-                x: Math.min(...xs), y: Math.min(...ys),
-                w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
-            };
             arcs.push({
                 fromId: dId, toId: r.id, straight: false,
-                route: late ? 'late' : 'early', x1, y1, x2, y2, path, bbox,
+                route: late ? 'late' : 'early', x1, y1, x2, y2, path,
             });
         }
     }
@@ -2250,40 +2264,75 @@ export function computePlanLayout(rows, batches, {
     };
 }
 
-// ── Floating epic chips (req #3119, de-collided req #3168) ─────────────────
-// The epic name rides its band's header strip and clamps to the top of the
-// viewport while any part of the band is on screen. This function is the whole
-// placement decision, in SCREEN space, as a pure function of the world transform
-// — it lives here rather than in the component for the same reason every other
-// rectangle in this module does: overlap is a geometric property and it should be
-// decidable in vitest without mounting a canvas.
+// ── Floating epic chips (req #3119, de-collided #3168, RE-RULED req #3257) ─
+// The epic name rides its band's own rectangle and clamps to the visible
+// content area while any part of that rectangle is on screen. This function is
+// the whole placement decision, in SCREEN space, as a pure function of the world
+// transform — it lives here rather than in the component for the same reason
+// every other rectangle in this module does: overlap is a geometric property and
+// it should be decidable in vitest without mounting a canvas.
 //
-// THE COLLISIONS req #3168 NAMES, and which of them was actually measured:
+// ONE RULE, and it is the whole behaviour (user directive 2026-08-02, req #3257):
 //
-//   · CHIP UNDER THE LEGEND — real on the live band geometry. The chip clamps
-//     into the part of its band that is on screen, and the legend floats over the
-//     panel's top-right corner; a right-panned or narrow-on-screen band puts the
-//     two in the same place. Measured under the pre-#3168 rule: 280 hits over
-//     k ∈ [0.05, 2.5] × four pans against a 420px legend.
-//   · CHIP ON CHIP — reachable, but NOT on the Substrate fixture. The chip is
-//     sized in SCREEN px while the header strip reserving room for it is WORLD
-//     px, so below some k the strip is shorter than the chip and it hangs past
-//     its own band onto the next band's. The fixture never gets there: its bands
-//     are 160–604 world px tall and 294+ apart, and by the k where that spacing
-//     falls under 24px the chips are already suppressed for want of width. A plan
-//     of MANY SHORT bands — one-lane steps, ~150px each — does get there; that
-//     shape collides 70 times over k ∈ [0.05, 0.5] under the old rule, and it is
-//     the case the vitest sweep constructs.
+//   THE NAME IS DRAWN AT THE TOP-LEFT CORNER OF THE INTERSECTION OF ITS BAND'S
+//   RECTANGLE WITH THE VISIBLE CONTENT AREA, CARRYING THE SAME MARGIN IT WOULD
+//   HAVE FROM THE BAND'S OWN TOP-LEFT CORNER.
 //
-// The fix is a placement pass, not a taller header: the header is world geometry
-// and making it big enough for a screen-sized chip at every k means making it
-// absurd at k=1. Obstacles (already-placed chips, plus the legend's measured
-// rect) are avoided by HORIZONTAL displacement — the chip stays on its own band's
-// line, which is the only line that identifies it correctly — and a chip with
-// nowhere left to go is DROPPED rather than drawn wrong. Dropping is honest here:
-// the band it belongs to is on its way off-screen or squeezed to nothing in every
-// case that reaches it, and a mislabelled band is worse than an unlabelled one.
+// In two expressions, per band, with the band's screen rect `left/right/top/
+// bottom` and the visible content area `0..vw × topInset..vh`:
+//
+//   x = min( max(left, 0)     + CHIP_MARGIN_X , right  - CHIP_MARGIN_X - w )
+//   y = min( max(top, topInset) + CHIP_MARGIN_Y , bottom - CHIP_MARGIN_Y - h )
+//
+// The first term of each `min` is the clamp — panning down or right slides the
+// name along its own rectangle's edge and parks it at the viewport's. The second
+// is what makes the name LEAVE WITH ITS BAND rather than linger at the clamp
+// line: as the band's bottom (or right) edge reaches the clamp, the name is
+// pushed off by its own rectangle. **The name never escapes its band, on any
+// edge, at any zoom or pan** — and when the band is gone, the name is gone.
+//
+// WHAT THIS REPLACES, and why it is FEWER moving parts rather than more:
+//
+//   · #3168's OBSTACLE-DRIVEN HORIZONTAL DISPLACEMENT SEARCH is GONE. Under the
+//     rule above x is fully determined by the rectangle and the viewport, so
+//     there is nothing left for a candidate search to decide — and a name that
+//     wandered sideways out of its own rectangle was the defect being fixed, not
+//     a collision being avoided. The chip draws on a 60%-opaque panel; where it
+//     crosses a bead, an arc or a step label it draws OVER it, deliberately.
+//   · #3210's NEIGHBOUR-ONLY STICKY PASS is GONE, subsumed: clause 2 now applies
+//     to EVERY band, so a focused band's neighbours keep their names by the same
+//     rule as everything else instead of by a special case. Its guarantee is
+//     re-asserted in vitest against the new rule rather than assumed.
+//   · CHIP-ON-CHIP OVERLAP is now IMPOSSIBLE BY CONSTRUCTION rather than avoided
+//     by a pass. Bands never overlap in world Y; the chip is sized to its band's
+//     own epic lane (`h + 2·CHIP_MARGIN_Y ≤ epicLaneH·k ≤ band.height·k`) and
+//     clamped inside its band's rectangle — so two chips would have to share a
+//     rectangle to touch. The sweep asserts it; the geometry is what guarantees
+//     it.
+//
+// WHAT SURVIVES:
+//
+//   · THE PER-BAND SCALE SHRINK. The chip is a fixed SCREEN height and the epic
+//     lane reserving room for it is WORLD px, so below some k the lane is
+//     genuinely shorter on screen than the chip. Shrinking is the only move that
+//     keeps the name out of lane 0's step labels at every k, and it degrades
+//     honestly. Below `EPIC_CHIP_MIN_H` the chip is DROPPED rather than drawn
+//     over the first row of steps.
+//   · THE LEGEND'S MEASURED KEEP-OUT — the one obstacle that may still bind.
+//     Resolved by CLIPPING the chip's width at the key's edge, and by dropping it
+//     when too little of the NAME is left to read; NEVER by sliding it sideways
+//     out of its own rectangle. The PANEL'S OWN RIGHT EDGE is resolved the same
+//     way and by the same code, because the reader cannot tell the two apart —
+//     and because dropping at one while clipping at the other let the key SAVE a
+//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_W` for what
+//     the key costs, re-measured: "the key's height is free" was a property of
+//     the displacement pass and is FALSE under clip-or-drop.
 const CHIP_PAD = 8;
+// The margins the name carries from its rectangle's corner — the SAME numbers
+// the chip has always been inset by, now named because the rule above is stated
+// in terms of them on both axes and at both ends.
+const CHIP_MARGIN_X = 6;
+const CHIP_MARGIN_Y = 2;
 
 // The chip's own metrics, OWNED HERE (review finding). The component used to
 // carry its own `CHAR_W = 7.3`, a leftover from the pre-type-scale 12px chip,
@@ -2303,20 +2352,22 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // (review finding, req #3210): the control is a fixed `fontSize: 12` glyph
 // plus its own padding and the chip's `gap`, none of which shrinks when the
 // chip does, unlike the name text `EPIC_CHIP_PAD_W` already accounts for. A
-// natural chip has never needed this reserved — it is checked only against
-// the legend and other chips, both comfortably clear at the sizes this
-// surface reaches in practice — but a STICKY chip (`placeEpicChips`, below)
-// is checked against beads, arcs and labels it can end up flush against, so
-// leaving the control unmeasured there is the exact under-measurement bug
-// this module's own header comment warns about, just for a different mark.
+// natural chip did not use to have this reserved — under #3168 it was checked
+// only against the legend and other chips, both comfortably clear at the sizes
+// this surface reaches in practice.
+//
+// req #3257 RESERVES IT ON EVERY CHIP. The measured box is now the thing that
+// keeps the name INSIDE ITS OWN RECTANGLE (and clear of the key), not merely
+// clear of some other floating chip — so 24 unmeasured px is 24 px of name that
+// can hang past the band's right edge or under the key, which is the exact
+// under-measurement bug this module's own header comment warns about.
 export const EPIC_CHIP_OPEN_LINK_W = 24;
 // The pause status bubble (req #3226) — a small filled circle immediately left
 // of the epic name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
 // the chip's own flex `gap`, neither of which shrinks with the chip.
 //
-// UNLIKE the ↗ control, this one IS added to the natural (non-sticky) chip's
-// measured width, not only the sticky one — the requirement calls this out by
+// The requirement calls this out by
 // name ("a bubble is width the label did not have before") because, unlike
 // the ↗ link, the bubble renders on EVERY band unconditionally (the ↗ link is
 // absent for the "No epic" band; the bubble is not carved out for it because
@@ -2329,6 +2380,20 @@ export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
 // and the layout would rather draw a small legible-ish chip inside its own lane
 // than a full-size one over the first row of steps.
 export const EPIC_CHIP_MIN_H = 11;
+// The floor a CLIPPED chip stops at (req #3257), stated in CHARACTERS OF THE
+// NAME rather than in pixels — that is the thing the chip exists to show. The
+// key's keep-out is resolved by cutting the chip's width off at the key's edge
+// (never by sliding it out of its own rectangle), and a chip clipped to its
+// padding plus the pause dot would render THE DOT AND NOTHING ELSE: box, border,
+// colour, and none of the name. That is not "a bit of the name", it is a
+// different mark. Dropping is the honest outcome there, exactly as it is below
+// `EPIC_CHIP_MIN_H`.
+//
+// The floor is applied SCALED, in the same units as the chip's own measured
+// width (`EPIC_CHIP_PAD_W * scale + … + n * charW * scale`) — comparing a
+// scaled box against an unscaled floor is the units error this module's header
+// warns about, just with the operands swapped.
+export const EPIC_CHIP_MIN_CHARS = 3;
 // Background opacity of the chip (user directive 2026-08-01: 40% transparent,
 // i.e. 60% opaque). It was fully opaque, which read as a solid tile punched into
 // the plan; at 0.6 the band beneath shows through as tint while the name still
@@ -2336,178 +2401,176 @@ export const EPIC_CHIP_MIN_H = 11;
 export const EPIC_CHIP_BG_ALPHA = 0.6;
 
 /**
- * Every world-space rect currently DRAWN on this surface — bead footprints
- * (widened to the eligible-step halo where the engine says a step is
- * launchable now), batch-box outlines, every dependency arc's `bbox`, and
- * whichever labels the caller's OWN `drawsKind` says the current semantic
- * level actually draws (req #3210's `placeEpicChips` sticky chips are the
- * consumer — see that function's own comment for why this assembly cannot
- * live inside it).
+ * Where every epic band's name is drawn, in SCREEN px.
  *
- * PURE and exported rather than inlined in the component, so the level gate
- * — otherwise only provable by rendering `PipelinePlanVisualizer.jsx` — is a
- * testable property of plain data instead. `drawsKind` defaults to "draw
- * everything", the conservative superset a caller with no notion of semantic
- * level (a test, a hand-built probe) should get rather than a silent
- * under-count; `eligibleStepIds` defaults to none, since a caller that omits
- * it has no eligibility concept to widen the footprint for.
+ * ONE RULE — see this section's header comment: the top-left corner of the
+ * INTERSECTION of the band's rectangle with the visible content area, plus the
+ * margin the name would carry from the band's own corner, clamped so the name
+ * never escapes its rectangle on the far edge of either axis.
  *
- * `kind: 'epic'` labels are excluded outright, unconditionally: they are
- * NEVER drawn in the world at all (an HTML overlay draws the name instead —
- * see the `kind === 'epic'` no-op in the component's own world-node loop), so
- * including them would avoid a mark that is not actually there.
- *
- * `kind: 'slot'` labels (the time ruler, req #3207) are excluded for the SAME
- * reason, since req #3254: the ruler now draws in a Group anchored at
- * `stickyRulerY(t)`, not `t.y` (it pins to the viewport top instead of
- * scrolling with the world) — a DIFFERENT transform than every other label
- * this function assumes. Reporting `{x: l.x, y: l.y, ...}` here is a world
- * coordinate `placeEpicChips` then projects with the ORDINARY `t.y + y·k`
- * formula, which only agrees with where a slot label actually draws while
- * `t.y >= 0`; the moment the strip pins (`t.y < 0`) the reported rect drifts
- * from the real one by the exact pin distance, silently clearing a box a
- * sticky epic chip can then land on. There is no world-space rect this
- * function could report that `placeEpicChips`' transform would project
- * correctly at every `t.y` — the sticky strip is screen-anchored, full stop
- * — so, like the epic label, it is left out rather than reported wrong.
- * (Which means a sticky/natural epic chip can currently land on a ruler
- * label — the concurrent req #3257 is what clamps epic names below the
- * strip via `rulerScreenBottom`; this function only has to stop lying about
- * where the label is, not solve that placement itself.)
- *
- * @param {Object} layout `computePlanLayout`'s own return value
  * @param {Object} [args]
- * @param {(kind: string) => boolean} [args.drawsKind]
- * @param {?Set<number>} [args.eligibleStepIds]
- * @returns {{x:number,y:number,w:number,h:number}[]}
+ * @param {Object[]} [args.bands] `computePlanLayout().bands`, top-to-bottom
+ * @param {{x:number,y:number,k:number}} [args.transform] the world transform
+ * @param {{w:number,h:number}} [args.viewport] the panel's measured size
+ * @param {number} [args.worldWidth] `computePlanLayout().width`
+ * @param {number} [args.labelH] the chip's unscaled screen height
+ * @param {number} [args.charW] px per character at that height
+ * @param {?{x:number,y:number,w:number,h:number}} [args.keepOut] the on-screen
+ *   key's measured rect — clipped against, never displaced around
+ * @param {number} [args.topInset] the bottom edge, in SCREEN px, of whatever
+ *   chrome is PINNED above the plan. The name stops just BELOW it, never
+ *   underneath it (clause 2). On the plan panel this is req #3254's pinned time
+ *   ruler and the caller passes `rulerScreenBottom(t)` — the ONE readable number
+ *   that requirement exposes for exactly this, rather than a guessed offset; it
+ *   scales with zoom because the strip's own ticks and text do. 0 means "the top
+ *   of the panel is the top of the content area" and is the right answer only
+ *   for a caller with no pinned chrome at all.
+ * @returns {Object[]} one entry per band with a name on screen
  */
-export function collectWorldObstacles(layout, { drawsKind = () => true, eligibleStepIds = null } = {}) {
-    const out = [];
-    for (const n of (layout?.nodes || new Map()).values()) {
-        const r = eligibleStepIds?.has(n.id) ? NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2 : BEAD_R;
-        out.push({ x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r });
-    }
-    for (const l of layout?.labels || []) {
-        if (l.kind === 'epic' || l.kind === 'slot' || !drawsKind(l.kind)) continue;
-        out.push({ x: l.x, y: l.y, w: l.w, h: l.h });
-    }
-    for (const a of layout?.arcs || []) {
-        if (a.bbox) out.push(a.bbox);
-    }
-    // Batch boxes carry `width`/`height`, not `w`/`h` (`computePlanLayout`'s
-    // own field names for them) — normalized here to the one obstacle shape
-    // this function promises.
-    for (const b of layout?.batchBoxes || []) {
-        out.push({ x: b.x, y: b.y, w: b.width, h: b.height });
-    }
-    return out;
-}
-
 export function placeEpicChips({
     bands = [], transform, viewport, worldWidth,
     labelH = EPIC_CHIP_H, charW = EPIC_CHIP_CHAR_W, keepOut = null,
-    worldObstacles = [],
+    topInset = 0,
 } = {}) {
     const t = transform || { x: 0, y: 0, k: 1 };
     const vw = viewport?.w || 0;
     const vh = viewport?.h || 0;
-    if (!(t.k > 0) || vw <= 0 || vh <= 0) return [];
+    // `worldWidth` is guarded like the transform and the viewport, and for the
+    // same reason: without it the band's right edge is NaN, every comparison
+    // below is silently false, and the function emits chips with `x: NaN` that
+    // the renderer turns into `left: NaN`. Refusing is what the other two
+    // degenerate inputs already do.
+    if (!(t.k > 0) || vw <= 0 || vh <= 0 || !(worldWidth > 0)) return [];
+    // The VISIBLE CONTENT AREA: the panel minus whatever is pinned above the
+    // plan. A negative or absurd inset is nonsense rather than a clamp to
+    // nothing, so it is bounded here once instead of at every use.
+    const viewTop = Math.min(Math.max(0, topInset), vh);
+    if (viewTop >= vh) return [];
 
-    // Obstacles accumulate as chips place, so band order (top to bottom) is also
-    // priority order: an upper band keeps its natural position and a lower one
-    // moves. Deterministic, and it matches how the plan reads.
-    const obstacles = keepOut ? [{ ...keepOut }] : [];
-    const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w
-        && a.y < b.y + b.h && b.y < a.y + a.h;
     const out = [];
-    // Which bands actually got their OWN chip drawn (req #3210) — the sticky
-    // pass below reads this rather than re-deriving "visible" from scratch; see
-    // that section's own comment for why a geometric visibility test isn't the
-    // same question.
-    const placedAt = new Array(bands.length).fill(false);
 
-    for (let bi = 0; bi < bands.length; bi++) {
-        const band = bands[bi];
+    // The band rectangle's x-extent is the SAME one the canvas draws (`x={2}`,
+    // `width={layout.width - 4}` in the component's band Rects) — every band
+    // shares it, so it is hoisted out of the loop.
+    const left = t.x + 2 * t.k;
+    const right = t.x + (worldWidth - 2) * t.k;
+
+    for (const band of bands) {
         const top = t.y + band.y * t.k;
         const bottom = t.y + (band.y + band.height) * t.k;
-        // The EPIC LANE's bottom, not the header's: a lane-0 step label reaches
-        // back up into the header, so `headerH` overstates the clear strip by
-        // `STEP_LABEL_RISE` (+ the stagger). `epicLaneH` is the derived clear
-        // height; the fallback keeps this function usable with hand-built bands.
+
+        // THE INTERSECTION. Empty on either axis means the band has no pixel in
+        // the content area — and a name whose band is not on screen is a name
+        // for nothing, so there is nothing to draw and nothing to clamp.
+        const ix0 = Math.max(left, 0);
+        const ix1 = Math.min(right, vw);
+        const iy0 = Math.max(top, viewTop);
+        const iy1 = Math.min(bottom, vh);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+
+        // SIZE — from the band's own EPIC LANE, unchanged from req #3168. The
+        // lane is the reserved strip above lane 0 that no step content can
+        // reach; the fallback keeps this function usable with hand-built bands.
+        // Note this is pan-INDEPENDENT (`laneBottom - top` is `epicLaneH · k`),
+        // so the chip's size is a function of zoom alone — the clamp below moves
+        // the name, it never resizes it.
         const laneBottom = t.y + (band.y + (band.epicLaneH ?? band.headerH)) * t.k;
-        const left = t.x + 2 * t.k;
-        const right = t.x + (worldWidth - 2) * t.k;
-        // Off-screen on EITHER axis means no chip. Vertical alone was not
-        // enough: panning far right leaves a band's rectangle entirely to the
-        // left of the panel, and clamping x into a rectangle that is off-screen
-        // puts the chip off-screen with it.
-        if (bottom < 0 || top > vh) continue;
-        if (right < 0 || left > vw) continue;
-
-        // VERTICAL: confined to the band's own EPIC LANE — the reserved strip
-        // above lane 0, which by construction holds no step content.
-        //
-        // THE CHIP IS SCALED TO THE LANE, not merely clamped into it (req #3168,
-        // user directive: the epic must never ride in the top steps' lane). The
-        // lane is world geometry and the chip is screen geometry, so below
-        // k ≈ labelH/BAND_HEADER the lane is genuinely shorter on screen than the
-        // chip and no clamp can help: pinning to the strip's top puts the
-        // overflow onto lane 0's step labels, which is the collision. Shrinking
-        // is the only move that keeps the guarantee at EVERY k, and it degrades
-        // honestly — the name stays where it belongs and gets smaller, which is
-        // what zooming out means everywhere else on this surface.
         const laneH = Math.max(0, laneBottom - top);
-        const h = Math.max(EPIC_CHIP_MIN_H, Math.min(labelH, laneH - 4));
+        // Too little lane to draw a legible chip in. Dropping is what #3168
+        // already did here and the requirement keeps it: the alternative is the
+        // epic name over the first row of step labels, which is the collision
+        // the lane exists to prevent.
+        if (laneH - 2 * CHIP_MARGIN_Y < EPIC_CHIP_MIN_H) continue;
+        const h = Math.min(labelH, laneH - 2 * CHIP_MARGIN_Y);
         // Font and character width track the box, so a scaled chip's WIDTH is
-        // measured at the size it is actually drawn — otherwise the shrink would
-        // silently re-introduce the over-measurement the width metric fixed.
+        // measured at the size it is actually drawn.
         const scale = h / labelH;
-        // req #3225 — `epicLabel` carries the count suffix when the toggle is
-        // on; hand-built band fixtures that predate the field fall back to
-        // the plain name, so this stays the identity transform for callers
-        // that never set it.
+        // req #3225 — `epicLabel` carries the met/total suffix when the toggle
+        // is on; band fixtures that predate the field fall back to the plain
+        // name, so this stays the identity transform for callers that never set
+        // it.
         const bandText = band.epicLabel || band.epic;
-        // req #3226 — the pause bubble's flat footprint, added BEFORE anything
-        // is checked against beads/arcs/labels, matching the ↗ control's own
-        // discipline at the sticky site below (this chip always carries it,
-        // unlike the ↗, which is absent for the "No epic" band).
-        const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+        // The two FLAT, unscaled reservations: the ↗ control (only rendered when
+        // there is an epic to open) and the pause bubble (rendered on every
+        // band, "No epic" included). Neither shrinks with the chip, and both are
+        // in the measured box before anything is clamped or clipped against it.
+        const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
-        const minY = top + 2;
-        const maxY = Math.max(minY, laneBottom - h - 2);
-        const y = Math.min(Math.max(2, minY), maxY);
-        // WHOLLY on screen, and wholly inside its own lane, or not at all.
-        if (y < 0 || y + h > vh) continue;
-        if (y + h > laneBottom + 0.01) continue;
-        // Confine to the part of the band that is BOTH inside the rectangle and
-        // on screen: clamping to the rectangle alone hangs the chip off the panel
-        // edge, clamping to the panel alone puts it outside the rectangle.
-        const minX = Math.max(0, left) + 6;
-        const maxX = Math.min(right, vw) - 6 - w;
-        if (maxX < minX) continue;
-        const x0 = Math.min(Math.max(minX, left + 6), maxX);
 
-        // Candidate positions, nearest-first: the natural one, then flush right
-        // of each obstacle, then flush left of each. Displacement is horizontal
-        // only — the vertical clamp above is what makes the chip mean its own
-        // band, and moving it off that line would be a wrong label rather than a
-        // missing one.
-        const candidates = [x0];
-        for (const o of obstacles) {
-            candidates.push(o.x + o.w + CHIP_PAD, o.x - CHIP_PAD - w);
-        }
-        let placed = null;
-        for (const cx of candidates.sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0))) {
-            if (cx < minX || cx > maxX) continue;
-            const rect = { x: cx, y, w, h };
-            if (obstacles.some((o) => hits(rect, o))) continue;
-            placed = rect;
-            break;
-        }
-        if (!placed) continue;   // nowhere honest left — see the header comment
+        // ── THE RULE ────────────────────────────────────────────────────────
+        // First term: the intersection's own corner, plus the margin. Second:
+        // the band's far edge, so the name is pushed off BY ITS OWN RECTANGLE
+        // as that rectangle leaves, instead of lingering at the clamp line.
+        const x = Math.min(ix0 + CHIP_MARGIN_X, right - CHIP_MARGIN_X - wFull);
+        const y = Math.min(iy0 + CHIP_MARGIN_Y, bottom - CHIP_MARGIN_Y - h);
 
-        placedAt[bi] = true;
-        obstacles.push(placed);
+        // A rectangle NARROWER than its own name. The two terms above have
+        // crossed: honouring the left margin would push the name past the right
+        // edge and vice versa, so there is no position inside the rectangle at
+        // all. Drop — sliding out of the rectangle is the defect req #3257 names.
+        //
+        // There is no vertical twin of this test on purpose: `h + 2·CHIP_MARGIN_Y
+        // ≤ laneH ≤ band.height · k` by the sizing above, so the vertical terms
+        // can never cross. The sweep asserts that rather than trusting it.
+        if (x < left + CHIP_MARGIN_X - 0.01) continue;
+
+        // ── WIDTH IS CLIPPABLE; HEIGHT IS NOT ───────────────────────────────
+        // Two things cut the chip short on its right, and they are resolved
+        // IDENTICALLY because the reader cannot tell them apart: the panel edge
+        // (a band ENTERING from the right, whose name genuinely starts inside
+        // the content area and runs out of it) and the on-screen key. Both take
+        // WIDTH off the chip — never move it, which is the defect req #3257
+        // names — and both drop it when less than the floor would survive:
+        // padding + the pause dot + `EPIC_CHIP_MIN_CHARS` of the actual name.
+        //
+        // Clipping the panel edge rather than dropping there is what keeps the
+        // two consistent. Dropping instead made the KEY able to SAVE a chip: a
+        // name too wide for the panel was dropped with no key present and drawn
+        // with one, because the key had already narrowed it to fit.
+        let w = wFull;
+        let clipped = false;
+        let limit = vw;
+        if (keepOut && keepOut.x + keepOut.w > x
+            && y < keepOut.y + keepOut.h && keepOut.y < y + h) {
+            limit = Math.min(limit, keepOut.x - CHIP_PAD);
+        }
+        if (x + w > limit) {
+            const room = limit - x;
+            const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                + EPIC_CHIP_MIN_CHARS * charW * scale;
+            if (room < minW) continue;
+            w = room;
+            clipped = true;
+        }
+
+        // HEIGHT has no equivalent: the chip is already scaled to its band's
+        // epic lane, and shrinking it again here would be the second shrink
+        // rule the requirement rules out. So a band ENTERING from the BOTTOM
+        // simply waits until its name fits, rather than emitting a box below
+        // the panel that the reader cannot see (measured: a band with 2px on
+        // screen put its whole 24px chip past `vh`).
+        //
+        // A band LEAVING over the top is the opposite case and is deliberately
+        // NOT caught here: its own rectangle is pushing the name off, which is
+        // clause 3, and this test cannot fire on it — the far-edge term puts
+        // `y + h` at `bottom - CHIP_MARGIN_Y`, and a band leaving over the top
+        // has its bottom near the content area's TOP, not past `vh`.
+        if (y + h > vh + 0.01) continue;
+
+        // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
+        // wholly outside the content area for the final margin's worth of the
+        // rectangle's life — `x + w` is `right - CHIP_MARGIN_X` and `y + h` is
+        // `bottom - CHIP_MARGIN_Y`, while the intersection test above only
+        // guarantees `right > 0` and `bottom > viewTop`. Measured: a 6px window
+        // horizontally and a 2px one vertically in which an empty flex box is
+        // emitted with its click target off the panel. Cosmetically a no-op
+        // (`overflow: hidden` on the layer already cuts it), but "drawn and
+        // invisible" is not a state worth having, and closing it costs one test
+        // that cannot touch clauses 3 and 4 — both are about the frames BEFORE
+        // this one.
+        if (x + w <= 0 || y + h <= viewTop) continue;
+
         out.push({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
@@ -2518,153 +2581,16 @@ export function placeEpicChips({
             // band and a find() on that would be a second place to get the null
             // handling right.
             band,
-            x: placed.x, y: placed.y, w, h,
+            x, y, w, h,
+            // Whether `w` is a CUT rather than a measurement — the renderer must
+            // cap and hide overflow only in that case. Capping unconditionally
+            // would hand the drawn box over to an ESTIMATED width (`charW`), and
+            // an estimate a hair short would truncate every name on the plan.
+            clipped,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.
             fontSize: EPIC_CHIP_FONT * scale,
         });
-    }
-
-    // ── Sticky prev/next epic names (req #3210) ─────────────────────────────
-    // A focused epic (req #3204's `epicFocusTransform`, FOCUS_PAD margin on
-    // every side) fills the viewport with its own chip — the epics immediately
-    // above and below it in the stack can end up with no name on screen at
-    // all, and the reader loses any reference to — or one-click path to — a
-    // neighbour. "Always at least three epic names" is the focused band's own
-    // chip plus these two.
-    //
-    // `bands` is already ordered top-to-bottom in world-Y (req #3201's
-    // DERIVED-START sort — see the module header), so "the epic above/below"
-    // is simply the previous/next array entry relative to whichever bands
-    // currently carry their OWN chip — `placedAt`, from the loop above.
-    //
-    // PLACED, NOT MERELY ON SCREEN — the first of two review findings this
-    // block fixes. `FOCUS_PAD` is 44 SCREEN px while the gap between bands
-    // (`BAND_GAP`) is 8 WORLD px, so at every k `epicFocusTransform` can
-    // actually reach, the neighbour band's own trailing content sliver
-    // projects to fewer screen px than the margin — its RECTANGLE still
-    // technically intersects the viewport even though its NAME (confined to
-    // its own epic lane, up near ITS top) is nowhere close to on screen. A
-    // geometric "does the rect intersect" test therefore counted that
-    // neighbour as already visible and never engaged. Whether its chip was
-    // actually PLACED is the test that agrees with what the reader can see.
-    //
-    // BUT "nothing renders above the first CHIPPED band" is FALSE, and that is
-    // the second finding: `placedAt[i]` can be false for a band whose CONTENT
-    // is still genuinely on screen — the same tail-sliver case above, one step
-    // short of fully scrolling off, or simply too little epic-lane room left
-    // for its own chip while its beads and labels are still visible. Skipping
-    // straight to the next-chipped band's boundary would let the sticky box
-    // land on top of that real, drawn content (measured in review — a sticky
-    // chip overlapping a live step label, and separately a live bead). So the
-    // "swim lane" this reuses is not assumed empty; it is KEPT empty exactly
-    // like every other chip on this surface — routed through the same
-    // `obstacles`/`candidates` horizontal-displacement pass, now widened to
-    // also carry `worldObstacles`.
-    //
-    // `worldObstacles` is the CALLER's job to assemble, deliberately: this
-    // module has no notion of `drawsKind`/semantic LEVEL (`PipelinePlanVisualizer.jsx`'s
-    // own gate on which labels are actually drawn at the current zoom), so it
-    // cannot tell a currently-hidden label from a currently-drawn one — and
-    // the epic label rects `layout.labels` itself carries are NEVER drawn in
-    // the world at all (an HTML overlay draws the name instead; see the
-    // `kind === 'epic'` no-op in the component's world-node loop). Handing
-    // this module the FULL unfiltered `layout.labels`/`layout.nodes`/`layout.arcs`
-    // would make it avoid marks that are not actually on screen (dropping a
-    // sticky that had genuine room) while still missing marks it has no
-    // vocabulary for (bead footprints are not labels or arcs at all — a
-    // second review finding: a sticky chip landed on a live bead in the first
-    // cut of this fix). The caller already computes exactly what is currently
-    // drawn for its own rendering, so it is the one source that cannot drift
-    // from what the reader actually sees.
-    if (bands.length > 1) {
-        let firstVisible = -1;
-        let lastVisible = -1;
-        for (let i = 0; i < placedAt.length; i++) {
-            if (!placedAt[i]) continue;
-            if (firstVisible === -1) firstVisible = i;
-            lastVisible = i;
-        }
-        const left = t.x + 2 * t.k;
-        const right = t.x + (worldWidth - 2) * t.k;
-        if (firstVisible !== -1 && right >= 0 && left <= vw) {
-            const minX = Math.max(0, left) + 6;
-            const maxXCap = Math.min(right, vw) - 6;
-
-            // Places one sticky chip, or draws nothing if there is no honest
-            // room — the same refusal the natural loop makes when a candidate
-            // can't be found, rather than shrinking past legibility or
-            // overlapping something.
-            const placeSticky = (targetBand, room, atTop) => {
-                if (room < EPIC_CHIP_MIN_H) return;
-                const h = Math.min(labelH, room);
-                const scale = h / labelH;
-                const bandText = targetBand.epicLabel || targetBand.epic;
-                // The ↗ control renders whenever `epicId != null` (mirrors
-                // the component's own condition) — its flat footprint has to
-                // be in `w` before anything is checked against beads/arcs/
-                // labels, or the collision math clears a box the reader
-                // cannot actually see the edge of.
-                // req #3226 — the pause bubble, unconditional (unlike the ↗
-                // link above): it renders on every band, "No epic" included.
-                const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-                    + (targetBand.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
-                    + EPIC_PAUSE_BUBBLE_W;
-                const maxX = maxXCap - w;
-                if (maxX < minX) return;
-                const y = atTop ? 2 : (vh - h - 2);
-                const rectObstacles = [...obstacles];
-                // Only marks whose screen box actually reaches this chip's own
-                // row are relevant — filtered here, not carried as a permanent
-                // obstacle, because the top and bottom sticky slots occupy
-                // disjoint rows and a mark relevant to one is almost never
-                // relevant to the other.
-                for (const r of worldObstacles) {
-                    const box = {
-                        x: t.x + r.x * t.k, y: t.y + r.y * t.k,
-                        w: r.w * t.k, h: r.h * t.k,
-                    };
-                    if (box.y < y + h && y < box.y + box.h) rectObstacles.push(box);
-                }
-                const x0 = minX;
-                const candidates = [x0];
-                for (const o of rectObstacles) {
-                    candidates.push(o.x + o.w + CHIP_PAD, o.x - CHIP_PAD - w);
-                }
-                let placed = null;
-                for (const cx of candidates.sort((a, b) =>
-                    Math.abs(a - x0) - Math.abs(b - x0))) {
-                    if (cx < minX || cx > maxX) continue;
-                    const rect = { x: cx, y, w, h };
-                    if (rectObstacles.some((o) => hits(rect, o))) continue;
-                    placed = rect;
-                    break;
-                }
-                if (!placed) return;   // nowhere honest left
-                obstacles.push(placed);
-                out.push({
-                    key: `${targetBand.key == null ? 'none' : targetBand.key}`
-                        + `-stick-${atTop ? 'top' : 'bottom'}`,
-                    epicId: targetBand.epicId,
-                    text: bandText,
-                    color: targetBand.color,
-                    band: targetBand,
-                    sticky: atTop ? 'top' : 'bottom',
-                    x: placed.x, y: placed.y, w, h,
-                    fontSize: EPIC_CHIP_FONT * scale,
-                });
-            };
-
-            if (firstVisible > 0) {
-                const topOfFirst = t.y + bands[firstVisible].y * t.k;
-                placeSticky(bands[firstVisible - 1], topOfFirst - 4, true);
-            }
-            if (lastVisible < bands.length - 1) {
-                const bottomOfLast = t.y
-                    + (bands[lastVisible].y + bands[lastVisible].height) * t.k;
-                placeSticky(bands[lastVisible + 1], vh - bottomOfLast - 4, false);
-            }
-        }
     }
 
     return out;

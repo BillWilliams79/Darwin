@@ -108,7 +108,7 @@ import { aiModelLabel } from '../modelChipStyles';
 import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
-    computePlanLayout, beadStyle, placeEpicChips, collectWorldObstacles,
+    computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
@@ -116,7 +116,7 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
-    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY,
+    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
 } from './pipelinePlanLayout';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
@@ -1034,21 +1034,6 @@ export default function PipelinePlanVisualizer({
     }, [level]);
     const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
 
-    // Every world-space rect currently DRAWN — beads (widened to the
-    // eligible-step halo where one draws), batch-box outlines, whichever
-    // labels the semantic LEVEL actually shows, and every dependency arc's
-    // bbox — for the sticky epic chips (req #3210) to steer clear of.
-    // `collectWorldObstacles` is PURE (`pipelinePlanLayout.js`) precisely so
-    // this assembly — otherwise only provable by rendering the component — is
-    // a testable property of plain data; `drawsKind`/`level` is passed in
-    // because it is this component's own gate; the pure module has no notion
-    // of semantic level on its own (review finding — the first cut passed
-    // `layout.labels` unfiltered, which dropped stickies to avoid marks that
-    // were not actually on screen).
-    const worldObstacles = useMemo(
-        () => collectWorldObstacles(layout, { drawsKind, eligibleStepIds }),
-        [layout, drawsKind, eligibleStepIds]);
-
     // Report the level actually being rendered so the toolbar's selector can
     // softly mark it while on Auto — BuildVisualizerPage's `onEffectiveLevel`
     // handshake. In an EFFECT, not during render: this calls a setState on the
@@ -1238,12 +1223,14 @@ export default function PipelinePlanVisualizer({
         );
     }
 
-    // ── Floating epic labels (req #3119, prototype item 3) ──────────────────
-    // The epic name rides its band's top edge, CLAMPS to the top of the viewport
-    // while any part of the band is visible, and slides away only as the band's
-    // bottom passes. Static world text scrolls off the moment you pan into a tall
-    // band, and a full-height canvas makes bands taller — so on the live plan you
-    // could be four screens deep in a band with nothing on screen saying which.
+    // ── Floating epic labels (req #3119, RE-RULED req #3257) ────────────────
+    // The name sits at the top-left corner of its band's rectangle INTERSECTED
+    // with the visible content area — so it clamps to the viewport while any
+    // part of the band is on screen, and is pushed off by its own rectangle as
+    // that rectangle leaves. Static world text scrolls off the moment you pan
+    // into a tall band, and a full-height canvas makes bands taller — so on the
+    // live plan you could be four screens deep in a band with nothing on screen
+    // saying which.
     //
     // HTML overlay rather than a Konva node: the clamp is a per-frame position
     // that has nothing to do with the world transform, and computing it here
@@ -1254,18 +1241,19 @@ export default function PipelinePlanVisualizer({
     // THE PLACEMENT ITSELF MOVED OUT (req #3168) to pipelinePlanLayout's
     // `placeEpicChips` — every other rectangle on this surface is decided by a
     // pure function precisely so that overlap is testable, and the chips were the
-    // one exception. They were also the one thing on the page still colliding:
-    // with each other when the band header shrinks below the chip's fixed screen
-    // height, and with the legend they clamp underneath (bottom-center, req
-    // #3255; was the top-right corner). Both are now avoided by the same
-    // displacement pass, and both are asserted in vitest over a swept transform
-    // rather than by eye.
+    // one exception. Under req #3257's rule the placement is two `min()`s over
+    // the band's rectangle and the visible content area, and chip-on-chip
+    // overlap is impossible by construction rather than avoided by a pass. The
+    // key (bottom-center since req #3255; was the top-right corner) is the one
+    // obstacle that still binds, and it CLIPS a name rather than displacing it.
+    // All of it is asserted in `__tests__/pipelinePlanLayout.test.js` over a
+    // swept transform
     //
     // The chip's METRICS come from the layout module too (`EPIC_CHIP_H`,
     // `EPIC_CHIP_CHAR_W`), and are deliberately not passed from here: this file
     // carried its own character width, it was a leftover from the 12px chip that
-    // never moved with req #3119's +25% type scale, and a displacement pass
-    // reading a 22%-short width declares chips clear of things they overlap.
+    // never moved with req #3119's +25% type scale, and a placement pass reading
+    // a 22%-short width lets the name hang past the edge it was clamped to.
     // The sx block below is the other half of that contract — its `fontSize` and
     // padding must stay in step with the module's constants.
     const floatingEpics = placeEpicChips({
@@ -1277,11 +1265,21 @@ export default function PipelinePlanVisualizer({
             ? { x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h,
                 w: legendSize.w, h: legendSize.h }
             : null,
-        // Sticky prev/next chips (req #3210) pin to the viewport edge rather
-        // than to their own band, so — unlike the natural chips, which are
-        // confined to their own band's content-free epic lane — they need an
-        // explicit collision source: `worldObstacles`, above.
-        worldObstacles,
+        // THE HEADER CHROME the name stops just below, never underneath
+        // (req #3257 clause 2) — whatever is PINNED above the plan inside this
+        // panel. That is the TIME RULER: since req #3254 it draws in a Group
+        // anchored at `stickyRulerY(t)` rather than `t.y`, so it stays on screen
+        // while the plan pans under it, and an epic name clamped to y=0 would
+        // slide beneath it.
+        //
+        // `rulerScreenBottom(t)` is the ONE readable number req #3254 exposes
+        // for exactly this handshake — its own comment names req #3257 as the
+        // consumer. Read from the SAME transform the ruler is drawn with, so the
+        // two cannot disagree, and it scales with zoom because the strip's ticks
+        // and text do. Never a hand-guessed pixel offset: `RULER_H` is world
+        // units and the pin makes the screen edge a function of `t`, so any
+        // constant here would be right at exactly one zoom.
+        topInset: rulerScreenBottom(t),
     });
 
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
@@ -1753,10 +1751,18 @@ export default function PipelinePlanVisualizer({
                     </Stage>
                 )}
 
-                {/* Floating epic labels — pinned to their band, clamped to the
-                    top of the viewport while the band is on screen. The strip
-                    ignores the pointer so it can never swallow a drag-pan; each
-                    label re-enables it so the epic stays clickable.
+                {/* Floating epic labels — each at the top-left corner of its own
+                    band's rectangle intersected with the visible content area
+                    (req #3257). The strip ignores the pointer so it can never
+                    swallow a drag-pan; each label re-enables it so the epic
+                    stays clickable.
+
+                    `overflow: 'hidden'` on the strip is load-bearing, not
+                    housekeeping: a name is pushed off the top (or the left) BY
+                    ITS OWN RECTANGLE as that rectangle leaves the screen, so
+                    its box legitimately extends past the panel edge for the
+                    last few pixels of its band's life, and this is what cuts it
+                    off at the edge instead of letting it spill.
 
                     Clicking the NAME focuses that band (req #3204). Every band
                     is focusable, "No epic" included — it is a band with steps
@@ -1770,22 +1776,15 @@ export default function PipelinePlanVisualizer({
                     a mousedown on the chip still bubbles and still starts a pan.
                     Only the click is the chip's.
 
-                    SOME entries are STICKY (req #3210, `e.sticky === 'top' |
-                    'bottom'`): the epic immediately above/below the visible
-                    range, pinned to the viewport edge inside the blank margin
-                    `epicFocusTransform` already reserves, so a reader who has
-                    focused one epic can still see — and one click away from —
-                    its neighbours in the stack. `e.band` already resolves to
-                    that neighbour, so `focusEpic(e.band)` chains exactly like
-                    a normal chip click; nothing about the click wiring differs. */}
+                    Req #3210's STICKY prev/next entries are GONE (req #3257):
+                    the clamp now applies to EVERY band, so a focused band's
+                    neighbours keep their names by the ordinary rule instead of
+                    by a special case pinned to the viewport edge. Their
+                    guarantee is re-asserted in vitest against the new rule. */}
                 <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
-                    {floatingEpics.map((e) => {
-                        const stickyTitle = e.sticky === 'top'
-                            ? `Jump to the epic above — ${e.text}`
-                            : `Jump to the epic below — ${e.text}`;
-                        return (
+                    {floatingEpics.map((e) => (
                         <Box
                             key={e.key}
                             onClick={() => focusEpic(e.band)}
@@ -1809,12 +1808,7 @@ export default function PipelinePlanVisualizer({
                             // worse than either. The chip's two controls each
                             // name themselves: the body zooms, the ↗ below
                             // opens the features view, and both say so.
-                            // A STICKY chip names the DIRECTION it climbs
-                            // instead (req #3210) — "Zoom pipeline epic" is
-                            // true of it too, but "the epic above/below" is
-                            // the fact the reader actually needs to decide
-                            // whether to click.
-                            title={e.sticky ? stickyTitle : 'Zoom pipeline epic'}
+                            title="Zoom pipeline epic"
                             // req #3226 — the pause bubble is colour-only
                             // (green/red), the least discriminable pair for
                             // the most common colour-vision deficiency and
@@ -1823,8 +1817,7 @@ export default function PipelinePlanVisualizer({
                             // second announced element, so pause reads as one
                             // more fact about the epic being named, not a
                             // separate control.
-                            aria-label={(e.sticky ? stickyTitle
-                                : `Zoom pipeline epic ${e.text}`)
+                            aria-label={`Zoom pipeline epic ${e.text}`
                                 + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
@@ -1833,10 +1826,23 @@ export default function PipelinePlanVisualizer({
                                 // — both come back from `placeEpicChips`, because
                                 // it now scales the chip to fit its own epic lane
                                 // at low zoom (req #3168). Drawing at any other
-                                // size means the collision maths decided against a
-                                // box that is not on screen. `gap` is req #3204's,
-                                // for the ↗ control that rides beside the name.
+                                // size means the clamp decided against a box that
+                                // is not on screen. `gap` is req #3204's, for the
+                                // ↗ control that rides beside the name.
                                 height: e.h, lineHeight: 1,
+                                // WIDTH IS CAPPED ONLY WHEN IT WAS CUT (req
+                                // #3257): `e.clipped` says the on-screen key ate
+                                // the tail of this chip, and the cap plus
+                                // `overflow: hidden` is what stops the name
+                                // running under the key — the one obstacle a
+                                // chip may still meet, and one it may never
+                                // slide sideways out of its rectangle to avoid.
+                                // Capping UNCONDITIONALLY would hand the drawn
+                                // box to `EPIC_CHIP_CHAR_W`, an ESTIMATE: a hair
+                                // short and every name on the plan truncates.
+                                ...(e.clipped
+                                    ? { maxWidth: e.w, overflow: 'hidden' }
+                                    : null),
                                 display: 'flex', alignItems: 'center', gap: '4px',
                                 fontFamily: MONO, fontSize: e.fontSize,
                                 fontWeight: 700,
@@ -1848,13 +1854,7 @@ export default function PipelinePlanVisualizer({
                                 // crosses.
                                 background: chipBg,
                                 px: 0.9, py: 0, borderRadius: '5px',
-                                // A sticky chip's border rides at full colour
-                                // rather than the ambient 33% (req #3210): it is
-                                // the one thing on screen naming an epic with no
-                                // content of its own in view, so it reads as a
-                                // standing control rather than a label that
-                                // happens to still be there.
-                                border: `1px solid ${e.color}${e.sticky ? '' : '55'}`,
+                                border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: 'auto',
                                 cursor: 'pointer',
@@ -1875,22 +1875,21 @@ export default function PipelinePlanVisualizer({
                                 },
                             }}
                         >
-                            {/* No directional glyph here on purpose (req #3210
-                                review finding): the chip's measured width comes
-                                straight from `placeEpicChips`, which — unlike
-                                the ↗ control below — sizes the chip to exactly
-                                `e.text`, so any further in-flow content would
-                                render past what the collision math measured.
-                                The pinned position (viewport edge, not a band)
-                                plus the solid border and the "Jump to…" title
-                                below are the sticky affordance instead. */}
+                            {/* NOTHING further may be added in flow here
+                                without reserving it in `placeEpicChips`' own
+                                width measurement first: `e.w` is what keeps
+                                the name inside its own rectangle and clear of
+                                the on-screen key, so unmeasured content is
+                                content that hangs past the edge it was
+                                clamped to. The two things that ARE reserved —
+                                the pause bubble and the ↗ — say so below. */}
                             {/* The pause status bubble (req #3226) — a FLAT,
                                 unscaled dot (unlike the name text, which
                                 scales with the chip): its footprint is
                                 reserved unconditionally in
                                 `placeEpicChips`' own width measurement, so
-                                nothing here can draw past what the
-                                collision math cleared. Every band gets one,
+                                nothing here can draw past what the clamp
+                                measured. Every band gets one,
                                 "No epic" included — pause is a scope fact,
                                 and the unlabelled band's scope is exactly
                                 the whole plan's. */}
@@ -1948,8 +1947,7 @@ export default function PipelinePlanVisualizer({
                                 </Box>
                             )}
                         </Box>
-                        );
-                    })}
+                    ))}
                 </Box>
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
@@ -1978,9 +1976,11 @@ export default function PipelinePlanVisualizer({
                     footprint that was reserved for a different one.
 
                     IT IS STILL WIDTH-CAPPED. This element's measured rect is the
-                    keep-out `placeEpicChips` displaces the floating epic names
-                    around, and that displacement is horizontal only — so width is
-                    the whole cost and `PLAN_KEY_MAX_W` is the whole defence.
+                    keep-out `placeEpicChips` resolves the floating epic names
+                    against — by CLIPPING them at this box's left edge since req
+                    #3257, since a name may not slide out of its own band's
+                    rectangle to dodge it — so width is the whole cost and
+                    `PLAN_KEY_MAX_W` is the whole defence.
                     Removing the plan-level rows made the key SHORTER, which costs
                     the epic labels nothing either way.
 
