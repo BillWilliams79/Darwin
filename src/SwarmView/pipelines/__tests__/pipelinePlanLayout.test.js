@@ -32,6 +32,7 @@ import {
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
+    FOCUS_LABEL_H, epicFocusNeighbours,
     stepFitRect, stepFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom,
@@ -2039,7 +2040,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(layout.bands.length).toBeGreaterThanOrEqual(3);
         for (let i = 0; i < layout.bands.length; i++) {
             const band = layout.bands[i];
-            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault);
+            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault, kDefault * FOCUS_MIN_RATIO);
             expect(t, `band ${i} ("${band.epic}") produced no focus transform`)
                 .toBeTruthy();
             const chips = chipsAt(t);
@@ -4392,6 +4393,18 @@ describe('epic focus geometry', () => {
         };
     };
 
+    // What the transform OWES each vertical side (req #3274), recomputed here
+    // from the published constants rather than read back out of the module's
+    // internals: FOCUS_PAD everywhere, plus a label strip on each side that has
+    // a neighbour, plus the pinned ruler's scaled height on the top one.
+    const reserve = (band, tr) => {
+        const n = epicFocusNeighbours(layout, band);
+        return {
+            top: FOCUS_PAD + (n.above ? FOCUS_LABEL_H + RULER_H * tr.k : 0),
+            bottom: FOCUS_PAD + (n.below ? FOCUS_LABEL_H : 0),
+        };
+    };
+
     it('the rect is the band\'s own vertical extent, header strip included', () => {
         for (const band of layout.bands) {
             const r = bandFitRect(layout, band);
@@ -4441,7 +4454,7 @@ describe('epic focus geometry', () => {
             const size = { w: 1600, h: 820 };
             const kBase = size.w / lay.width;
             for (const band of lay.bands) {
-                const tr = epicFocusTransform(lay, band, size, kBase);
+                const tr = epicFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
                 expect(tr, band.epic).toBeTruthy();
                 const d = drawn(band);
                 expect(tr.x + d.left * tr.k, `${band.epic} left`)
@@ -4497,25 +4510,32 @@ describe('epic focus geometry', () => {
         expect(orch.x).toBeGreaterThan(layout.width / 2);
     });
 
-    it('centres the band and leaves at least FOCUS_PAD on all four sides', () => {
+    it('centres the band inside its reserve and leaves at least FOCUS_PAD on all four sides', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
         for (const band of layout.bands) {
-            const tr = epicFocusTransform(layout, band, size, kBase);
+            const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
             expect(tr, band.epic).toBeTruthy();
             const s = onScreen(band, tr);
-            // Centred: equal slack on both axes, so the margin is never spent
-            // entirely on one side.
+            const pad = reserve(band, tr);
+            // Horizontally still plain centring — req #3274 changed the
+            // vertical axis and nothing else.
             expect(s.left + s.right).toBeCloseTo(size.w, 6);
-            expect(s.top + s.bottom).toBeCloseTo(size.h, 6);
+            // Vertically, the slack is split evenly INSIDE the reserved window
+            // `[pad.top, h − pad.bottom]` rather than across the whole panel, so
+            // an asymmetric reserve lands where the neighbour actually is. Where
+            // the two reserves are equal this reduces to the old `s.top +
+            // s.bottom ≈ h`, which is what the no-neighbour bands below assert.
+            expect(s.top - pad.top, `${band.epic} slack`)
+                .toBeCloseTo((size.h - pad.bottom) - s.bottom, 6);
             // Margin on ALL FOUR sides. `>=` rather than `≈` because the
             // non-binding axis (and any band clamped by the ceiling) gets more.
             expect(s.left, `${band.epic} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(s.top, `${band.epic} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(s.top, `${band.epic} top`).toBeGreaterThanOrEqual(pad.top - 1e-6);
             expect(size.w - s.right, `${band.epic} right`)
                 .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
             expect(size.h - s.bottom, `${band.epic} bottom`)
-                .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+                .toBeGreaterThanOrEqual(pad.bottom - 1e-6);
         }
     });
 
@@ -4525,10 +4545,10 @@ describe('epic focus geometry', () => {
         // The widest band is not ceiling-clamped, so its fit is the honest one:
         // one axis must land exactly on the pad, or the zoom was not tight.
         const band = bandOf('Swarm Substrate Rebuild');
-        const tr = epicFocusTransform(layout, band, size, kBase);
+        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         const s = onScreen(band, tr);
         const slackX = s.left - FOCUS_PAD;
-        const slackY = s.top - FOCUS_PAD;
+        const slackY = s.top - reserve(band, tr).top;
         expect(Math.min(slackX, slackY)).toBeCloseTo(0, 6);
     });
 
@@ -4537,7 +4557,7 @@ describe('epic focus geometry', () => {
         const kBase = size.w / layout.width;
         const band = bandOf('Primary and Swarm Agentic Integration');
         expect(band.stepIds).toHaveLength(1);
-        const tr = epicFocusTransform(layout, band, size, kBase);
+        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
         // Unclamped this would have been far tighter — the clamp is doing work,
         // not merely agreeing with the fit.
@@ -4567,7 +4587,7 @@ describe('epic focus geometry', () => {
             { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
             const kBase = size.w / layout.width;
             for (const band of layout.bands) {
-                const tr = epicFocusTransform(layout, band, size, kBase);
+                const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
                 expect(tr, `${band.epic} @ ${size.w}×${size.h}`).toBeTruthy();
                 expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
                 expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
@@ -4584,11 +4604,17 @@ describe('epic focus geometry', () => {
         const size = { w: 1600, h: 150 };
         const kBase = size.w / layout.width;
         const band = bandOf('Swarm Substrate Rebuild');
-        const tr = epicFocusTransform(layout, band, size, kBase);
+        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
-        // The clamp is doing work — the unclamped fit really was tighter.
+        // The clamp is doing work — the unclamped fit really was tighter. Stated
+        // against the req #3274 reserve, which is what the fit now solves: the
+        // label strips come off the available height, and the pinned ruler joins
+        // the rect on the fitted side.
         const r = bandFitRect(layout, band);
-        expect(Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD) / r.h)
+        const n = epicFocusNeighbours(layout, band);
+        const availH = Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD
+            - (n.above ? FOCUS_LABEL_H : 0) - (n.below ? FOCUS_LABEL_H : 0));
+        expect(availH / (r.h + (n.above ? RULER_H : 0)))
             .toBeLessThan(kBase * FOCUS_MIN_RATIO);
     });
 
@@ -4600,7 +4626,7 @@ describe('epic focus geometry', () => {
         const band = bandOf('Swarm Substrate Rebuild');
         let prev = null;
         for (let w = 2 * FOCUS_PAD - 4; w <= 2 * FOCUS_PAD + 4; w++) {
-            const tr = epicFocusTransform(layout, band, { w, h: 600 }, w / layout.width);
+            const tr = epicFocusTransform(layout, band, { w, h: 600 }, w / layout.width, (w / layout.width) * FOCUS_MIN_RATIO);
             expect(tr).toBeTruthy();
             if (prev != null) expect(Math.abs(tr.k / prev - 1)).toBeLessThan(0.5);
             prev = tr.k;
@@ -4616,9 +4642,541 @@ describe('epic focus geometry', () => {
         expect(bandFitRect(layout, { ...band, height: 0 })).toBeNull();
         expect(bandFitRect(layout, null)).toBeNull();
         // No viewport yet (the container has not measured) — nothing to fit to.
-        expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase)).toBeNull();
-        expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
-        expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
+        expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(epicFocusTransform(layout, band, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
+    });
+
+    // ── The neighbour flags, on the REAL fixture ────────────────────────────
+    it('knows which vertical sides have a neighbouring band (req #3274)', () => {
+        const first = layout.bands[0];
+        const last = layout.bands[layout.bands.length - 1];
+        expect(layout.bands.length).toBeGreaterThan(2);
+        expect(epicFocusNeighbours(layout, first)).toEqual({ above: false, below: true });
+        expect(epicFocusNeighbours(layout, last)).toEqual({ above: true, below: false });
+        for (const band of layout.bands.slice(1, -1)) {
+            expect(epicFocusNeighbours(layout, band), band.epic)
+                .toEqual({ above: true, below: true });
+        }
+        // Decided from world Y, never from array position — req #3201 reorders
+        // the bands and `bandFitRect` keeps the same discipline.
+        const shuffled = { ...layout, bands: [...layout.bands].reverse() };
+        for (const band of layout.bands) {
+            expect(epicFocusNeighbours(shuffled, band), band.epic)
+                .toEqual(epicFocusNeighbours(layout, band));
+        }
+        // Degenerate inputs answer "nothing to reserve for" rather than throwing.
+        expect(epicFocusNeighbours(null, first)).toEqual({ above: false, below: false });
+        expect(epicFocusNeighbours(layout, null)).toEqual({ above: false, below: false });
+        expect(epicFocusNeighbours({ bands: [first] }, first))
+            .toEqual({ above: false, below: false });
+        // …AND A BAND IS NEVER ITS OWN NEIGHBOUR, at any height (review
+        // finding). The 1e-6 tolerance alone let a band shorter than the
+        // tolerance satisfy `b.y + b.height <= top + 1e-6` against its own row
+        // and report `{above: true}`; the strict-side terms are what close it,
+        // and this is the window they close — `height === 0` was already
+        // filtered, so only `(0, 1e-6]` was ever reachable.
+        const slivers = [5e-7, 1e-6, 1e-9];
+        for (const height of slivers) {
+            const sliver = { epic: 'Sliver', y: 100, height, stepIds: [] };
+            expect(epicFocusNeighbours({ bands: [sliver] }, sliver), `h=${height}`)
+                .toEqual({ above: false, below: false });
+            // …and a real band above it is still seen, so the fix did not close
+            // the window by refusing to answer at all.
+            const over = { epic: 'Over', y: 0, height: 90, stepIds: [] };
+            expect(epicFocusNeighbours({ bands: [over, sliver] }, sliver), `h=${height}`)
+                .toEqual({ above: true, below: false });
+        }
+    });
+});
+
+// ── Room for the neighbours' names (req #3274) ──────────────────────────────
+// Clicking an epic name fits that epic to the viewport (req #3204), and on a
+// LARGE epic the fit left the bands above and below `FOCUS_PAD` and nothing
+// else — a number that knew nothing about what an epic label needs on screen.
+// The reserve is now derived from the chip's own metrics, charged only on a
+// side that HAS a neighbour, and the pinned time ruler is charged on top of it
+// above (req #3254 pins it; req #3257 stops every name below it).
+//
+// The two shapes this requirement is about are not in the Substrate fixture —
+// the live plan's 4550px `Pipeline` band, and a plan narrow enough that the
+// vertical fit lands at a scale where the ruler alone swallows the top strip —
+// so both are built by hand here. `bandFitRect` reads only `nodes`/`colX`/
+// `colW`/`labels` and `epicFocusNeighbours` reads only `bands`, so a synthetic
+// layout drives the real functions rather than a re-implementation of them.
+describe('epic focus reserves room for the neighbours\' names (req #3274)', () => {
+    const COL_W = 180;
+    const GAP = 8;
+
+    const synth = (heights, cols, colWidth = COL_W) => {
+        const colX = [];
+        const colW = [];
+        for (let d = 0; d < cols; d++) {
+            colW.push(colWidth);
+            colX.push(colWidth / 2 + d * colWidth);
+        }
+        const nodes = new Map();
+        const bands = [];
+        // Bands start below the ruler's own unconditional world reservation,
+        // exactly as `computePlanLayout` places them.
+        let y = RULER_H + GAP;
+        let id = 1;
+        heights.forEach((h, i) => {
+            const stepIds = [];
+            for (let d = 0; d < cols; d++) {
+                nodes.set(id, { depth: d, x: colX[d], y: y + h / 2 });
+                stepIds.push(id);
+                id += 1;
+            }
+            bands.push({
+                epic: `Epic ${i + 1}`, epicId: i + 1, epicLabel: `Epic ${i + 1}`,
+                y, height: h, headerH: 83, epicLaneH: 62, stepIds,
+            });
+            y += h + GAP;
+        });
+        return {
+            nodes, colX, colW, labels: [], bands,
+            width: cols * colWidth, height: y,
+        };
+    };
+
+    // The fit this requirement replaced: FOCUS_PAD on all four sides, nothing
+    // else. Kept here so "fitted slightly smaller" is a measurement against the
+    // old behaviour rather than a claim.
+    const unreservedK = (rect, size, kBase) => {
+        const availW = Math.max(size.w * 0.5, size.w - 2 * FOCUS_PAD);
+        const availH = Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD);
+        return Math.min(
+            Math.max(Math.min(availW / rect.w, availH / rect.h), kBase * FOCUS_MIN_RATIO),
+            kBase * FOCUS_MAX_RATIO,
+        );
+    };
+    const unreservedTransform = (rect, size, kBase) => {
+        const k = unreservedK(rect, size, kBase);
+        return {
+            x: size.w / 2 - (rect.x + rect.w / 2) * k,
+            y: size.h / 2 - (rect.y + rect.h / 2) * k,
+            k,
+        };
+    };
+
+    // What the component draws, through the component's own arguments — the
+    // pinned ruler's bottom edge is the top of the content area (req #3257).
+    const chipsAt = (lay, tr, size) => placeEpicChips({
+        bands: lay.bands, transform: tr, viewport: size, worldWidth: lay.width,
+        topInset: rulerScreenBottom(tr),
+    });
+    const chipOf = (chips, epic) => chips.find((c) => c.text === epic);
+
+    // "Fully on screen" for a name: inside the panel AND below the pinned ruler,
+    // because a name drawn under the ruler is a name the reader cannot read.
+    const fullyVisible = (chip, tr, size) => !!chip
+        && chip.y >= rulerScreenBottom(tr) - 1e-6
+        && chip.y + chip.h <= size.h + 1e-6;
+
+    // ── THE REPORTED CASE ───────────────────────────────────────────────────
+    // Pipeline 2's band heights, read 2026-08-02 and quoted in the requirement:
+    // seven bands, the third of them 4550 world px tall and spanning the width.
+    describe('a LARGE epic — tall and wide, the live `Pipeline` band', () => {
+        const LIVE_HEIGHTS = [616, 197, 4550, 1040, 616, 885, 522];
+        const lay = synth(LIVE_HEIGHTS, 16);
+        const big = lay.bands[2];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+
+        it('leaves a full label strip above and below the focused band', () => {
+            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const rect = bandFitRect(lay, big);
+            const top = tr.y + rect.y * tr.k;
+            const bottom = tr.y + (rect.y + rect.h) * tr.k;
+            // The fit is the honest one — neither clamp is doing the work here,
+            // so what is measured below is the reserve and not the ceiling.
+            expect(tr.k).toBeGreaterThan(kBase * FOCUS_MIN_RATIO);
+            expect(tr.k).toBeLessThan(kBase * FOCUS_MAX_RATIO);
+            // ABOVE: the pad, the label strip, and the ruler that sits over it.
+            expect(top - rulerScreenBottom(tr))
+                .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+            // BELOW: the pad and the label strip; nothing is pinned down there.
+            expect(size.h - bottom)
+                .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+            // And the strip is big enough for the chip that goes in it, which is
+            // the thing the reserve is derived from. Asserted against what
+            // `placeEpicChips` actually emits rather than against the constant
+            // the reserve was computed from — a chip that grew past its own
+            // reservation is exactly the rot this pair exists to catch.
+            for (const chip of chipsAt(lay, tr, size)) {
+                expect(chip.h, `${chip.text} fits its strip`)
+                    .toBeLessThanOrEqual(FOCUS_LABEL_H);
+            }
+        });
+
+        it('renders BOTH neighbours\' names, fully on screen and clear of the ruler', () => {
+            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const chips = chipsAt(lay, tr, size);
+            for (const epic of ['Epic 2', 'Epic 4']) {
+                const chip = chipOf(chips, epic);
+                expect(chip, `${epic} has a name on screen`).toBeTruthy();
+                expect(fullyVisible(chip, tr, size), `${epic} fully visible`).toBe(true);
+            }
+        });
+
+        it('IS fitted slightly smaller than the unreserved fit — the trade, stated', () => {
+            const rect = bandFitRect(lay, big);
+            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const kOld = unreservedK(rect, size, kBase);
+            expect(tr.k).toBeLessThan(kOld);
+            // "Slightly": orientation costs under a sixth of the magnification.
+            expect(tr.k / kOld).toBeGreaterThan(0.83);
+        });
+    });
+
+    // ── THE REPORTED CASE, AT THE PANEL THE READER ACTUALLY HAS ─────────────
+    // The block above fits the live band heights into an 800px panel and passes
+    // — but it hands `epicFocusTransform` no floor, so it clamps against
+    // `kBase * FOCUS_MIN_RATIO`, and on the LIVE plan that is not the floor the
+    // page has. `kDefault = max(kFit, K_READABLE)` (req #3168) and the zoom
+    // behaviour is configured with `min(kFit, kDefault) * ZOOM_MIN_RATIO`, so on
+    // any plan wide enough for the readable default to bind the two differ —
+    // measured on pipeline 2 at 1600px: 0.200 against 0.0687.
+    //
+    // THAT DIFFERENCE, NOT THE PAD, IS WHAT KEPT THE `Pipeline` BAND BROKEN. At
+    // 0.200 the band is 910 screen px in an 820px panel: it overflows both
+    // reserves, both neighbours leave the viewport, and no pad on either side
+    // could have helped. This block is the requirement's first acceptance
+    // criterion, stated against the real numbers.
+    describe('the live `Pipeline` band, at the live scale floor', () => {
+        // A SNAPSHOT OF THE LIVE PLAN'S SHAPE, not a claim about today's plan.
+        // Pipeline 2's seven band heights and world width as measured on
+        // 2026-08-02; the plan grows every day, and by the end of this session
+        // it had already reached 6614 × 9941 with 41 columns. Nothing here is
+        // re-derived from live data on purpose — a fixture that tracked a
+        // moving plan would change what it tests without anyone editing it.
+        //
+        // What must not rot is the REGIME, and it is stated rather than
+        // implied: a band several times taller than the panel, on a world wide
+        // enough for `K_READABLE` to beat fit-to-width, which is where the two
+        // floors diverge. The assertions below pin that regime directly (the
+        // ratio between the floors, and the band overflowing at the old one),
+        // so a snapshot that drifts fails loudly instead of quietly testing
+        // nothing. Today's plan is comfortably deeper into the same regime.
+        const LIVE_HEIGHTS = [616, 197, 4550, 1040, 616, 885, 522];
+        const LIVE_W = 5822;
+        const COLS = 16;
+        const lay = synth(LIVE_HEIGHTS, COLS, LIVE_W / COLS);
+        const big = lay.bands[2];              // the 4550px `Pipeline` band
+        // `calc(100vh - 260px)` on a 1080-tall window, at a realistic desktop
+        // width — the panel the requester was looking at.
+        const size = { w: 1600, h: 820 };
+        const kFit = size.w / lay.width;
+        const kBase = Math.max(kFit, K_READABLE);       // the page's kDefault
+        const kFloor = Math.min(kFit, kBase) * ZOOM_MIN_RATIO;  // its kZoomFloor
+
+        it('REFUSES to fit at all when no floor is handed in', () => {
+            // The floor is required, and this is why (second review): made
+            // optional, it fell back to `kBase * FOCUS_MIN_RATIO` — the
+            // expression this requirement exists to retire — so dropping
+            // `kZoomFloor` from the visualizer's call sites silently restored
+            // the defect with the whole suite, E2E included, still green. The
+            // E2E's fixture plan is small enough that the floor never binds on
+            // it, so nothing there could ever have noticed. Refusing turns the
+            // same slip into a camera that does not move, which PIPE-14 fails
+            // on. Both focus targets, because both take the parameter.
+            expect(epicFocusTransform(lay, big, size, kBase)).toBeNull();
+            expect(epicFocusTransform(lay, big, size, kBase, 0)).toBeNull();
+            expect(epicFocusTransform(lay, big, size, kBase, -1)).toBeNull();
+            expect(epicFocusTransform(lay, big, size, kBase, NaN)).toBeNull();
+            const stepId = big.stepIds[0];
+            expect(stepFocusTransform(lay, stepId, size, kBase)).toBeNull();
+            expect(stepFocusTransform(lay, stepId, size, kBase, 0)).toBeNull();
+            // …and a real floor still fits, so the guard refuses the omission
+            // rather than the function.
+            expect(epicFocusTransform(lay, big, size, kBase, kFloor)).toBeTruthy();
+            expect(stepFocusTransform(lay, stepId, size, kBase, kFloor)).toBeTruthy();
+        });
+
+        it('the two floors really do differ here — the premise, measured', () => {
+            expect(kBase).toBeGreaterThan(kFit);              // readable binds
+            expect(kFloor).toBeLessThan(kBase * FOCUS_MIN_RATIO);
+            expect(kBase * FOCUS_MIN_RATIO / kFloor).toBeGreaterThan(2.5);
+        });
+
+        it('the RE-DERIVED floor overflows the panel and loses both names', () => {
+            // Exactly what shipped before this requirement: no floor handed in.
+            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
+            const rect = bandFitRect(lay, big);
+            expect(rect.h * tr.k).toBeGreaterThan(size.h);    // taller than the panel
+            const chips = chipsAt(lay, tr, size);
+            expect(chipOf(chips, 'Epic 2')).toBeFalsy();
+            expect(chipOf(chips, 'Epic 4')).toBeFalsy();
+        });
+
+        it('the BEHAVIOUR\'S floor fits it, and both neighbours are named', () => {
+            const tr = epicFocusTransform(lay, big, size, kBase, kFloor);
+            const rect = bandFitRect(lay, big);
+            // Neither clamp binds now — this is the honest fit.
+            expect(tr.k).toBeGreaterThan(kFloor);
+            expect(tr.k).toBeLessThan(kBase * FOCUS_MAX_RATIO);
+            expect(rect.h * tr.k).toBeLessThan(size.h);
+            const top = tr.y + rect.y * tr.k;
+            const bottom = tr.y + (rect.y + rect.h) * tr.k;
+            expect(top - rulerScreenBottom(tr))
+                .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+            expect(size.h - bottom)
+                .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+            const chips = chipsAt(lay, tr, size);
+            for (const epic of ['Epic 2', 'Epic 4']) {
+                expect(fullyVisible(chipOf(chips, epic), tr, size), epic).toBe(true);
+            }
+            // …and it is still inside the extent d3-zoom will enforce, so the
+            // reader's first wheel gesture does not jump.
+            expect(tr.k).toBeGreaterThanOrEqual(kFloor - 1e-9);
+            expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+        });
+
+        it('every band of the live plan names both its neighbours at this panel', () => {
+            for (let i = 1; i < lay.bands.length - 1; i++) {
+                const band = lay.bands[i];
+                const tr = epicFocusTransform(lay, band, size, kBase, kFloor);
+                const chips = chipsAt(lay, tr, size);
+                for (const j of [i - 1, i + 1]) {
+                    const epic = lay.bands[j].epic;
+                    expect(fullyVisible(chipOf(chips, epic), tr, size),
+                        `${band.epic} → ${epic}`).toBe(true);
+                }
+            }
+        });
+    });
+
+    // ── THE RESERVE IS THE FULL CHIP, NOT THE FLOORED ONE ───────────────────
+    // `FOCUS_LABEL_H` is `EPIC_CHIP_H + 2 · CHIP_MARGIN_Y`, and the block's
+    // headline decision is that it is the FULL chip rather than the
+    // `EPIC_CHIP_MIN_H` one a zoomed-out band actually draws. Pinned at a scale
+    // where the neighbour's chip renders at full size, against the margin the
+    // chip itself reports rather than against a hard-coded 2 (review finding:
+    // the LARGE-epic case fits at k = 0.14, where every chip is already floored
+    // and the assertion had ~10px of slack).
+    it('reserves enough for a FULL-SIZE neighbour chip, margins included', () => {
+        const lay = synth([130, 1276, 400], 12);
+        const mid = lay.bands[1];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+        // The band above is small enough to sit ENTIRELY inside the reserved
+        // strip, so its chip anchors on its own band's top corner and the
+        // margin below is the chip's own, not a clamp against the panel.
+        const above = lay.bands[0];
+        const aboveTop = tr.y + above.y * tr.k;
+        expect(aboveTop).toBeGreaterThan(rulerScreenBottom(tr));
+        expect(tr.y + (above.y + above.height) * tr.k)
+            .toBeLessThan(tr.y + mid.y * tr.k);
+        const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+        expect(chip).toBeTruthy();
+        // FULL SIZE — this is the scale regime the constant is chosen for.
+        expect(chip.h).toBeCloseTo(EPIC_CHIP_H, 6);
+        const marginY = chip.y - aboveTop;
+        expect(marginY).toBeGreaterThan(0);
+        // The whole box the name occupies inside its band fits the reserve.
+        // A reserve derived from EPIC_CHIP_MIN_H (21.6) fails this by 6.4px.
+        expect(chip.h + 2 * marginY).toBeLessThanOrEqual(FOCUS_LABEL_H + 1e-6);
+    });
+
+    // ── THE CASE THE OLD FIT ACTUALLY LOST ──────────────────────────────────
+    // A plan only a few columns wide fits vertically at a scale above 1, and the
+    // ruler's height scales with it: at the unreserved fit the band ABOVE ends
+    // higher on screen than the ruler's own bottom edge, so its name has no
+    // pixel of content area to sit in and `placeEpicChips` emits nothing for it.
+    // This is the reserve earning its keep, measured both ways.
+    describe('a narrow plan, where the pinned ruler alone swallowed the top strip', () => {
+        const lay = synth([400, 400, 400], 4);
+        const mid = lay.bands[1];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        const rect = bandFitRect(lay, mid);
+
+        it('the unreserved fit drops the name of the band ABOVE', () => {
+            const old = unreservedTransform(rect, size, kBase);
+            expect(old.k).toBeGreaterThan(1);
+            expect(chipOf(chipsAt(lay, old, size), 'Epic 1')).toBeFalsy();
+        });
+
+        it('the reserved fit renders it, fully clear of the ruler', () => {
+            const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+            expect(chip).toBeTruthy();
+            expect(fullyVisible(chip, tr, size)).toBe(true);
+            // …and the band below keeps its name too.
+            const under = chipOf(chipsAt(lay, tr, size), 'Epic 3');
+            expect(under).toBeTruthy();
+            expect(fullyVisible(under, tr, size)).toBe(true);
+        });
+    });
+
+    // ── THE EDGES OF THE PLAN ───────────────────────────────────────────────
+    it('a TOP-of-plan epic does not waste the reserved strip on the missing side', () => {
+        // Eight columns, so the VERTICAL axis binds and the pads are what the
+        // band's screen position is actually flush against.
+        const lay = synth([1200, 900, 900], 8);
+        const first = lay.bands[0];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        const tr = epicFocusTransform(lay, first, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const rect = bandFitRect(lay, first);
+        const top = tr.y + rect.y * tr.k;
+        const bottom = tr.y + (rect.y + rect.h) * tr.k;
+        // Nothing above it to name, so the top side gets the plain pad — flush,
+        // not merely "at least".
+        expect(top).toBeCloseTo(FOCUS_PAD, 6);
+        // The band below still gets its strip, and its name.
+        expect(size.h - bottom).toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Epic 2'), tr, size)).toBe(true);
+        // And the strip that is not reserved is not lost: the band is fitted
+        // LARGER than it would be if both sides were charged for a neighbour.
+        const bothSides = synth([1200, 900, 900], 8);
+        bothSides.bands.unshift({
+            ...bothSides.bands[0], epic: 'Epic 0', epicId: 0, epicLabel: 'Epic 0',
+            y: 0, height: RULER_H, stepIds: [],
+        });
+        expect(tr.k).toBeGreaterThan(epicFocusTransform(bothSides, first, size, kBase, kBase * FOCUS_MIN_RATIO).k);
+    });
+
+    it('a BOTTOM-of-plan epic likewise, with the reserve above it only', () => {
+        const lay = synth([900, 900, 1200], 8);
+        const last = lay.bands[2];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        const tr = epicFocusTransform(lay, last, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const rect = bandFitRect(lay, last);
+        const bottom = tr.y + (rect.y + rect.h) * tr.k;
+        // Nothing below it to name — flush against the plain pad.
+        expect(size.h - bottom).toBeCloseTo(FOCUS_PAD, 6);
+        expect(tr.y + rect.y * tr.k - rulerScreenBottom(tr))
+            .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
+        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Epic 2'), tr, size)).toBe(true);
+    });
+
+    // ── THE SMALL EPIC IS UNTOUCHED ─────────────────────────────────────────
+    it('a ONE-STEP epic still lands at the focus ceiling, on the Detail level', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'horizontal', stepLabel: 'id' });
+        const band = layout.bands.find((b) => b.stepIds.length === 1);
+        expect(band, 'the fixture has a one-step band').toBeTruthy();
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+        expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        expect(semanticLevel(tr.k / kBase)).toBe('in');
+        // The reserve moves the band inside the viewport; it never moves the
+        // scale a ceiling-clamped fit lands on.
+        const rect = bandFitRect(layout, band);
+        expect(tr.k).toBeCloseTo(unreservedK(rect, size, kBase), 9);
+    });
+
+    // ── THE CONTINUITY GUARD, OVER THE NEW PAD SUM ──────────────────────────
+    it('a viewport smaller than twice the pad stays finite and continuous', () => {
+        const lay = synth([600, 600, 600], 8);
+        const mid = lay.bands[1];
+        const rect = bandFitRect(lay, mid);
+        const size = { w: 1400 };
+        const kBase = size.w / lay.width;
+        let prevK = null;
+        let prevTop = null;
+        // Straight through 2 × FOCUS_PAD and through the full reserved sum,
+        // which is where a conditional would put its cliff. In HALF-pixel steps
+        // so a discontinuity has nowhere to hide between samples.
+        for (let h = 2 * FOCUS_PAD - 8; h <= 2 * FOCUS_PAD + 2 * FOCUS_LABEL_H + 8; h += 0.5) {
+            const tr = epicFocusTransform(lay, mid, { ...size, h }, kBase, kBase * FOCUS_MIN_RATIO);
+            const where = `h=${h}`;
+            expect(tr, where).toBeTruthy();
+            expect(Number.isFinite(tr.x) && Number.isFinite(tr.y) && Number.isFinite(tr.k),
+                `${where} finite`).toBe(true);
+            expect(tr.k, `${where} in extent`)
+                .toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+            expect(tr.k, `${where} in extent`).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+            // ── AND THE PLACEMENT, NOT ONLY THE SCALE (review finding) ──────
+            // `k` does not read `availY` at all, so a sweep that asserts only
+            // `k` cannot see the guard OR the ratio split — both survived a
+            // mutation run against the earlier version of this test. This is
+            // the regime where the two differ from the shipped code, and the
+            // claim they exist for is that the band never leaves the panel.
+            const top = tr.y + rect.y * tr.k;
+            const bottom = tr.y + (rect.y + rect.h) * tr.k;
+            expect(top, `${where} band starts inside the panel`).toBeLessThan(h);
+            expect(bottom, `${where} band ends inside the panel`).toBeGreaterThan(0);
+            // ── PINNED TO THE VALUE, not merely to a property ───────────────
+            // "The band still overlaps the panel" was too weak to see either
+            // variant: in this regime the band is ~146px tall in a viewport of
+            // at most 152, so it straddles the panel however the reserve is
+            // apportioned — a second mutation run put `y: padTop` 50px out and
+            // every assertion above still held. So the apportionment itself is
+            // re-derived here, independently of the module.
+            const nb = epicFocusNeighbours(lay, mid);
+            const padTop = FOCUS_PAD + (nb.above ? FOCUS_LABEL_H + RULER_H * tr.k : 0);
+            const padBottom = FOCUS_PAD + (nb.below ? FOCUS_LABEL_H : 0);
+            const availY = Math.max(h * 0.5, h - padTop - padBottom);
+            expect(top, `${where} placement`).toBeCloseTo(
+                (h - availY) * (padTop / (padTop + padBottom))
+                + (availY - rect.h * tr.k) / 2, 9);
+            if (prevK != null) {
+                expect(Math.abs(tr.k / prevK - 1), `${where} scale cliff`).toBeLessThan(0.5);
+                expect(Math.abs(top - prevTop), `${where} placement cliff`).toBeLessThan(2);
+            }
+            prevK = tr.k;
+            prevTop = top;
+        }
+    });
+
+    it('never leaves d3-zoom\'s scale extent, at any viewport or plan shape', () => {
+        for (const heights of [[4550], [616, 4550, 522], [400, 400, 400], [177]]) {
+            for (const cols of [2, 16]) {
+                const lay = synth(heights, cols);
+                for (const size of [{ w: 1200, h: 700 }, { w: 420, h: 2000 },
+                    { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
+                    const kBase = size.w / lay.width;
+                    for (const band of lay.bands) {
+                        const tr = epicFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+                        const where = `${band.epic} ${heights}×${cols} @ ${size.w}×${size.h}`;
+                        expect(tr, where).toBeTruthy();
+                        expect(tr.k, where).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+                        expect(tr.k, where).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+                        expect(Number.isFinite(tr.x) && Number.isFinite(tr.y), where).toBe(true);
+                    }
+                }
+            }
+        }
+    });
+
+    // ── STEP FOCUS IS NOT PART OF THIS ──────────────────────────────────────
+    // With no neighbours to reserve for, every line of the new arithmetic
+    // REDUCES to the old — algebraically, which is not the same as bit for bit:
+    // the reserved form reaches the same `y` by a different association of the
+    // same terms, and floating point is not associative. Hence a 10-digit
+    // comparison rather than `toEqual`; the residual is one ULP (~1e-13 px).
+    const sameTransform = (got, want, where) => {
+        expect(got, where).toBeTruthy();
+        expect(got.k, `${where} k`).toBeCloseTo(want.k, 10);
+        expect(got.x, `${where} x`).toBeCloseTo(want.x, 10);
+        expect(got.y, `${where} y`).toBeCloseTo(want.y, 10);
+    };
+
+    it('leaves STEP focus unchanged — it reserves nothing and never did', () => {
+        const layout = computePlanLayout(plan.rows, plan.batches,
+            { reqLayout: 'vertical', stepLabel: 'title' });
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / layout.width;
+        for (const id of layout.nodes.keys()) {
+            sameTransform(stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO),
+                unreservedTransform(stepFitRect(layout, id), size, kBase), `step ${id}`);
+        }
+    });
+
+    // ── AND A BAND WITH NO NEIGHBOURS AT ALL ────────────────────────────────
+    it('a single-band plan is fitted exactly as it was before this requirement', () => {
+        const lay = synth([900], 12);
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        sameTransform(epicFocusTransform(lay, lay.bands[0], size, kBase, kBase * FOCUS_MIN_RATIO),
+            unreservedTransform(bandFitRect(lay, lay.bands[0]), size, kBase), 'lone band');
     });
 });
 
@@ -4686,9 +5244,9 @@ describe('step focus geometry (req #3253)', () => {
         const size = { w: 1400, h: 800 };
         const kBase = size.w / layout.width;
         for (const band of layout.bands) {
-            const bandTr = epicFocusTransform(layout, band, size, kBase);
+            const bandTr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
             for (const id of band.stepIds) {
-                const stepTr = stepFocusTransform(layout, id, size, kBase);
+                const stepTr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
                 expect(stepTr, `step ${id}`).toBeTruthy();
                 expect(stepTr.k, `step ${id} in ${band.epic}`)
                     .toBeGreaterThanOrEqual(bandTr.k - 1e-9);
@@ -4698,8 +5256,8 @@ describe('step focus geometry (req #3253)', () => {
         // it is not merely "no worse": it is the ceiling against a band that is
         // nowhere near it.
         const big = layout.bands.reduce((a, b) => (b.stepIds.length > a.stepIds.length ? b : a));
-        const bandTr = epicFocusTransform(layout, big, size, kBase);
-        const stepTr = stepFocusTransform(layout, big.stepIds[0], size, kBase);
+        const bandTr = epicFocusTransform(layout, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const stepTr = stepFocusTransform(layout, big.stepIds[0], size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(stepTr.k / bandTr.k).toBeGreaterThan(2);
         expect(stepTr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
     });
@@ -4709,7 +5267,7 @@ describe('step focus geometry (req #3253)', () => {
         const kBase = size.w / layout.width;
         for (const id of stepIds) {
             const r = stepFitRect(layout, id);
-            const tr = stepFocusTransform(layout, id, size, kBase);
+            const tr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
             const left = tr.x + r.x * tr.k;
             const top = tr.y + r.y * tr.k;
             const right = tr.x + (r.x + r.w) * tr.k;
@@ -4732,7 +5290,7 @@ describe('step focus geometry (req #3253)', () => {
             { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
             const kBase = size.w / layout.width;
             for (const id of stepIds) {
-                const tr = stepFocusTransform(layout, id, size, kBase);
+                const tr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
                 expect(tr, `step ${id} @ ${size.w}×${size.h}`).toBeTruthy();
                 expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
                 expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
@@ -4748,7 +5306,7 @@ describe('step focus geometry (req #3253)', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
         for (const id of stepIds) {
-            expect(stepFocusTransform(layout, id, size, kBase).k / kBase)
+            expect(stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO).k / kBase)
                 .toBeCloseTo(FOCUS_MAX_RATIO, 9);
         }
     });
@@ -4761,10 +5319,10 @@ describe('step focus geometry (req #3253)', () => {
         expect(stepFitRect(layout, undefined)).toBeNull();
         expect(stepFitRect(computePlanLayout([], []), id)).toBeNull();
         expect(stepFitRect(null, id)).toBeNull();
-        expect(stepFocusTransform(layout, 999999, { w: 800, h: 600 }, kBase)).toBeNull();
-        expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase)).toBeNull();
-        expect(stepFocusTransform(layout, id, undefined, kBase)).toBeNull();
-        expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0)).toBeNull();
+        expect(stepFocusTransform(layout, 999999, { w: 800, h: 600 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(stepFocusTransform(layout, id, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
     });
 });
 

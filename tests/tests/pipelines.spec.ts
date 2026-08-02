@@ -31,7 +31,7 @@ import {
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
-    epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
+    epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO, ZOOM_MIN_RATIO,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
 // PIPE-19 asserts the Autonomy row against the label table the card renders
 // through, not against a hand-copied string — the point of D5 is that the card
@@ -900,6 +900,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // would test a camera the component never uses.
             const kFit = size.w / layout.width;
             const kBase = Math.max(kFit, K_READABLE);
+            // …AND THE BEHAVIOUR'S OWN FLOOR, handed in the same way the
+            // component hands it (req #3274). `kZoomFloor` is
+            // `Math.min(kFit, kDefault) * ZOOM_MIN_RATIO`, which is NOT
+            // `kBase * FOCUS_MIN_RATIO` on any plan where the readable default
+            // binds — deriving it here from `kBase` would test a clamp the page
+            // does not use, which is the desync the requirement closed.
+            const kZoomFloor = Math.min(kFit, kBase) * ZOOM_MIN_RATIO;
 
             const [, , k0] = await read();
             expect(k0, 'the plan opens at the readable default').toBeCloseTo(kBase, 2);
@@ -914,7 +921,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
             expect(band, 'at least one epic chip is on screen at the default view').toBeTruthy();
 
-            const want = epicFocusTransform(layout, band, size, kBase)!;
+            const want = epicFocusTransform(layout, band, size, kBase, kZoomFloor)!;
             expect(want, 'the band has a fit transform').toBeTruthy();
 
             // Click the NAME, not the ↗ beside it.
