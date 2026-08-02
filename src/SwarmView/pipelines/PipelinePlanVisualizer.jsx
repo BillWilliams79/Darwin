@@ -1152,9 +1152,16 @@ export default function PipelinePlanVisualizer({
     // The band caller. Signature unchanged (a band, an options bag, a boolean
     // back) so every existing call site — the band header, the sticky chip, the
     // req #3235 deep-link effect — is untouched.
+    //
+    // `kZoomFloor` is handed IN rather than re-derived inside the fit (req
+    // #3274). It is the same number `.scaleExtent` is configured with and the
+    // same number `factoryDefaultScale` is already given, for the reason that
+    // one's comment spells out — a re-derived `kBase * FOCUS_MIN_RATIO` agreed
+    // with the real floor only while `kDefault === kFit`, and req #3168's
+    // readable default broke that on every plan large enough to need it.
     const focusEpic = useCallback((band, opts) => applyFocus(
-        epicFocusTransform(layout, band, size, kDefault), opts),
-    [applyFocus, layout, size, kDefault]);
+        epicFocusTransform(layout, band, size, kDefault, kZoomFloor), opts),
+    [applyFocus, layout, size, kDefault, kZoomFloor]);
 
     // Req #3235 — the mount-time end of the `?epic=` deep link: land on the
     // SAME centered/zoomed view a band-header click produces, through the
@@ -1248,10 +1255,10 @@ export default function PipelinePlanVisualizer({
         if (userMovedCameraRef.current) return;
         const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
         if (stepFocusAppliedRef.current === key) return;
-        const tr = stepFocusTransform(layout, focusStepId, size, kDefault);
+        const tr = stepFocusTransform(layout, focusStepId, size, kDefault, kZoomFloor);
         if (!tr) return;
         if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
-    }, [focusStepId, pipeline?.id, size, layout, kDefault, applyFocus]);
+    }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this epic: the resolver answers "which pipeline hosts any of

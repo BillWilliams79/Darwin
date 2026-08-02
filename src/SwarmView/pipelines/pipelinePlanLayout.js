@@ -3323,6 +3323,115 @@ export const ZOOM_MAX_RATIO = 8;
 export const FOCUS_MAX_RATIO = 2.6;
 export const FOCUS_MIN_RATIO = ZOOM_MIN_RATIO;
 
+// ── AND THE FLOOR IS THE CALLER'S OWN, NOT A RE-DERIVED COPY (req #3274) ────
+// `kBase * FOCUS_MIN_RATIO` was that copy, and it had already silently
+// desynced. The behaviour's configured floor is
+// `Math.min(kFit, kDefault) * ZOOM_MIN_RATIO` (PipelinePlanVisualizer's
+// `kZoomFloor`), and since req #3168 `kDefault = Math.max(kFit, K_READABLE)`
+// — so on any plan where the READABLE floor binds, `kDefault > kFit` and the
+// two expressions are different numbers. MEASURED on live pipeline 2 at a
+// 1600px-wide panel: `kFit = 0.275`, `kDefault = 0.8`, so the behaviour's
+// floor is 0.069 and the focus refused to go below 0.200 — 2.9× stricter than
+// the extent it exists to agree with.
+//
+// **THAT IS WHAT PINNED THE BAND THIS REQUIREMENT IS ABOUT.** The `Pipeline`
+// band wants `k ≈ 0.14` on an 800px panel; clamped up to 0.20 it is 910 screen
+// px tall in a panel that is not, so it overflowed BOTH reserves, both
+// neighbours left the viewport, and no pad on either side could have helped.
+// The reserve above is necessary and this is the other half of sufficient.
+//
+// The clamp is NOT weakened — it still applies, after the fit, and `k` still
+// lands inside `scaleExtent` so the next wheel gesture does not jump. What
+// changed is that it now clamps to the extent the behaviour actually has.
+// `factoryDefaultScale` takes its floor as a parameter for exactly this reason
+// and says so at length; this is that argument applied to the other function,
+// after the copy it warned about did the thing it warned about.
+//
+// **IT IS REQUIRED, AND A MISSING ONE REFUSES THE FIT** (second review). The
+// first cut made it optional and fell back to `kBase * FOCUS_MIN_RATIO` — the
+// very expression this exists to retire — which turns "somebody dropped the
+// argument" into a SILENT restoration of the bug. Measured: with the fallback
+// in place, deleting `kZoomFloor` from both of the visualizer's call sites
+// re-introduced the defect and the whole suite, E2E included, stayed green,
+// because the E2E's fixture plan is small enough that the floor never binds on
+// it. Refusing instead makes the same slip a camera that does not move, which
+// PIPE-14 fails on immediately and a reader would notice in a second.
+//
+// So the floor joins the viewport and `kBase` in the guard below rather than
+// getting a default. `factoryDefaultScale` takes its own floor positionally
+// with no default for the same reason, and this is the same argument.
+
+// ── The NEIGHBOUR'S NAME IS PART OF THE FIT (req #3274) ─────────────────────
+// `FOCUS_PAD` used to be the whole of the space the bands above and below got,
+// and nothing in the transform knew that a neighbour needs a SPECIFIC amount of
+// room to render its name. On a large epic — the `Pipeline` band of pipeline 2
+// is the case reported — the fit filled the panel with one band and the reader
+// lost all sense of where in the plan they had landed.
+//
+// So the vertical pad is now TWO things added, not one constant reused:
+//
+//   · `FOCUS_PAD` — the focused band's own breathing room, keeping it off the
+//     viewport edge. Unchanged, on all four sides.
+//   · `FOCUS_LABEL_H` — the strip the NEIGHBOUR draws its name in, DERIVED from
+//     the chip's own metrics rather than a number that happens to be 44.
+//
+// They are added rather than `max`ed because they are different jobs: a name
+// jammed against the focused band's edge is legible but reads as chrome, and
+// the reserve exists so the neighbour's name sits in clear space.
+//
+// **THIS IS THE FULL CHIP, not the floored one.** `placeEpicChips` sizes a chip
+// from its band's own epic lane and floors it at `EPIC_CHIP_MIN_H` (req #3272),
+// so the height it actually draws at is somewhere in `[EPIC_CHIP_MIN_H,
+// EPIC_CHIP_H]` and depends on a `k` this function has not chosen yet.
+// Reserving the maximum is the answer that is right at every scale and needs no
+// second pass; the difference is 6.4px.
+//
+// THE CONSEQUENCE, STATED RATHER THAN HIDDEN: a large epic is fitted slightly
+// smaller than it was. That is the trade the requirement asks for — orientation
+// beats maximum magnification — and it is the same trade `FOCUS_MAX_RATIO`
+// already makes in the other direction for a one-step epic.
+export const FOCUS_LABEL_H = EPIC_CHIP_H + 2 * CHIP_MARGIN_Y;
+
+/**
+ * Does `band` have another band ABOVE it, BELOW it, or both (req #3274)?
+ *
+ * The answer decides which sides of the focus get the label reserve, because
+ * "an epic at the very top of the plan" has no name to protect above it and
+ * reserving the strip there would spend the viewport on nothing.
+ *
+ * Decided from WORLD Y ALONE, never from the position of `band` in the array.
+ * `bandFitRect` keeps the same discipline and for the same reason (req #3201
+ * changes the order `computePlanLayout` emits bands in), and it costs one pass
+ * over 4–10 bands.
+ *
+ * A band is "above" when it ends at or before this one starts AND begins
+ * strictly higher; "below" is the mirror. The second half of each test is what
+ * makes `band` fail both against itself WITHOUT an identity check (review
+ * finding): the tolerance alone let a band of height ≤ 1e-6 satisfy
+ * `b.y + b.height <= top + 1e-6` against its own row, and an identity check
+ * would only have worked for the callers that pass the same object back.
+ * Bands never overlap in world Y, so for every OTHER band exactly one holds.
+ *
+ * @returns {{above: boolean, below: boolean}} both false when there is nothing
+ *   to compare against — a one-band plan, or a degenerate input.
+ */
+export function epicFocusNeighbours(layout, band) {
+    const none = { above: false, below: false };
+    const bands = layout?.bands;
+    if (!Array.isArray(bands) || !band) return none;
+    if (!Number.isFinite(band.y) || !(band.height > 0)) return none;
+    const top = band.y;
+    const bottom = band.y + band.height;
+    let above = false;
+    let below = false;
+    for (const b of bands) {
+        if (!b || !Number.isFinite(b.y) || !(b.height > 0)) continue;
+        if (b.y < top && b.y + b.height <= top + 1e-6) above = true;
+        else if (b.y + b.height > bottom && b.y >= bottom - 1e-6) below = true;
+    }
+    return { above, below };
+}
+
 /**
  * The world-space rectangle an epic band occupies.
  *
@@ -3391,18 +3500,26 @@ export function bandFitRect(layout, band) {
 }
 
 /**
- * The {x, y, k} that centres `band` in a `size.w` × `size.h` viewport with
- * FOCUS_PAD screen px of margin on all four sides.
+ * The {x, y, k} that fits `band` into a `size.w` × `size.h` viewport with
+ * FOCUS_PAD screen px of margin on all four sides — plus, on each vertical side
+ * that HAS a neighbouring band, FOCUS_LABEL_H more for that neighbour's own
+ * epic name (req #3274).
  *
  * The scale is the tighter of the two axis fits, clamped into the behavior's
- * scale extent; the translation then centres the rect, which spends the slack
- * on the non-binding axis as equal margin rather than piling it on one side.
+ * scale extent; the translation then places the rect inside the reserved
+ * window, spending the slack on the non-binding axis as equal margin rather
+ * than piling it on one side.
  *
+ * @param {number} kFloor the caller's OWN configured `scaleExtent` minimum.
+ *   REQUIRED — omitting it returns null rather than re-deriving one. See the
+ *   FLOOR block above for why a re-derived copy is the bug this closes, and why
+ *   refusing beats defaulting.
  * @returns {{x:number,y:number,k:number}|null} null when there is nothing
- *   sensible to fit (no viewport yet, no columns, degenerate band).
+ *   sensible to fit (no viewport yet, no columns, degenerate band, no floor).
  */
-export function epicFocusTransform(layout, band, size, kBase) {
-    return fitTransform(bandFitRect(layout, band), size, kBase);
+export function epicFocusTransform(layout, band, size, kBase, kFloor) {
+    return fitTransform(bandFitRect(layout, band), size, kBase,
+        epicFocusNeighbours(layout, band), kFloor);
 }
 
 /**
@@ -3481,33 +3598,95 @@ export function stepFitRect(layout, stepId) {
  * it back. A second copy of that clamp that "only had to agree" is the desync
  * this file has already taken two review findings on, so there is one.
  *
+ * `kFloor` is REQUIRED here for the same reason it is on the band fit — see the
+ * FLOOR block above `bandFitRect`.
+ *
  * @returns {{x:number,y:number,k:number}|null} null when the step is not on this
- *   layout, or there is no viewport yet.
+ *   layout, there is no viewport yet, or no floor was handed in.
  */
-export function stepFocusTransform(layout, stepId, size, kBase) {
-    return fitTransform(stepFitRect(layout, stepId), size, kBase);
+export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
+    return fitTransform(stepFitRect(layout, stepId), size, kBase, null, kFloor);
 }
 
 // The centring itself, shared by both focus targets (extracted req #3253).
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.
-function fitTransform(rect, size, kBase) {
+//
+// `neighbours` (req #3274) is the ONLY thing that differs between the two
+// callers now. `epicFocusTransform` hands in which vertical sides have a band
+// whose name needs room; `stepFocusTransform` hands in nothing, and with both
+// flags false every line below reduces — algebraically, not approximately — to
+// the symmetric arithmetic this function has always done. That reduction is
+// asserted in vitest rather than asserted here.
+function fitTransform(rect, size, kBase, neighbours, kFloor) {
     if (!rect) return null;
     const w = size?.w || 0;
     const h = size?.h || 0;
-    if (!(w > 0) || !(h > 0) || !(kBase > 0)) return null;
+    // `kFloor` sits in this guard rather than carrying a default — see the
+    // FLOOR block above. A caller that drops it gets no transform, which is a
+    // camera that visibly does not move, instead of a fit clamped against a
+    // re-derived floor that silently disagrees with the zoom behaviour's.
+    if (!(w > 0) || !(h > 0) || !(kBase > 0) || !(kFloor > 0)) return null;
+    // ── THE VERTICAL RESERVE (req #3274) ────────────────────────────────────
+    // One label strip per side that has a neighbour to draw one. See
+    // FOCUS_LABEL_H for why it is added to FOCUS_PAD rather than maxed with it,
+    // and why it is the full chip height rather than the floored one.
+    const labelTop = neighbours?.above ? FOCUS_LABEL_H : 0;
+    const labelBottom = neighbours?.below ? FOCUS_LABEL_H : 0;
+    // ── AND THE PINNED RULER, ON THE TOP SIDE ONLY ──────────────────────────
+    // The strip above the focused band is not all usable: req #3254 pins the
+    // time ruler to the viewport top and req #3257 stops every epic name just
+    // BELOW it (`topInset: rulerScreenBottom(t)` in the visualizer), so a
+    // reserve that ignored the ruler would park the neighbour's name underneath
+    // it. Charged only when there IS a band above, which is NOT the same claim
+    // as "the ruler is pinned" and must not be written as one (review finding):
+    // pinning is `t.y ≤ 0`, and a fit whose world origin lands BELOW the panel
+    // top draws the ruler at its natural world position instead, where the
+    // strip it costs is `(band.y − RULER_H)·k` and this charge buys nothing.
+    // The charge is therefore an UPPER BOUND on what the ruler can take, not a
+    // measurement of what it did — deliberately, because the alternative reads
+    // `t.y`, which is the value being solved for. It over-reserves only where
+    // the plan's first band is within `72/k + RULER_H` world px of the origin,
+    // which on live pipeline 2 is band 0 alone — and band 0 has no band above
+    // it, so the branch is not taken there at all.
+    //
+    // Its height is `RULER_H · k` — a WORLD height, so unlike the two pads
+    // above it moves with the scale this function is solving for. That is
+    // circular only if you iterate: `rect.h · k ≤ h − padTop(k) − padBottom`
+    // with `padTop(k) = FOCUS_PAD + labelTop + RULER_H · k` is linear in k, and
+    // rearranges to the closed form below — the ruler simply joins the rect on
+    // the fitted side of the inequality.
+    const rulerTop = neighbours?.above ? RULER_H : 0;
     // A viewport narrower than twice the pad has no room for the margin at all.
-    // `max(half, minus-the-pad)` rather than a conditional: the conditional has
-    // a cliff at exactly 2 × FOCUS_PAD where one pixel of growth changes the
+    // `max(half, minus-the-pads)` rather than a conditional: the conditional has
+    // a cliff at exactly the pad sum where one pixel of growth changes the
     // available width from 88 to 1 and zooms out ~88×. Never reachable in
     // production (the panel has `minHeight: 480`), but a discontinuity that
-    // sharp is a trap for the next caller, not a saved branch.
+    // sharp is a trap for the next caller, not a saved branch. The vertical
+    // sum is now the reserve above plus the reserve below rather than 2 × one
+    // constant, and the guard is the same shape over the new value.
     const availW = Math.max(w * 0.5, w - 2 * FOCUS_PAD);
-    const availH = Math.max(h * 0.5, h - 2 * FOCUS_PAD);
-    const kFit = Math.min(availW / rect.w, availH / rect.h);
-    const k = Math.min(Math.max(kFit, kBase * FOCUS_MIN_RATIO), kBase * FOCUS_MAX_RATIO);
+    const availH = Math.max(h * 0.5, h - 2 * FOCUS_PAD - labelTop - labelBottom);
+    const kFit = Math.min(availW / rect.w, availH / (rect.h + rulerTop));
+    const k = Math.min(Math.max(kFit, kFloor), kBase * FOCUS_MAX_RATIO);
+    // The reserve at the scale actually chosen. `k` may be well below `kFit`
+    // (the width bound), or above it (the FOCUS_MIN_RATIO floor), so these are
+    // re-read from `k` rather than assumed to be what the fit solved for.
+    const padTop = FOCUS_PAD + labelTop + rulerTop * k;
+    const padBottom = FOCUS_PAD + labelBottom;
+    const padSum = padTop + padBottom;
+    // The rect sits inside the window `[padTop, h − padBottom]`, centred in it —
+    // so the slack on a non-binding axis is still split evenly, and the reserve
+    // still lands on the side that asked for it. The reserved height is split in
+    // the padTop : padBottom RATIO rather than assigned outright, which is what
+    // keeps this continuous through the `max(half, …)` guard above: where the
+    // guard does not bind, `h − availY` IS `padSum` and the first term is
+    // exactly `padTop`; where it does, both reserves shrink together instead of
+    // one of them eating the whole viewport.
+    const availY = Math.max(h * 0.5, h - padSum);
     return {
         x: w / 2 - (rect.x + rect.w / 2) * k,
-        y: h / 2 - (rect.y + rect.h / 2) * k,
+        y: (h - availY) * (padTop / padSum)
+            + (availY - rect.h * k) / 2 - rect.y * k,
         k,
     };
 }
