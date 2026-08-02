@@ -8,6 +8,7 @@ import { useEpicPipelineLocation } from './useEpicPipelineLocation';
 import { epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
+import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../../utils/requirementStatusTimestamps';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
@@ -406,22 +407,17 @@ const RequirementDetail = () => {
     const executeStatusChange = (newStatus) => {
         const now = new Date().toISOString();
 
-        // wontfix is a terminal state like met — both set completed_at (req #2783)
-        const setsCompleted = newStatus === 'met' || newStatus === 'wontfix';
-
+        // req #3244 — shared with CategoryCard/SwarmStartCard so all three frontend
+        // writers of requirement_status derive the same timestamps darwin-mcp does.
         const updates = {
             requirement_status: newStatus,
-            started_at: newStatus === 'development' ? now : 'NULL',
-            completed_at: setsCompleted ? now : 'NULL',
-            deferred_at: newStatus === 'deferred' ? now : 'NULL',
+            ...requirementStatusTimestampFields(newStatus, now),
         };
 
         setRequirement(prev => ({
             ...prev,
             requirement_status: newStatus,
-            started_at: newStatus === 'development' ? now : null,
-            completed_at: setsCompleted ? now : null,
-            deferred_at: newStatus === 'deferred' ? now : null,
+            ...requirementStatusTimestampState(newStatus, now),
         }));
 
         let uri = `${darwinUri}/requirements`;
