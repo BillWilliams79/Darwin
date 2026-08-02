@@ -1360,11 +1360,20 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     lines: centres.size,
                     tallestChild: Math.round(tallest),
                     // The one elastic member. Its measured width vs. its own
-                    // scrollWidth is what "it ellipsized" means.
-                    titleClipped: (() => {
+                    // scrollWidth is what "it ellipsized" means; `titleBox` and
+                    // `titleNatural` are the two numbers behind that verdict, so
+                    // a failure says HOW short the row is rather than only that
+                    // it is.
+                    ...(() => {
                         const t = row.querySelector(
                             '[data-testid="pipeline-title"]') as HTMLElement | null;
-                        return t ? t.scrollWidth > t.clientWidth + 1 : false;
+                        return {
+                            titleClipped: t ? t.scrollWidth > t.clientWidth + 1 : false,
+                            titleBox: t ? Math.round(t.clientWidth) : 0,
+                            titleNatural: t ? Math.round(t.scrollWidth) : 0,
+                            titleTooltip: t?.getAttribute('aria-label')
+                                || t?.parentElement?.getAttribute('aria-label') || '',
+                        };
                     })(),
                     docOverflow: document.documentElement.scrollWidth
                         - document.documentElement.clientWidth,
@@ -1384,8 +1393,40 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(at1800.rowHeight - at1800.scrollbarH,
                 'and the row is no taller than that line')
                 .toBeLessThanOrEqual(at1800.tallestChild + 2);
-            expect(at1800.titleClipped,
-                'at 1800px there is room for the whole plan name').toBe(false);
+            // ── THE ROW BELONGS TO THE PLAN, NOT TO ITS CHROME ───────────────
+            //    This used to assert `titleClipped === false` at 1800px — "there
+            //    is room for the whole plan name". That claim was never
+            //    fixture-independent and it stopped being TRUE for a reason
+            //    neither requirement got wrong: req #3242 lengthened the title
+            //    from `<name> <met>/<total>` to `<name> <N> Epics, <met>/<total>
+            //    Requirements`, and req #3261 P4 took it from `h6` to `h5` on
+            //    desktop (the size every other Darwin page uses). The FIXTURE's
+            //    name additionally carries a 22-character `e2e-<ms>-plan ` stamp
+            //    that no real plan has, so what the old assertion actually
+            //    measured was whether a synthetic name survived a type-scale
+            //    change. Measured on the merged tree: incompressible 769px
+            //    against 763px before — the control set did NOT grow.
+            //
+            //    So assert the property that was worth having, in a form the
+            //    fixture cannot skew: at a wide desktop the plan's NAME gets at
+            //    least as much of the row as every control combined. That fails
+            //    the moment chrome starts crowding out the thing the page is
+            //    about — which is what the old assertion was really guarding —
+            //    and it does not fail because somebody named a plan verbosely.
+            // eslint-disable-next-line no-console
+            console.log(`[PIPE-18] title @1800px: box=${at1800.titleBox}px `
+                + `natural=${at1800.titleNatural}px `
+                + `(ellipsized=${at1800.titleClipped})`);
+            expect(at1800.titleBox,
+                'at 1800px the plan name gets at least as much of the row as '
+                + 'all of its controls combined')
+                .toBeGreaterThanOrEqual(at1800.incompressible);
+            // And when it DOES ellipsize the reader can still recover it — the
+            // tooltip is the whole point of `noWrap` here, and since req #3242
+            // removed the breadcrumb it is the ONLY recovery path left.
+            expect(at1800.titleTooltip,
+                'the full plan name is on the title tooltip')
+                .toContain('Substrate Rebuild Pipeline');
             expect(at1800.scrolls,
                 'at 1800px everything fits and there is no band to scroll')
                 .toBe(false);
@@ -1821,7 +1862,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    the point of `testIdPrefix`: the control's behaviour is the
             //    same control's behaviour wherever it is mounted.
             await expect(control).toBeVisible();
-            await expect(control).toContainText('Detail:');
+            // "View", not "Detail:" — req #3242's user directive renamed the
+            // caption on this page and did not re-point this assertion, so this
+            // test was failing on master before req #3261 merged into it. The
+            // Build Visualizer still passes `label` unset and gets the "Detail:"
+            // default, which is why the rename was invisible on that side.
+            await expect(control).toContainText('View');
             for (const id of ['auto', '1', '2', '3']) {
                 await expect(page.getByTestId(`pipeline-viz-level-${id}`)).toBeVisible();
             }
