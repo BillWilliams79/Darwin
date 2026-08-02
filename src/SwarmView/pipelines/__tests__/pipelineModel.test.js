@@ -1130,7 +1130,7 @@ describe('cost aggregation (req #3117 server-side rollup)', () => {
     });
 });
 
-describe('requirementCounts — met/total, per epic and for the whole plan (req #3225)', () => {
+describe('requirementCounts — met/total, per epic and for the whole plan (req #3225, req #3269)', () => {
     const model = (requirements, features = [], epics = []) => ({ requirements, features, epics });
 
     it('counts met over total, excluding nothing but tracking containers', () => {
@@ -1169,18 +1169,34 @@ describe('requirementCounts — met/total, per epic and for the whole plan (req 
         expect(requirementCounts(m).overall).toEqual({ met: 1, total: 1 });
     });
 
-    it('wontfix and deferred count toward the denominator, never the numerator', () => {
-        // req #3225's own recommendation: the ratio answers "how much of this
-        // is FINISHED", not "how much has stopped moving" — a plan can sit
-        // permanently short of its total on these two statuses, by design.
+    it('wontfix and deferred count toward the numerator, exactly like met '
+        + '(req #3269, correcting req #3225)', () => {
+        // Both sit in TERMINAL_REQUIREMENT_STATUSES — the same set that
+        // already makes a step derive `done` — so an epic whose only
+        // non-met requirement is deferred/wontfix must read N/N, not one
+        // short.
         const m = model([
             { id: 1, requirement_status: 'met', feature_fk: 101 },
             { id: 2, requirement_status: 'wontfix', feature_fk: 101 },
             { id: 3, requirement_status: 'deferred', feature_fk: 101 },
         ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
         expect(requirementCounts(m)).toEqual({
-            overall: { met: 1, total: 3 },
-            byEpic: [{ epicId: 1, met: 1, total: 3 }],
+            overall: { met: 3, total: 3 },
+            byEpic: [{ epicId: 1, met: 3, total: 3 }],
+        });
+    });
+
+    it('authoring/approved/swarm_ready/development stay outstanding', () => {
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 101 },
+            { id: 2, requirement_status: 'authoring', feature_fk: 101 },
+            { id: 3, requirement_status: 'approved', feature_fk: 101 },
+            { id: 4, requirement_status: 'swarm_ready', feature_fk: 101 },
+            { id: 5, requirement_status: 'development', feature_fk: 101 },
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m)).toEqual({
+            overall: { met: 1, total: 5 },
+            byEpic: [{ epicId: 1, met: 1, total: 5 }],
         });
     });
 
@@ -1237,8 +1253,12 @@ describe('requirementCounts — met/total, per epic and for the whole plan (req 
         const observed = requirementCounts(SUBSTRATE_REBUILD_MODEL);
         const nonTracking = reqs.filter((r) => !trackingIds.includes(r.id));
         expect(observed.overall.total).toBe(nonTracking.length);
+        // Literal set, not the imported constant — this must stay an INDEPENDENT
+        // reduce, so a regression that silently grows or shrinks
+        // TERMINAL_REQUIREMENT_STATUSES still fails this assertion.
         expect(observed.overall.met).toBe(
-            nonTracking.filter((r) => r.requirement_status === 'met').length);
+            nonTracking.filter((r) => ['met', 'deferred', 'wontfix']
+                .includes(r.requirement_status)).length);
         // #3083 is `development` and would have moved the numerator toward
         // zero-relative-to-itself either way, but it must not appear in ANY
         // epic bucket at all — this is the one requirement excluded outright.
