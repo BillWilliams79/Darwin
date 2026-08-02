@@ -76,8 +76,14 @@ export function useEpicPipelineLocation(creatorFk, epicId, { enabled = true } = 
     });
     const stepIds = dedupedIds(stepLinksQ.data, 'step_fk');
 
+    // `plan_location`, not this hook's own name (req #3253 code review): the
+    // last two hops are shared verbatim with `useRequirementStepLocation`, and
+    // on a requirement whose own step is what put this epic on the plan both
+    // chains ask for the SAME id set. A per-hook prefix fetched and cached the
+    // identical URL twice. The first three hops stay hook-scoped — nothing else
+    // asks those questions.
     const stepsQ = useQuery({
-        queryKey: ['epic_pipeline_location', 'steps', creatorFk, stepIds],
+        queryKey: ['plan_location', 'steps', creatorFk, stepIds],
         queryFn: () => fetchEntity(
             `${darwinUri}/pipeline_steps?id=(${stepIds.join(',')})&fields=id,pipeline_fk`, idToken),
         enabled: active && stepLinksQ.isSuccess && stepIds.length > 0,
@@ -85,7 +91,7 @@ export function useEpicPipelineLocation(creatorFk, epicId, { enabled = true } = 
     const pipelineIds = dedupedIds(stepsQ.data, 'pipeline_fk');
 
     const pipelinesQ = useQuery({
-        queryKey: ['epic_pipeline_location', 'pipelines', creatorFk, pipelineIds],
+        queryKey: ['plan_location', 'pipelines', creatorFk, pipelineIds],
         queryFn: () => fetchEntity(
             `${darwinUri}/pipelines?id=(${pipelineIds.join(',')})&fields=id,pipeline_status`, idToken),
         enabled: active && stepsQ.isSuccess && pipelineIds.length > 0,

@@ -32,6 +32,7 @@ import {
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
+    stepFitRect, stepFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
@@ -3910,6 +3911,152 @@ describe('epic focus geometry', () => {
         expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase)).toBeNull();
         expect(epicFocusTransform(layout, band, undefined, kBase)).toBeNull();
         expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0)).toBeNull();
+    });
+});
+
+// ── Step focus (req #3253) ──────────────────────────────────────────────────
+// The requirement page's "view on plan" link lands on ONE STEP rather than
+// fitting its whole epic, because on a large epic the epic fit IS a zoomed-out
+// view. Same two-pure-functions shape as the epic focus above, and the same
+// division of labour: everything here is falsifiable arithmetic, and the
+// component adds only the decision to route the transform through d3-zoom.
+describe('step focus geometry (req #3253)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const stepIds = [...layout.nodes.keys()];
+
+    // Everything ONE step actually draws — recomputed from the layout's own
+    // output rather than by calling stepFitRect, for the reason the band case
+    // spells out: a test that asks the implementation what it drew cannot catch
+    // it drawing the wrong thing.
+    const drawn = (id) => {
+        const n = layout.nodes.get(id);
+        let left = n.x - BEAD_RADIUS;
+        let right = n.x + BEAD_RADIUS;
+        let top = n.y - BEAD_RADIUS;
+        let bottom = n.y + BEAD_RADIUS;
+        for (const l of layout.labels) {
+            if (l.stepId !== id) continue;
+            left = Math.min(left, l.x);
+            right = Math.max(right, l.x + (l.w || 0));
+            top = Math.min(top, l.y);
+            bottom = Math.max(bottom, l.y + (l.h || 0));
+        }
+        return { left, right, top, bottom };
+    };
+
+    it('contains everything the step draws — label above, req marks below', () => {
+        // THE case a bead-only fit gets wrong. A step's requirement marks stack
+        // BELOW its bead and its title sits ABOVE it, so centring on the bead
+        // alone pushes the requirement ids — the thing the reader followed the
+        // link to see — off a tight viewport.
+        for (const id of stepIds) {
+            const r = stepFitRect(layout, id);
+            expect(r, `step ${id}`).toBeTruthy();
+            const d = drawn(id);
+            expect(r.x, `step ${id} left`).toBeLessThanOrEqual(d.left + 1e-6);
+            expect(r.x + r.w, `step ${id} right`).toBeGreaterThanOrEqual(d.right - 1e-6);
+            expect(r.y, `step ${id} top`).toBeLessThanOrEqual(d.top + 1e-6);
+            expect(r.y + r.h, `step ${id} bottom`).toBeGreaterThanOrEqual(d.bottom - 1e-6);
+        }
+    });
+
+    it('covers the step\'s own column', () => {
+        for (const id of stepIds) {
+            const n = layout.nodes.get(id);
+            const r = stepFitRect(layout, id);
+            expect(r.x).toBeLessThanOrEqual(layout.colX[n.depth] - layout.colW[n.depth] / 2 + 1e-6);
+            expect(r.x + r.w)
+                .toBeGreaterThanOrEqual(layout.colX[n.depth] + layout.colW[n.depth] / 2 - 1e-6);
+        }
+    });
+
+    it('IS ZOOMED IN — a step rect is a small fraction of its own band\'s', () => {
+        // The whole point of the requirement. Every step sits inside some band,
+        // and fitting the step must ask for materially more magnification than
+        // fitting that band, or nothing has changed for the reader.
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / layout.width;
+        for (const band of layout.bands) {
+            const bandTr = epicFocusTransform(layout, band, size, kBase);
+            for (const id of band.stepIds) {
+                const stepTr = stepFocusTransform(layout, id, size, kBase);
+                expect(stepTr, `step ${id}`).toBeTruthy();
+                expect(stepTr.k, `step ${id} in ${band.epic}`)
+                    .toBeGreaterThanOrEqual(bandTr.k - 1e-9);
+            }
+        }
+        // And on the fixture's LARGEST band — the case the requirement names —
+        // it is not merely "no worse": it is the ceiling against a band that is
+        // nowhere near it.
+        const big = layout.bands.reduce((a, b) => (b.stepIds.length > a.stepIds.length ? b : a));
+        const bandTr = epicFocusTransform(layout, big, size, kBase);
+        const stepTr = stepFocusTransform(layout, big.stepIds[0], size, kBase);
+        expect(stepTr.k / bandTr.k).toBeGreaterThan(2);
+        expect(stepTr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
+    });
+
+    it('centres the step and leaves at least FOCUS_PAD on all four sides', () => {
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        for (const id of stepIds) {
+            const r = stepFitRect(layout, id);
+            const tr = stepFocusTransform(layout, id, size, kBase);
+            const left = tr.x + r.x * tr.k;
+            const top = tr.y + r.y * tr.k;
+            const right = tr.x + (r.x + r.w) * tr.k;
+            const bottom = tr.y + (r.y + r.h) * tr.k;
+            expect(left + right).toBeCloseTo(size.w, 6);
+            expect(top + bottom).toBeCloseTo(size.h, 6);
+            expect(left, `step ${id} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(top, `step ${id} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.w - right, `step ${id} right`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.h - bottom, `step ${id} bottom`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+        }
+    });
+
+    it('never leaves d3-zoom\'s scaleExtent, at any viewport', () => {
+        // THE ACCEPTANCE CRITERION "the first wheel gesture after landing does
+        // not jump". `zoom.transform` applies what it is handed verbatim, and
+        // the next wheel event clamps against scaleExtent — so an out-of-extent
+        // k here would look correct until the reader's first scroll.
+        for (const size of [{ w: 1200, h: 700 }, { w: 420, h: 2000 },
+            { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
+            const kBase = size.w / layout.width;
+            for (const id of stepIds) {
+                const tr = stepFocusTransform(layout, id, size, kBase);
+                expect(tr, `step ${id} @ ${size.w}×${size.h}`).toBeTruthy();
+                expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+                expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
+                expect(Number.isFinite(tr.x) && Number.isFinite(tr.y)).toBe(true);
+            }
+        }
+    });
+
+    it('shares the epic focus\'s clamp rather than a second copy of it', () => {
+        // One clamp, or the two desync from `scaleExtent` independently. A step
+        // rect is always tighter than the ceiling on this fixture, so every step
+        // lands exactly on it — which is only true if both read FOCUS_MAX_RATIO.
+        const size = { w: 1200, h: 700 };
+        const kBase = size.w / layout.width;
+        for (const id of stepIds) {
+            expect(stepFocusTransform(layout, id, size, kBase).k / kBase)
+                .toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        }
+    });
+
+    it('returns null rather than NaN geometry on degenerate input', () => {
+        const id = stepIds[0];
+        const kBase = 0.5;
+        expect(stepFitRect(layout, 999999)).toBeNull();
+        expect(stepFitRect(layout, null)).toBeNull();
+        expect(stepFitRect(layout, undefined)).toBeNull();
+        expect(stepFitRect(computePlanLayout([], []), id)).toBeNull();
+        expect(stepFitRect(null, id)).toBeNull();
+        expect(stepFocusTransform(layout, 999999, { w: 800, h: 600 }, kBase)).toBeNull();
+        expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase)).toBeNull();
+        expect(stepFocusTransform(layout, id, undefined, kBase)).toBeNull();
+        expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0)).toBeNull();
     });
 });
 
