@@ -2266,17 +2266,19 @@ describe('the 35-character ceiling (req #3168, directive B)', () => {
         };
         // `horizontal` columns are sized by the requirement-id STRING, which is
         // wide enough that the ceiling is what binds — it drew 42 / 45 / 50
-        // before the cap.
+        // before the cap (35, then 40 after the req #3242 bump).
         expect([at('horizontal', 'compact'), at('horizontal', 'medium'),
-            at('horizontal', 'wide')]).toEqual([35, 35, 35]);
+            at('horizontal', 'wide')]).toEqual([40, 40, 40]);
         // `vertical` columns are TITLE_COL_MIN, so the stagger budget binds and
         // the ceiling is inert below Width L. These are the numbers the geometry
-        // gives after the 2026-08-01 width retune (+10% / +10% / +20%).
+        // gives after the 2026-08-01 width retune (+10% / +10% / +20%). Width L
+        // was ALSO ceiling-bound at the old 35 (its true budget is 36) — raising
+        // the ceiling to 40 (req #3242) let that one extra character through.
         expect([at('vertical', 'compact'), at('vertical', 'medium'),
-            at('vertical', 'wide')]).toEqual([27, 29, 35]);
+            at('vertical', 'wide')]).toEqual([27, 29, 36]);
         // Showing requirement TITLES costs the step label nothing.
         expect([at('titles', 'compact'), at('titles', 'medium'),
-            at('titles', 'wide')]).toEqual([27, 29, 35]);
+            at('titles', 'wide')]).toEqual([27, 29, 36]);
     });
 
     it('the ceiling did not move a single column', () => {
@@ -2342,10 +2344,12 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // rises while the MIN — a mark in a stack, still column-bound — does not.
         //
         // With `Step: Title` the column already carries TITLE_COL_MIN (144·f),
-        // and the run-widened marks reach the 35-character ceiling at Width L.
-        // Measured: 21 of 55 marks qualify on this fixture.
+        // and the run-widened marks reach the ceiling at Width L — 35 chars,
+        // now 40 after the req #3242 bump (the id prefix `reqLabelText` adds
+        // eats into the same ceiling, which is why it moved). Measured: 21 of
+        // 55 marks qualify on this fixture.
         expect([at('title', 'compact'), at('title', 'medium'), at('title', 'wide')])
-            .toEqual([[18, 33], [19, 35], [23, 35]]);
+            .toEqual([[18, 33], [19, 35], [23, 40]]);
         // With `Step: ID` the column is only as wide as the ids need, so both
         // ends are lower. This is why the pair of controls interacts.
         expect([at('id', 'compact'), at('id', 'medium'), at('id', 'wide')])
@@ -2431,6 +2435,60 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         }
     });
 
+    // req #3242 — zero overlap is not the same claim as legible. Reported
+    // against the LIVE plan (req #3242 user screenshot): step 1 "Session
+    // Drain" (5 requirements) chains into step 3 (1 requirement, staggers)
+    // chains into step 4 (1 requirement, also staggers) — this fixture's own
+    // steps 1/3/4, the historical Substrate rows this exact live chain grew
+    // out of. Both single-req steps are adjacent-column stagger candidates,
+    // and with REAL (non-uniform) title lengths — FIXTURE_TITLES's shared
+    // LONG_TITLE always hits the truncation ceiling and can never expose this
+    // — they landed on lines 1px apart while overlapping ~60px horizontally:
+    // inside the zero-overlap contract, unreadable regardless. The fix
+    // (REQ_LINE_H +25%, generic — not special-cased to this pair) is measured
+    // here against the real title strings, not asserted from the previous
+    // finding's own numbers.
+    it('leaves real breathing room between adjacent staggered marks, not just zero overlap', () => {
+        const REAL_TITLES = new Map([
+            [3050, 'darwin-mcp rearchitecture: Lambda-Rest as single DB gateway (clean-sheet REST transport)'],
+            [3056, 'Views show autonomy'],
+            [3063, 'Instruction Edit In Place'],
+            [3064, 'Aggregator Card Polish'],
+            [3068, 'Instructions need proper English titles, not kebab-case slugs'],
+            [3072, 'Swarm substrate Phase 0+1 — eliminate shared-clone git corruption class (de-symlink, Primary-only sync, remove worker-to-Primary writes, full git audit)'],
+            [3041, 'Make the DarwinAI-Config base clone handled commonly with all sub-repos: hygiene preconditions must be ff-only SYNC, never SAVE. No operation may commit/push the live base clone except the primary\'s own /save-primary-claude.'],
+        ]);
+        const gapBetween = (a, b) => {
+            const dx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
+            const dy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
+            return Math.max(dx, dy);
+        };
+        for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+            const layout = computePlanLayout(plan.rows, plan.batches, {
+                ...reqViewOptions('titles'), stepLabel: 'title', stepWidth,
+                reqTitles: REAL_TITLES,
+            });
+            const chainLabels = layout.labels.filter(
+                (l) => l.kind === 'req' && [1, 3, 4].includes(l.stepId));
+            let minGap = Infinity;
+            for (let i = 0; i < chainLabels.length; i++) {
+                for (let j = i + 1; j < chainLabels.length; j++) {
+                    if (chainLabels[i].stepId === chainLabels[j].stepId) continue;
+                    minGap = Math.min(minGap, gapBetween(chainLabels[i], chainLabels[j]));
+                }
+            }
+            // MEASURED after the req #3242 REQ_LINE_H bump: 4.8px at every
+            // width (the tightest pair is always step 3 vs step 4, whose
+            // stagger offset is a fixed REQ_LINE_H-derived constant,
+            // independent of column width). Was 1.0px before the bump — this
+            // is the regression guard: a future change that quietly narrows
+            // the stagger offset again fails here rather than shipping.
+            expect(minGap, `stepWidth=${stepWidth}`).toBeCloseTo(4.8, 1);
+            expect(minGap, `stepWidth=${stepWidth} — must never regress to the old 1px`)
+                .toBeGreaterThan(3);
+        }
+    });
+
     it('falls back to the ID when a title is missing, blank or unresolvable', () => {
         expect(reqLabelText(3001, { reqLabel: 'id', reqTitles: FIXTURE_TITLES }))
             .toBe('3001');
@@ -2442,7 +2500,7 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // A blank mark under a bead reads as a rendering fault; the id is always
         // true, so it is the honest fallback.
         expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: { 3001: 'Bounded reads' } }))
-            .toBe('Bounded reads');
+            .toBe('3001 - Bounded reads');
         // Plain-object lookups go through Object.hasOwn — an inherited key must
         // not resolve to a function whose source would be drawn on the canvas.
         expect(reqLabelText('constructor', { reqLabel: 'title', reqTitles: {} }))

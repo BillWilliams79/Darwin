@@ -509,7 +509,18 @@ const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 // One requirement mark per line at font 13.75. EXPORTED since the swim-lane
 // directive: it is the exact vertical cost a lane pays when titles stagger, and
 // a test that re-typed the number could agree with a changed layout by accident.
-export const REQ_LINE_H = 15;
+//
+// +25% (req #3242 user directive, "a little more space between the lanes...
+// for readability") — was 15. This is the SAME constant that sets the
+// staggered-column vertical offset (`reqStaggerOf`), which is what was
+// actually reported: two single-requirement steps in ADJACENT columns
+// (`Dual-Path Purge` -> `Wontfix Fold-In` on the live plan), both eligible to
+// stagger, landed on lines only 1px apart vertically while overlapping ~60px
+// horizontally — inside the zero-overlap contract (rects never touch) but
+// with no visual breathing room at all. One shared constant, so the fix is
+// generic rather than a special case for that pair: every lane, every
+// staggered pair, gets the same extra room.
+export const REQ_LINE_H = 18.75;
 const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // ── The 35-character CEILING (user directives 2026-08-01) ──────────────────
 // "let's go with all three levels of zoom showing 35 chars", then — decisively —
@@ -531,7 +542,7 @@ const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // The ceiling BITES only where the existing budget already exceeded it (the
 // `horizontal` step label, which drew 42-50 characters), and is inert where the
 // budget is the binding constraint (`vertical`, 24-29).
-export const LABEL_MAX_CHARS = 35;
+export const LABEL_MAX_CHARS = 40;
 // Staggering (req #3119, the Build Visualizer's version-label pattern —
 // `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
 // draw their long text one line further from the bead, so a label and its
@@ -557,7 +568,12 @@ const STAGGER_REACH = 0.4;
 // requirement id is ~64px, i.e. ~16 characters after the reach is added. Giving
 // the column a floor raises the budget for every title at once; STEP_LABEL_MAX
 // is only the ceiling that stops a pathological title from running forever.
-const TITLE_COL_MIN = 144;
+// Exported (req #3242) so the header's Width control can show the reader the
+// actual pixel width each S/M/L option draws, rather than a bare letter —
+// `TITLE_COL_MIN * STEP_WIDTH_FACTORS[width]` is the representative column
+// width in vertical/title mode (the only mode the UI offers today), the same
+// arithmetic `colW` itself applies at line ~1176.
+export const TITLE_COL_MIN = 144;
 export const PLAN_VIZ_FONT = {
     label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9, slot: 13,
 };
@@ -1047,7 +1063,15 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     maxChars = LABEL_MAX_CHARS } = {}) {
     if (reqLabel !== 'title') return String(reqId);
     const t = titleLookup(reqTitles, reqId);
-    return t ? truncate(t, Math.max(4, Math.min(LABEL_MAX_CHARS, maxChars))) : String(reqId);
+    // The id rides ALONGSIDE the title, not instead of it (user directive) — an
+    // id-only mark reading "3242" gives no hint what's under it without a
+    // hover; "3242 - Pipeline Visualizer Polish" answers that at the same L3
+    // glance the title itself was added for. Built BEFORE truncation, same as
+    // the bare id below, so the id survives the cut and the title is what
+    // gives way on a tight column — the id is the one piece of this string a
+    // reader can always resolve to the actual requirement.
+    return t ? truncate(`${reqId} - ${t}`, Math.max(4, Math.min(LABEL_MAX_CHARS, maxChars)))
+        : String(reqId);
 }
 
 const reqStr = (row) => (row.reqIds || []).join(' ');

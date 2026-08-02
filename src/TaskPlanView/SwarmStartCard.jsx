@@ -23,6 +23,7 @@ import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
+import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 
 // Chip statuses shown on this card. Mirrors the requirements page filter chips minus
@@ -146,23 +147,36 @@ const SwarmStartCard = () => {
     // ones a pipeline step already carries do not belong on its launch chips:
     // their launch is the coordinator's to make, at the point the plan says so.
     //
-    // The exclusion is UNCONDITIONAL — not a user preference. Offering an
-    // ineligible launch is a defect, not a viewing choice, so there is no toggle
-    // here; the user-controlled version of the question lives on the
-    // requirements BROWSE table, where both populations are legitimate to look
-    // at. It applies to PIPELINE_FILTERED_STATUSES only (see above).
+    // The launch exclusion (PIPELINE_FILTERED_STATUSES) is UNCONDITIONAL — not a
+    // user preference. Offering an ineligible launch is a defect, not a viewing
+    // choice, so nothing gates it here.
+    //
+    // The DEVELOPMENT/MET chips are different: both populations are legitimate
+    // to browse, same reasoning as the requirements table — so THOSE respect
+    // the same global toggle the table and Cards view do (req #3242), on top of
+    // (never instead of) the unconditional launch exclusion above.
     const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
+    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     const chipOffersLaunch = PIPELINE_FILTERED_STATUSES.includes(effectiveStatus);
+    const excludeFromThisChip = chipOffersLaunch || hidePipelined;
 
     // Memoized because this feeds a useEffect dependency and a useMemo below —
     // `excludePipelined` mints a new array whenever it actually drops something,
     // so an unmemoized call would re-seed local state on every render.
     const eligibleRequirements = React.useMemo(
-        () => excludePipelined(serverRequirements, pipelinedIds, chipOffersLaunch),
-        [serverRequirements, pipelinedIds, chipOffersLaunch]);
+        () => excludePipelined(serverRequirements, pipelinedIds, excludeFromThisChip),
+        [serverRequirements, pipelinedIds, excludeFromThisChip]);
+
+    // The Met chip's own population never went through `eligibleRequirements`
+    // (its query is `serverMetRequirements`, not `serverRequirements`) — so the
+    // toggle needs its own pass here. `chipOffersLaunch` never applies to Met
+    // (it is not in PIPELINE_FILTERED_STATUSES), hence `hidePipelined` alone.
+    const eligibleMetRequirements = React.useMemo(
+        () => excludePipelined(serverMetRequirements, pipelinedIds, hidePipelined),
+        [serverMetRequirements, pipelinedIds, hidePipelined]);
 
     // The array that drives the card body for the currently selected chip.
-    const currentRequirements = isMet ? serverMetRequirements : eligibleRequirements;
+    const currentRequirements = isMet ? eligibleMetRequirements : eligibleRequirements;
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -202,17 +216,18 @@ const SwarmStartCard = () => {
     // overcounting the note, in one edit. See `tallyRequirementStatuses`.
     const { statusCountMap, hiddenCountMap } = React.useMemo(() => {
         const { counts, hidden } = tallyRequirementStatuses(
-            allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds);
+            allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds, hidePipelined);
         if (Array.isArray(serverMetRequirements)) {
-            counts.met = serverMetRequirements.length;
+            counts.met = eligibleMetRequirements?.length ?? serverMetRequirements.length;
+            hidden.met = serverMetRequirements.length - counts.met;
         }
         return { statusCountMap: counts, hiddenCountMap: hidden };
-    }, [allRequirementsForCounts, serverMetRequirements, pipelinedIds]);
+    }, [allRequirementsForCounts, serverMetRequirements, eligibleMetRequirements, pipelinedIds, hidePipelined]);
 
     // How many rows the exclusion removed from the chip currently on screen.
     // Surfaced in the card body — a hidden row the user is never told about is
     // the defect this requirement is about.
-    const hiddenCount = chipOffersLaunch ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
+    const hiddenCount = excludeFromThisChip ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.

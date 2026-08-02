@@ -41,9 +41,17 @@ export const PIPELINE_FILTERED_STATUSES = ['authoring', 'approved', 'swarm_ready
  * @param {Array<{id: number, requirement_status: string}>} requirements
  * @param {string[]} statuses      the chip vocabulary; every key is initialized to 0
  * @param {Set<number>} pipelinedIds  from `pipelinedRequirementIds`
+ * @param {boolean} [hidePipelined=false]  req #3242 — the same global
+ *        `useShowClosedStore.hidePipelinedRequirements` toggle the requirements
+ *        pages read. `PIPELINE_FILTERED_STATUSES` stays UNCONDITIONAL regardless
+ *        of this flag (offering an ineligible launch is a defect, not a viewing
+ *        preference — see the module comment); this only widens exclusion to
+ *        the observation statuses (development/met) when the reader has asked
+ *        to hide orchestrated requirements everywhere, matching the toggle's
+ *        behaviour on the requirements table and Cards view.
  * @returns {{counts: Object, hidden: Object}}
  */
-export const tallyRequirementStatuses = (requirements, statuses, pipelinedIds) => {
+export const tallyRequirementStatuses = (requirements, statuses, pipelinedIds, hidePipelined = false) => {
     const counts = {};
     const hidden = {};
     statuses.forEach(s => { counts[s] = 0; hidden[s] = 0; });
@@ -55,7 +63,7 @@ export const tallyRequirementStatuses = (requirements, statuses, pipelinedIds) =
         if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
         const status = r.requirement_status;
         if (counts[status] === undefined) continue;
-        if (PIPELINE_FILTERED_STATUSES.includes(status)
+        if ((PIPELINE_FILTERED_STATUSES.includes(status) || hidePipelined)
                 && pipelinedIds && pipelinedIds.has(Number(r.id))) {
             hidden[status] += 1;
             continue;

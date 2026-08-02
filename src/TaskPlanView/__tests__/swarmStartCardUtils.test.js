@@ -179,4 +179,43 @@ describe('tallyRequirementStatuses', () => {
         const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, undefined);
         expect(counts.swarm_ready).toBe(1);
     });
+
+    // req #3242 — the 4th param. Launch-chip exclusion stays unconditional
+    // (offering an ineligible launch is a defect, not a preference); this only
+    // widens exclusion to development/met when the reader has explicitly asked
+    // to hide orchestrated requirements everywhere.
+    describe('hidePipelined (req #3242)', () => {
+        it('defaults to false — identical to omitting the argument', () => {
+            const withDefault = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]));
+            const explicitFalse = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]), false);
+            expect(explicitFalse).toEqual(withDefault);
+        });
+
+        it('hides development and met when true', () => {
+            const { counts, hidden } = tallyRequirementStatuses(
+                rows, ALL_CHIPS, new Set([5, 6]), true);
+            expect(counts.development).toBe(0);
+            expect(counts.met).toBe(0);
+            expect(hidden.development).toBe(1);
+            expect(hidden.met).toBe(1);
+        });
+
+        it('leaves launch chips exclusion identical whether true or false — never doubled, never skipped', () => {
+            const off = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([1, 2, 4]), false);
+            const on = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([1, 2, 4]), true);
+            expect(on.counts.authoring).toBe(off.counts.authoring);
+            expect(on.counts.swarm_ready).toBe(off.counts.swarm_ready);
+            expect(on.hidden.authoring).toBe(off.hidden.authoring);
+            expect(on.hidden.swarm_ready).toBe(off.hidden.swarm_ready);
+        });
+
+        it('count + hidden still sums to the population with the flag on', () => {
+            const { counts, hidden } = tallyRequirementStatuses(
+                rows, ALL_CHIPS, new Set([1, 2, 3, 4, 5, 6]), true);
+            for (const s of ALL_CHIPS) {
+                const total = rows.filter(r => r.requirement_status === s).length;
+                expect(counts[s] + hidden[s]).toBe(total);
+            }
+        });
+    });
 });
