@@ -363,23 +363,38 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // property of the displacement pass: a chip that met the key slid sideways and
 // still drew, so a taller key only changed WHICH chips moved. With nowhere to
 // slide, a taller key exposes more band rows to the keep-out and those chips
-// are lost. RE-MEASURED 2026-08-02 on the Substrate fixture (1500×900 panel)
-// over k ∈ {0.2 … 2} × 4 pans × 29 x-offsets, 1566 chips drawn with no key:
+// are lost.
+//
+// **AND THE KEY MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed both
+// the magnitude and which axis is steeper. RE-MEASURED 2026-08-02 on the
+// Substrate fixture (1500×900 panel) over k ∈ {0.2 … 2} × 4 pans × 29
+// x-offsets, 1566 chips drawn with no key, against the CURRENT bottom-center
+// geometry:
 //
 //   at w=470   height    30    60   100   140   180
-//              dropped  187   217   246   256   256
+//              dropped   11    22    44    55    77
 //
 //   at h=30    width     90   300   420   470   600   900  1100
-//              dropped   38   114   168   187   228   342   418
+//              dropped    3     7    10    11    13    19    23
 //
-// BOTH axes cost names now; width is much the steeper one (470→900 costs 155,
-// 30→180 costs 69), which is why the cap is on WIDTH and why the key is still
-// laid out as one row per CHANNEL stacked vertically rather than as one long
-// wrapping line. The shape the old legend had (`maxWidth: '70%'`, i.e. ~1050px
-// on a 1500px panel) is deep into the range that drops epic names. Asserted
-// from both sides in `pipelinePlanLayout.test.js` — monotone in each dimension,
-// and width strictly steeper than height — so the numbers above are measured
-// rather than remembered.
+// Two consequences, both the reverse of the top-right era:
+//
+//   1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A name
+//      is pinned to its band's LEFT edge, and a bottom-center box is no longer
+//      where those names land.
+//   2. HEIGHT IS NOW THE STEEPER AXIS — 66 names across the height range against
+//      20 across the width range — because a bottom-anchored box grows UPWARD
+//      into more band rows while its width only spans the panel's middle.
+//
+// So `PLAN_KEY_MAX_W` now caps the CHEAPER dimension. Not a regression — the
+// cap predates the move and the key is far cheaper overall — but it is no
+// longer the defence it was named for, and a bottom-center key's honest guard
+// would be on HEIGHT. Recorded here rather than silently re-asserted; changing
+// the cap belongs to req #3255's surface. Every number above is asserted in
+// `pipelinePlanLayout.test.js` (monotone in each dimension, height strictly
+// steeper than width, and the move strictly cheaper than the top-right key), so
+// they are measured rather than remembered — and the inversion fails loudly if
+// the key moves again.
 //
 // RAISED TO 470 on the user's directive (2026-08-01): "make the key wide enough
 // to fit the whole row of requirement statuses… the word requirement on one line
@@ -440,7 +455,8 @@ export function reqIdStyle({ colorKey, status, machineColor } = {}) {
  *
  * For `state` it lists only the statuses the plan actually contains — the same
  * discipline the machine key already follows, and the reason the key stays
- * compact enough not to steal the top-right corner from the epic chips.
+ * compact enough not to steal the viewport middle-bottom (req #3255; was the
+ * top-right corner) from the epic chips.
  *
  * @param {Object} args
  * @param {('state'|'machine'|'none')} args.colorKey
@@ -856,11 +872,16 @@ export function computeTimeColumns(rows, byId, depsOf, timeAxis) {
 // Three marks, because each answers a different question and none of them is a
 // restatement of another (the ONE FACT, ONE CHANNEL rule above):
 //
-//   · the STRIP says WHICH day a column is. It is world text at the top of the
-//     plan, so it scrolls off when you pan down — which is exactly why it is
-//     not the only mark.
+//   · the STRIP says WHICH day a column is. Sticky to the viewport top since
+//     req #3254 (`stickyRulerY`, below) — it used to be world text that
+//     scrolled off when you panned down, which was the ORIGINAL reason it
+//     could not be the only mark. Now pinned, it still is not the only mark:
+//     a reader scrolled deep into one band has no strip-adjacent reference
+//     for a column that is off past the right or left edge, which the
+//     separators and future tint answer without moving.
 //   · the SEPARATORS say WHERE a day begins. Full-height rules at slot origins,
-//     readable at any vertical pan.
+//     readable at any vertical pan (deliberately NOT sticky — they mark
+//     content, not chrome, so they stay world-space and scroll with it).
 //   · the FUTURE TINT says where the not-yet-begun region starts. That boundary
 //     is the single thing a plan is most often opened to find, and a rule alone
 //     does not say which SIDE of it is the future.
@@ -1009,6 +1030,37 @@ export function computeRuler(slots, colX, colW, totalW) {
         slots: out,
         futureX: fut ? fut.x : null,
     };
+}
+
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — baseline, ticks and slot labels
+// all sat at world y ∈ [0, RULER_H], "attached to the top item in the stack"
+// (the requirement's own words) — so panning down scrolled it away with the
+// rest of the plan and left nothing on screen naming which column is which
+// day. `stickyRulerY` is the SAME pin primitive `computeDayHeaders`
+// (`dayHeaderLayout.js`) and the sticky prev/next epic chips above
+// (`placeEpicChips`) both use — draw at the natural screen position until it
+// scrolls past the viewport edge, then clamp flush to it — simplified to the
+// one-strip case: there is exactly one ruler, so nothing pushes it and it
+// never drops behind (it is a standing fact about the whole plan, not a
+// per-row banner that can be superseded). Only the Y anchor decouples from
+// vertical pan; X is untouched, so slot ticks and labels still pan and zoom
+// with the columns beneath them.
+export function stickyRulerY(t) {
+    const ty = (t && typeof t.y === 'number') ? t.y : 0;
+    return Math.max(0, ty);
+}
+
+// The pinned strip's bottom edge in SCREEN space — req #3254's contract with
+// req #3257 (the concurrent epic-name work): "the date header owns the
+// topmost strip and the epic names stop just below it" needs ONE readable
+// number, not a guessed pixel offset. Scales with zoom because the strip's
+// own ticks and text do (deviation 2 — zoom is a pure transform on this
+// surface), so a caller reading the SAME transform gets the exact edge the
+// ruler is drawn at, pinned or not.
+export function rulerScreenBottom(t, rulerH = RULER_H) {
+    const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
+    return stickyRulerY(t) + rulerH * k;
 }
 
 const truncate = (s, n) => {
@@ -1371,6 +1423,10 @@ export function computePlanLayout(rows, batches, {
             String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
         const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
+        // Every lane this band has ASSIGNED, whether or not the cell was free
+        // when the bead got there. `laneBeads` cannot answer that question —
+        // see the dep-adjacent insertion path below (req #3229).
+        const lanesUsed = new Set();
         const take = (d, lane, occupant) => {
             if (!used.has(d)) used.set(d, new Map());
             const cells = used.get(d);
@@ -1404,8 +1460,31 @@ export function computePlanLayout(rows, batches, {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
-        // A lane is usable only if (1) the cell is free, (2) every same-lane
-        // dependency arc into it crosses only in-chain beads, and (3) — the
+        // A batch RUN, as a raw-lane interval at one column — the box invariant's
+        // half of the bookkeeping (req #3229). `batchBoxes` draws one rect per
+        // (band, column) segment spanning its members' lanes, so the rect
+        // encloses a FOREIGN bead the moment any non-member's lane falls
+        // strictly between two mates' lanes at that column. Contiguity at
+        // allocation time does NOT establish that, because `start + k` is
+        // integer arithmetic over a lane space that is FRACTIONAL until the
+        // ordinal renumber at band close: the dep-adjacent insertion path mints
+        // `(al + below) / 2`, batched steps sort ahead of unbatched ones within
+        // a column, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — a non-member
+        // ordinally between two mates that were adjacent when allocated. Five
+        // steps reproduce it, so this was never a fuzz-only shape.
+        //
+        // This half stops a LATER step entering a published run. The other half
+        // — stopping a run being allocated AROUND a bead already sitting inside
+        // it — is `interiorClear` at the allocation site, and BOTH are needed.
+        const runIntervals = new Map(); // depth -> [{letter, lo, hi}]
+        // The run (of ANOTHER letter) that `lane` falls strictly inside, if any.
+        const enclosingRun = (d, lane, letter) =>
+            (runIntervals.get(d) || []).find((x) =>
+                x.letter !== letter && lane > x.lo && lane < x.hi);
+        // A lane is usable only if (1) the cell is free, (2) it is not inside
+        // another batch's run at this column (req #3229 — `runIntervals` above;
+        // own-letter mates are exempt, they ARE the run), (3) every same-lane
+        // dependency arc into it crosses only in-chain beads, and (4) — the
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
@@ -1415,6 +1494,7 @@ export function computePlanLayout(rows, batches, {
         // two ends.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
+            if (enclosingRun(d, lane, batchOf.get(r.id))) return false;
             for (const a of sameEpicDepsOf(r)) {
                 const al = laneById.get(a.id);
                 if (al === lane && !corridorOk(a, r, lane)) {
@@ -1447,27 +1527,102 @@ export function computePlanLayout(rows, batches, {
         // Same-band batch-mates take a CONTIGUOUS RUN of lanes, allocated when
         // the first mate places: the lowest run of members.length lanes that
         // all pass laneOk (dep-anchored candidates first, so a gate on this
-        // band's lane keeps its straight arc when possible). Mates share one
-        // dep set, so laneOk is member-independent and the pre-check holds for
-        // every mate; the sort keeps mates consecutive, so nothing else places
-        // between the pre-check and the last mate. A batch box therefore
-        // encloses exactly its members — never a foreign bead. (Review found
-        // the earlier next-free-lane packing letting mates spread around an
-        // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
-        const batchRunNext = new Map(); // letter -> next lane in this band's run
+        // band's lane keeps its straight arc when possible). (Review found the
+        // earlier next-free-lane packing letting mates spread around an occupied
+        // lane, boxing unrelated steps in ~15% of multi-batch plans.)
+        //
+        // A CONTIGUOUS RUN IS NOT ON ITS OWN THE BOX INVARIANT, and this comment
+        // used to claim it was — "a batch box therefore encloses exactly its
+        // members" was here, in the present tense, through two review rounds
+        // while being measurably false. Contiguity holds in RAW lane values; the
+        // box is drawn from ORDINALS. Making the box invariant true takes the
+        // run plus `runIntervals` plus `interiorClear`, all three, each for a
+        // different way a foreign bead gets between two mates.
+        //
+        // THE RUN IS PER (BAND, COLUMN), NOT PER BAND — req #3229, and the
+        // difference is a bead drawn on top of another bead. The run used to be
+        // allocated once per letter per band and handed out to every mate
+        // wherever it landed, on two safety arguments that req #3188 falsified
+        // when it regrouped batches on the REMAINING gate instead of a shared
+        // dep set, so mates legitimately sit at different DEPTHS:
+        //
+        //   1. "the pre-check holds for every mate" — it ran `laneOk` at the
+        //      FIRST mate's column. A mate two columns deeper consumed a lane
+        //      nothing had checked there.
+        //   2. "the sort keeps mates consecutive" — the sort is COLUMN first,
+        //      so mates of one letter are consecutive only WITHIN a column. A
+        //      whole second batch's run was allocated in between.
+        //
+        // Measured (fuzz seed 115, `timedFuzzPlans.js`): batch A's four-lane run
+        // was allocated at column 0, batch B's two-lane run at column 0 starting
+        // one lane below it, and at column 2 A's mate 13 and B's mate 11 both
+        // resolved to lane 3. `take()` is a deliberate no-op on an occupied
+        // cell, so the second bead was swallowed in silence. Reproduced with AND
+        // without a time axis — the axis changes which plans reach this, never
+        // whether the path is sound.
+        //
+        // Keying the run on `letter|column` makes BOTH arguments true as
+        // written: the pre-check runs at the column the lanes are consumed in,
+        // it checks each ACTUAL mate rather than assuming a shared dep set, and
+        // within one column same-letter mates ARE consecutive in the sort, so
+        // nothing places between the check and the last mate.
+        //
+        // THAT IS THE CELL INVARIANT ONLY. The BOX invariant needs `runIntervals`
+        // above and does not follow from per-column allocation — allocating
+        // `start + k` leaves the run contiguous in RAW values, and the ordinal
+        // renumber at band close can still slide a later fractional lane between
+        // two mates. Reviewing this change measured it going the wrong way: 38
+        // enclosed non-members over the corpus before, 32 after, with new
+        // instances at seeds 212 and 363 where a fractional dep-anchored `start`
+        // (which per-column allocation reaches far more often, deep columns
+        // being where fractional lanes live) bracketed an unrelated bead.
+        // With `runIntervals` AND `interiorClear`: 0 enclosed non-members over
+        // 40,000 layouts (20,000 generator seeds × axis on/off). `runIntervals`
+        // alone was 0 over the 400-plan corpus but still 7 at that scale — the
+        // scope on a measurement is part of the measurement.
+        const batchRunNext = new Map(); // `letter|column` -> next lane in that run
         for (const r of steps) {
             const d = colOf.get(r.id);
             const letter = batchOf.get(r.id);
             let lane = null;
             if (letter !== undefined) {
-                if (!batchRunNext.has(letter)) {
-                    const n = steps.filter((s) => batchOf.get(s.id) === letter).length;
-                    const runOk = (start) => {
-                        for (let k = 0; k < n; k++) {
-                            if (!laneOk(r, d, start + k)) return false;
+                const runKey = `${letter}|${d}`;
+                if (!batchRunNext.has(runKey)) {
+                    // This column's mates, in the order they will place — the
+                    // sort above is stable and column-major, so `steps` filtered
+                    // this way IS that order.
+                    const mates = steps.filter((s) => batchOf.get(s.id) === letter
+                        && colOf.get(s.id) === d);
+                    const mateIds = new Set(mates.map((m) => m.id));
+                    // THE RUN'S INTERIOR, not just its n lanes. `runIntervals`
+                    // stops a later step entering a published run; this stops a
+                    // run being allocated AROUND a bead that is already there,
+                    // which is the same box defect approached from the other
+                    // side. Checking `start + k` alone cannot see it: with an
+                    // INTEGER start the interior integers are the mates' own
+                    // lanes and nothing foreign can sit between them, but a
+                    // dep-anchored `start` is routinely FRACTIONAL, and then an
+                    // occupant at some other fraction inside `(start, hi)` is
+                    // examined by nothing — `free()` only ever looks at the
+                    // endpoints, and `enclosingRun` cannot help because the
+                    // interval does not exist yet. Nine steps reproduce it
+                    // (see the box tests); measured, it also survived at 7
+                    // cases per 40,000 layouts, none inside the 400-plan
+                    // corpus. Reserved corridor cells are NOT occupants here —
+                    // an arc running through the box crosses no bead.
+                    const interiorClear = (start) => {
+                        const hi = start + mates.length - 1;
+                        for (const v of lanesUsed) {
+                            if (!(v > start && v < hi)) continue;
+                            const o = occupant(d, v);
+                            if (o !== undefined && o !== RESERVED && !mateIds.has(o)) {
+                                return false;
+                            }
                         }
                         return true;
                     };
+                    const runOk = (start) => interiorClear(start)
+                        && mates.every((m, k) => laneOk(m, d, start + k));
                     let start = null;
                     for (const a of sameEpicDepsOf(r)) {
                         const al = laneById.get(a.id);
@@ -1477,10 +1632,17 @@ export function computePlanLayout(rows, batches, {
                         start = 0;
                         while (!runOk(start)) start += 1;
                     }
-                    batchRunNext.set(letter, start);
+                    batchRunNext.set(runKey, start);
+                    // Publish the interval so nothing else lands inside it —
+                    // see `runIntervals`. A one-mate segment spans no gap.
+                    if (mates.length > 1) {
+                        if (!runIntervals.has(d)) runIntervals.set(d, []);
+                        runIntervals.get(d).push(
+                            { letter, lo: start, hi: start + mates.length - 1 });
+                    }
                 }
-                lane = batchRunNext.get(letter);
-                batchRunNext.set(letter, lane + 1);
+                lane = batchRunNext.get(runKey);
+                batchRunNext.set(runKey, lane + 1);
             } else {
                 for (const a of sameEpicDepsOf(r)) {
                     const al = laneById.get(a.id);
@@ -1497,15 +1659,47 @@ export function computePlanLayout(rows, batches, {
                     // fractional during placement (0.5 sits between 0 and 1)
                     // and renumbered ordinally at band close, so a fresh value
                     // carries no cells, no corridors, and always places.
+                    //
+                    // "FRESH" IS DECIDED AGAINST `lanesUsed`, NOT `laneBeads`
+                    // (req #3229) — and this one is LATENT: no plan in the fuzz
+                    // corpus reaches it, before or after the batch-run fix
+                    // above, so it is hardening rather than a measured repro.
+                    // Kept because it is what makes the paragraph above TRUE as
+                    // written. `laneBeads` is populated by `take()`, which is a
+                    // deliberate no-op on an occupied cell, so a bead that
+                    // landed on an already-taken cell is ABSENT from it — a
+                    // later `below` scan steps over that lane and `al + 1`
+                    // resolves onto something that is anything but fresh. (That
+                    // is the mechanism req #3229 was filed against; measuring it
+                    // REFUTED it as this defect's cause, and left it standing as
+                    // a way the invariant could break next.) `lanesUsed` records
+                    // every lane this band has ASSIGNED, however the bead got
+                    // there, so `al + 1` is fresh only when nothing sits above
+                    // `al` at all, and otherwise the midpoint falls strictly
+                    // between two used values with nothing in between.
+                    //
+                    // This is the ONE path that bypasses `laneOk`, so it also
+                    // has to honour `runIntervals` itself. A midpoint can only
+                    // fall inside a run when the ANCHOR does — nothing is used
+                    // strictly between `al` and `below`, so a run bracketing the
+                    // midpoint must have `lo <= al`. Re-anchoring below that
+                    // run's last mate and retrying therefore terminates: the
+                    // anchor moves strictly upward through distinct run ends,
+                    // and there are finitely many runs at this column.
                     const anchors = sameEpicDepsOf(r)
                         .map((a) => laneById.get(a.id))
                         .filter((v) => v !== undefined);
                     if (anchors.length > 0) {
-                        const al = Math.min(...anchors);
-                        const below = [...laneBeads.keys()]
-                            .filter((v) => v > al)
-                            .sort((p, q) => p - q)[0];
-                        lane = below === undefined ? al + 1 : (al + below) / 2;
+                        let al = Math.min(...anchors);
+                        for (;;) {
+                            const below = [...lanesUsed]
+                                .filter((v) => v > al)
+                                .sort((p, q) => p - q)[0];
+                            lane = below === undefined ? al + 1 : (al + below) / 2;
+                            const run = enclosingRun(d, lane, letter);
+                            if (!run) break;
+                            al = run.hi;
+                        }
                     } else {
                         lane = 0;
                         while (!laneOk(r, d, lane)) lane += 1;
@@ -1513,6 +1707,7 @@ export function computePlanLayout(rows, batches, {
                 }
             }
             laneById.set(r.id, lane);
+            lanesUsed.add(lane);
             take(d, lane, r.id);
             // Reserve the corridor of every straight (same-lane) arc into this
             // step, so no LATER chain inherits a lane through it. take() never
@@ -2222,11 +2417,14 @@ export const EPIC_CHIP_BG_ALPHA = 0.6;
  * @param {number} [args.charW] px per character at that height
  * @param {?{x:number,y:number,w:number,h:number}} [args.keepOut] the on-screen
  *   key's measured rect — clipped against, never displaced around
- * @param {number} [args.topInset] the height of any chrome PINNED above the
- *   plan (req #3254's date header is the case this exists for). The name stops
- *   just BELOW it, never underneath it. 0 — the plan panel's own current state,
- *   whose time ruler is world-space and pans with the plan — means "the top of
- *   the panel is the top of the content area".
+ * @param {number} [args.topInset] the bottom edge, in SCREEN px, of whatever
+ *   chrome is PINNED above the plan. The name stops just BELOW it, never
+ *   underneath it (clause 2). On the plan panel this is req #3254's pinned time
+ *   ruler and the caller passes `rulerScreenBottom(t)` — the ONE readable number
+ *   that requirement exposes for exactly this, rather than a guessed offset; it
+ *   scales with zoom because the strip's own ticks and text do. 0 means "the top
+ *   of the panel is the top of the content area" and is the right answer only
+ *   for a caller with no pinned chrome at all.
  * @returns {Object[]} one entry per band with a name on screen
  */
 export function placeEpicChips({
@@ -2642,6 +2840,52 @@ export function factoryDefaultScale(layout, size, kFit, kFloor) {
     if (!(size?.h > 0) || !(layout?.height > 0) || !(kFit > 0)) return kFit || 0;
     const kVertFit = size.h / layout.height;
     return Math.max(Math.min(kFit, kVertFit), kFloor);
+}
+
+// ── The legal region of a transform (req #3168's bound, extracted req #3252) ──
+// The "scroll pane" rule: the world may overshoot the panel by at most HALF A
+// PANEL on each side, measured on screen at every scale, so a pan can never
+// carry the whole plan out of view. It lived as a closure inside
+// PipelinePlanVisualizer's zoom behaviour, which was correct while the zoom
+// behaviour was the only thing that could produce a transform.
+//
+// Req #3252 gave it a second producer: a viewport RESTORED from storage. That
+// one arrives through `zoom.transform`, which applies what it is given verbatim
+// and calls neither `constrain` nor `scaleExtent` (the `epicFocusTransform`
+// comment above, verified against d3-zoom 3.0.0) — so a camera saved when the
+// panel was tall, restored into a short one, would sit outside the bound until
+// the reader's first gesture snapped it. Two copies of this arithmetic that
+// "only have to agree" is the desync `factoryDefaultScale`'s own comment already
+// argues against, so there is one copy and both callers read it.
+//
+// `Math.min(0, …)` / `Math.max(0, …)` is what keeps the DEFAULT view — world
+// origin at the panel's top-left — legal on a plan smaller than the panel.
+// Without it the bound would force a re-centre on the very first transform.
+/**
+ * `t` clamped into the pan bound, and its scale into `[kMin, kMax]`.
+ *
+ * Pass `t.k` for both bounds to clamp the translation only, which is what the
+ * zoom behaviour's own `constrain` wants — d3 has already applied `scaleExtent`
+ * by the time it calls that.
+ *
+ * @param {{x:number,y:number,k:number}} t
+ * @param {{w:number,h:number}} size the viewport, in screen px
+ * @param {{width:number,height:number}} layout the world dimensions
+ * @param {number} kMin
+ * @param {number} kMax
+ * @returns {{x:number,y:number,k:number}}
+ */
+export function clampPlanTransform(t, size, layout, kMin, kMax) {
+    const k = Math.min(Math.max(t.k, kMin), kMax);
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    const loX = Math.min(0, w / 2 - k * (layout?.width || 0));
+    const loY = Math.min(0, h / 2 - k * (layout?.height || 0));
+    return {
+        x: Math.min(Math.max(t.x, loX), Math.max(0, w / 2)),
+        y: Math.min(Math.max(t.y, loY), Math.max(0, h / 2)),
+        k,
+    };
 }
 
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };

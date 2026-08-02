@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
+import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel } from '../../konvaSwarmModel';
 import {
@@ -30,6 +31,7 @@ import {
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
+    stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
 } from '../pipelinePlanLayout';
@@ -1307,6 +1309,30 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(seen.size).toBe(1);
     });
 
+    // THE #3254 HANDSHAKE, asserted rather than assumed. That requirement pins
+    // the time ruler to the viewport top and exposes `rulerScreenBottom(t)` as
+    // the ONE number this one clamps below; the component passes it as
+    // `topInset`. Read from the SAME transform, so the two cannot disagree —
+    // and it scales with zoom, which is why a constant offset would be wrong at
+    // every zoom but one.
+    it('clamps below the PINNED RULER at every zoom, reading req #3254\'s own '
+        + 'rulerScreenBottom rather than a guessed offset', () => {
+        const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        for (const k of [0.5, 1, 2, 4]) {
+            const t = { x: 0, y: -(band.y * k) - 400 * k, k };
+            const inset = rulerScreenBottom(t);
+            // The strip is pinned, so its bottom edge is a function of zoom —
+            // the premise that makes a hand-picked constant wrong.
+            expect(inset).toBeCloseTo(RULER_H * k, 6);
+            const chip = chipsAt(t, null, { topInset: inset })
+                .find((c) => c.band === band);
+            expect(chip, `no name below the ruler at k=${k}`).toBeTruthy();
+            expect(chip.y, `name slid UNDER the pinned ruler at k=${k}`)
+                .toBeGreaterThanOrEqual(inset);
+            expect(chip.y).toBeCloseTo(inset + MY, 6);
+        }
+    });
+
     it('stops just BELOW pinned header chrome, never underneath it', () => {
         const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
         const k = 6;
@@ -1388,7 +1414,12 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // name out of its own rectangle — which is the defect req #3257 names.
     it('clips or drops against the key, and NEVER displaces sideways to dodge it', () => {
         for (const legendW of [220, 420, 700]) {
-            const keepOut = { x: VIEWPORT.w - 10 - legendW, y: 8, w: legendW, h: 30 };
+            // The key's REAL geometry since req #3255 — bottom-center, the
+            // same formula PipelinePlanVisualizer.jsx computes. A suite that
+            // kept the old top-right shape would assert against a keep-out
+            // production no longer produces.
+            const keepOut = { x: (VIEWPORT.w - legendW) / 2,
+                y: VIEWPORT.h - 12 - 30, w: legendW, h: 30 };
             for (const t of sweep()) {
                 const bare = new Map(chipsAt(t).map((c) => [c.key, c]));
                 for (const chip of chipsAt(t, keepOut)) {
@@ -2189,7 +2220,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     it('never lets a chip land under the key, at any key size, zoom or pan', () => {
         let checked = 0;
         for (const size of KEY_SIZES) {
-            const keepOut = { x: VIEWPORT.w - 10 - size.w, y: 8, w: size.w, h: size.h };
+            const keepOut = { x: (VIEWPORT.w - size.w) / 2,
+                y: VIEWPORT.h - 12 - size.h, w: size.w, h: size.h };
             for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
                 for (const y of [0, -150, -900]) {
                     for (const x of [0, -400, 600, 1200]) {
@@ -2221,7 +2253,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         // x it would have had with no key at all.
         let checked = 0;
         for (const size of KEY_SIZES) {
-            const keepOut = { x: VIEWPORT.w - 10 - size.w, y: 8, w: size.w, h: size.h };
+            const keepOut = { x: (VIEWPORT.w - size.w) / 2,
+                y: VIEWPORT.h - 12 - size.h, w: size.w, h: size.h };
             for (const k of [0.2, 0.5, 0.8, 1.5]) {
                 for (const y of [0, -150, -900]) {
                     for (const x of [0, -400, 600, 1200]) {
@@ -2254,21 +2287,36 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     // clip-or-drop a taller key exposes more band rows to it, and those chips
     // have nowhere to go.
     //
+    // RE-MEASURED AGAIN once req #3255 moved the key to BOTTOM-CENTER — which
+    // changed both the magnitude and WHICH AXIS IS STEEPER, so the top-right
+    // numbers could not simply be carried over.
+    //
     // MEASURED 2026-08-02 on the Substrate fixture (1500×900 panel), over
     // k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} × y ∈ {0, −150, −500, −900} ×
     // x ∈ 0…1400 step 50 — 1566 chips drawn with no key at all:
     //
     //   at w=470:   h  30    60   100   140   180
-    //               dropped 187   217   246   256   256
-    //               clipped 222   221   222   222   222
+    //               dropped  11    22    44    55    77
     //
     //   at h=30:    w  90   300   420   470   600   900  1100
-    //               dropped 38   114   168   187   228   342   418
+    //               dropped   3     7    10    11    13    19    23
     //
-    // BOTH axes cost names now. Width is still much the steeper one — and that,
-    // not "height is free", is what keeps the key TALL AND NARROW. Even the
-    // COLLAPSED key costs 38, because at the far-right pans in this sweep a
-    // band's visible sliver is the panel's own top-right corner.
+    // TWO FINDINGS, both of which contradict the pre-#3255 shape of this block:
+    //
+    //  1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A
+    //     name is pinned to its band's LEFT edge, and the bottom-center key no
+    //     longer sits where those names land.
+    //  2. HEIGHT IS NOW THE STEEPER AXIS, the reverse of the top-right era: the
+    //     range costs 66 names in height against 20 in width. A bottom-anchored
+    //     box grows UPWARD into more band rows, while its width only ever spans
+    //     the middle of the panel where few chip x-positions fall.
+    //
+    // `PLAN_KEY_MAX_W` therefore now caps the CHEAPER dimension. That is not a
+    // bug introduced here — the cap predates the move and the key is far cheaper
+    // overall — but it does mean the cap is no longer the defence it was named
+    // for, and the honest guard for a bottom-center key would be on HEIGHT.
+    // Recorded rather than silently re-asserted; changing the cap belongs to
+    // req #3255's own surface, not to this one.
     const costOf = (w, h) => {
         let dropped = 0;
         for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
@@ -2278,7 +2326,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
                         viewport: VIEWPORT, worldWidth: layout.width };
                     const bare = placeEpicChips(args);
                     const withKey = placeEpicChips({ ...args,
-                        keepOut: { x: VIEWPORT.w - 10 - w, y: 8, w, h } });
+                        keepOut: { x: (VIEWPORT.w - w) / 2,
+                            y: VIEWPORT.h - 12 - h, w, h } });
                     dropped += bare.filter(
                         (c) => !withKey.some((d) => d.key === c.key)).length;
                 }
@@ -2313,16 +2362,49 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
             'a 1100px key vs a collapsed one').toBeGreaterThan(5 * byWidth[0]);
     });
 
-    it('WIDTH is much the steeper axis — which is why the key is tall and '
-        + 'narrow, and why the cap is on width alone', () => {
+    it('HEIGHT is the steeper axis now that the key sits bottom-center — so '
+        + 'PLAN_KEY_MAX_W caps the cheaper dimension', () => {
         const base = costOf(PLAN_KEY_MAX_W, 30);
         const tallCost = costOf(PLAN_KEY_MAX_W, 180) - base;
         const wideCost = costOf(900, 30) - base;
         expect(tallCost, 'growing the key to its worst-case height').toBeGreaterThan(0);
-        expect(wideCost, 'a 900px key must cost names — the cap is not vacuous')
-            .toBeGreaterThan(0);
-        expect(wideCost, 'width must cost more than height, or the cap is on the '
-            + 'wrong dimension').toBeGreaterThan(tallCost);
+        expect(wideCost, 'a 900px key must still cost names').toBeGreaterThan(0);
+        // THE INVERSION, pinned so it cannot revert silently. Under the
+        // top-right key width was steeper (155 vs 69); bottom-center reverses it
+        // (66 vs 20). If a future move puts width back on top, this fails and
+        // the comment above gets re-measured rather than quietly rotting.
+        expect(tallCost, 'height must cost more than width for a BOTTOM-anchored '
+            + 'key — if this fails, the key moved again and the table above is stale')
+            .toBeGreaterThan(wideCost);
+    });
+
+    it('the bottom-center move made the key far cheaper than the top-right one', () => {
+        // The #3255 move is worth a number, not just a note: at the cap, a
+        // top-right key dropped 187 names over this sweep and a bottom-center
+        // one drops 11. Asserted as an order of magnitude so it tracks the
+        // finding rather than a specific fixture count.
+        const topRight = (() => {
+            let dropped = 0;
+            for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
+                for (const y of [0, -150, -500, -900]) {
+                    for (let x = 0; x <= 1400; x += 50) {
+                        const args = { bands: layout.bands, transform: { x, y, k },
+                            viewport: VIEWPORT, worldWidth: layout.width };
+                        const bare = placeEpicChips(args);
+                        const withKey = placeEpicChips({ ...args,
+                            keepOut: { x: VIEWPORT.w - 10 - PLAN_KEY_MAX_W, y: 8,
+                                w: PLAN_KEY_MAX_W, h: 30 } });
+                        dropped += bare.filter(
+                            (c) => !withKey.some((d) => d.key === c.key)).length;
+                    }
+                }
+            }
+            return dropped;
+        })();
+        expect(topRight, 'the old top-right key cost real names').toBeGreaterThan(100);
+        expect(costOf(PLAN_KEY_MAX_W, 30) * 5,
+            'the bottom-center key must be far cheaper than the top-right one')
+            .toBeLessThan(topRight);
     });
 });
 
@@ -3579,6 +3661,53 @@ describe('time ruler (req #3207)', () => {
     });
 });
 
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — attached to the top of the
+// timeline, so panning down scrolled it away with the rest of the plan.
+// `stickyRulerY`/`rulerScreenBottom` are the pure pin primitives the canvas
+// now anchors the ruler's Group to instead of `t.y` directly — same shape as
+// `computeDayHeaders`' `Math.max(axisH, screenY)`, simplified to the one-strip
+// case (nothing pushes it, nothing for it to drop behind).
+describe('sticky ruler pin (req #3254)', () => {
+    it('draws at the natural position while the world has not scrolled past the top', () => {
+        expect(stickyRulerY({ x: 0, y: 0, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: 40, k: 1 })).toBe(40);
+        expect(stickyRulerY({ x: 0, y: 200, k: 2.5 })).toBe(200);
+    });
+
+    it('clamps flush to the viewport top once the natural position scrolls past it', () => {
+        expect(stickyRulerY({ x: 0, y: -1, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -600, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -3000, k: 3 })).toBe(0);
+    });
+
+    it('degrades safely on a missing or malformed transform', () => {
+        expect(stickyRulerY(null)).toBe(0);
+        expect(stickyRulerY(undefined)).toBe(0);
+        expect(stickyRulerY({})).toBe(0);
+    });
+
+    it("rulerScreenBottom is the pinned Y plus the strip's own scaled height", () => {
+        // Scrolled past — pinned to 0, so the bottom edge is exactly RULER_H
+        // scaled by k, the number req #3257 clamps epic names below.
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 2 })).toBe(RULER_H * 2);
+        // Not yet scrolled past — natural position adds to the strip height.
+        expect(rulerScreenBottom({ x: 0, y: 50, k: 1 })).toBe(50 + RULER_H);
+    });
+
+    it('accepts a custom ruler height, defaulting to RULER_H', () => {
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 }, 20)).toBe(20);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 1 })).toBe(RULER_H);
+    });
+
+    it('degrades safely on a missing or zero/negative k', () => {
+        expect(rulerScreenBottom(null)).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 0 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: -1 })).toBe(RULER_H);
+    });
+});
+
 // ── The epic band palette (req #3219, "no brown, no muddy tones on dark") ───
 //
 // DIRT NEVER COMES BACK. Two dimensions, per the requirement: every entry must
@@ -3724,4 +3853,218 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         expect(layout.bands[wrapIdx].color).toBe(layout.bands[0].color);
         expect(layout.bands[wrapIdx].epicId).not.toBe(layout.bands[0].epicId);
     });
+});
+
+// ── The cell invariant, over a fuzz corpus (req #3229) ──────────────────────
+// "Never two beads on one `(band, column, lane)` cell" is this module's oldest
+// invariant, it has an assertion in the plan-scale block above, and it was still
+// violated in the field. Every fixture this suite owns — Substrate (34 real
+// rows), the timed Substrate, the cross-epic plan — satisfies it. The shape that
+// breaks it is a plan with SEVERAL launch batches whose mates sit at DIFFERENT
+// dependency depths, which is a graph nobody hand-writes and which req #3188
+// made reachable when it regrouped batches on the REMAINING gate instead of a
+// shared dep set.
+//
+// So the corpus, not another fixture: 150 deterministic plans (see
+// `timedFuzzPlans.js` for the generator's shape argument), each laid out WITH
+// and WITHOUT a time axis. Deterministic means a failure names a seed and that
+// seed is a permanent repro — `makeTimedPlan(<seed>)` is the whole reproducer.
+//
+// The BEFORE measurement, kept because it is what the corpus is sized for: the
+// shipped 400 plans collide on seeds 89, 303 and 358 against the pre-fix module.
+// The original 150-plan cut collided on seed 115 at `(0, 2, 3)` between steps 13
+// and 11 — batch A's run allocated at column 0 and consumed at column 2, batch
+// B's run allocated in between — WITH and WITHOUT the axis (columns 5 and 2),
+// which is how the "the time axis causes it" reading was refuted.
+describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
+    const corpus = timedFuzzCorpus();
+
+    const cellCollisions = (layout) => {
+        const seen = new Map();
+        const out = [];
+        for (const n of layout.nodes.values()) {
+            const cell = `${n.bandIndex}|${n.depth}|${n.lane}`;
+            if (seen.has(cell)) out.push(`${cell}: steps ${seen.get(cell)} and ${n.id}`);
+            seen.set(cell, n.id);
+        }
+        return out;
+    };
+
+    it('the corpus is non-vacuous, and carries the hazard shape', () => {
+        // The precondition guard req #3207 added, for exactly the reason it
+        // added it: 16 plan-scale tests once asserted over an empty array in
+        // total silence, and shipped that way. A fuzz corpus is MORE exposed to
+        // that, not less — a generator that quietly stopped producing batches
+        // would leave three green tests asserting nothing about the defect they
+        // were written for. So the shape is asserted, not just the row count:
+        // the MULTI-COLUMN BATCH is the thing the fix is about.
+        let rows = 0;
+        let batches = 0;
+        let multiColumnBatches = 0;
+        let hazardPlans = 0;
+        let dated = 0;
+        for (const { reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            rows += plan.rows.length;
+            batches += plan.batches.length;
+            let wide = 0;
+            for (const b of plan.batches) {
+                const cells = new Set(b.stepIds
+                    .map((id) => layout.nodes.get(id)).filter(Boolean)
+                    .map((n) => `${n.bandIndex}|${n.depth}`));
+                if (cells.size >= 2) wide += 1;
+            }
+            multiColumnBatches += wide;
+            // A multi-column batch sharing its plan with another batch — the
+            // precise shape that produced the collision.
+            if (wide >= 1 && plan.batches.length >= 2) hazardPlans += 1;
+            dated += [...plan.timeAxis.stepStarts.values()]
+                .filter((s) => s && s.kind === 'dated').length;
+        }
+        expect(corpus).toHaveLength(400);
+        expect(rows).toBeGreaterThan(5000);
+        expect(batches).toBeGreaterThan(200);
+        expect(multiColumnBatches).toBeGreaterThan(100);
+        expect(hazardPlans).toBeGreaterThan(20);
+        expect(dated).toBeGreaterThan(2000);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — with a time axis', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — without one', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches);
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    // The user-visible consequence of a shared cell, asserted independently of
+    // the cell arithmetic: two coincident beads and two labels drawn on top of
+    // each other. Run over all four view combinations, because label geometry —
+    // unlike lane assignment — depends on both of them.
+    describe.each(COMBOS)('$reqLayout reqs × $stepLabel labels', (opts) => {
+        it('gives every bead its own position, and draws no label over another', () => {
+            for (const { seed, reads } of corpus) {
+                const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                const layout = computePlanLayout(plan.rows, plan.batches,
+                    { ...opts, timeAxis: plan.timeAxis });
+                const seen = new Map();
+                for (const n of layout.nodes.values()) {
+                    const pos = `${n.x}|${n.y}`;
+                    expect(seen.has(pos),
+                        `seed ${seed}: steps ${seen.get(pos)} and ${n.id} coincide at ${pos}`)
+                        .toBe(false);
+                    seen.set(pos, n.id);
+                }
+                assertNoLabelOverlap(layout, `seed ${seed}`);
+            }
+        });
+    });
+});
+
+// ── The batch box encloses ONLY its members (req #3229) ─────────────────────
+// A companion to the cell invariant above, and the reason it is here rather
+// than folded in: the two break through the SAME mechanism (a batch lane run
+// allocated in raw values over a lane space that is fractional until the
+// ordinal renumber) but they are different promises to the reader. A shared
+// cell draws two beads on top of each other; a run that is contiguous when
+// allocated and NOT contiguous after renumbering draws a launch-unit box
+// around a step that is not in the launch unit.
+//
+// THE FIVE-STEP CASE IS HAND-BUILT ON PURPOSE. The corpus below is what proved
+// the fix, but this shape needs no fuzzing at all — which is exactly why it
+// must not be corpus-only. Steps 5 and 6 are batch A and take raw lanes 0 and
+// 1; step 7 then finds its dep's lane occupied, mints the midpoint 0.5 through
+// dep-adjacent insertion, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — leaving
+// the non-member ordinally BETWEEN the two mates, inside their box.
+describe('launch-batch boxes enclose only their members (req #3229)', () => {
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 1, epic: 'E1',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+
+    const enclosedNonMembers = (layout) => {
+        const out = [];
+        for (const box of layout.batchBoxes) {
+            const members = new Set(box.batchStepIds);
+            for (const n of layout.nodes.values()) {
+                if (members.has(n.id)) continue;
+                if (n.x > box.x && n.x < box.x + box.width
+                    && n.y > box.y && n.y < box.y + box.height) {
+                    out.push(`batch ${box.letter} encloses step ${n.id}`);
+                }
+            }
+        }
+        return out;
+    };
+
+    it('keeps an inserted lane out of a batch run — five steps, no fuzzing', () => {
+        const rows = [mk(1, []), mk(2, []), mk(5, [1]), mk(6, [2]), mk(7, [1])];
+        const layout = computePlanLayout(rows, [{ letter: 'A', stepIds: [5, 6] }]);
+        // The precondition: the box has to actually be drawn, or this asserts
+        // nothing. Two mates in one column is one segment.
+        expect(layout.batchBoxes.length).toBeGreaterThan(0);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    // THE OTHER SIDE OF THE SAME DEFECT, and the one the corpus does NOT reach
+    // — found in the second code-review round, measured at 7 cases per 40,000
+    // layouts with none inside the shipped 400. `runIntervals` stops a later
+    // step entering a published run; this is a run being allocated AROUND a
+    // bead that is already sitting there. Batch B has a single mate at column
+    // 2, so it publishes no interval, and step 6 takes a fractional lane off
+    // its dep chain; batch C is then dep-anchored to a fractional `start` and
+    // its two lanes straddle it. Checking only `start + k` never looks between
+    // them. Ordinals come out `7@l0, 6@l1, 8@l2` — box C around a non-member.
+    it('never allocates a run AROUND a bead already inside it', () => {
+        const rows = [mk(1, []), mk(2, []), mk(3, []), mk(4, [1]), mk(5, [1]),
+            mk(6, [5]), mk(7, [4]), mk(8, [4]), mk(10, [6])];
+        const layout = computePlanLayout(rows, [
+            { letter: 'B', stepIds: [6, 10] },
+            { letter: 'C', stepIds: [7, 8] },
+        ]);
+        // Precondition: batch C must actually draw a box at step 6's column,
+        // or the assertion below is about nothing.
+        const n6 = layout.nodes.get(6);
+        expect(layout.batchBoxes.some((b) => b.letter === 'C' && b.depth === n6.depth))
+            .toBe(true);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    describe.each([{ axis: true }, { axis: false }])('over the corpus, axis=$axis',
+        ({ axis }) => {
+            it('never draws a launch-unit box around a non-member', () => {
+                const failures = [];
+                let boxes = 0;
+                for (const { seed, reads } of timedFuzzCorpus()) {
+                    const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                    const layout = computePlanLayout(plan.rows, plan.batches,
+                        axis ? { timeAxis: plan.timeAxis } : {});
+                    boxes += layout.batchBoxes.length;
+                    for (const f of enclosedNonMembers(layout)) {
+                        failures.push(`seed ${seed} — ${f}`);
+                    }
+                }
+                // Non-vacuity: the corpus must actually DRAW boxes.
+                expect(boxes).toBeGreaterThan(200);
+                expect(failures).toEqual([]);
+            });
+        });
 });
