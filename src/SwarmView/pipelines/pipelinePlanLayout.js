@@ -1618,26 +1618,50 @@ export function computePlanLayout(rows, batches, {
             const x2 = b.x - BEAD_R - 1;
             const y2 = b.y;
             if (y1 === y2) {
-                arcs.push({ fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2 });
+                // A 1px-tall AABB — see `bbox` below — so a degenerate straight
+                // arc still has SOME height for the sticky-chip avoidance check
+                // (req #3210) to test against, rather than a zero-height rect
+                // that can only ever collide by exact-Y coincidence.
+                arcs.push({
+                    fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2,
+                    bbox: { x: Math.min(x1, x2), y: y1 - 1, w: Math.abs(x2 - x1), h: 2 },
+                });
                 continue;
             }
             const sameBand = a.bandIndex === b.bandIndex;
             const late = sameBand
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
             let path;
+            // `pts` is every X/Y pair the SVG path string below is built from —
+            // start, both cubic controls, and end. A cubic Bézier always lies
+            // within the convex hull of its control points (never bulges past
+            // them), so min/max over this exact set is a CONSERVATIVE but
+            // never-too-small bounding box (req #3210's `bbox`, below) — no
+            // curve sampling required, and it can only over- rather than
+            // under-estimate what the arc occupies on screen.
+            let pts;
             if (late) {
                 const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 const xb = Math.max(x1, x2 - bend);
                 path = `M${x1},${y1} L${xb},${y1} C${xb + bend * 0.45},${y1} `
                     + `${xb + bend * 0.55},${y2} ${x2},${y2}`;
+                pts = [[x1, y1], [xb, y1], [xb + bend * 0.45, y1], [xb + bend * 0.55, y2], [x2, y2]];
             } else {
                 const bend = Math.min((colW[a.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
                     + `${x1 + bend},${y2} L${Math.max(x2, x1 + bend)},${y2}`;
+                pts = [[x1, y1], [x1 + bend * 0.45, y1], [x1 + bend * 0.55, y2],
+                    [x1 + bend, y2], [Math.max(x2, x1 + bend), y2]];
             }
+            const xs = pts.map((p) => p[0]);
+            const ys = pts.map((p) => p[1]);
+            const bbox = {
+                x: Math.min(...xs), y: Math.min(...ys),
+                w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
+            };
             arcs.push({
                 fromId: dId, toId: r.id, straight: false,
-                route: late ? 'late' : 'early', x1, y1, x2, y2, path,
+                route: late ? 'late' : 'early', x1, y1, x2, y2, path, bbox,
             });
         }
     }
@@ -2052,6 +2076,18 @@ export const EPIC_CHIP_H = 24;      // the HTML chip's own height, in SCREEN px
 export const EPIC_CHIP_CHAR_W = CHW_EPIC;
 export const EPIC_CHIP_PAD_W = 18;  // px + border, both sides
 export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
+// The "open in features view" ↗ control's own footprint (req #3204) — a
+// FLAT, unscaled screen-px reservation, not part of `EPIC_CHIP_PAD_W`
+// (review finding, req #3210): the control is a fixed `fontSize: 12` glyph
+// plus its own padding and the chip's `gap`, none of which shrinks when the
+// chip does, unlike the name text `EPIC_CHIP_PAD_W` already accounts for. A
+// natural chip has never needed this reserved — it is checked only against
+// the legend and other chips, both comfortably clear at the sizes this
+// surface reaches in practice — but a STICKY chip (`placeEpicChips`, below)
+// is checked against beads, arcs and labels it can end up flush against, so
+// leaving the control unmeasured there is the exact under-measurement bug
+// this module's own header comment warns about, just for a different mark.
+export const EPIC_CHIP_OPEN_LINK_W = 24;
 // The floor a scaled chip stops at. Below this the name is not readable anyway,
 // and the layout would rather draw a small legible-ish chip inside its own lane
 // than a full-size one over the first row of steps.
@@ -2062,9 +2098,60 @@ export const EPIC_CHIP_MIN_H = 11;
 // wins over whatever it crosses.
 export const EPIC_CHIP_BG_ALPHA = 0.6;
 
+/**
+ * Every world-space rect currently DRAWN on this surface — bead footprints
+ * (widened to the eligible-step halo where the engine says a step is
+ * launchable now), batch-box outlines, every dependency arc's `bbox`, and
+ * whichever labels the caller's OWN `drawsKind` says the current semantic
+ * level actually draws (req #3210's `placeEpicChips` sticky chips are the
+ * consumer — see that function's own comment for why this assembly cannot
+ * live inside it).
+ *
+ * PURE and exported rather than inlined in the component, so the level gate
+ * — otherwise only provable by rendering `PipelinePlanVisualizer.jsx` — is a
+ * testable property of plain data instead. `drawsKind` defaults to "draw
+ * everything", the conservative superset a caller with no notion of semantic
+ * level (a test, a hand-built probe) should get rather than a silent
+ * under-count; `eligibleStepIds` defaults to none, since a caller that omits
+ * it has no eligibility concept to widen the footprint for.
+ *
+ * `kind: 'epic'` labels are excluded outright, unconditionally: they are
+ * NEVER drawn in the world at all (an HTML overlay draws the name instead —
+ * see the `kind === 'epic'` no-op in the component's own world-node loop), so
+ * including them would avoid a mark that is not actually there.
+ *
+ * @param {Object} layout `computePlanLayout`'s own return value
+ * @param {Object} [args]
+ * @param {(kind: string) => boolean} [args.drawsKind]
+ * @param {?Set<number>} [args.eligibleStepIds]
+ * @returns {{x:number,y:number,w:number,h:number}[]}
+ */
+export function collectWorldObstacles(layout, { drawsKind = () => true, eligibleStepIds = null } = {}) {
+    const out = [];
+    for (const n of (layout?.nodes || new Map()).values()) {
+        const r = eligibleStepIds?.has(n.id) ? NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2 : BEAD_R;
+        out.push({ x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r });
+    }
+    for (const l of layout?.labels || []) {
+        if (l.kind === 'epic' || !drawsKind(l.kind)) continue;
+        out.push({ x: l.x, y: l.y, w: l.w, h: l.h });
+    }
+    for (const a of layout?.arcs || []) {
+        if (a.bbox) out.push(a.bbox);
+    }
+    // Batch boxes carry `width`/`height`, not `w`/`h` (`computePlanLayout`'s
+    // own field names for them) — normalized here to the one obstacle shape
+    // this function promises.
+    for (const b of layout?.batchBoxes || []) {
+        out.push({ x: b.x, y: b.y, w: b.width, h: b.height });
+    }
+    return out;
+}
+
 export function placeEpicChips({
     bands = [], transform, viewport, worldWidth,
     labelH = EPIC_CHIP_H, charW = EPIC_CHIP_CHAR_W, keepOut = null,
+    worldObstacles = [],
 } = {}) {
     const t = transform || { x: 0, y: 0, k: 1 };
     const vw = viewport?.w || 0;
@@ -2078,8 +2165,14 @@ export function placeEpicChips({
     const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w
         && a.y < b.y + b.h && b.y < a.y + a.h;
     const out = [];
+    // Which bands actually got their OWN chip drawn (req #3210) — the sticky
+    // pass below reads this rather than re-deriving "visible" from scratch; see
+    // that section's own comment for why a geometric visibility test isn't the
+    // same question.
+    const placedAt = new Array(bands.length).fill(false);
 
-    for (const band of bands) {
+    for (let bi = 0; bi < bands.length; bi++) {
+        const band = bands[bi];
         const top = t.y + band.y * t.k;
         const bottom = t.y + (band.y + band.height) * t.k;
         // The EPIC LANE's bottom, not the header's: a lane-0 step label reaches
@@ -2153,6 +2246,7 @@ export function placeEpicChips({
         }
         if (!placed) continue;   // nowhere honest left — see the header comment
 
+        placedAt[bi] = true;
         obstacles.push(placed);
         out.push({
             key: band.key == null ? 'none' : band.key,
@@ -2170,6 +2264,146 @@ export function placeEpicChips({
             fontSize: EPIC_CHIP_FONT * scale,
         });
     }
+
+    // ── Sticky prev/next epic names (req #3210) ─────────────────────────────
+    // A focused epic (req #3204's `epicFocusTransform`, FOCUS_PAD margin on
+    // every side) fills the viewport with its own chip — the epics immediately
+    // above and below it in the stack can end up with no name on screen at
+    // all, and the reader loses any reference to — or one-click path to — a
+    // neighbour. "Always at least three epic names" is the focused band's own
+    // chip plus these two.
+    //
+    // `bands` is already ordered top-to-bottom in world-Y (req #3201's
+    // DERIVED-START sort — see the module header), so "the epic above/below"
+    // is simply the previous/next array entry relative to whichever bands
+    // currently carry their OWN chip — `placedAt`, from the loop above.
+    //
+    // PLACED, NOT MERELY ON SCREEN — the first of two review findings this
+    // block fixes. `FOCUS_PAD` is 44 SCREEN px while the gap between bands
+    // (`BAND_GAP`) is 8 WORLD px, so at every k `epicFocusTransform` can
+    // actually reach, the neighbour band's own trailing content sliver
+    // projects to fewer screen px than the margin — its RECTANGLE still
+    // technically intersects the viewport even though its NAME (confined to
+    // its own epic lane, up near ITS top) is nowhere close to on screen. A
+    // geometric "does the rect intersect" test therefore counted that
+    // neighbour as already visible and never engaged. Whether its chip was
+    // actually PLACED is the test that agrees with what the reader can see.
+    //
+    // BUT "nothing renders above the first CHIPPED band" is FALSE, and that is
+    // the second finding: `placedAt[i]` can be false for a band whose CONTENT
+    // is still genuinely on screen — the same tail-sliver case above, one step
+    // short of fully scrolling off, or simply too little epic-lane room left
+    // for its own chip while its beads and labels are still visible. Skipping
+    // straight to the next-chipped band's boundary would let the sticky box
+    // land on top of that real, drawn content (measured in review — a sticky
+    // chip overlapping a live step label, and separately a live bead). So the
+    // "swim lane" this reuses is not assumed empty; it is KEPT empty exactly
+    // like every other chip on this surface — routed through the same
+    // `obstacles`/`candidates` horizontal-displacement pass, now widened to
+    // also carry `worldObstacles`.
+    //
+    // `worldObstacles` is the CALLER's job to assemble, deliberately: this
+    // module has no notion of `drawsKind`/semantic LEVEL (`PipelinePlanVisualizer.jsx`'s
+    // own gate on which labels are actually drawn at the current zoom), so it
+    // cannot tell a currently-hidden label from a currently-drawn one — and
+    // the epic label rects `layout.labels` itself carries are NEVER drawn in
+    // the world at all (an HTML overlay draws the name instead; see the
+    // `kind === 'epic'` no-op in the component's world-node loop). Handing
+    // this module the FULL unfiltered `layout.labels`/`layout.nodes`/`layout.arcs`
+    // would make it avoid marks that are not actually on screen (dropping a
+    // sticky that had genuine room) while still missing marks it has no
+    // vocabulary for (bead footprints are not labels or arcs at all — a
+    // second review finding: a sticky chip landed on a live bead in the first
+    // cut of this fix). The caller already computes exactly what is currently
+    // drawn for its own rendering, so it is the one source that cannot drift
+    // from what the reader actually sees.
+    if (bands.length > 1) {
+        let firstVisible = -1;
+        let lastVisible = -1;
+        for (let i = 0; i < placedAt.length; i++) {
+            if (!placedAt[i]) continue;
+            if (firstVisible === -1) firstVisible = i;
+            lastVisible = i;
+        }
+        const left = t.x + 2 * t.k;
+        const right = t.x + (worldWidth - 2) * t.k;
+        if (firstVisible !== -1 && right >= 0 && left <= vw) {
+            const minX = Math.max(0, left) + 6;
+            const maxXCap = Math.min(right, vw) - 6;
+
+            // Places one sticky chip, or draws nothing if there is no honest
+            // room — the same refusal the natural loop makes when a candidate
+            // can't be found, rather than shrinking past legibility or
+            // overlapping something.
+            const placeSticky = (targetBand, room, atTop) => {
+                if (room < EPIC_CHIP_MIN_H) return;
+                const h = Math.min(labelH, room);
+                const scale = h / labelH;
+                const bandText = targetBand.epicLabel || targetBand.epic;
+                // The ↗ control renders whenever `epicId != null` (mirrors
+                // the component's own condition) — its flat footprint has to
+                // be in `w` before anything is checked against beads/arcs/
+                // labels, or the collision math clears a box the reader
+                // cannot actually see the edge of.
+                const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+                    + (targetBand.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0);
+                const maxX = maxXCap - w;
+                if (maxX < minX) return;
+                const y = atTop ? 2 : (vh - h - 2);
+                const rectObstacles = [...obstacles];
+                // Only marks whose screen box actually reaches this chip's own
+                // row are relevant — filtered here, not carried as a permanent
+                // obstacle, because the top and bottom sticky slots occupy
+                // disjoint rows and a mark relevant to one is almost never
+                // relevant to the other.
+                for (const r of worldObstacles) {
+                    const box = {
+                        x: t.x + r.x * t.k, y: t.y + r.y * t.k,
+                        w: r.w * t.k, h: r.h * t.k,
+                    };
+                    if (box.y < y + h && y < box.y + box.h) rectObstacles.push(box);
+                }
+                const x0 = minX;
+                const candidates = [x0];
+                for (const o of rectObstacles) {
+                    candidates.push(o.x + o.w + CHIP_PAD, o.x - CHIP_PAD - w);
+                }
+                let placed = null;
+                for (const cx of candidates.sort((a, b) =>
+                    Math.abs(a - x0) - Math.abs(b - x0))) {
+                    if (cx < minX || cx > maxX) continue;
+                    const rect = { x: cx, y, w, h };
+                    if (rectObstacles.some((o) => hits(rect, o))) continue;
+                    placed = rect;
+                    break;
+                }
+                if (!placed) return;   // nowhere honest left
+                obstacles.push(placed);
+                out.push({
+                    key: `${targetBand.key == null ? 'none' : targetBand.key}`
+                        + `-stick-${atTop ? 'top' : 'bottom'}`,
+                    epicId: targetBand.epicId,
+                    text: bandText,
+                    color: targetBand.color,
+                    band: targetBand,
+                    sticky: atTop ? 'top' : 'bottom',
+                    x: placed.x, y: placed.y, w, h,
+                    fontSize: EPIC_CHIP_FONT * scale,
+                });
+            };
+
+            if (firstVisible > 0) {
+                const topOfFirst = t.y + bands[firstVisible].y * t.k;
+                placeSticky(bands[firstVisible - 1], topOfFirst - 4, true);
+            }
+            if (lastVisible < bands.length - 1) {
+                const bottomOfLast = t.y
+                    + (bands[lastVisible].y + bands[lastVisible].height) * t.k;
+                placeSticky(bands[lastVisible + 1], vh - bottomOfLast - 4, false);
+            }
+        }
+    }
+
     return out;
 }
 
