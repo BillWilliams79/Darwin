@@ -41,7 +41,9 @@ import {
     PIPELINE_STATUS_VALUES,
 } from './pipelineChipStyles';
 import {
+    DEFAULT_REQ_COUNTS,
     PLAN_REQUIREMENT_FIELDS,
+    REQ_COUNTS_STORAGE_KEY,
     pipelineSummaries,
     pipelineRequirementCounts,
     hiddenPipelineStatusCounts,
@@ -112,7 +114,12 @@ export default function PipelinesPage() {
     // per-tab sessionStorage read happens at mount, which is exactly when a
     // route change lands here, so a choice made on the detail page is already
     // in effect the moment this page opens.
-    const [showReqCountsPref] = useViewPreference('darwin-pipeline-req-counts', 'off');
+    //
+    // Key and default from the ONE shared pair (req #3241) rather than a second
+    // copy of both literals — a page reading a mistyped key does not fail, it
+    // quietly falls back to its own default and shows a plausible answer.
+    const [showReqCountsPref] = useViewPreference(
+        REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
     const showReqCounts = showReqCountsPref === 'on';
     // req #3220 — multi-select via the shared ChipFilter, not the old nullable
     // single value. Nothing outside this page reads the filter, so a Zustand
