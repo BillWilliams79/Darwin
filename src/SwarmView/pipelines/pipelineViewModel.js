@@ -22,6 +22,7 @@ import {
     launchBatches,
     condensationProposals,
     eligibility,
+    requirementCounts,
     STEP_DONE,
     STEP_RUNNING,
     STEP_PENDING,
@@ -280,6 +281,9 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         cycleStepIds,
         duplicateStepIds,
         unresolvedReqIds,
+        // req #3225 — pure CPU over `model.requirements`/`model.features`,
+        // both already in hand. No extra read, same as cost/timeAxis above.
+        requirementCounts: requirementCounts(model || {}),
     };
 }
 
@@ -393,6 +397,34 @@ export function pipelineSummaries({ pipelines, steps, stepRequirements, requirem
             machines: [],
         });
         out.set(p.id, pipelineSummary(buildPlanRows(model)));
+    }
+    return out;
+}
+
+/**
+ * Per-pipeline requirement met/total counts for the LIST page (req #3225),
+ * mirroring `pipelineSummaries` — one pass over the same shared reads, never a
+ * per-pipeline fetch (design rule 5). Only the plan-wide `overall` bucket is
+ * needed here: the list page names a PLAN, never an epic.
+ *
+ * @param {Object} args  same lists as buildPipelineModel, plus `pipelines`
+ * @returns {Map<number, {met: number, total: number}>}
+ */
+export function pipelineRequirementCounts({ pipelines, steps, stepRequirements,
+    requirements } = {}) {
+    const out = new Map();
+    for (const p of asArray(pipelines)) {
+        const model = buildPipelineModel({
+            pipeline: p,
+            steps,
+            stepRequirements,
+            stepDeps: [],
+            requirements,
+            features: [],
+            epics: [],
+            machines: [],
+        });
+        out.set(p.id, requirementCounts(model).overall);
     }
     return out;
 }

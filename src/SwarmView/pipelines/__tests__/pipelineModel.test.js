@@ -10,7 +10,7 @@ import {
     deriveStepState, buildPlanRows, displayOrder, verifyOrder,
     eligibility, launchBatches, condensationProposals,
     dominantLabels, machineLabels, fmtCost, aggregateStepCost,
-    aggregateRowCost, sumReqCost,
+    aggregateRowCost, sumReqCost, requirementCounts, isTrackingRequirement,
 } from '../pipelineModel';
 import { PLAN_JSON_ROWS, SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -1126,6 +1126,130 @@ describe('cost aggregation (req #3117 server-side rollup)', () => {
         expect(row7.reqIds).toEqual([]);
         const cost = aggregateRowCost(row7, INDEX);
         expect(fmtCost(cost.wallSecs, cost.tokens)).toBe('—');
+    });
+});
+
+describe('requirementCounts — met/total, per epic and for the whole plan (req #3225)', () => {
+    const model = (requirements, features = [], epics = []) => ({ requirements, features, epics });
+
+    it('counts met over total, excluding nothing but tracking containers', () => {
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 101 },
+            { id: 2, requirement_status: 'development', feature_fk: 101 },
+            { id: 3, requirement_status: 'approved', feature_fk: 101 },
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m)).toEqual({
+            overall: { met: 1, total: 3 },
+            byEpic: [{ epicId: 1, met: 1, total: 3 }],
+        });
+    });
+
+    it('excludes a TRACKING requirement from both the numerator and the denominator', () => {
+        // req #3123's container exemption, applied to the ratio: a container
+        // carries no acceptance criteria of its own, so counting it either way
+        // would make a self-tracking plan read as permanently short of — or
+        // trivially at — 100%.
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 101 },
+            // met AND tracking — if tracking exclusion ran second, or not at
+            // all, this would inflate the numerator too.
+            { id: 2, requirement_status: 'met', tracking: 1, feature_fk: 101 },
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m)).toEqual({
+            overall: { met: 1, total: 1 },
+            byEpic: [{ epicId: 1, met: 1, total: 1 }],
+        });
+    });
+
+    it('a stringified tracking zero is WORK, matching isTrackingRequirement elsewhere', () => {
+        const m = model([
+            { id: 1, requirement_status: 'met', tracking: '0', feature_fk: 101 },
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m).overall).toEqual({ met: 1, total: 1 });
+    });
+
+    it('wontfix and deferred count toward the denominator, never the numerator', () => {
+        // req #3225's own recommendation: the ratio answers "how much of this
+        // is FINISHED", not "how much has stopped moving" — a plan can sit
+        // permanently short of its total on these two statuses, by design.
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 101 },
+            { id: 2, requirement_status: 'wontfix', feature_fk: 101 },
+            { id: 3, requirement_status: 'deferred', feature_fk: 101 },
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m)).toEqual({
+            overall: { met: 1, total: 3 },
+            byEpic: [{ epicId: 1, met: 1, total: 3 }],
+        });
+    });
+
+    it('groups by the REQUIREMENT\'S OWN feature->epic chain, not a step\'s dominant epic', () => {
+        // Two epics, one requirement apiece — no steps are involved at all,
+        // which is the point: the count is a property of the requirement,
+        // independent of which step (if any) links it.
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 101 },
+            { id: 2, requirement_status: 'development', feature_fk: 102 },
+        ], [
+            { id: 101, title: 'F1', epic_fk: 11 },
+            { id: 102, title: 'F2', epic_fk: 12 },
+        ], [{ id: 11, title: 'E1' }, { id: 12, title: 'E2' }]);
+        expect(requirementCounts(m)).toEqual({
+            overall: { met: 1, total: 2 },
+            byEpic: [
+                { epicId: 11, met: 1, total: 1 },
+                { epicId: 12, met: 0, total: 1 },
+            ],
+        });
+    });
+
+    it('a requirement with no resolvable feature/epic counts toward overall only', () => {
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: null },
+            { id: 2, requirement_status: 'met', feature_fk: 999 }, // unknown feature
+        ], [{ id: 101, title: 'F', epic_fk: 1 }], [{ id: 1, title: 'E' }]);
+        expect(requirementCounts(m)).toEqual({ overall: { met: 2, total: 2 }, byEpic: [] });
+    });
+
+    it('byEpic sorts by epic id ascending, independent of requirement or feature order', () => {
+        const m = model([
+            { id: 1, requirement_status: 'met', feature_fk: 202 },
+            { id: 2, requirement_status: 'met', feature_fk: 201 },
+        ], [
+            { id: 202, title: 'F2', epic_fk: 22 },
+            { id: 201, title: 'F1', epic_fk: 21 },
+        ], [{ id: 21, title: 'E1' }, { id: 22, title: 'E2' }]);
+        expect(requirementCounts(m).byEpic.map((b) => b.epicId)).toEqual([21, 22]);
+    });
+
+    it('tolerates an absent requirements/features list rather than throwing', () => {
+        expect(requirementCounts({})).toEqual({ overall: { met: 0, total: 0 }, byEpic: [] });
+        expect(requirementCounts({ requirements: [null, undefined] }))
+            .toEqual({ overall: { met: 0, total: 0 }, byEpic: [] });
+    });
+
+    it('on the Substrate Rebuild fixture: excludes exactly the one tracking '
+        + 'requirement (#3083) and matches an independent reduce', () => {
+        const reqs = SUBSTRATE_REBUILD_MODEL.requirements;
+        const trackingIds = reqs.filter(isTrackingRequirement).map((r) => r.id);
+        expect(trackingIds).toEqual([3083]);
+        const observed = requirementCounts(SUBSTRATE_REBUILD_MODEL);
+        const nonTracking = reqs.filter((r) => !trackingIds.includes(r.id));
+        expect(observed.overall.total).toBe(nonTracking.length);
+        expect(observed.overall.met).toBe(
+            nonTracking.filter((r) => r.requirement_status === 'met').length);
+        // #3083 is `development` and would have moved the numerator toward
+        // zero-relative-to-itself either way, but it must not appear in ANY
+        // epic bucket at all — this is the one requirement excluded outright.
+        const featuresById = new Map(SUBSTRATE_REBUILD_MODEL.features.map((f) => [f.id, f]));
+        const trackingEpicId = featuresById.get(
+            reqs.find((r) => r.id === 3083).feature_fk)?.epic_fk;
+        const trackingBucket = observed.byEpic.find((b) => b.epicId === trackingEpicId);
+        const expectedBucketTotal = nonTracking.filter((r) => {
+            const f = r.feature_fk != null ? featuresById.get(r.feature_fk) : null;
+            return f && f.epic_fk === trackingEpicId;
+        }).length;
+        expect(trackingBucket.total).toBe(expectedBucketTotal);
     });
 });
 

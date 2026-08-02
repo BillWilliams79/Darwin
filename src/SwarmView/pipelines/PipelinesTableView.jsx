@@ -43,14 +43,24 @@ function PipelinesNoRowsOverlay({ hiddenStatusCounts = [] }) {
     );
 }
 
-export default function PipelinesTableView({ pipelines, summaries, machines, claims = [],
-    timezone, onOpen, hiddenStatusCounts = [] }) {
+export default function PipelinesTableView({ pipelines, summaries, reqCounts,
+    showReqCounts = false, machines, claims = [], timezone, onOpen,
+    hiddenStatusCounts = [] }) {
     const rows = useMemo(() => pipelines.map((p) => {
         const s = summaries.get(p.id) || EMPTY_SUMMARY;
         // req #3224 — the WHOLE-PLAN reservation only. An epic-scoped one is the
         // epics page's answer; showing it here would say a plan is orchestrated
         // when a slice of it is, which is a different and weaker claim.
         const holder = holderView(claimForPipeline(claims, p.id), machines);
+        // req #3225 — behind the shared toggle. `pipelineRequirementCounts`
+        // sets an entry for EVERY pipeline, even {met:0,total:0}. Contrast
+        // the per-epic buckets, which `requirementCounts` (pipelineModel.js)
+        // builds lazily and leaves absent for an epic with no counted
+        // requirement — pipelinePlanLayout.js's `epicBandLabelText` degrades
+        // that miss to the plain name. So a plan legitimately shows "0/0"
+        // rather than the name alone: at the plan level, "no counted
+        // requirements" IS an answer, not a missing one.
+        const counts = showReqCounts ? reqCounts?.get(p.id) : null;
         return {
             ...p,
             machine_label: machineTitle(p.machine_fk, machines),
@@ -61,8 +71,9 @@ export default function PipelinesTableView({ pipelines, summaries, machines, cla
             done_count: s.done,
             running_count: s.running,
             pending_count: s.pending,
+            req_counts_label: counts ? `${counts.met}/${counts.total}` : '',
         };
-    }), [pipelines, summaries, machines, claims]);
+    }), [pipelines, summaries, reqCounts, showReqCounts, machines, claims]);
 
     const columns = useMemo(() => [
         { field: 'id', headerName: 'ID', width: 80, type: 'number' },
@@ -71,6 +82,43 @@ export default function PipelinesTableView({ pipelines, summaries, machines, cla
             headerName: 'Pipeline',
             flex: 1,
             minWidth: 280,
+            // req #3225 — the count suffix behind the shared toggle, added to
+            // the column definition ONLY while the toggle is on. Toggle off
+            // must render byte-identical to before this requirement — no
+            // `renderCell` at all, so the DataGrid's native text-overflow
+            // ellipsis on a long title is untouched. `display: 'flex'` is the
+            // column-level flag DataGrid itself uses for a renderCell's
+            // content (`GridCell.js`'s own `column.display === 'flex'`
+            // check) — a bare wrapping Box with no such flag defeated the
+            // ellipsis outright (code review finding).
+            //
+            // THE ELLIPSIS ITSELF has to be re-applied by hand even with that
+            // flag set: `display:flex` on the cell only says the CELL is a
+            // flex row, it says nothing about which CHILD may shrink and
+            // truncate — a plain DataGrid cell gets its ellipsis CSS on the
+            // cell itself, which this renderCell's content bypasses (second
+            // review pass, same finding). So the title gets its OWN
+            // ellipsis-capable span (`minWidth: 0` is load-bearing: without
+            // it a flex child refuses to shrink below its content width and
+            // the ellipsis rule never engages) and the count suffix is a
+            // separate, non-shrinking span that always stays whole.
+            ...(showReqCounts ? {
+                display: 'flex',
+                renderCell: (params) => (
+                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%',
+                                minWidth: 0, width: '100%' }}>
+                        <Box component="span" sx={{ overflow: 'hidden',
+                            textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                            {params.value}
+                        </Box>
+                        {params.row.req_counts_label && (
+                            <Box component="span" sx={{ flexShrink: 0, pl: 0.5 }}>
+                                {params.row.req_counts_label}
+                            </Box>
+                        )}
+                    </Box>
+                ),
+            } : {}),
         },
         {
             field: 'pipeline_status',
@@ -123,7 +171,7 @@ export default function PipelinesTableView({ pipelines, summaries, machines, cla
             width: 190,
             valueFormatter: (value) => (value ? formatDateTime(value, timezone) : '—'),
         },
-    ], [timezone]);
+    ], [timezone, showReqCounts]);
 
     // The testid goes on a WRAPPING Box, not on <DataGrid> — MUI does not
     // forward unknown props to the grid root, so a `data-testid` handed to the

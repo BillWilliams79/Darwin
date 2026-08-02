@@ -36,6 +36,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     buildPlanRows, displayOrder, verifyOrder, eligibility, launchBatches,
+    requirementCounts,
 } from '../pipelineModel';
 import { SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -181,6 +182,17 @@ function observe(wireModel, now) {
         }
     }
 
+    // req #3225 — rename onto the wire (snake_case) shape `pipeline_derive.py`
+    // speaks natively; nothing here derives anything `requirementCounts`
+    // did not already compute.
+    const counts = requirementCounts(model);
+    const observedCounts = {
+        overall: counts.overall,
+        by_epic: counts.byEpic.map((c) => ({
+            epic_id: c.epicId, met: c.met, total: c.total,
+        })),
+    };
+
     return {
         display_order: outRows.map((r) => r.id),
         rows: observedRows,
@@ -190,6 +202,7 @@ function observe(wireModel, now) {
         cycle_step_ids: [...ordered.cycleStepIds],
         duplicate_step_ids: [...ordered.duplicateStepIds],
         unresolved_req_ids: unresolved,
+        requirement_counts: observedCounts,
     };
 }
 
@@ -336,6 +349,21 @@ describe('pipeline conformance — the anchors', () => {
         expect(observed.batches).toHaveLength(1);
         expect(observed.batches[0].step_ids).toEqual([2, 3]);
         expect(c.expect.batches, 'the server keeps them apart').toEqual([]);
+    });
+
+    it('requirement_counts excludes tracking and keeps terminal statuses in '
+        + 'the denominator (req #3225)', () => {
+        // The two decisions the requirement asked to be stated, not guessed:
+        // a TRACKING requirement moves neither side of the ratio (even a
+        // `met` one), and wontfix/deferred count toward the denominator but
+        // never the numerator.
+        const c = byName('requirement-counts-tracking-and-terminal-statuses');
+        const observed = observe(c.model, c.now).requirement_counts;
+        expect(observed.overall).toEqual({ met: 2, total: 5 });
+        expect(observed.by_epic).toEqual([
+            { epic_id: 21, met: 2, total: 3 },
+            { epic_id: 22, met: 0, total: 2 },
+        ]);
     });
 
     it('reads a stringified zero as WORK, not as a tracking container', () => {

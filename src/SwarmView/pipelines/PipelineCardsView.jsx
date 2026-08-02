@@ -22,8 +22,8 @@ import { claimForPipeline, holderView } from './orchestrationHolder';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
-export default function PipelineCardsView({ pipelines, summaries, machines, claims = [],
-    onOpen, hiddenStatusCounts = [] }) {
+export default function PipelineCardsView({ pipelines, summaries, reqCounts,
+    showReqCounts = false, machines, claims = [], onOpen, hiddenStatusCounts = [] }) {
     if (!pipelines.length) {
         // "No pipelines yet" is a claim about the DATA, and it is false whenever
         // a status filter is what emptied the view — the page's own accounting
@@ -45,6 +45,15 @@ export default function PipelineCardsView({ pipelines, summaries, machines, clai
                 const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
                 // req #3224 — the whole-plan reservation, if one is held.
                 const holder = holderView(claimForPipeline(claims, p.id), machines);
+                // req #3225 — behind the shared toggle. `pipelineRequirementCounts`
+                // sets an entry for EVERY pipeline, even {met:0,total:0}. Contrast
+                // the per-epic buckets, which `requirementCounts` (pipelineModel.js)
+                // builds lazily and leaves absent for an epic with no counted
+                // requirement — pipelinePlanLayout.js's `epicBandLabelText`
+                // degrades that miss to the plain name. So a plan legitimately
+                // shows "0/0" rather than the name alone: at the plan level, "no
+                // counted requirements" IS an answer, not a missing one.
+                const counts = showReqCounts ? reqCounts?.get(p.id) : null;
                 return (
                     <Card key={p.id} variant="outlined" data-testid={`pipeline-card-${p.id}`}>
                         <CardActionArea onClick={() => onOpen(p.id)}>
@@ -54,6 +63,7 @@ export default function PipelineCardsView({ pipelines, summaries, machines, clai
                                     <Typography variant="subtitle1" sx={{ flex: 1,
                                                                           fontWeight: 600 }}>
                                         {p.title}
+                                        {counts ? ` ${counts.met}/${counts.total}` : ''}
                                     </Typography>
                                     <Chip size="small" label={p.pipeline_status}
                                           {...pipelineStatusChipProps(p.pipeline_status)} />

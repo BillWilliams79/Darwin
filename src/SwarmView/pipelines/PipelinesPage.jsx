@@ -43,6 +43,7 @@ import {
 import {
     PLAN_REQUIREMENT_FIELDS,
     pipelineSummaries,
+    pipelineRequirementCounts,
     hiddenPipelineStatusCounts,
 } from './pipelineViewModel';
 
@@ -104,6 +105,15 @@ export default function PipelinesPage() {
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
     const activeView = normalizeView(view, VIEWS);
+    // req #3225 — the SAME preference the plan detail header's toggle writes.
+    // This page carries no control of its own for it (the toggle lives where
+    // the requirement puts it, in the header's row of toggle groups); it only
+    // reads whatever the reader last chose there. `useViewPreference`'s
+    // per-tab sessionStorage read happens at mount, which is exactly when a
+    // route change lands here, so a choice made on the detail page is already
+    // in effect the moment this page opens.
+    const [showReqCountsPref] = useViewPreference('darwin-pipeline-req-counts', 'off');
+    const showReqCounts = showReqCountsPref === 'on';
     // req #3220 — multi-select via the shared ChipFilter, not the old nullable
     // single value. Nothing outside this page reads the filter, so a Zustand
     // store would still be ceremony without a second consumer — but the value
@@ -154,6 +164,12 @@ export default function PipelinesPage() {
 
     const summaries = useMemo(
         () => pipelineSummaries({ pipelines, steps, stepRequirements, requirements }),
+        [pipelines, steps, stepRequirements, requirements]);
+    // req #3225 — one more pass over the same shared reads (design rule 5:
+    // never a per-pipeline fetch), computed unconditionally so toggling the
+    // preference never triggers a fresh read — only a fresh render.
+    const reqCounts = useMemo(
+        () => pipelineRequirementCounts({ pipelines, steps, stepRequirements, requirements }),
         [pipelines, steps, stepRequirements, requirements]);
 
     const filtered = useMemo(
@@ -229,6 +245,8 @@ export default function PipelinesPage() {
                     <PipelinesTableView
                         pipelines={filtered}
                         summaries={summaries}
+                        reqCounts={reqCounts}
+                        showReqCounts={showReqCounts}
                         machines={machines}
                         claims={orchestrationClaims}
                         timezone={timezone}
@@ -239,6 +257,8 @@ export default function PipelinesPage() {
                     <PipelineCardsView
                         pipelines={filtered}
                         summaries={summaries}
+                        reqCounts={reqCounts}
+                        showReqCounts={showReqCounts}
                         machines={machines}
                         claims={orchestrationClaims}
                         onOpen={open}
