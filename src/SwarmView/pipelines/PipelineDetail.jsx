@@ -73,7 +73,7 @@ import {
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
 import { claimForPipeline, holderView } from './orchestrationHolder';
-import { readFocusStepParam } from './pipelineStepLink';
+import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -325,7 +325,10 @@ export default function PipelineDetail() {
     // comes from localStorage.
     const [levelPref, setLevelPref] = useViewPreference(
         'darwin-pipeline-viz-level', DEFAULT_PLAN_LEVEL_PREF);
-    const planLevelPref = normalizePlanLevelPref(levelPref);
+    // The STORED preference. What the toolbar and the canvas actually read is
+    // `activeLevelPref` further down, which lets a `?level=` link pin one level
+    // for one landing without ever writing it here (req #3253).
+    const storedLevelPref = normalizePlanLevelPref(levelPref);
     // The level the CANVAS is rendering, reported back so the control can softly
     // mark it while on Auto — the same handshake BuildVisualizerPage uses
     // (`onEffectiveLevel={setEffectiveLevel}`). Display only: nothing is derived
@@ -411,12 +414,28 @@ export default function PipelineDetail() {
     // both, the step wins. `pipelineEpicLink.js` owns both halves of this
     // contract, same split as the step link.
     const linkEpicId = readFocusEpicParam(searchParams);
-    // A named step FORCES the table, overriding `?mode=` when the two disagree.
-    // Only the table consumes `focusStepId` — the visualizer has beads, not rows,
-    // and ignores the prop entirely — so honoring `?mode=plan&step=7` as written
-    // would land the reader on a plan with nothing highlighted and nothing to say
-    // why. Naming a row is the more specific request, so it wins.
-    const linkView = linkStepId != null ? 'table' : (linkEpicId != null ? 'plan' : linkMode);
+    // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
+    // The step-on-the-plan link carries `level=2`, because a one-step fit lands
+    // well past `SEMANTIC_IN_MIN` and the canvas would otherwise auto-derive L3
+    // and draw every requirement TITLE — a wall of prose at exactly the moment
+    // the reader wanted to find one bead. Validated against the level vocabulary
+    // and null on anything else, so an unrecognised value leaves the reader's
+    // stored preference in charge rather than pinning them to 'auto'.
+    const linkLevel = readLevelParam(searchParams);
+    // A named step FORCES THE TABLE — unless the link explicitly asks for the
+    // plan (req #3253).
+    //
+    // The original rule was unconditional, and its reason was that only the
+    // table consumed `focusStepId`: the visualizer had beads, not rows, so
+    // honouring `?mode=plan&step=7` landed the reader on a plan with nothing
+    // highlighted and nothing to say why. Req #3253 gives the visualizer that
+    // handshake — a named step centres and zooms the camera on its bead — so the
+    // reason has gone and the rule with it. What survives is the DEFAULT: a
+    // `?step=` with no `?mode=` (the Steps editor's row link, which does carry
+    // `mode=table`, and any hand-typed URL) still means the row.
+    const linkView = linkStepId != null
+        ? (linkMode === 'plan' ? 'plan' : 'table')
+        : (linkEpicId != null ? 'plan' : linkMode);
 
     const [focusStepId, setFocusStepId] = useState(linkStepId);
     // Req #3235 code review — `?epic=` needs the SAME transient-override
@@ -428,6 +447,12 @@ export default function PipelineDetail() {
     // remounting — would keep re-focusing (or silently drop) a link the
     // reader already left behind.
     const [focusEpicId, setFocusEpicId] = useState(linkEpicId);
+    // Req #3253 — the level a link asked for, held TRANSIENTLY beside the
+    // persisted `levelPref` below and never written to it. Same doctrine as
+    // `modeOverride`/`focusStepId`/`focusEpicId`, and same reason: a link asks to
+    // see one thing once, so a reader who keeps L3 (or Auto) pinned still has it
+    // the next time they open a plan by any other route.
+    const [levelOverride, setLevelOverride] = useState(linkLevel);
     const [modeOverride, setModeOverride] = useState(linkView);
     // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, a new
     // `?epic=`, or a different plan — and at no other time, so a manual pick
@@ -438,7 +463,8 @@ export default function PipelineDetail() {
         setModeOverride(linkView);
         setFocusStepId(linkStepId);
         setFocusEpicId(linkEpicId);
-    }, [linkView, linkStepId, linkEpicId, pipelineId]);
+        setLevelOverride(linkLevel);
+    }, [linkView, linkStepId, linkEpicId, linkLevel, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -447,9 +473,24 @@ export default function PipelineDetail() {
         if (v == null) return;
         setFocusStepId(null);
         setFocusEpicId(null);
+        setLevelOverride(null);
         setModeOverride(null);
         setMode(v);
     }, [setMode]);
+    // A manual LEVEL pick clears the link's level the same way a manual MODE pick
+    // clears the link's mode — and persists the reader's choice as usual. The two
+    // are separate handlers because they are separate controls; folding the level
+    // clear into `handleModeChange` alone would leave a reader who picked L3 from
+    // the toolbar snapped back to the link's L2 on the next re-render.
+    const handleLevelPrefChange = useCallback((v) => {
+        setLevelOverride(null);
+        setLevelPref(v);
+    }, [setLevelPref]);
+    // Normalized ONCE here rather than at each consumer: `levelOverride` is
+    // already validated by `readLevelParam` and `levelPref` comes from
+    // localStorage, so this is the single place a level string is proved to be
+    // one of the four the vocabulary defines.
+    const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
 
     // The list read, not a by-id read: /swarm/pipelines has already primed this
@@ -804,9 +845,9 @@ export default function PipelineDetail() {
                         onChangeStepWidth={setStepWidthPref}
                         colorKey={colorKey}
                         onChangeColorKey={setColorKeyPref}
-                        planLevelPref={planLevelPref}
+                        planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
-                        onChangeLevelPref={setLevelPref}
+                        onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
                     />
                 )}
@@ -1008,7 +1049,7 @@ export default function PipelineDetail() {
                              // it is on this page's own header now, so the panel
                              // no longer changes the preference, it only reports
                              // the level it settled on via `onEffectiveLevel`.
-                             levelPref={planLevelPref}
+                             levelPref={activeLevelPref}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />

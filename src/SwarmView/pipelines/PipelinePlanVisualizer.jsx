@@ -109,7 +109,7 @@ import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, factoryDefaultScale, clampPlanTransform,
+    epicFocusTransform, stepFocusTransform, factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
@@ -246,6 +246,14 @@ function KeyGroup({ title, children, first = false }) {
 
 export default function PipelinePlanVisualizer({
     plan, model, pipeline, timezone, onStepFocus, focusEpicId,
+    // Req #3253 — the deep link's OTHER target. This prop has always travelled
+    // here (PipelineDetail hands the same page state to both panels); until now
+    // the canvas ignored it, because a step was a ROW and only the table had one
+    // to scroll to. It is also a BEAD, and the requirement page's "view on plan"
+    // link means "show me where this requirement lives" — so a named step
+    // centres and zooms the camera on it, the same handshake `focusEpicId`
+    // already gets one level up.
+    focusStepId,
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
@@ -1088,12 +1096,16 @@ export default function PipelinePlanVisualizer({
     // camera: the `?epic=` deep link (req #3252 — see that effect below). A
     // band-header or sticky-chip click is a user pick, indistinguishable in
     // intent from a drag, and saves like one.
-    const focusEpic = useCallback((band, { persist = true } = {}) => {
+    //
+    // THE CAMERA MOVE ITSELF is `applyFocus` (extracted req #3253): a transform,
+    // a transition and four flags, identical whether the target is a band or one
+    // step. Only the GEOMETRY differs between the two callers, and the flag
+    // discipline below — which took two review findings to get right — must never
+    // exist in two copies.
+    const applyFocus = useCallback((tr, { persist = true } = {}) => {
         const el = containerEl;
         const zb = zoomRef.current;
-        if (!el || !zb) return false;
-        const tr = epicFocusTransform(layout, band, size, kDefault);
-        if (!tr) return false;
+        if (!el || !zb || !tr) return false;
         // The world is about to slide out from under any open datacard, exactly
         // as it does on a pan.
         setCard(null);
@@ -1135,7 +1147,14 @@ export default function PipelinePlanVisualizer({
             })
             .call(zb.transform, zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
         return true;
-    }, [containerEl, layout, size, kDefault]);
+    }, [containerEl]);
+
+    // The band caller. Signature unchanged (a band, an options bag, a boolean
+    // back) so every existing call site — the band header, the sticky chip, the
+    // req #3235 deep-link effect — is untouched.
+    const focusEpic = useCallback((band, opts) => applyFocus(
+        epicFocusTransform(layout, band, size, kDefault), opts),
+    [applyFocus, layout, size, kDefault]);
 
     // Req #3235 — the mount-time end of the `?epic=` deep link: land on the
     // SAME centered/zoomed view a band-header click produces, through the
@@ -1194,13 +1213,45 @@ export default function PipelinePlanVisualizer({
     const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
         if (focusEpicId == null) return;
+        // Req #3253 — a named STEP is the more specific request and wins, exactly
+        // as it does in `PipelineDetail`'s `linkView`. Without this a URL
+        // carrying both parameters would start two camera transitions in one
+        // commit, and the loser would be pre-empted mid-flight.
+        if (focusStepId != null) return;
         if (userMovedCameraRef.current) return;
         const key = `${pipeline?.id}:${focusEpicId}:${size.w}x${size.h}`;
         if (epicFocusAppliedRef.current === key) return;
         const band = layout.bands.find((b) => b.epicId === focusEpicId);
         if (!band) return;
         if (focusEpic(band, { persist: false })) epicFocusAppliedRef.current = key;
-    }, [focusEpicId, pipeline?.id, size, layout, focusEpic]);
+    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic]);
+
+    // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
+    //
+    // EVERY rule the `?epic=` effect above works out applies here unchanged, and
+    // this is deliberately its twin rather than a variation: keyed on the
+    // MEASURED SIZE as well as the (plan, step) pair so the panel's second sizing
+    // re-fits rather than being recorded as done; abandoned the moment
+    // `userMovedCameraRef` says the reader has taken the wheel; `persist: false`,
+    // because a link asks to see one thing once and must never overwrite the
+    // camera the reader saved. Read those comments for the reasoning; the only
+    // thing that differs here is `stepFocusTransform` in place of the band fit.
+    //
+    // A STEP LINK BEATS AN EPIC LINK, matching `PipelineDetail`'s own precedence
+    // (`linkView`: a named step is the more specific request). They cannot both
+    // apply in the same landing — the guard below is what stops one camera move
+    // interrupting the other's transition mid-flight if a hand-written URL
+    // carries both parameters.
+    const stepFocusAppliedRef = useRef(null);
+    useEffect(() => {
+        if (focusStepId == null) return;
+        if (userMovedCameraRef.current) return;
+        const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
+        if (stepFocusAppliedRef.current === key) return;
+        const tr = stepFocusTransform(layout, focusStepId, size, kDefault);
+        if (!tr) return;
+        if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
+    }, [focusStepId, pipeline?.id, size, layout, kDefault, applyFocus]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this epic: the resolver answers "which pipeline hosts any of
@@ -1212,8 +1263,19 @@ export default function PipelinePlanVisualizer({
     // here is a terminal fact, not a still-loading one, and needs to say so
     // rather than silently landing on the default view (the dead-link outcome
     // the requirement text rules out, arrived at from the other direction).
-    const focusEpicNotOnPlan = focusEpicId != null
+    const focusEpicNotOnPlan = focusEpicId != null && focusStepId == null
         && !layout.bands.some((b) => b.epicId === focusEpicId);
+
+    // Req #3253 — the same terminal fact for a named STEP, and reachable by more
+    // than a typo: the requirement page resolves the step and the pipeline from
+    // separate reads, so a step DROPPED from the plan between the two renders a
+    // link whose ids are each individually valid. By the time this component has
+    // mounted `layout` is final, so a miss here is settled rather than pending —
+    // and saying so beats a default view with no explanation for why nothing
+    // moved. Deliberately keyed on the LAYOUT, not on the transform: a step that
+    // is on the plan but could not be fit (a zero-size container mid-mount) is
+    // still going to focus on the next render, and must not flash this.
+    const focusStepNotOnPlan = focusStepId != null && !layout.nodes.has(focusStepId);
 
     if (!rows.length) {
         return (
@@ -1691,6 +1753,15 @@ export default function PipelinePlanVisualizer({
                 <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
                        data-testid="pipeline-viz-epic-not-on-plan">
                     That epic isn&apos;t shown on this plan — none of its steps are here.
+                </Alert>
+            )}
+
+            {/* Req #3253 — the `?step=` deep link named a step this plan does not
+                carry. Same reasoning as the epic alert above. */}
+            {focusStepNotOnPlan && (
+                <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
+                       data-testid="pipeline-viz-step-not-on-plan">
+                    That step isn&apos;t on this plan.
                 </Alert>
             )}
 
