@@ -185,6 +185,24 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // 'none'). Pinned to the default so PIPE-15's gesture starts from a
             // known position and no other test inherits a previous one.
             set('darwin-pipeline-viz-color-key', 'state');
+            // Req #3252 — THE CAMERA IS NOW PART OF THE PINNED STATE. The
+            // visualizer remembers its pan and zoom per tab, so a `goto` no
+            // longer implies the default view: PIPE-14 pans, wheel-zooms and
+            // focuses a band before re-opening the plan, and would then look for
+            // an epic chip that its own earlier gesture had carried off screen.
+            // Every `goto` in this suite starts from the readable default, which
+            // is what these tests have always assumed.
+            //
+            // Cleared by PREFIX rather than by key, because the key carries a
+            // pipeline id and the fixture's ids are allocated at seed time.
+            //
+            // This runs on every NAVIGATION, i.e. on every new document — so a
+            // test that needs the camera to SURVIVE (PIPE-21) must travel by
+            // in-app routing, which creates no new document and therefore does
+            // not re-run this. That is also the journey the user actually makes.
+            for (const k of Object.keys(sessionStorage)) {
+                if (k.startsWith('darwin-viewport-')) sessionStorage.removeItem(k);
+            }
         }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
@@ -711,6 +729,50 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 await expect(page.getByTestId('pipeline-plan-visualizer'))
                     .toHaveAttribute('data-ruler', `${L.ruler.slots.length},${labelled}`);
             }
+        });
+
+    test('PIPE-10c: the time ruler pins to the viewport top through a vertical pan (req #3254)',
+        async ({ page }) => {
+            // Req #3254: the ruler used to be plain world content — attached to
+            // the top of the timeline — so a vertical pan scrolled it away with
+            // the rest of the plan. `data-ruler-y` publishes what the sticky
+            // Group is ACTUALLY drawn at (`stickyRulerY(t)`, the same device as
+            // `data-transform` beside it), so this is checked without a pixel
+            // diff — the same reasoning PIPE-10b uses for the ruler's other
+            // half (the degradation count).
+            const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+
+            const readTy = async () =>
+                Number((await container.getAttribute('data-transform'))!.split(',')[1]);
+
+            // At the DEFAULT view the world hasn't scrolled past the top yet,
+            // so the strip draws at its natural (unpinned) position — 0, same
+            // as `t.y` at the identity transform.
+            const tyBefore = await readTy();
+            expect(tyBefore).toBeCloseTo(0, 3);
+            await expect(container).toHaveAttribute('data-ruler-y', '0.00');
+
+            // A LARGE, PURELY VERTICAL drag — the batch plan has more than one
+            // band, so there is real room to scroll down into it.
+            const box = (await canvas.boundingBox())!;
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 400,
+                { steps: 12 });
+            await page.mouse.up();
+
+            const tyAfter = await readTy();
+            // The pan must be REAL, not swallowed by the zoom behavior's
+            // filter or clamped away by `bound()` — otherwise the assertion
+            // below (that the strip stayed pinned) would be vacuous.
+            expect(tyBefore - tyAfter, 'the drag must move the world vertically')
+                .toBeGreaterThan(50);
+
+            // The whole point: once the world has scrolled past the top, the
+            // strip clamps flush to the viewport edge — 0 again — rather than
+            // following `t.y` off-screen the way it did before this fix.
+            await expect(container).toHaveAttribute('data-ruler-y', '0.00');
         });
 
     test('PIPE-11: bead, requirement and epic click targets navigate', async ({ page }) => {
@@ -1480,9 +1542,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    same `epicLabel` the canvas draws, so they are assertable text.
             //    POLLED, not read once: chip placement depends on the
             //    ResizeObserver's first report AND on the key's measured rect
-            //    (`legendSize`), which lands on a later commit and displaces
-            //    chips — so a single `allInnerTexts()` taken the moment the
-            //    canvas turns visible can legitimately see zero of them.
+            //    (`legendSize`), which lands on a later commit and clips or
+            //    drops chips (req #3257) — so a single `allInnerTexts()` taken
+            //    the moment the canvas turns visible can legitimately see zero
+            //    of them.
             const chipTexts = async () => page.locator(
                 '.pipeline-viz-epic-name').allInnerTexts();
             const countedChips = async () =>
@@ -1533,9 +1596,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const keyBox = (await key.boundingBox())!;
             const panelBox = (await page.getByTestId('pipeline-plan-visualizer')
                 .boundingBox())!;
-            expect(keyBox.x - panelBox.x, 'the key is in the RIGHT half of the panel')
-                .toBeGreaterThan(panelBox.width / 2);
-            expect(keyBox.y - panelBox.y, 'the key is at the TOP of the panel')
+            // req #3255: the key moved from the top-right corner to viewport
+            // middle-bottom, out of the epics' typical down-and-to-the-right
+            // reading flow.
+            const keyCenterX = keyBox.x + keyBox.width / 2;
+            const panelCenterX = panelBox.x + panelBox.width / 2;
+            expect(Math.abs(keyCenterX - panelCenterX),
+                'the key is horizontally CENTERED in the panel')
+                .toBeLessThan(40);
+            const keyBottomGap = (panelBox.y + panelBox.height)
+                - (keyBox.y + keyBox.height);
+            expect(keyBottomGap, 'the key is at the BOTTOM of the panel')
                 .toBeLessThan(40);
             for (const mark of ['Complete', 'Running', 'Scheduled', 'Manual', 'next up']) {
                 await expect(key, `the key names "${mark}"`).toContainText(mark);
@@ -1602,10 +1673,22 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
 
-            // 5. It still costs the epic labels no chip — the key's measured rect
-            //    is their keep-out, and collapsing it is the control for that
-            //    claim: a key that were stealing the corner would let MORE chips
-            //    draw once collapsed.
+            // 5. AT THIS CAMERA the key costs the epic labels no chip, and
+            //    collapsing it is the control for that: a key stealing the
+            //    corner would let MORE chips draw once collapsed.
+            //
+            //    WHAT THIS DOES *NOT* ASSERT (req #3257): that the key is free
+            //    in general. It is not, and its own re-measured cost curve lives
+            //    in `pipelinePlanLayout.test.js` — since #3257 a name is pinned
+            //    to its band's rectangle and the key CLIPS or DROPS it rather
+            //    than displacing it, so BOTH the key's width and its height cost
+            //    names (measured: 187 dropped at 470×30, 256 at 470×180, over a
+            //    swept camera). This assertion holds because at the DEFAULT
+            //    camera every chip sits at its rectangle's left edge and the key
+            //    is in the top-RIGHT corner — the two simply do not meet. The
+            //    sibling requirement moving the key to the bottom centre changes
+            //    exactly that premise, so if this step ever fails, re-read the
+            //    premise before treating it as an epic-label regression.
             await stateBtn.click();
             const chips = page.locator('[data-testid^="pipeline-viz-epic-"]');
             const withKeyOpen = await chips.count();
@@ -1956,5 +2039,144 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // makes the chip two controls rather than one ambiguous one.
             await expect(page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`))
                 .toHaveAttribute('title', `Open “${epicText}” in the features view`);
+        });
+
+    // ── PIPE-21: the visualizer maintains the last viewport (req #3252) ─────
+    //
+    // The user's report: "there are multiple occasions when I am returning back
+    // to the visualizer ... it will not recall my view port. so have the ability
+    // to return to just that view port for all occasion not just the three i
+    // mentioned."
+    //
+    // TRAVELS BY IN-APP ROUTING ONLY, never `page.goto`. Two reasons and both
+    // matter: that is the journey the user actually makes, and `pinPreferences`
+    // clears the saved camera on every new document (see its comment), so a
+    // `goto` here would be testing the pin rather than the feature.
+    test('PIPE-21: the camera survives leaving the visualizer and coming back',
+        async ({ page }) => {
+            const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const read = async () =>
+                (await container.getAttribute('data-transform'))!.split(',').map(Number);
+
+            const opened = await read();
+
+            // Pan somewhere distinctive. `data-transform` is the component's own
+            // published camera, so the assertion never has to infer one.
+            const box = (await canvas.boundingBox())!;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            await page.mouse.move(cx, cy);
+            await page.mouse.down();
+            await page.mouse.move(cx - 140, cy - 70, { steps: 12 });
+            await page.mouse.up();
+            // Polled on the DISTANCE, not on `not.toHaveAttribute(opened)`:
+            // `read()` maps through Number, so the published "0.00,-12.50,0.8000"
+            // round-trips to "0,-12.5,0.8" — a string the component's own
+            // toFixed(2)/toFixed(4) can never emit, making that comparison
+            // vacuously true and the wait no wait at all (review finding).
+            await expect.poll(async () => {
+                const [x, y] = await read();
+                return Math.hypot(x - opened[0], y - opened[1]);
+            }, { timeout: 10000 }).toBeGreaterThan(50);
+            const panned = await read();
+
+            /** Every camera number back where it was left. */
+            const expectRestored = async (what: string) => {
+                await expect(container).toBeVisible({ timeout: 15000 });
+                await expect.poll(async () => (await read())[2], { timeout: 10000 })
+                    .toBeCloseTo(panned[2], 3);
+                const [x, y] = await read();
+                expect(x, `${what}: x`).toBeCloseTo(panned[0], 0);
+                expect(y, `${what}: y`).toBeCloseTo(panned[1], 0);
+            };
+
+            // ── Occasion 1: the mode toggle. A return with NO navigation at
+            // all — the visualizer unmounts inside one route, which is why no
+            // per-call-site patch could ever have covered it.
+            await page.getByTestId('pipeline-mode-table').click();
+            await expect(page.getByTestId('pipeline-plan-table')).toBeVisible();
+            await page.getByTestId('pipeline-mode-plan').click();
+            await expectRestored('mode toggle');
+
+            // ── Occasion 2: out to a requirement and back through the page's
+            // own "Back to Plan" control. This is the case the user named first,
+            // and it needs BOTH halves: the camera, and landing on the Plan
+            // panel at all (req #3252 carries `mode` in the router state — the
+            // stored preference here is `plan`, but a reader who arrived by
+            // `?mode=plan` link would previously have been returned to the Table
+            // and never seen the restored camera).
+            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+                { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
+            // The label to click is chosen by WHERE IT NOW IS, not by being
+            // first in the list. The camera has been panned by (-140, -70), and
+            // the first `kind === 'req'` label sits near the world's left edge —
+            // so the naive choice can land outside the canvas entirely and the
+            // click hits nothing (review finding). Pick one comfortably inside
+            // the panned viewport.
+            // The predicate must clear the CHROME, not just the panel edges: a
+            // click that lands on the floating key or an epic chip is swallowed
+            // by the visualizer's own CHROME_SELECTOR guard and resolves against
+            // no bead at all, so the navigation simply never happens and the
+            // wait below times out with nothing to explain it. The key is up to
+            // PLAN_KEY_MAX_W (470px) wide in the TOP-RIGHT corner and is open by
+            // default; the epic chips clamp to the top of the viewport.
+            const [tx, ty, k] = panned;
+            const M = 24;             // panel edges
+            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, top-right
+            const CHIP_H = 100;       // the clamped epic-chip strip along the top
+            const reqLabel = (layout.labels as Array<
+                { kind: string; x: number; y: number; reqId: number }>).find((l) => {
+                    if (l.kind !== 'req') return false;
+                    const sx = tx + (l.x + 3) * k;
+                    const sy = ty + (l.y + 3) * k;
+                    if (sx <= M || sx >= box.width - M) return false;
+                    if (sy <= CHIP_H || sy >= box.height - M) return false;
+                    // Anything in the top-right rectangle belongs to the key.
+                    return !(sx > box.width - KEY_W && sy < 260);
+                })!;
+            expect(reqLabel,
+                'a requirement label is on screen at the panned camera').toBeTruthy();
+            await page.mouse.click(box.x + tx + (reqLabel.x + 3) * k,
+                box.y + ty + (reqLabel.y + 3) * k);
+            await expect(page).toHaveURL(
+                new RegExp(`/swarm/requirement/${reqLabel.reqId}$`), { timeout: 15000 });
+
+            await page.getByTestId('btn-back-to-swarm').click();
+            await expect(page).toHaveURL(/\/swarm\/pipeline\/\d+(\?mode=plan)?$/,
+                { timeout: 15000 });
+            await expectRestored('back from a requirement');
+
+            // ── Occasion 3: browser Back, from the epic chip's ↗ navigation.
+            // A different exit and a different way home, restoring the same way.
+            const epicBand = layout.bands.find(
+                (b: { epicId: number | null }) => b.epicId != null) as { epicId: number };
+            expect(epicBand, 'the plan renders epic bands').toBeTruthy();
+            await page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`).click();
+            await expect(page).toHaveURL(
+                new RegExp(`/swarm/features\\?epic=${epicBand.epicId}$`), { timeout: 15000 });
+            await page.goBack();
+            await expectRestored('browser Back');
+
+            // ── And Reset still resets, and STICKS. The camera memory must not
+            // turn the header's Reset into a control that is undone by the next
+            // navigation — it is an explicit, in-the-moment instruction, so it
+            // overwrites what was remembered.
+            await page.getByTestId('pipeline-viz-reset').click();
+            await expect.poll(async () => (await read())[0], { timeout: 10000 })
+                .not.toBeCloseTo(panned[0], 0);
+            const afterReset = await read();
+            await page.getByTestId('pipeline-mode-table').click();
+            await expect(page.getByTestId('pipeline-plan-table')).toBeVisible();
+            await page.getByTestId('pipeline-mode-plan').click();
+            await expect(container).toBeVisible({ timeout: 15000 });
+            await expect.poll(async () => (await read())[0], { timeout: 10000 })
+                .toBeCloseTo(afterReset[0], 0);
+            const [rx, ry, rk] = await read();
+            expect(ry, 'Reset survives the round trip: y').toBeCloseTo(afterReset[1], 0);
+            expect(rk, 'Reset survives the round trip: k').toBeCloseTo(afterReset[2], 3);
+            expect(Math.hypot(rx - panned[0], ry - panned[1]),
+                'and it is the reset view, not the pan that preceded it')
+                .toBeGreaterThan(1);
         });
 });

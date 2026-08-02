@@ -13,6 +13,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
+import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -524,40 +525,56 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
-        const current = requirementsArray[requirementIndex].requirement_status;
+        const currentRow = requirementsArray[requirementIndex];
+        const current = currentRow.requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return; // not a cycleable status (development/met/deferred)
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        // req #3244 — every requirement_status write re-derives all three status
+        // timestamps, matching darwin-mcp's update_requirement, so this UI path
+        // never leaves a stale started_at/completed_at/deferred_at behind. One `now`
+        // shared between the PUT body and the local-state form so they can't drift.
+        const now = new Date().toISOString();
+        const timestampState = requirementStatusTimestampState(next, now);
+        const timestampFields = requirementStatusTimestampFields(next, now);
+        const previousTimestamps = {
+            started_at: currentRow.started_at,
+            completed_at: currentRow.completed_at,
+            deferred_at: currentRow.deferred_at,
+        };
 
         if (requirementId !== '') {
             // Optimistic write-through across every requirement cache (req #2381).
             // Snapshot BEFORE any local-state mutation: requirementsArray and the cache
             // share object references (useEffect seeds from serverRequirements via shallow
             // copy), so in-place mutation would poison the snapshot.
-            const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next });
+            const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next, ...timestampState });
 
             let uri = `${darwinUri}/requirements`;
-            call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next}], idToken)
+            call_rest_api(uri, 'PUT', [{'id': requirementId, 'requirement_status': next, ...timestampFields}], idToken)
                 .then(result => {
                     if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                         revert();
                         setRequirementsArray(prev => prev.map(r =>
-                            r.id === requirementId ? { ...r, requirement_status: current } : r));
+                            r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r));
                         showError(result, "Unable to change requirement status");
                     }
                 }).catch(error => {
                     revert();
                     setRequirementsArray(prev => prev.map(r =>
-                        r.id === requirementId ? { ...r, requirement_status: current } : r));
+                        r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r));
                     showError(error, "Unable to change requirement status");
                 });
         } else if (savingRef.current) {
+            // pendingMutationsRef feeds a raw PUT body (see saveRequirement below), so it
+            // needs the 'NULL' sentinel form, not the null-bearing local-state form.
             pendingMutationsRef.current.requirement_status = next;
+            Object.assign(pendingMutationsRef.current, timestampFields);
         }
         // Immutable update — new object at the target index rather than in-place mutation
         // on a cache-shared object reference (see snapshot comment above).
         setRequirementsArray(prev => prev.map((r, i) =>
-            i === requirementIndex ? { ...r, requirement_status: next } : r));
+            i === requirementIndex ? { ...r, requirement_status: next, ...timestampState } : r));
     }
 
     // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
@@ -638,7 +655,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
                     const pending = pendingMutationsRef.current;
                     if (Object.keys(pending).length > 0) {
-                        Object.assign(newRequirementsArray[requirementIndex], pending);
+                        // pending is a raw PUT body — its 'NULL' sentinels must not leak into
+                        // displayed local state, where a cleared column is a real `null`.
+                        const displayPending = Object.fromEntries(
+                            Object.entries(pending).map(([k, v]) => [k, v === 'NULL' ? null : v]));
+                        Object.assign(newRequirementsArray[requirementIndex], displayPending);
                         call_rest_api(uri, 'PUT', [{'id': result.data[0].id, ...pending}], idToken)
                             .then(putResult => {
                                 if (putResult.httpStatus.httpStatus !== 200 && putResult.httpStatus.httpStatus !== 204) {

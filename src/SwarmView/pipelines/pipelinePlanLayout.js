@@ -347,25 +347,54 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // themes by design (see PipelinePlanVisualizer's header — "the directive is to
 // keep THIS page's look"). A theme branch here could never fire, so writing one
 // would be dead code claiming to handle a case that does not exist.
-// ── How WIDE the on-screen key may be, and why that is the only limit ──────
-// The key's measured rect is the keep-out `placeEpicChips` displaces the
-// floating epic names around, and that displacement is HORIZONTAL ONLY by
-// design — moving a chip vertically would put it on another band's line, which
-// is a wrong label rather than a missing one. So the key's WIDTH is its entire
-// cost to the epic labels and its HEIGHT is free.
+// ── How WIDE the on-screen key may be, and why the cap is on width ─────────
+// The key's measured rect is the keep-out `placeEpicChips` resolves the epic
+// names against, and the resolution is HORIZONTAL ONLY by design — moving a
+// chip vertically would put it on another band's line, which is a wrong label
+// rather than a missing one.
 //
-// MEASURED on the Substrate fixture (3000×1592 world, 4 bands) over
-// k ∈ {0.2 … 2} × 4 pans × 6 x-offsets, 233 chips drawn, against the ~420×30
-// bead legend this key replaces:
+// SINCE req #3257 that resolution is a CLIP-OR-DROP, not a displacement: an
+// epic name is pinned to its own band's rectangle and may not slide sideways
+// out of it, so the width that would run under the key is cut off and a chip
+// with less than a few characters left is dropped outright.
 //
-//   width  300 340 380 420 | 500 600 700
-//   lost     0   0   0   0 |   1   8-10  15-20     (at EVERY height 30…180)
+// **THE OLD INVARIANT — "the key's WIDTH is its entire cost; its HEIGHT is
+// free" — IS FALSE UNDER THAT RULE AND IS NOT CARRIED FORWARD.** It was a
+// property of the displacement pass: a chip that met the key slid sideways and
+// still drew, so a taller key only changed WHICH chips moved. With nowhere to
+// slide, a taller key exposes more band rows to the keep-out and those chips
+// are lost.
 //
-// Zero chips lost at any height up to 180px while the width stays ≤ 420. That
-// is why the complete key is laid out as one row per CHANNEL stacked
-// vertically rather than as one long wrapping line: the shape that costs
-// nothing is TALL AND NARROW, and the shape the old legend had (`maxWidth:
-// '70%'`, i.e. up to ~1050px) is the one that drops epic names.
+// **AND THE KEY MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed both
+// the magnitude and which axis is steeper. RE-MEASURED 2026-08-02 on the
+// Substrate fixture (1500×900 panel) over k ∈ {0.2 … 2} × 4 pans × 29
+// x-offsets, 1566 chips drawn with no key, against the CURRENT bottom-center
+// geometry:
+//
+//   at w=470   height    30    60   100   140   180
+//              dropped   11    22    44    55    77
+//
+//   at h=30    width     90   300   420   470   600   900  1100
+//              dropped    3     7    10    11    13    19    23
+//
+// Two consequences, both the reverse of the top-right era:
+//
+//   1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A name
+//      is pinned to its band's LEFT edge, and a bottom-center box is no longer
+//      where those names land.
+//   2. HEIGHT IS NOW THE STEEPER AXIS — 66 names across the height range against
+//      20 across the width range — because a bottom-anchored box grows UPWARD
+//      into more band rows while its width only spans the panel's middle.
+//
+// So `PLAN_KEY_MAX_W` now caps the CHEAPER dimension. Not a regression — the
+// cap predates the move and the key is far cheaper overall — but it is no
+// longer the defence it was named for, and a bottom-center key's honest guard
+// would be on HEIGHT. Recorded here rather than silently re-asserted; changing
+// the cap belongs to req #3255's surface. Every number above is asserted in
+// `pipelinePlanLayout.test.js` (monotone in each dimension, height strictly
+// steeper than width, and the move strictly cheaper than the top-right key), so
+// they are measured rather than remembered — and the inversion fails loudly if
+// the key moves again.
 //
 // RAISED TO 470 on the user's directive (2026-08-01): "make the key wide enough
 // to fit the whole row of requirement statuses… the word requirement on one line
@@ -426,7 +455,8 @@ export function reqIdStyle({ colorKey, status, machineColor } = {}) {
  *
  * For `state` it lists only the statuses the plan actually contains — the same
  * discipline the machine key already follows, and the reason the key stays
- * compact enough not to steal the top-right corner from the epic chips.
+ * compact enough not to steal the viewport middle-bottom (req #3255; was the
+ * top-right corner) from the epic chips.
  *
  * @param {Object} args
  * @param {('state'|'machine'|'none')} args.colorKey
@@ -855,11 +885,16 @@ export function computeTimeColumns(rows, byId, depsOf, timeAxis) {
 // Three marks, because each answers a different question and none of them is a
 // restatement of another (the ONE FACT, ONE CHANNEL rule above):
 //
-//   · the STRIP says WHICH day a column is. It is world text at the top of the
-//     plan, so it scrolls off when you pan down — which is exactly why it is
-//     not the only mark.
+//   · the STRIP says WHICH day a column is. Sticky to the viewport top since
+//     req #3254 (`stickyRulerY`, below) — it used to be world text that
+//     scrolled off when you panned down, which was the ORIGINAL reason it
+//     could not be the only mark. Now pinned, it still is not the only mark:
+//     a reader scrolled deep into one band has no strip-adjacent reference
+//     for a column that is off past the right or left edge, which the
+//     separators and future tint answer without moving.
 //   · the SEPARATORS say WHERE a day begins. Full-height rules at slot origins,
-//     readable at any vertical pan.
+//     readable at any vertical pan (deliberately NOT sticky — they mark
+//     content, not chrome, so they stay world-space and scroll with it).
 //   · the FUTURE TINT says where the not-yet-begun region starts. That boundary
 //     is the single thing a plan is most often opened to find, and a rule alone
 //     does not say which SIDE of it is the future.
@@ -1008,6 +1043,37 @@ export function computeRuler(slots, colX, colW, totalW) {
         slots: out,
         futureX: fut ? fut.x : null,
     };
+}
+
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — baseline, ticks and slot labels
+// all sat at world y ∈ [0, RULER_H], "attached to the top item in the stack"
+// (the requirement's own words) — so panning down scrolled it away with the
+// rest of the plan and left nothing on screen naming which column is which
+// day. `stickyRulerY` is the SAME pin primitive `computeDayHeaders`
+// (`dayHeaderLayout.js`) and the sticky prev/next epic chips above
+// (`placeEpicChips`) both use — draw at the natural screen position until it
+// scrolls past the viewport edge, then clamp flush to it — simplified to the
+// one-strip case: there is exactly one ruler, so nothing pushes it and it
+// never drops behind (it is a standing fact about the whole plan, not a
+// per-row banner that can be superseded). Only the Y anchor decouples from
+// vertical pan; X is untouched, so slot ticks and labels still pan and zoom
+// with the columns beneath them.
+export function stickyRulerY(t) {
+    const ty = (t && typeof t.y === 'number') ? t.y : 0;
+    return Math.max(0, ty);
+}
+
+// The pinned strip's bottom edge in SCREEN space — req #3254's contract with
+// req #3257 (the concurrent epic-name work): "the date header owns the
+// topmost strip and the epic names stop just below it" needs ONE readable
+// number, not a guessed pixel offset. Scales with zoom because the strip's
+// own ticks and text do (deviation 2 — zoom is a pure transform on this
+// surface), so a caller reading the SAME transform gets the exact edge the
+// ruler is drawn at, pinned or not.
+export function rulerScreenBottom(t, rulerH = RULER_H) {
+    const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
+    return stickyRulerY(t) + rulerH * k;
 }
 
 const truncate = (s, n) => {
@@ -1276,9 +1342,8 @@ export function computePlanLayout(rows, batches, {
     // req #3226 — a band is PAUSED when the whole plan is paused (every band
     // suppressed alike, "No epic" included — pause is a plan-wide fact there
     // too) OR when this band's OWN epic is paused. Resolved once, here, rather
-    // than at render time in every consumer of `band` (the natural chip loop,
-    // the sticky pass, and any future one), the same reasoning `bandStartOf`
-    // below is memoized for.
+    // than at render time in every consumer of `band`, the same reasoning
+    // `bandStartOf` below is memoized for.
     const pausedEpicIdSet = new Set(pauseInfo?.pausedEpicIds || []);
     const planPaused = !!pauseInfo?.pipelinePaused;
     const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
@@ -1371,6 +1436,10 @@ export function computePlanLayout(rows, batches, {
             String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
         const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
+        // Every lane this band has ASSIGNED, whether or not the cell was free
+        // when the bead got there. `laneBeads` cannot answer that question —
+        // see the dep-adjacent insertion path below (req #3229).
+        const lanesUsed = new Set();
         const take = (d, lane, occupant) => {
             if (!used.has(d)) used.set(d, new Map());
             const cells = used.get(d);
@@ -1404,8 +1473,54 @@ export function computePlanLayout(rows, batches, {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
-        // A lane is usable only if (1) the cell is free, (2) every same-lane
-        // dependency arc into it crosses only in-chain beads, and (3) — the
+        // A batch RUN, as a raw-lane interval at one column — the box invariant's
+        // half of the bookkeeping (req #3229). `batchBoxes` draws one rect per
+        // (band, column) segment spanning its members' lanes, so the rect
+        // encloses a FOREIGN bead the moment any non-member's lane falls
+        // strictly between two mates' lanes at that column. Contiguity at
+        // allocation time does NOT establish that, because `start + k` is
+        // integer arithmetic over a lane space that is FRACTIONAL until the
+        // ordinal renumber at band close: the dep-adjacent insertion path mints
+        // `(al + below) / 2`, batched steps sort ahead of unbatched ones within
+        // a column, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — a non-member
+        // ordinally between two mates that were adjacent when allocated. Five
+        // steps reproduce it, so this was never a fuzz-only shape.
+        //
+        // This half stops a LATER step entering a published run. The other half
+        // — stopping a run being allocated AROUND a bead already sitting inside
+        // it — is `interiorClear` at the allocation site, and BOTH are needed.
+        const runIntervals = new Map(); // depth -> [{letter, lo, hi}]
+        // The run (of ANOTHER letter) that `lane` falls strictly inside, if any.
+        const enclosingRun = (d, lane, letter) =>
+            (runIntervals.get(d) || []).find((x) =>
+                x.letter !== letter && lane > x.lo && lane < x.hi);
+        // …AT ANY COLUMN — because a run's interval is a claim on the BAND'S
+        // LANE VALUES, not only on its own column's cells (req #3256).
+        //
+        // The per-column form above answers the CELL question: is a foreign bead
+        // about to land between two mates in the column the box is drawn in. That
+        // is what req #3229 needed and it is not the whole box. The ordinal
+        // renumber at band close sorts every value the BAND assigned, so a value
+        // taken at ANY column that falls strictly inside a published interval
+        // becomes a whole lane row between two mates. The box then encloses no
+        // foreign bead — the occupant is a column away — and still spans a DEAD
+        // ROW, which is precisely the shape req #3256 was filed against: measured
+        // on the live plan, batch A on lanes 7/9/10/11 with an empty row at 8
+        // whose only occupant, step 120, sat one column to the left. Measured on
+        // the 400-plan corpus with the per-column claim alone: 1084 of 3848 boxes
+        // spanned a row no member occupies, all of them this case.
+        const enclosingRunAnyColumn = (lane, letter) => {
+            for (const list of runIntervals.values()) {
+                const hit = list.find((x) =>
+                    x.letter !== letter && lane > x.lo && lane < x.hi);
+                if (hit) return hit;
+            }
+            return undefined;
+        };
+        // A lane is usable only if (1) the cell is free, (2) it is not inside
+        // another batch's run at this column (req #3229 — `runIntervals` above;
+        // own-letter mates are exempt, they ARE the run), (3) every same-lane
+        // dependency arc into it crosses only in-chain beads, and (4) — the
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
@@ -1415,6 +1530,7 @@ export function computePlanLayout(rows, batches, {
         // two ends.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
+            if (enclosingRunAnyColumn(lane, batchOf.get(r.id))) return false;
             for (const a of sameEpicDepsOf(r)) {
                 const al = laneById.get(a.id);
                 if (al === lane && !corridorOk(a, r, lane)) {
@@ -1447,101 +1563,117 @@ export function computePlanLayout(rows, batches, {
         // Same-band batch-mates take a CONTIGUOUS RUN of lanes, allocated when
         // the first mate places: the lowest run of members.length lanes that
         // all pass laneOk (dep-anchored candidates first, so a gate on this
-        // band's lane keeps its straight arc when possible). Mates share one
-        // dep set, so laneOk is member-independent and the pre-check holds for
-        // every mate; the sort keeps mates consecutive, so nothing else places
-        // between the pre-check and the last mate. A batch box therefore
-        // encloses exactly its members — never a foreign bead. (Review found
-        // the earlier next-free-lane packing letting mates spread around an
-        // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
+        // band's lane keeps its straight arc when possible). (Review found the
+        // earlier next-free-lane packing letting mates spread around an occupied
+        // lane, boxing unrelated steps in ~15% of multi-batch plans.)
         //
-        // THE RUN IS RESERVED, NOT MERELY ALLOCATED (req #3256). Mates place in
-        // DEPTH order like everything else, so a batch spanning two columns —
-        // which req #3188's remaining-gate key made routine — has its deeper
-        // mates placed after every shallower non-member. Anything that takes a
-        // lane VALUE inside the run in that window splits it, because the
-        // ordinal renumber below preserves ORDER, not distance. Measured on the
-        // live plan: batch A on lanes 7/9/10/11 with an empty row at 8, whose
-        // only occupant sat one column to the left — the doubled first-to-second
-        // gap in the reported screenshot. `batchRunSpan` is what the two paths
-        // that can do it consult: another batch's run allocation, and the
-        // dep-adjacent fractional insertion below.
-        const batchRunNext = new Map(); // letter -> next lane in this band's run
-        const batchRunSpan = new Map(); // letter -> [first, last] lane of the run
-        // EVERY lane value handed out in this band, fractions included — the
-        // renumber sorts exactly this set, so it is what says whether a run of
-        // integers is really contiguous. It is NOT read off `laneBeads`, which
-        // today holds the same values but only through an argument about
-        // `take()`'s no-op-on-occupied behaviour, ascending-column placement and
-        // mates sorting before non-members. The contiguity guard should not
-        // depend on that argument staying true.
-        const assignedLanes = new Set();
-        // The end of the run `v` falls in, or null when it falls in none.
-        // Inclusive of both ends: a run lane a mate has not reached yet is free
-        // in `used` and must still not be handed out.
-        const runEndAt = (v) => {
-            for (const [s, e] of batchRunSpan.values()) if (v >= s && v <= e) return e;
-            return null;
-        };
-        // The first fresh lane value below every run `v` sits in. Fresh in the
-        // same sense the insertion path already relies on: a value absent from
-        // `laneBeads` carries no cells and no corridors (a corridor is only ever
-        // reserved between two beads on one lane), so it always places.
+        // A CONTIGUOUS RUN IS NOT ON ITS OWN THE BOX INVARIANT, and this comment
+        // used to claim it was — "a batch box therefore encloses exactly its
+        // members" was here, in the present tense, through two review rounds
+        // while being measurably false. Contiguity holds in RAW lane values; the
+        // box is drawn from ORDINALS. Making the box invariant true takes the
+        // run plus `runIntervals` plus `interiorClear`, all three, each for a
+        // different way a foreign bead gets between two mates.
         //
-        // Each pass leaves `out` strictly ABOVE the end of the run it was in, so
-        // the run ends visited strictly increase and there are at most as many
-        // of them as there are runs — the bound below IS that termination proof,
-        // not a safety net. Falling out of it would return a value still inside
-        // a run, which is the dead lane row this whole guard exists to prevent.
-        const belowBatchRuns = (v) => {
-            let out = v;
-            for (let guard = 0; guard <= batchRunSpan.size; guard++) {
-                const end = runEndAt(out);
-                if (end === null) return out;
-                const nx = [...laneBeads.keys()]
-                    .filter((k) => k > end).sort((p, q) => p - q)[0];
-                out = nx === undefined ? end + 1 : (end + nx) / 2;
-            }
-            return out;
-        };
+        // THE RUN IS PER (BAND, COLUMN), NOT PER BAND — req #3229, and the
+        // difference is a bead drawn on top of another bead. The run used to be
+        // allocated once per letter per band and handed out to every mate
+        // wherever it landed, on two safety arguments that req #3188 falsified
+        // when it regrouped batches on the REMAINING gate instead of a shared
+        // dep set, so mates legitimately sit at different DEPTHS:
+        //
+        //   1. "the pre-check holds for every mate" — it ran `laneOk` at the
+        //      FIRST mate's column. A mate two columns deeper consumed a lane
+        //      nothing had checked there.
+        //   2. "the sort keeps mates consecutive" — the sort is COLUMN first,
+        //      so mates of one letter are consecutive only WITHIN a column. A
+        //      whole second batch's run was allocated in between.
+        //
+        // Measured (fuzz seed 115, `timedFuzzPlans.js`): batch A's four-lane run
+        // was allocated at column 0, batch B's two-lane run at column 0 starting
+        // one lane below it, and at column 2 A's mate 13 and B's mate 11 both
+        // resolved to lane 3. `take()` is a deliberate no-op on an occupied
+        // cell, so the second bead was swallowed in silence. Reproduced with AND
+        // without a time axis — the axis changes which plans reach this, never
+        // whether the path is sound.
+        //
+        // Keying the run on `letter|column` makes BOTH arguments true as
+        // written: the pre-check runs at the column the lanes are consumed in,
+        // it checks each ACTUAL mate rather than assuming a shared dep set, and
+        // within one column same-letter mates ARE consecutive in the sort, so
+        // nothing places between the check and the last mate.
+        //
+        // THAT IS THE CELL INVARIANT ONLY. The BOX invariant needs `runIntervals`
+        // above and does not follow from per-column allocation — allocating
+        // `start + k` leaves the run contiguous in RAW values, and the ordinal
+        // renumber at band close can still slide a later fractional lane between
+        // two mates. Reviewing this change measured it going the wrong way: 38
+        // enclosed non-members over the corpus before, 32 after, with new
+        // instances at seeds 212 and 363 where a fractional dep-anchored `start`
+        // (which per-column allocation reaches far more often, deep columns
+        // being where fractional lanes live) bracketed an unrelated bead.
+        // With `runIntervals` AND `interiorClear`: 0 enclosed non-members over
+        // 40,000 layouts (20,000 generator seeds × axis on/off). `runIntervals`
+        // alone was 0 over the 400-plan corpus but still 7 at that scale — the
+        // scope on a measurement is part of the measurement.
+        const batchRunNext = new Map(); // `letter|column` -> next lane in that run
         for (const r of steps) {
             const d = colOf.get(r.id);
             const letter = batchOf.get(r.id);
             let lane = null;
             if (letter !== undefined) {
-                if (!batchRunNext.has(letter)) {
-                    const n = steps.filter((s) => batchOf.get(s.id) === letter).length;
-                    const runOk = (start) => {
-                        // Never overlap a run already reserved in this band:
-                        // `laneOk` reads `used`, which says nothing about a lane
-                        // a deeper mate has yet to occupy, so two batches would
-                        // interleave and both boxes would enclose the other's
-                        // members.
-                        const last = start + n - 1;
-                        for (const [s, e] of batchRunSpan.values()) {
-                            if (start <= e && s <= last) return false;
-                        }
-                        // …and never STRADDLE a lane already handed out (req
-                        // #3256). The run is allocated at the FIRST mate, which
-                        // — depth order again — can be deeper than non-members
-                        // that already opened inserted lanes, and the anchored
-                        // candidate below can itself be one of those fractional
-                        // lanes. Contiguity is a property of the SORTED values
-                        // the renumber sees, not of the arithmetic: a run is
-                        // contiguous only if nothing that is not one of its own
-                        // lanes sits between its ends. Measured in fuzz: 56 of
-                        // 3848 boxes still spanned a dead lane with only the
-                        // insertion side guarded, every one of them this case.
-                        const mine = new Set();
-                        for (let k = 0; k < n; k++) mine.add(start + k);
-                        for (const v of assignedLanes) {
-                            if (v > start && v < last && !mine.has(v)) return false;
-                        }
-                        for (let k = 0; k < n; k++) {
-                            if (!laneOk(r, d, start + k)) return false;
+                const runKey = `${letter}|${d}`;
+                if (!batchRunNext.has(runKey)) {
+                    // This column's mates, in the order they will place — the
+                    // sort above is stable and column-major, so `steps` filtered
+                    // this way IS that order.
+                    const mates = steps.filter((s) => batchOf.get(s.id) === letter
+                        && colOf.get(s.id) === d);
+                    const mateIds = new Set(mates.map((m) => m.id));
+                    // THE RUN'S INTERIOR, not just its n lanes. `runIntervals`
+                    // stops a later step entering a published run; this stops a
+                    // run being allocated AROUND a bead that is already there,
+                    // which is the same box defect approached from the other
+                    // side. Checking `start + k` alone cannot see it: with an
+                    // INTEGER start the interior integers are the mates' own
+                    // lanes and nothing foreign can sit between them, but a
+                    // dep-anchored `start` is routinely FRACTIONAL, and then an
+                    // occupant at some other fraction inside `(start, hi)` is
+                    // examined by nothing — `free()` only ever looks at the
+                    // endpoints, and `enclosingRun` cannot help because the
+                    // interval does not exist yet. Nine steps reproduce it
+                    // (see the box tests); measured, it also survived at 7
+                    // cases per 40,000 layouts, none inside the 400-plan
+                    // corpus. Reserved corridor cells are NOT occupants here —
+                    // an arc running through the box crosses no bead.
+                    //
+                    // WHICH COLUMN THE OCCUPANT SITS IN DOES NOT MATTER (req
+                    // #3256). Asking `occupant(d, v)` asks the CELL question —
+                    // would this box enclose a foreign bead — and a value used
+                    // one column over answers "no" while still becoming a lane
+                    // ROW between two mates at the band-wide renumber. That
+                    // leaves the box enclosing nothing and spanning a dead row,
+                    // and it is the commonest shape of this defect: measured on
+                    // the 400-plan corpus, 1084 of 3848 boxes. So a value
+                    // strictly inside the run that is not one of the run's own
+                    // lanes disqualifies `start`, whatever column assigned it.
+                    const mateLanes = (start) =>
+                        new Set(mates.map((_, k) => start + k));
+                    const interiorClear = (start) => {
+                        const hi = start + mates.length - 1;
+                        const own = mateLanes(start);
+                        for (const v of lanesUsed) {
+                            if (!(v > start && v < hi)) continue;
+                            if (!own.has(v)) return false;
+                            const o = occupant(d, v);
+                            if (o !== undefined && o !== RESERVED && !mateIds.has(o)) {
+                                return false;
+                            }
                         }
                         return true;
                     };
+                    const runOk = (start) => interiorClear(start)
+                        && mates.every((m, k) => laneOk(m, d, start + k));
                     let start = null;
                     for (const a of sameEpicDepsOf(r)) {
                         const al = laneById.get(a.id);
@@ -1551,11 +1683,17 @@ export function computePlanLayout(rows, batches, {
                         start = 0;
                         while (!runOk(start)) start += 1;
                     }
-                    batchRunNext.set(letter, start);
-                    batchRunSpan.set(letter, [start, start + n - 1]);
+                    batchRunNext.set(runKey, start);
+                    // Publish the interval so nothing else lands inside it —
+                    // see `runIntervals`. A one-mate segment spans no gap.
+                    if (mates.length > 1) {
+                        if (!runIntervals.has(d)) runIntervals.set(d, []);
+                        runIntervals.get(d).push(
+                            { letter, lo: start, hi: start + mates.length - 1 });
+                    }
                 }
-                lane = batchRunNext.get(letter);
-                batchRunNext.set(letter, lane + 1);
+                lane = batchRunNext.get(runKey);
+                batchRunNext.set(runKey, lane + 1);
             } else {
                 for (const a of sameEpicDepsOf(r)) {
                     const al = laneById.get(a.id);
@@ -1572,22 +1710,53 @@ export function computePlanLayout(rows, batches, {
                     // fractional during placement (0.5 sits between 0 and 1)
                     // and renumbered ordinally at band close, so a fresh value
                     // carries no cells, no corridors, and always places.
+                    //
+                    // "FRESH" IS DECIDED AGAINST `lanesUsed`, NOT `laneBeads`
+                    // (req #3229) — and this one is LATENT: no plan in the fuzz
+                    // corpus reaches it, before or after the batch-run fix
+                    // above, so it is hardening rather than a measured repro.
+                    // Kept because it is what makes the paragraph above TRUE as
+                    // written. `laneBeads` is populated by `take()`, which is a
+                    // deliberate no-op on an occupied cell, so a bead that
+                    // landed on an already-taken cell is ABSENT from it — a
+                    // later `below` scan steps over that lane and `al + 1`
+                    // resolves onto something that is anything but fresh. (That
+                    // is the mechanism req #3229 was filed against; measuring it
+                    // REFUTED it as this defect's cause, and left it standing as
+                    // a way the invariant could break next.) `lanesUsed` records
+                    // every lane this band has ASSIGNED, however the bead got
+                    // there, so `al + 1` is fresh only when nothing sits above
+                    // `al` at all, and otherwise the midpoint falls strictly
+                    // between two used values with nothing in between.
+                    //
+                    // This is the ONE path that bypasses `laneOk`, so it also
+                    // has to honour `runIntervals` itself. A midpoint can only
+                    // fall inside a run when the ANCHOR does — nothing is used
+                    // strictly between `al` and `below`, so a run bracketing the
+                    // midpoint must have `lo <= al`. Re-anchoring below that
+                    // run's last mate and retrying therefore terminates: the
+                    // anchor moves strictly upward through distinct run ends,
+                    // and there are finitely many runs in this band.
+                    //
+                    // It honours them at EVERY column (req #3256), because this
+                    // is the path that opens a fresh FRACTIONAL value and the
+                    // renumber that turns one into a lane row is band-wide. A
+                    // step here is a non-member by construction, so no interval
+                    // is exempt.
                     const anchors = sameEpicDepsOf(r)
                         .map((a) => laneById.get(a.id))
                         .filter((v) => v !== undefined);
                     if (anchors.length > 0) {
-                        const al = Math.min(...anchors);
-                        const below = [...laneBeads.keys()]
-                            .filter((v) => v > al)
-                            .sort((p, q) => p - q)[0];
-                        lane = below === undefined ? al + 1 : (al + below) / 2;
-                        // …and never inside a batch's reserved run: a fractional
-                        // value between two mates becomes a WHOLE lane row at
-                        // the renumber below, and the batch box then spans a
-                        // lane no member occupies (req #3256). Stepping past the
-                        // whole run keeps the value fresh, so everything this
-                        // path assumes about a fresh lane still holds.
-                        lane = belowBatchRuns(lane);
+                        let al = Math.min(...anchors);
+                        for (;;) {
+                            const below = [...lanesUsed]
+                                .filter((v) => v > al)
+                                .sort((p, q) => p - q)[0];
+                            lane = below === undefined ? al + 1 : (al + below) / 2;
+                            const run = enclosingRunAnyColumn(lane, letter);
+                            if (!run) break;
+                            al = run.hi;
+                        }
                     } else {
                         lane = 0;
                         while (!laneOk(r, d, lane)) lane += 1;
@@ -1595,7 +1764,7 @@ export function computePlanLayout(rows, batches, {
                 }
             }
             laneById.set(r.id, lane);
-            assignedLanes.add(lane);
+            lanesUsed.add(lane);
             take(d, lane, r.id);
             // Reserve the corridor of every straight (same-lane) arc into this
             // step, so no LATER chain inherits a lane through it. take() never
@@ -1755,50 +1924,36 @@ export function computePlanLayout(rows, batches, {
             const x2 = b.x - BEAD_R - 1;
             const y2 = b.y;
             if (y1 === y2) {
-                // A 1px-tall AABB — see `bbox` below — so a degenerate straight
-                // arc still has SOME height for the sticky-chip avoidance check
-                // (req #3210) to test against, rather than a zero-height rect
-                // that can only ever collide by exact-Y coincidence.
                 arcs.push({
                     fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2,
-                    bbox: { x: Math.min(x1, x2), y: y1 - 1, w: Math.abs(x2 - x1), h: 2 },
                 });
                 continue;
             }
             const sameBand = a.bandIndex === b.bandIndex;
             const late = sameBand
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
+            // The arc carried a `bbox` (the convex hull of its own Bézier
+            // control points) from req #3210 until req #3257: its ONLY consumer
+            // was `collectWorldObstacles`, feeding the sticky epic chips'
+            // avoidance pass, and both are gone — an epic name is pinned to its
+            // band's rectangle now and draws OVER whatever it crosses. Computed
+            // on every arc of every layout, it was dead weight the moment that
+            // pass was, so it goes with it rather than waiting to be rediscovered
+            // as a field nobody reads.
             let path;
-            // `pts` is every X/Y pair the SVG path string below is built from —
-            // start, both cubic controls, and end. A cubic Bézier always lies
-            // within the convex hull of its control points (never bulges past
-            // them), so min/max over this exact set is a CONSERVATIVE but
-            // never-too-small bounding box (req #3210's `bbox`, below) — no
-            // curve sampling required, and it can only over- rather than
-            // under-estimate what the arc occupies on screen.
-            let pts;
             if (late) {
                 const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 const xb = Math.max(x1, x2 - bend);
                 path = `M${x1},${y1} L${xb},${y1} C${xb + bend * 0.45},${y1} `
                     + `${xb + bend * 0.55},${y2} ${x2},${y2}`;
-                pts = [[x1, y1], [xb, y1], [xb + bend * 0.45, y1], [xb + bend * 0.55, y2], [x2, y2]];
             } else {
                 const bend = Math.min((colW[a.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
                     + `${x1 + bend},${y2} L${Math.max(x2, x1 + bend)},${y2}`;
-                pts = [[x1, y1], [x1 + bend * 0.45, y1], [x1 + bend * 0.55, y2],
-                    [x1 + bend, y2], [Math.max(x2, x1 + bend), y2]];
             }
-            const xs = pts.map((p) => p[0]);
-            const ys = pts.map((p) => p[1]);
-            const bbox = {
-                x: Math.min(...xs), y: Math.min(...ys),
-                w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
-            };
             arcs.push({
                 fromId: dId, toId: r.id, straight: false,
-                route: late ? 'late' : 'early', x1, y1, x2, y2, path, bbox,
+                route: late ? 'late' : 'early', x1, y1, x2, y2, path,
             });
         }
     }
@@ -2277,40 +2432,75 @@ export function computePlanLayout(rows, batches, {
     };
 }
 
-// ── Floating epic chips (req #3119, de-collided req #3168) ─────────────────
-// The epic name rides its band's header strip and clamps to the top of the
-// viewport while any part of the band is on screen. This function is the whole
-// placement decision, in SCREEN space, as a pure function of the world transform
-// — it lives here rather than in the component for the same reason every other
-// rectangle in this module does: overlap is a geometric property and it should be
-// decidable in vitest without mounting a canvas.
+// ── Floating epic chips (req #3119, de-collided #3168, RE-RULED req #3257) ─
+// The epic name rides its band's own rectangle and clamps to the visible
+// content area while any part of that rectangle is on screen. This function is
+// the whole placement decision, in SCREEN space, as a pure function of the world
+// transform — it lives here rather than in the component for the same reason
+// every other rectangle in this module does: overlap is a geometric property and
+// it should be decidable in vitest without mounting a canvas.
 //
-// THE COLLISIONS req #3168 NAMES, and which of them was actually measured:
+// ONE RULE, and it is the whole behaviour (user directive 2026-08-02, req #3257):
 //
-//   · CHIP UNDER THE LEGEND — real on the live band geometry. The chip clamps
-//     into the part of its band that is on screen, and the legend floats over the
-//     panel's top-right corner; a right-panned or narrow-on-screen band puts the
-//     two in the same place. Measured under the pre-#3168 rule: 280 hits over
-//     k ∈ [0.05, 2.5] × four pans against a 420px legend.
-//   · CHIP ON CHIP — reachable, but NOT on the Substrate fixture. The chip is
-//     sized in SCREEN px while the header strip reserving room for it is WORLD
-//     px, so below some k the strip is shorter than the chip and it hangs past
-//     its own band onto the next band's. The fixture never gets there: its bands
-//     are 160–604 world px tall and 294+ apart, and by the k where that spacing
-//     falls under 24px the chips are already suppressed for want of width. A plan
-//     of MANY SHORT bands — one-lane steps, ~150px each — does get there; that
-//     shape collides 70 times over k ∈ [0.05, 0.5] under the old rule, and it is
-//     the case the vitest sweep constructs.
+//   THE NAME IS DRAWN AT THE TOP-LEFT CORNER OF THE INTERSECTION OF ITS BAND'S
+//   RECTANGLE WITH THE VISIBLE CONTENT AREA, CARRYING THE SAME MARGIN IT WOULD
+//   HAVE FROM THE BAND'S OWN TOP-LEFT CORNER.
 //
-// The fix is a placement pass, not a taller header: the header is world geometry
-// and making it big enough for a screen-sized chip at every k means making it
-// absurd at k=1. Obstacles (already-placed chips, plus the legend's measured
-// rect) are avoided by HORIZONTAL displacement — the chip stays on its own band's
-// line, which is the only line that identifies it correctly — and a chip with
-// nowhere left to go is DROPPED rather than drawn wrong. Dropping is honest here:
-// the band it belongs to is on its way off-screen or squeezed to nothing in every
-// case that reaches it, and a mislabelled band is worse than an unlabelled one.
+// In two expressions, per band, with the band's screen rect `left/right/top/
+// bottom` and the visible content area `0..vw × topInset..vh`:
+//
+//   x = min( max(left, 0)     + CHIP_MARGIN_X , right  - CHIP_MARGIN_X - w )
+//   y = min( max(top, topInset) + CHIP_MARGIN_Y , bottom - CHIP_MARGIN_Y - h )
+//
+// The first term of each `min` is the clamp — panning down or right slides the
+// name along its own rectangle's edge and parks it at the viewport's. The second
+// is what makes the name LEAVE WITH ITS BAND rather than linger at the clamp
+// line: as the band's bottom (or right) edge reaches the clamp, the name is
+// pushed off by its own rectangle. **The name never escapes its band, on any
+// edge, at any zoom or pan** — and when the band is gone, the name is gone.
+//
+// WHAT THIS REPLACES, and why it is FEWER moving parts rather than more:
+//
+//   · #3168's OBSTACLE-DRIVEN HORIZONTAL DISPLACEMENT SEARCH is GONE. Under the
+//     rule above x is fully determined by the rectangle and the viewport, so
+//     there is nothing left for a candidate search to decide — and a name that
+//     wandered sideways out of its own rectangle was the defect being fixed, not
+//     a collision being avoided. The chip draws on a 60%-opaque panel; where it
+//     crosses a bead, an arc or a step label it draws OVER it, deliberately.
+//   · #3210's NEIGHBOUR-ONLY STICKY PASS is GONE, subsumed: clause 2 now applies
+//     to EVERY band, so a focused band's neighbours keep their names by the same
+//     rule as everything else instead of by a special case. Its guarantee is
+//     re-asserted in vitest against the new rule rather than assumed.
+//   · CHIP-ON-CHIP OVERLAP is now IMPOSSIBLE BY CONSTRUCTION rather than avoided
+//     by a pass. Bands never overlap in world Y; the chip is sized to its band's
+//     own epic lane (`h + 2·CHIP_MARGIN_Y ≤ epicLaneH·k ≤ band.height·k`) and
+//     clamped inside its band's rectangle — so two chips would have to share a
+//     rectangle to touch. The sweep asserts it; the geometry is what guarantees
+//     it.
+//
+// WHAT SURVIVES:
+//
+//   · THE PER-BAND SCALE SHRINK. The chip is a fixed SCREEN height and the epic
+//     lane reserving room for it is WORLD px, so below some k the lane is
+//     genuinely shorter on screen than the chip. Shrinking is the only move that
+//     keeps the name out of lane 0's step labels at every k, and it degrades
+//     honestly. Below `EPIC_CHIP_MIN_H` the chip is DROPPED rather than drawn
+//     over the first row of steps.
+//   · THE LEGEND'S MEASURED KEEP-OUT — the one obstacle that may still bind.
+//     Resolved by CLIPPING the chip's width at the key's edge, and by dropping it
+//     when too little of the NAME is left to read; NEVER by sliding it sideways
+//     out of its own rectangle. The PANEL'S OWN RIGHT EDGE is resolved the same
+//     way and by the same code, because the reader cannot tell the two apart —
+//     and because dropping at one while clipping at the other let the key SAVE a
+//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_W` for what
+//     the key costs, re-measured: "the key's height is free" was a property of
+//     the displacement pass and is FALSE under clip-or-drop.
 const CHIP_PAD = 8;
+// The margins the name carries from its rectangle's corner — the SAME numbers
+// the chip has always been inset by, now named because the rule above is stated
+// in terms of them on both axes and at both ends.
+const CHIP_MARGIN_X = 6;
+const CHIP_MARGIN_Y = 2;
 
 // The chip's own metrics, OWNED HERE (review finding). The component used to
 // carry its own `CHAR_W = 7.3`, a leftover from the pre-type-scale 12px chip,
@@ -2330,20 +2520,22 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // (review finding, req #3210): the control is a fixed `fontSize: 12` glyph
 // plus its own padding and the chip's `gap`, none of which shrinks when the
 // chip does, unlike the name text `EPIC_CHIP_PAD_W` already accounts for. A
-// natural chip has never needed this reserved — it is checked only against
-// the legend and other chips, both comfortably clear at the sizes this
-// surface reaches in practice — but a STICKY chip (`placeEpicChips`, below)
-// is checked against beads, arcs and labels it can end up flush against, so
-// leaving the control unmeasured there is the exact under-measurement bug
-// this module's own header comment warns about, just for a different mark.
+// natural chip did not use to have this reserved — under #3168 it was checked
+// only against the legend and other chips, both comfortably clear at the sizes
+// this surface reaches in practice.
+//
+// req #3257 RESERVES IT ON EVERY CHIP. The measured box is now the thing that
+// keeps the name INSIDE ITS OWN RECTANGLE (and clear of the key), not merely
+// clear of some other floating chip — so 24 unmeasured px is 24 px of name that
+// can hang past the band's right edge or under the key, which is the exact
+// under-measurement bug this module's own header comment warns about.
 export const EPIC_CHIP_OPEN_LINK_W = 24;
 // The pause status bubble (req #3226) — a small filled circle immediately left
 // of the epic name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
 // the chip's own flex `gap`, neither of which shrinks with the chip.
 //
-// UNLIKE the ↗ control, this one IS added to the natural (non-sticky) chip's
-// measured width, not only the sticky one — the requirement calls this out by
+// The requirement calls this out by
 // name ("a bubble is width the label did not have before") because, unlike
 // the ↗ link, the bubble renders on EVERY band unconditionally (the ↗ link is
 // absent for the "No epic" band; the bubble is not carved out for it because
@@ -2356,6 +2548,20 @@ export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
 // and the layout would rather draw a small legible-ish chip inside its own lane
 // than a full-size one over the first row of steps.
 export const EPIC_CHIP_MIN_H = 11;
+// The floor a CLIPPED chip stops at (req #3257), stated in CHARACTERS OF THE
+// NAME rather than in pixels — that is the thing the chip exists to show. The
+// key's keep-out is resolved by cutting the chip's width off at the key's edge
+// (never by sliding it out of its own rectangle), and a chip clipped to its
+// padding plus the pause dot would render THE DOT AND NOTHING ELSE: box, border,
+// colour, and none of the name. That is not "a bit of the name", it is a
+// different mark. Dropping is the honest outcome there, exactly as it is below
+// `EPIC_CHIP_MIN_H`.
+//
+// The floor is applied SCALED, in the same units as the chip's own measured
+// width (`EPIC_CHIP_PAD_W * scale + … + n * charW * scale`) — comparing a
+// scaled box against an unscaled floor is the units error this module's header
+// warns about, just with the operands swapped.
+export const EPIC_CHIP_MIN_CHARS = 3;
 // Background opacity of the chip (user directive 2026-08-01: 40% transparent,
 // i.e. 60% opaque). It was fully opaque, which read as a solid tile punched into
 // the plan; at 0.6 the band beneath shows through as tint while the name still
@@ -2363,160 +2569,176 @@ export const EPIC_CHIP_MIN_H = 11;
 export const EPIC_CHIP_BG_ALPHA = 0.6;
 
 /**
- * Every world-space rect currently DRAWN on this surface — bead footprints
- * (widened to the eligible-step halo where the engine says a step is
- * launchable now), batch-box outlines, every dependency arc's `bbox`, and
- * whichever labels the caller's OWN `drawsKind` says the current semantic
- * level actually draws (req #3210's `placeEpicChips` sticky chips are the
- * consumer — see that function's own comment for why this assembly cannot
- * live inside it).
+ * Where every epic band's name is drawn, in SCREEN px.
  *
- * PURE and exported rather than inlined in the component, so the level gate
- * — otherwise only provable by rendering `PipelinePlanVisualizer.jsx` — is a
- * testable property of plain data instead. `drawsKind` defaults to "draw
- * everything", the conservative superset a caller with no notion of semantic
- * level (a test, a hand-built probe) should get rather than a silent
- * under-count; `eligibleStepIds` defaults to none, since a caller that omits
- * it has no eligibility concept to widen the footprint for.
+ * ONE RULE — see this section's header comment: the top-left corner of the
+ * INTERSECTION of the band's rectangle with the visible content area, plus the
+ * margin the name would carry from the band's own corner, clamped so the name
+ * never escapes its rectangle on the far edge of either axis.
  *
- * `kind: 'epic'` labels are excluded outright, unconditionally: they are
- * NEVER drawn in the world at all (an HTML overlay draws the name instead —
- * see the `kind === 'epic'` no-op in the component's own world-node loop), so
- * including them would avoid a mark that is not actually there.
- *
- * @param {Object} layout `computePlanLayout`'s own return value
  * @param {Object} [args]
- * @param {(kind: string) => boolean} [args.drawsKind]
- * @param {?Set<number>} [args.eligibleStepIds]
- * @returns {{x:number,y:number,w:number,h:number}[]}
+ * @param {Object[]} [args.bands] `computePlanLayout().bands`, top-to-bottom
+ * @param {{x:number,y:number,k:number}} [args.transform] the world transform
+ * @param {{w:number,h:number}} [args.viewport] the panel's measured size
+ * @param {number} [args.worldWidth] `computePlanLayout().width`
+ * @param {number} [args.labelH] the chip's unscaled screen height
+ * @param {number} [args.charW] px per character at that height
+ * @param {?{x:number,y:number,w:number,h:number}} [args.keepOut] the on-screen
+ *   key's measured rect — clipped against, never displaced around
+ * @param {number} [args.topInset] the bottom edge, in SCREEN px, of whatever
+ *   chrome is PINNED above the plan. The name stops just BELOW it, never
+ *   underneath it (clause 2). On the plan panel this is req #3254's pinned time
+ *   ruler and the caller passes `rulerScreenBottom(t)` — the ONE readable number
+ *   that requirement exposes for exactly this, rather than a guessed offset; it
+ *   scales with zoom because the strip's own ticks and text do. 0 means "the top
+ *   of the panel is the top of the content area" and is the right answer only
+ *   for a caller with no pinned chrome at all.
+ * @returns {Object[]} one entry per band with a name on screen
  */
-export function collectWorldObstacles(layout, { drawsKind = () => true, eligibleStepIds = null } = {}) {
-    const out = [];
-    for (const n of (layout?.nodes || new Map()).values()) {
-        const r = eligibleStepIds?.has(n.id) ? NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2 : BEAD_R;
-        out.push({ x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r });
-    }
-    for (const l of layout?.labels || []) {
-        if (l.kind === 'epic' || !drawsKind(l.kind)) continue;
-        out.push({ x: l.x, y: l.y, w: l.w, h: l.h });
-    }
-    for (const a of layout?.arcs || []) {
-        if (a.bbox) out.push(a.bbox);
-    }
-    // Batch boxes carry `width`/`height`, not `w`/`h` (`computePlanLayout`'s
-    // own field names for them) — normalized here to the one obstacle shape
-    // this function promises.
-    for (const b of layout?.batchBoxes || []) {
-        out.push({ x: b.x, y: b.y, w: b.width, h: b.height });
-    }
-    return out;
-}
-
 export function placeEpicChips({
     bands = [], transform, viewport, worldWidth,
     labelH = EPIC_CHIP_H, charW = EPIC_CHIP_CHAR_W, keepOut = null,
-    worldObstacles = [],
+    topInset = 0,
 } = {}) {
     const t = transform || { x: 0, y: 0, k: 1 };
     const vw = viewport?.w || 0;
     const vh = viewport?.h || 0;
-    if (!(t.k > 0) || vw <= 0 || vh <= 0) return [];
+    // `worldWidth` is guarded like the transform and the viewport, and for the
+    // same reason: without it the band's right edge is NaN, every comparison
+    // below is silently false, and the function emits chips with `x: NaN` that
+    // the renderer turns into `left: NaN`. Refusing is what the other two
+    // degenerate inputs already do.
+    if (!(t.k > 0) || vw <= 0 || vh <= 0 || !(worldWidth > 0)) return [];
+    // The VISIBLE CONTENT AREA: the panel minus whatever is pinned above the
+    // plan. A negative or absurd inset is nonsense rather than a clamp to
+    // nothing, so it is bounded here once instead of at every use.
+    const viewTop = Math.min(Math.max(0, topInset), vh);
+    if (viewTop >= vh) return [];
 
-    // Obstacles accumulate as chips place, so band order (top to bottom) is also
-    // priority order: an upper band keeps its natural position and a lower one
-    // moves. Deterministic, and it matches how the plan reads.
-    const obstacles = keepOut ? [{ ...keepOut }] : [];
-    const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w
-        && a.y < b.y + b.h && b.y < a.y + a.h;
     const out = [];
-    // Which bands actually got their OWN chip drawn (req #3210) — the sticky
-    // pass below reads this rather than re-deriving "visible" from scratch; see
-    // that section's own comment for why a geometric visibility test isn't the
-    // same question.
-    const placedAt = new Array(bands.length).fill(false);
 
-    for (let bi = 0; bi < bands.length; bi++) {
-        const band = bands[bi];
+    // The band rectangle's x-extent is the SAME one the canvas draws (`x={2}`,
+    // `width={layout.width - 4}` in the component's band Rects) — every band
+    // shares it, so it is hoisted out of the loop.
+    const left = t.x + 2 * t.k;
+    const right = t.x + (worldWidth - 2) * t.k;
+
+    for (const band of bands) {
         const top = t.y + band.y * t.k;
         const bottom = t.y + (band.y + band.height) * t.k;
-        // The EPIC LANE's bottom, not the header's: a lane-0 step label reaches
-        // back up into the header, so `headerH` overstates the clear strip by
-        // `STEP_LABEL_RISE` (+ the stagger). `epicLaneH` is the derived clear
-        // height; the fallback keeps this function usable with hand-built bands.
+
+        // THE INTERSECTION. Empty on either axis means the band has no pixel in
+        // the content area — and a name whose band is not on screen is a name
+        // for nothing, so there is nothing to draw and nothing to clamp.
+        const ix0 = Math.max(left, 0);
+        const ix1 = Math.min(right, vw);
+        const iy0 = Math.max(top, viewTop);
+        const iy1 = Math.min(bottom, vh);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+
+        // SIZE — from the band's own EPIC LANE, unchanged from req #3168. The
+        // lane is the reserved strip above lane 0 that no step content can
+        // reach; the fallback keeps this function usable with hand-built bands.
+        // Note this is pan-INDEPENDENT (`laneBottom - top` is `epicLaneH · k`),
+        // so the chip's size is a function of zoom alone — the clamp below moves
+        // the name, it never resizes it.
         const laneBottom = t.y + (band.y + (band.epicLaneH ?? band.headerH)) * t.k;
-        const left = t.x + 2 * t.k;
-        const right = t.x + (worldWidth - 2) * t.k;
-        // Off-screen on EITHER axis means no chip. Vertical alone was not
-        // enough: panning far right leaves a band's rectangle entirely to the
-        // left of the panel, and clamping x into a rectangle that is off-screen
-        // puts the chip off-screen with it.
-        if (bottom < 0 || top > vh) continue;
-        if (right < 0 || left > vw) continue;
-
-        // VERTICAL: confined to the band's own EPIC LANE — the reserved strip
-        // above lane 0, which by construction holds no step content.
-        //
-        // THE CHIP IS SCALED TO THE LANE, not merely clamped into it (req #3168,
-        // user directive: the epic must never ride in the top steps' lane). The
-        // lane is world geometry and the chip is screen geometry, so below
-        // k ≈ labelH/BAND_HEADER the lane is genuinely shorter on screen than the
-        // chip and no clamp can help: pinning to the strip's top puts the
-        // overflow onto lane 0's step labels, which is the collision. Shrinking
-        // is the only move that keeps the guarantee at EVERY k, and it degrades
-        // honestly — the name stays where it belongs and gets smaller, which is
-        // what zooming out means everywhere else on this surface.
         const laneH = Math.max(0, laneBottom - top);
-        const h = Math.max(EPIC_CHIP_MIN_H, Math.min(labelH, laneH - 4));
+        // Too little lane to draw a legible chip in. Dropping is what #3168
+        // already did here and the requirement keeps it: the alternative is the
+        // epic name over the first row of step labels, which is the collision
+        // the lane exists to prevent.
+        if (laneH - 2 * CHIP_MARGIN_Y < EPIC_CHIP_MIN_H) continue;
+        const h = Math.min(labelH, laneH - 2 * CHIP_MARGIN_Y);
         // Font and character width track the box, so a scaled chip's WIDTH is
-        // measured at the size it is actually drawn — otherwise the shrink would
-        // silently re-introduce the over-measurement the width metric fixed.
+        // measured at the size it is actually drawn.
         const scale = h / labelH;
-        // req #3225 — `epicLabel` carries the count suffix when the toggle is
-        // on; hand-built band fixtures that predate the field fall back to
-        // the plain name, so this stays the identity transform for callers
-        // that never set it.
+        // req #3225 — `epicLabel` carries the met/total suffix when the toggle
+        // is on; band fixtures that predate the field fall back to the plain
+        // name, so this stays the identity transform for callers that never set
+        // it.
         const bandText = band.epicLabel || band.epic;
-        // req #3226 — the pause bubble's flat footprint, added BEFORE anything
-        // is checked against beads/arcs/labels, matching the ↗ control's own
-        // discipline at the sticky site below (this chip always carries it,
-        // unlike the ↗, which is absent for the "No epic" band).
-        const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+        // The two FLAT, unscaled reservations: the ↗ control (only rendered when
+        // there is an epic to open) and the pause bubble (rendered on every
+        // band, "No epic" included). Neither shrinks with the chip, and both are
+        // in the measured box before anything is clamped or clipped against it.
+        const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
-        const minY = top + 2;
-        const maxY = Math.max(minY, laneBottom - h - 2);
-        const y = Math.min(Math.max(2, minY), maxY);
-        // WHOLLY on screen, and wholly inside its own lane, or not at all.
-        if (y < 0 || y + h > vh) continue;
-        if (y + h > laneBottom + 0.01) continue;
-        // Confine to the part of the band that is BOTH inside the rectangle and
-        // on screen: clamping to the rectangle alone hangs the chip off the panel
-        // edge, clamping to the panel alone puts it outside the rectangle.
-        const minX = Math.max(0, left) + 6;
-        const maxX = Math.min(right, vw) - 6 - w;
-        if (maxX < minX) continue;
-        const x0 = Math.min(Math.max(minX, left + 6), maxX);
 
-        // Candidate positions, nearest-first: the natural one, then flush right
-        // of each obstacle, then flush left of each. Displacement is horizontal
-        // only — the vertical clamp above is what makes the chip mean its own
-        // band, and moving it off that line would be a wrong label rather than a
-        // missing one.
-        const candidates = [x0];
-        for (const o of obstacles) {
-            candidates.push(o.x + o.w + CHIP_PAD, o.x - CHIP_PAD - w);
-        }
-        let placed = null;
-        for (const cx of candidates.sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0))) {
-            if (cx < minX || cx > maxX) continue;
-            const rect = { x: cx, y, w, h };
-            if (obstacles.some((o) => hits(rect, o))) continue;
-            placed = rect;
-            break;
-        }
-        if (!placed) continue;   // nowhere honest left — see the header comment
+        // ── THE RULE ────────────────────────────────────────────────────────
+        // First term: the intersection's own corner, plus the margin. Second:
+        // the band's far edge, so the name is pushed off BY ITS OWN RECTANGLE
+        // as that rectangle leaves, instead of lingering at the clamp line.
+        const x = Math.min(ix0 + CHIP_MARGIN_X, right - CHIP_MARGIN_X - wFull);
+        const y = Math.min(iy0 + CHIP_MARGIN_Y, bottom - CHIP_MARGIN_Y - h);
 
-        placedAt[bi] = true;
-        obstacles.push(placed);
+        // A rectangle NARROWER than its own name. The two terms above have
+        // crossed: honouring the left margin would push the name past the right
+        // edge and vice versa, so there is no position inside the rectangle at
+        // all. Drop — sliding out of the rectangle is the defect req #3257 names.
+        //
+        // There is no vertical twin of this test on purpose: `h + 2·CHIP_MARGIN_Y
+        // ≤ laneH ≤ band.height · k` by the sizing above, so the vertical terms
+        // can never cross. The sweep asserts that rather than trusting it.
+        if (x < left + CHIP_MARGIN_X - 0.01) continue;
+
+        // ── WIDTH IS CLIPPABLE; HEIGHT IS NOT ───────────────────────────────
+        // Two things cut the chip short on its right, and they are resolved
+        // IDENTICALLY because the reader cannot tell them apart: the panel edge
+        // (a band ENTERING from the right, whose name genuinely starts inside
+        // the content area and runs out of it) and the on-screen key. Both take
+        // WIDTH off the chip — never move it, which is the defect req #3257
+        // names — and both drop it when less than the floor would survive:
+        // padding + the pause dot + `EPIC_CHIP_MIN_CHARS` of the actual name.
+        //
+        // Clipping the panel edge rather than dropping there is what keeps the
+        // two consistent. Dropping instead made the KEY able to SAVE a chip: a
+        // name too wide for the panel was dropped with no key present and drawn
+        // with one, because the key had already narrowed it to fit.
+        let w = wFull;
+        let clipped = false;
+        let limit = vw;
+        if (keepOut && keepOut.x + keepOut.w > x
+            && y < keepOut.y + keepOut.h && keepOut.y < y + h) {
+            limit = Math.min(limit, keepOut.x - CHIP_PAD);
+        }
+        if (x + w > limit) {
+            const room = limit - x;
+            const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                + EPIC_CHIP_MIN_CHARS * charW * scale;
+            if (room < minW) continue;
+            w = room;
+            clipped = true;
+        }
+
+        // HEIGHT has no equivalent: the chip is already scaled to its band's
+        // epic lane, and shrinking it again here would be the second shrink
+        // rule the requirement rules out. So a band ENTERING from the BOTTOM
+        // simply waits until its name fits, rather than emitting a box below
+        // the panel that the reader cannot see (measured: a band with 2px on
+        // screen put its whole 24px chip past `vh`).
+        //
+        // A band LEAVING over the top is the opposite case and is deliberately
+        // NOT caught here: its own rectangle is pushing the name off, which is
+        // clause 3, and this test cannot fire on it — the far-edge term puts
+        // `y + h` at `bottom - CHIP_MARGIN_Y`, and a band leaving over the top
+        // has its bottom near the content area's TOP, not past `vh`.
+        if (y + h > vh + 0.01) continue;
+
+        // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
+        // wholly outside the content area for the final margin's worth of the
+        // rectangle's life — `x + w` is `right - CHIP_MARGIN_X` and `y + h` is
+        // `bottom - CHIP_MARGIN_Y`, while the intersection test above only
+        // guarantees `right > 0` and `bottom > viewTop`. Measured: a 6px window
+        // horizontally and a 2px one vertically in which an empty flex box is
+        // emitted with its click target off the panel. Cosmetically a no-op
+        // (`overflow: hidden` on the layer already cuts it), but "drawn and
+        // invisible" is not a state worth having, and closing it costs one test
+        // that cannot touch clauses 3 and 4 — both are about the frames BEFORE
+        // this one.
+        if (x + w <= 0 || y + h <= viewTop) continue;
+
         out.push({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
@@ -2527,153 +2749,16 @@ export function placeEpicChips({
             // band and a find() on that would be a second place to get the null
             // handling right.
             band,
-            x: placed.x, y: placed.y, w, h,
+            x, y, w, h,
+            // Whether `w` is a CUT rather than a measurement — the renderer must
+            // cap and hide overflow only in that case. Capping unconditionally
+            // would hand the drawn box over to an ESTIMATED width (`charW`), and
+            // an estimate a hair short would truncate every name on the plan.
+            clipped,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.
             fontSize: EPIC_CHIP_FONT * scale,
         });
-    }
-
-    // ── Sticky prev/next epic names (req #3210) ─────────────────────────────
-    // A focused epic (req #3204's `epicFocusTransform`, FOCUS_PAD margin on
-    // every side) fills the viewport with its own chip — the epics immediately
-    // above and below it in the stack can end up with no name on screen at
-    // all, and the reader loses any reference to — or one-click path to — a
-    // neighbour. "Always at least three epic names" is the focused band's own
-    // chip plus these two.
-    //
-    // `bands` is already ordered top-to-bottom in world-Y (req #3201's
-    // DERIVED-START sort — see the module header), so "the epic above/below"
-    // is simply the previous/next array entry relative to whichever bands
-    // currently carry their OWN chip — `placedAt`, from the loop above.
-    //
-    // PLACED, NOT MERELY ON SCREEN — the first of two review findings this
-    // block fixes. `FOCUS_PAD` is 44 SCREEN px while the gap between bands
-    // (`BAND_GAP`) is 8 WORLD px, so at every k `epicFocusTransform` can
-    // actually reach, the neighbour band's own trailing content sliver
-    // projects to fewer screen px than the margin — its RECTANGLE still
-    // technically intersects the viewport even though its NAME (confined to
-    // its own epic lane, up near ITS top) is nowhere close to on screen. A
-    // geometric "does the rect intersect" test therefore counted that
-    // neighbour as already visible and never engaged. Whether its chip was
-    // actually PLACED is the test that agrees with what the reader can see.
-    //
-    // BUT "nothing renders above the first CHIPPED band" is FALSE, and that is
-    // the second finding: `placedAt[i]` can be false for a band whose CONTENT
-    // is still genuinely on screen — the same tail-sliver case above, one step
-    // short of fully scrolling off, or simply too little epic-lane room left
-    // for its own chip while its beads and labels are still visible. Skipping
-    // straight to the next-chipped band's boundary would let the sticky box
-    // land on top of that real, drawn content (measured in review — a sticky
-    // chip overlapping a live step label, and separately a live bead). So the
-    // "swim lane" this reuses is not assumed empty; it is KEPT empty exactly
-    // like every other chip on this surface — routed through the same
-    // `obstacles`/`candidates` horizontal-displacement pass, now widened to
-    // also carry `worldObstacles`.
-    //
-    // `worldObstacles` is the CALLER's job to assemble, deliberately: this
-    // module has no notion of `drawsKind`/semantic LEVEL (`PipelinePlanVisualizer.jsx`'s
-    // own gate on which labels are actually drawn at the current zoom), so it
-    // cannot tell a currently-hidden label from a currently-drawn one — and
-    // the epic label rects `layout.labels` itself carries are NEVER drawn in
-    // the world at all (an HTML overlay draws the name instead; see the
-    // `kind === 'epic'` no-op in the component's world-node loop). Handing
-    // this module the FULL unfiltered `layout.labels`/`layout.nodes`/`layout.arcs`
-    // would make it avoid marks that are not actually on screen (dropping a
-    // sticky that had genuine room) while still missing marks it has no
-    // vocabulary for (bead footprints are not labels or arcs at all — a
-    // second review finding: a sticky chip landed on a live bead in the first
-    // cut of this fix). The caller already computes exactly what is currently
-    // drawn for its own rendering, so it is the one source that cannot drift
-    // from what the reader actually sees.
-    if (bands.length > 1) {
-        let firstVisible = -1;
-        let lastVisible = -1;
-        for (let i = 0; i < placedAt.length; i++) {
-            if (!placedAt[i]) continue;
-            if (firstVisible === -1) firstVisible = i;
-            lastVisible = i;
-        }
-        const left = t.x + 2 * t.k;
-        const right = t.x + (worldWidth - 2) * t.k;
-        if (firstVisible !== -1 && right >= 0 && left <= vw) {
-            const minX = Math.max(0, left) + 6;
-            const maxXCap = Math.min(right, vw) - 6;
-
-            // Places one sticky chip, or draws nothing if there is no honest
-            // room — the same refusal the natural loop makes when a candidate
-            // can't be found, rather than shrinking past legibility or
-            // overlapping something.
-            const placeSticky = (targetBand, room, atTop) => {
-                if (room < EPIC_CHIP_MIN_H) return;
-                const h = Math.min(labelH, room);
-                const scale = h / labelH;
-                const bandText = targetBand.epicLabel || targetBand.epic;
-                // The ↗ control renders whenever `epicId != null` (mirrors
-                // the component's own condition) — its flat footprint has to
-                // be in `w` before anything is checked against beads/arcs/
-                // labels, or the collision math clears a box the reader
-                // cannot actually see the edge of.
-                // req #3226 — the pause bubble, unconditional (unlike the ↗
-                // link above): it renders on every band, "No epic" included.
-                const w = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-                    + (targetBand.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
-                    + EPIC_PAUSE_BUBBLE_W;
-                const maxX = maxXCap - w;
-                if (maxX < minX) return;
-                const y = atTop ? 2 : (vh - h - 2);
-                const rectObstacles = [...obstacles];
-                // Only marks whose screen box actually reaches this chip's own
-                // row are relevant — filtered here, not carried as a permanent
-                // obstacle, because the top and bottom sticky slots occupy
-                // disjoint rows and a mark relevant to one is almost never
-                // relevant to the other.
-                for (const r of worldObstacles) {
-                    const box = {
-                        x: t.x + r.x * t.k, y: t.y + r.y * t.k,
-                        w: r.w * t.k, h: r.h * t.k,
-                    };
-                    if (box.y < y + h && y < box.y + box.h) rectObstacles.push(box);
-                }
-                const x0 = minX;
-                const candidates = [x0];
-                for (const o of rectObstacles) {
-                    candidates.push(o.x + o.w + CHIP_PAD, o.x - CHIP_PAD - w);
-                }
-                let placed = null;
-                for (const cx of candidates.sort((a, b) =>
-                    Math.abs(a - x0) - Math.abs(b - x0))) {
-                    if (cx < minX || cx > maxX) continue;
-                    const rect = { x: cx, y, w, h };
-                    if (rectObstacles.some((o) => hits(rect, o))) continue;
-                    placed = rect;
-                    break;
-                }
-                if (!placed) return;   // nowhere honest left
-                obstacles.push(placed);
-                out.push({
-                    key: `${targetBand.key == null ? 'none' : targetBand.key}`
-                        + `-stick-${atTop ? 'top' : 'bottom'}`,
-                    epicId: targetBand.epicId,
-                    text: bandText,
-                    color: targetBand.color,
-                    band: targetBand,
-                    sticky: atTop ? 'top' : 'bottom',
-                    x: placed.x, y: placed.y, w, h,
-                    fontSize: EPIC_CHIP_FONT * scale,
-                });
-            };
-
-            if (firstVisible > 0) {
-                const topOfFirst = t.y + bands[firstVisible].y * t.k;
-                placeSticky(bands[firstVisible - 1], topOfFirst - 4, true);
-            }
-            if (lastVisible < bands.length - 1) {
-                const bottomOfLast = t.y
-                    + (bands[lastVisible].y + bands[lastVisible].height) * t.k;
-                placeSticky(bands[lastVisible + 1], vh - bottomOfLast - 4, false);
-            }
-        }
     }
 
     return out;
@@ -2923,6 +3008,52 @@ export function factoryDefaultScale(layout, size, kFit, kFloor) {
     if (!(size?.h > 0) || !(layout?.height > 0) || !(kFit > 0)) return kFit || 0;
     const kVertFit = size.h / layout.height;
     return Math.max(Math.min(kFit, kVertFit), kFloor);
+}
+
+// ── The legal region of a transform (req #3168's bound, extracted req #3252) ──
+// The "scroll pane" rule: the world may overshoot the panel by at most HALF A
+// PANEL on each side, measured on screen at every scale, so a pan can never
+// carry the whole plan out of view. It lived as a closure inside
+// PipelinePlanVisualizer's zoom behaviour, which was correct while the zoom
+// behaviour was the only thing that could produce a transform.
+//
+// Req #3252 gave it a second producer: a viewport RESTORED from storage. That
+// one arrives through `zoom.transform`, which applies what it is given verbatim
+// and calls neither `constrain` nor `scaleExtent` (the `epicFocusTransform`
+// comment above, verified against d3-zoom 3.0.0) — so a camera saved when the
+// panel was tall, restored into a short one, would sit outside the bound until
+// the reader's first gesture snapped it. Two copies of this arithmetic that
+// "only have to agree" is the desync `factoryDefaultScale`'s own comment already
+// argues against, so there is one copy and both callers read it.
+//
+// `Math.min(0, …)` / `Math.max(0, …)` is what keeps the DEFAULT view — world
+// origin at the panel's top-left — legal on a plan smaller than the panel.
+// Without it the bound would force a re-centre on the very first transform.
+/**
+ * `t` clamped into the pan bound, and its scale into `[kMin, kMax]`.
+ *
+ * Pass `t.k` for both bounds to clamp the translation only, which is what the
+ * zoom behaviour's own `constrain` wants — d3 has already applied `scaleExtent`
+ * by the time it calls that.
+ *
+ * @param {{x:number,y:number,k:number}} t
+ * @param {{w:number,h:number}} size the viewport, in screen px
+ * @param {{width:number,height:number}} layout the world dimensions
+ * @param {number} kMin
+ * @param {number} kMax
+ * @returns {{x:number,y:number,k:number}}
+ */
+export function clampPlanTransform(t, size, layout, kMin, kMax) {
+    const k = Math.min(Math.max(t.k, kMin), kMax);
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    const loX = Math.min(0, w / 2 - k * (layout?.width || 0));
+    const loY = Math.min(0, h / 2 - k * (layout?.height || 0));
+    return {
+        x: Math.min(Math.max(t.x, loX), Math.max(0, w / 2)),
+        y: Math.min(Math.max(t.y, loY), Math.max(0, h / 2)),
+        k,
+    };
 }
 
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };

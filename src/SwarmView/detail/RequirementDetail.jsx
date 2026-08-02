@@ -8,6 +8,7 @@ import { useEpicPipelineLocation } from './useEpicPipelineLocation';
 import { epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
+import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../../utils/requirementStatusTimestamps';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
@@ -98,12 +99,35 @@ const RequirementDetail = () => {
     const fromPipelineId = location.state?.from === 'pipeline'
         ? Number(location.state?.pipelineId) : null;
     const hasPipelineOrigin = Number.isFinite(fromPipelineId) && fromPipelineId > 0;
+    // Req #3252: WHICH PANEL of that plan. The route names the plan; the panel
+    // comes from a stored preference, and a reader who reached the visualizer
+    // through a `?mode=plan` link never persisted `plan` — that override is
+    // transient by design. So "Back to Plan" landed such a reader in the TABLE,
+    // where the pan and zoom this requirement restores are not even on screen.
+    //
+    // NOT VALIDATED AGAINST THE MODE LIST HERE, on purpose. `pipelineDetailModes`
+    // imports both panels, so importing it would pull react-konva and the whole
+    // plan visualizer into this page's bundle to check one string. The receiving
+    // page already validates `?mode=` against that list and falls back to the
+    // stored preference on anything it does not recognise — one validation, at
+    // the end that owns the vocabulary. All this needs is that the value cannot
+    // corrupt the URL it is interpolated into, and it comes from in-app router
+    // state rather than the address bar.
+    const rawBackMode = location.state?.mode;
+    const fromPipelineMode = typeof rawBackMode === 'string'
+        && /^[a-z]{1,16}$/.test(rawBackMode) ? rawBackMode : null;
     // "new" mode (req #2414): the user came from the aggregator template row.
     // No DB record exists yet — the requirement is POSTed only when the user
     // picks a category. Until then this page edits a purely local draft.
     const isNew = id === 'new';
     const handleBack = () => {
-        if (hasPipelineOrigin) return navigate(`/swarm/pipeline/${fromPipelineId}`);
+        if (hasPipelineOrigin) {
+            // `?mode=` is a TRANSIENT override on the receiving page, never a
+            // write to the reader's stored preference — so returning them to the
+            // panel they left cannot change what any other plan opens in.
+            return navigate(`/swarm/pipeline/${fromPipelineId}`
+                + (fromPipelineMode ? `?mode=${fromPipelineMode}` : ''));
+        }
         return navigate(fromCalendar ? '/calview' : '/swarm');
     };
     const backLabel = hasPipelineOrigin ? 'Back to Plan'
@@ -406,22 +430,17 @@ const RequirementDetail = () => {
     const executeStatusChange = (newStatus) => {
         const now = new Date().toISOString();
 
-        // wontfix is a terminal state like met — both set completed_at (req #2783)
-        const setsCompleted = newStatus === 'met' || newStatus === 'wontfix';
-
+        // req #3244 — shared with CategoryCard/SwarmStartCard so all three frontend
+        // writers of requirement_status derive the same timestamps darwin-mcp does.
         const updates = {
             requirement_status: newStatus,
-            started_at: newStatus === 'development' ? now : 'NULL',
-            completed_at: setsCompleted ? now : 'NULL',
-            deferred_at: newStatus === 'deferred' ? now : 'NULL',
+            ...requirementStatusTimestampFields(newStatus, now),
         };
 
         setRequirement(prev => ({
             ...prev,
             requirement_status: newStatus,
-            started_at: newStatus === 'development' ? now : null,
-            completed_at: setsCompleted ? now : null,
-            deferred_at: newStatus === 'deferred' ? now : null,
+            ...requirementStatusTimestampState(newStatus, now),
         }));
 
         let uri = `${darwinUri}/requirements`;
