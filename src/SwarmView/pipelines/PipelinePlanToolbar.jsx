@@ -11,19 +11,20 @@
 // no state and reads no storage).
 //
 // WHY IT RETURNS A FRAGMENT rather than a wrapping Box. The header row is a flex
-// container whose group separators are its OWN children (P2), and the display
-// group it contributes to also holds the Counts control, which is mode-
-// independent and therefore stays on the page. A wrapper would make these
-// controls one flex item, so the divider between the display group and the zoom
-// group could not sit between them, the row's gap would no longer apply between
-// the groups, and the DOM-order assertions PIPE-18 makes about the row's own
-// children would be reading a box instead of the controls.
+// container whose group separators are its OWN children (P2), so these controls
+// have to BE that row's children: a wrapper would make them one flex item, the
+// divider between the view group and the display group could not sit between
+// them, the row's own `gap` would stop applying between the groups, and the
+// DOM-order assertions PIPE-18 makes about the row's children would be reading a
+// box instead of the controls.
 //
 // THE VOCABULARY IS THE BUILD VISUALIZER'S (P1 / S6): a small Chip, filled when
 // on, outlined when off, from `toolbarChipProps`. That is also what
 // `SemanticLevelControl` speaks — the shared control this row cannot restyle
 // without changing the Build Visualizer too — so converging on it is the only
 // choice that makes the row ONE vocabulary rather than one-plus-the-shared-one.
+// Reset is the one deliberate exception and it is a COLOUR exception, not a
+// widget one (req #3242 user directive — see its own note below).
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -105,21 +106,123 @@ export default function PipelinePlanToolbar({
 }) {
     return (
         <>
-            {/* ── DISPLAY GROUP, continued ────────────────────────────────────
-                The Counts chip is the group's first member and lives on the page
-                (it renders in BOTH modes). These two join it, so there is no
-                divider before them. */}
-            {/* P9 — "Width: S | M | L" put the group's NAME inside its first
+            {/* ── VIEW GROUP — how much of the plan the reader is looking at ──
+                LEADS the control set, and the order is req #3242's user
+                directive, not a preference: Reset sits immediately LEFT of the
+                level selector "ahead of the whole zoom/layout control cluster
+                rather than trailing it". Req #3261 P2 named the groups in the
+                opposite order, against a row that also still had a Counts
+                toggle; #3242 removed that toggle and fixed this position, and it
+                is the later and more specific instruction. What P2 asked for —
+                that there BE groups, and that a rule separate them — is what is
+                applied here.
+
+                THE SHARED COMPONENT, not a header-shaped copy of it — req #3168
+                extracted it from the Build Visualizer precisely so two canvases
+                doing semantic zoom cannot drift, and the Build Visualizer
+                renders it in ITS header among chips too. `testIdPrefix` keeps
+                every `pipeline-viz-level-*` hook byte-for-byte.
+
+                Reset rides INSIDE it as `leadingChildren` (req #3242) so the
+                group reads "View: Reset Auto L1 L2 L3" as one control set. It is
+                deliberately NOT in this file's chip vocabulary: the user asked
+                for its own colour, as border + label only, "so this is a
+                different KIND of control" is legible at a glance — it performs
+                an action and is never part of the pinned-level state. That is a
+                later and explicit instruction than S6, and S6's point (one
+                widget TYPE, so the row reads as one control set) is unaffected
+                by it — it is still a small Chip.
+
+                Reset's behaviour: FACTORY DEFAULT, not the readable landing
+                scale the page opens on — one click always shows the whole plan's
+                vertical extent, from any pan or zoom. Width re-centres on every
+                change (it rescales every column) onto WHICHEVER of the two
+                scales is currently active — see `recenterModeRef` in
+                PipelinePlanVisualizer.jsx — so clicking Width right after Reset
+                keeps showing the whole plan instead of snapping back to the
+                readable scale out from under its own neighbour.
+
+                No `data-viz-chrome` here, unlike in the key: that attribute
+                exempts a control from the canvas's two gesture filters, and
+                those are bound to the canvas container. This row is outside it,
+                so a mousedown here was never reachable as a pan gesture. */}
+            <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                <SemanticLevelControl
+                    // The page holds the pref as the CANVAS's vocabulary
+                    // ('auto'|'1'|'2'|'3') and the reported level as the
+                    // canvas's OTHER vocabulary ('out'|'mid'|'in'); the shared
+                    // control speaks `null | 1 | 2 | 3` and is deliberately
+                    // ignorant of what a level MEANS. Both translations happen
+                    // here, which is the only place that knows both.
+                    pinnedLevel={planLevelPref === 'auto'
+                        ? null : Number(planLevelPref)}
+                    effectiveLevel={PLAN_LEVEL_NUMBER[effectiveLevel] ?? null}
+                    onChangePinnedLevel={(lvl) => onChangeLevelPref(
+                        lvl == null ? 'auto' : String(lvl))}
+                    // req #3242 user directive — "Detail:" -> "View"
+                    label="View"
+                    leadingChildren={(
+                        <Tooltip title={'Reset — fully zoomed out, the whole '
+                            + "plan's vertical extent visible"}>
+                            <Chip
+                                label="Reset"
+                                size="small"
+                                variant="outlined"
+                                // EXPLICIT, though the tooltip happens to start
+                                // with the visible word. Relying on that would
+                                // make the wording of a tooltip load-bearing for
+                                // WCAG 2.5.3 with nothing saying so: rewrite it
+                                // as "Zoom out to the whole plan" and this chip
+                                // silently displays "Reset" while announcing a
+                                // sentence that never says it.
+                                aria-label={'Reset — fully zoomed out, the whole '
+                                    + "plan's vertical extent visible"}
+                                onClick={onResetView}
+                                sx={{
+                                    borderColor: 'secondary.main',
+                                    color: 'secondary.main',
+                                    cursor: 'pointer',
+                                }}
+                                data-testid="pipeline-viz-reset"
+                            />
+                        </Tooltip>
+                    )}
+                    testIdPrefix="pipeline-viz"
+                />
+            </Box>
+
+            {/* ── GROUP SEPARATOR (req #3261 P2, S5) ──────────────────────────
+                The single most legible thing the Build Visualizer does, and what
+                makes twelve of its controls readable. This one closes the view
+                group (how much of the plan the reader is looking at) and opens
+                the display group (what is drawn on it). */}
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
+            {/* ── DISPLAY GROUP — what the plan DRAWS ─────────────────────────
+                P9 — "Width: S | M | L" put the group's NAME inside its first
                 option, so the control read as one named by its first value and
                 nothing else in Darwin does that. The name is a caption now, in
-                the same voice `SemanticLevelControl` uses for "Detail:", and the
-                three options are three equal chips. The GROUP keeps
+                the same voice `SemanticLevelControl` uses for its own label, and
+                the three options are three equal chips. The GROUP keeps
                 `pipeline-viz-stepwidth-toggle` so every existing locator finds
                 it; the options gain ids of their own, which they needed anyway —
                 a chip has no `value` attribute for a test to click by, and
                 matching them by accessible name is what made
                 `getByRole('button', {name: 'L'})` also match "Column width —
-                compact". */}
+                compact".
+
+                Req #3168 — column width is the one piece of the plan's geometry
+                a reader could not influence. It only ever WIDENS (see
+                STEP_WIDTH_FACTORS): a narrower column than the content needs
+                would push requirement marks out of their own slab, which is the
+                zero-overlap contract the layout module proves.
+
+                The labels stay PLAIN (req #3242 user correction) — a same-turn
+                attempt put the actual pixel widths in the button text and
+                enlarged the buttons 25%, and both were reverted. Moving the
+                group's name out to a caption makes them plainer still, which is
+                the same direction. */}
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-stepwidth-toggle">
@@ -171,84 +274,6 @@ export default function PipelinePlanToolbar({
                     );
                 })}
             </Stack>
-
-            {/* ── ZOOM GROUP ──────────────────────────────────────────────────
-                P2 / S5 — the single most legible thing the Build Visualizer
-                does, and what makes twelve of its controls readable: groups
-                separated by a vertical rule. This one closes the display group
-                (what the plan DRAWS) and opens the zoom group (how much of it
-                the reader is looking at). */}
-            <Divider orientation="vertical" flexItem
-                     sx={{ mx: 0.5, flexShrink: 0 }} />
-
-            {/* THE SHARED COMPONENT, not a header-shaped copy of it — req #3168
-                extracted it from the Build Visualizer precisely so two canvases
-                doing semantic zoom cannot drift, and the Build Visualizer
-                renders it in ITS header among chips too. `testIdPrefix` keeps
-                every `pipeline-viz-level-*` hook byte-for-byte.
-
-                It sits with Reset rather than beside Width now (req #3261 P2).
-                Req #3241 put it next to Width on the reading that it is a layout
-                control because the camera does not move across a level change —
-                true of the MECHANISM, and the group is about what the READER is
-                doing: Level and Reset are the two controls that answer "how much
-                of this plan am I seeing", and Width, Colour and Counts are the
-                three that answer "what is drawn on it".
-
-                No `data-viz-chrome` here, unlike in the key: that attribute
-                exempts a control from the canvas's two gesture filters, and
-                those are bound to the canvas container. This row is outside it,
-                so a mousedown here was never reachable as a pan gesture. */}
-            <Box sx={{ display: 'flex', flexShrink: 0 }}>
-                <SemanticLevelControl
-                    // The page holds the pref as the CANVAS's vocabulary
-                    // ('auto'|'1'|'2'|'3') and the reported level as the
-                    // canvas's OTHER vocabulary ('out'|'mid'|'in'); the shared
-                    // control speaks `null | 1 | 2 | 3` and is deliberately
-                    // ignorant of what a level MEANS. Both translations happen
-                    // here, which is the only place that knows both.
-                    pinnedLevel={planLevelPref === 'auto'
-                        ? null : Number(planLevelPref)}
-                    effectiveLevel={PLAN_LEVEL_NUMBER[effectiveLevel] ?? null}
-                    onChangePinnedLevel={(lvl) => onChangeLevelPref(
-                        lvl == null ? 'auto' : String(lvl))}
-                    testIdPrefix="pipeline-viz"
-                />
-            </Box>
-
-            {/* Req #3216 — Reset, out of the bottom-right corner of the canvas
-                it used to float in. FACTORY DEFAULT, not the readable landing
-                scale the page opens on: one click always shows the whole plan's
-                vertical extent, from any pan or zoom. Width re-centres on every
-                change (it rescales every column), and does so onto WHICHEVER of
-                the two scales is currently active — see `recenterModeRef` in
-                PipelinePlanVisualizer.jsx — so clicking Width right after Reset
-                keeps showing the whole plan instead of snapping back to the
-                readable scale out from under its own neighbour.
-
-                `pressed: false`: it performs an action and holds no state, so
-                the `aria-pressed` every other chip on this row carries would
-                announce an on position it does not have. */}
-            <Tooltip title={'Reset — fully zoomed out, the whole '
-                + "plan's vertical extent visible"}>
-                <Chip
-                    label="Reset"
-                    // EXPLICIT, though the tooltip above happens to start with
-                    // the visible word. Relying on that would make the wording
-                    // of a tooltip load-bearing for WCAG 2.5.3 with nothing
-                    // saying so: rewrite it as "Zoom out to the whole plan" and
-                    // this chip silently displays "Reset" while announcing a
-                    // sentence that never says it. Every other control on the
-                    // row names itself; this one does too.
-                    aria-label={'Reset — fully zoomed out, the whole '
-                        + "plan's vertical extent visible"}
-                    onClick={onResetView}
-                    {...toolbarChipProps(false, {
-                        pressed: false, sx: { flexShrink: 0 },
-                    })}
-                    data-testid="pipeline-viz-reset"
-                />
-            </Tooltip>
         </>
     );
 }

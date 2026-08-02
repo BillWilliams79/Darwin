@@ -1184,15 +1184,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // ── THE MOVE req #3214's TITLE PROMISED, delivered by req #3241 ──
             //    These two assertions are INVERTED from what they said before:
             //    the level selector was in the key, and the earlier work left it
-            //    there. It is in the header now and the key no longer carries it
-            //    — asserted from both ends, because "present in the header"
-            //    alone would also pass on a duplicate.
+            //    there. It is in the header now, LEFT OF WIDTH, and the key no
+            //    longer carries it — asserted from both ends, because "present
+            //    in the header" alone would also pass on a duplicate.
             await expect(page.locator('[data-testid="pipeline-viz-legend"]'
                 + ' [data-testid="pipeline-viz-level-control"]'),
             'the level selector left the key').toHaveCount(0);
             await expect(page.getByTestId('pipeline-viz-level-control'),
                 'there is exactly one level selector on the page').toHaveCount(1);
-
             // ── THE ROW IS GROUPED, AND THE GROUPS ARE SEPARATED (req #3261
             //    P2 / S5) ──────────────────────────────────────────────────────
             //    "Controls are grouped, groups separated by a vertical Divider"
@@ -1200,16 +1199,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    it is what makes twelve controls readable there. This row had
             //    no separators at all, so five unrelated controls read as one
             //    strip. The groups are
-            //      [mode] | [display: Counts, Width, Colour] | [zoom: Level,
-            //      Reset] | [status] | [description].
+            //      [mode] | [view: Reset, Level] | [display: Width, Colour] |
+            //      [status] | [description].
             //
-            //    THE LEVEL SELECTOR MOVED with that grouping, so the "it sits
-            //    immediately LEFT of Width" claim req #3241 made is REPLACED
-            //    rather than dropped. #3241 sat it beside Width on the reading
-            //    that it is a layout control because the camera does not move
-            //    across a level change — true of the mechanism; the grouping is
-            //    about what the READER is doing, and Level and Reset are the two
-            //    controls that answer "how much of this plan am I seeing".
+            //    THE GROUP ORDER IS REQ #3242's, NOT P2's. P2 named
+            //    `[display: Counts, Width, Colour] | [zoom: Level, Reset]`
+            //    against a row that still had a Counts toggle; #3242 then
+            //    removed that toggle and moved Reset to sit immediately left of
+            //    the level selector, "ahead of the whole zoom/layout control
+            //    cluster rather than trailing it". That directive is later and
+            //    more specific, so the view group leads. What P2 asked for —
+            //    that there BE groups and that a rule separate them — is what is
+            //    asserted here, applied to the order the user asked for.
             //
             //    Asserted by DOM index among the row's own children plus the
             //    position of the separators themselves, so it says "these are
@@ -1223,11 +1224,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 const idx = (sel: string) =>
                     kids.findIndex((el) => el.matches(sel) || !!el.querySelector(sel));
                 return {
-                    counts: idx('[data-testid="pipeline-reqcounts-toggle"]'),
-                    width: idx('[data-testid="pipeline-viz-stepwidth-toggle"]'),
-                    colour: idx('[data-testid="pipeline-viz-colorkey-toggle"]'),
                     level: idx('[data-testid="pipeline-viz-level-control"]'),
                     reset: idx('[data-testid="pipeline-viz-reset"]'),
+                    width: idx('[data-testid="pipeline-viz-stepwidth-toggle"]'),
+                    colour: idx('[data-testid="pipeline-viz-colorkey-toggle"]'),
                     dividers: kids
                         .map((el, i) => (el.classList.contains('MuiDivider-root')
                             ? i : -1))
@@ -1239,18 +1239,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 expect(i as number, `${name} is a child of the header row`)
                     .toBeGreaterThanOrEqual(0);
             }
-            expect(layout.counts, 'Counts opens the display group')
-                .toBeLessThan(layout.width);
+            expect(layout.reset,
+                'Reset rides INSIDE the level control, so they are one child')
+                .toBe(layout.level);
             expect(layout.width, 'Width and Colour are the display group')
                 .toBe(layout.colour - 1);
-            expect(layout.level, 'Level and Reset are the zoom group')
-                .toBe(layout.reset - 1);
             expect(layout.dividers.filter(
-                (i) => i > layout.colour && i < layout.level).length,
-            'a rule separates the display group from the zoom group').toBe(1);
+                (i) => i > layout.level && i < layout.width).length,
+            'a rule separates the view group from the display group').toBe(1);
             expect(layout.dividers.length,
-                'the ordinary row carries three rules — before display, before '
-                + 'zoom, before description (the status group is conditional '
+                'the ordinary row carries three rules — before view, before '
+                + 'display, before description (the status group is conditional '
                 + 'and this fixture seeds no orchestration claim)').toBe(3);
             // And the pan exemption really travelled with it: the key's own
             // `data-viz-chrome="level"` wrapper is gone, and the ONE remaining
@@ -1262,19 +1261,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .map((el) => el.getAttribute('data-viz-chrome')));
             expect(vizChrome, 'the collapse button is the only canvas chrome left')
                 .toEqual(['legend']);
-            // The accounting line is what LEFT the row to pay for the selector
-            // (req #3241). It is not deleted — it is on the breadcrumb line
-            // above, which already existed and had the width to spare. Asserted
-            // from both ends for the same reason as the selector.
-            await expect(page.locator('[data-testid="pipeline-header-row"]'
-                + ' [data-testid="pipeline-accounting"]'),
-            'the accounting line left the header row').toHaveCount(0);
-            await expect(page.locator('[data-testid="pipeline-subheader-row"]'
-                + ' [data-testid="pipeline-accounting"]'),
-            'the accounting line is on the breadcrumb line').toHaveCount(1);
+            // The breadcrumb/accounting subheader row (req #3241) was REMOVED
+            // outright (req #3242 user directive) rather than kept and emptied —
+            // there is no "Pipelines / <plan name>" line above this one any
+            // more, and no accounting line anywhere on the page.
+            await expect(page.getByTestId('pipeline-subheader-row'),
+                'the breadcrumb/accounting row is gone').toHaveCount(0);
             await expect(page.getByTestId('pipeline-accounting'),
-                'and it still says what it always said')
-                .toContainText(/\d+ steps? — \d+ complete · \d+ running/);
+                'the accounting line is gone with it').toHaveCount(0);
             // Production's order at the two ends that the user reads by: the mode
             // switch opens the row and the description button closes it. Asserted
             // by DOM position among the row's own children, so a wrap cannot
@@ -1357,11 +1351,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     // so at the widths where it overflows the browser may put a
                     // horizontal scrollbar INSIDE it. `offsetHeight -
                     // clientHeight` is that scrollbar exactly (the row has no
-                    // border), and subtracting it is what keeps the one-line
-                    // claim below a claim about LINES rather than about whether
-                    // the CI browser draws classic or overlay scrollbars.
-                    scrollbarH: Math.round(
-                        (row as HTMLElement).offsetHeight - row.clientHeight),
+                    // border), and subtracting it keeps the one-line claim below
+                    // a claim about LINES rather than about whether the CI
+                    // browser draws classic or overlay scrollbars.
+                    scrollbarH: Math.round(row.offsetHeight - row.clientHeight),
                     overflowX: getComputedStyle(row).overflowX,
                     scrolls: row.scrollWidth > row.clientWidth + 1,
                     lines: centres.size,
@@ -1579,7 +1572,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 for (const id of ['pipeline-detail-mode-toggle',
                     'pipeline-viz-level-control', 'pipeline-viz-stepwidth-toggle',
                     'pipeline-viz-colorkey-toggle', 'pipeline-viz-reset',
-                    'pipeline-reqcounts-toggle', 'pipeline-description-btn']) {
+                    'pipeline-description-btn']) {
                     const el = page.getByTestId(id);
                     await expect(el, `${id} is still visible at ${width}px`)
                         .toBeVisible();
@@ -1591,17 +1584,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
         });
 
-    // ── PIPE-20: the met/total counts are ON without being asked (req #3241) ─
+    // ── PIPE-20: the met/total counts are ALWAYS on, permanently (req #3242) ─
     //
-    // Req #3225 built this correctly on both surfaces and defaulted it OFF, so
-    // the user who asked to SEE the numbers had to find a toggle first. Req
-    // #3241 flipped the default. NOTHING HERE TOUCHES A PREFERENCE before the
-    // first assertion — that is the whole claim, and pinning the key would
-    // silently make this a test of the pinned value instead.
+    // Req #3225 built this correctly on both surfaces and defaulted it OFF; req
+    // #3241 flipped the default ON; req #3242 removed the toggle outright — the
+    // counts are no longer a preference at all, so there is nothing left to pin
+    // or click. NOTHING HERE TOUCHES A PREFERENCE before the first assertion —
+    // that is the whole claim.
 
-    test('PIPE-20: met/total shows on the plan name and epic bands by default',
+    test('PIPE-20: met/total shows on the plan name and epic bands, with no toggle to turn it off',
         async ({ page }) => {
             const counts = plan.requirementCounts.overall;
+            const epicCount = plan.requirementCounts.byEpic.length;
             expect(counts.total, 'the fixture has requirements to count')
                 .toBeGreaterThan(0);
             const title = String(fixture.models.main.pipeline.title);
@@ -1615,10 +1609,9 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(title, 'the fixture model names the plan')
                 .toMatch(/^e2e-\d+-plan .+/);
 
-            // 1. THE LIST PAGE, arrived at cold. It carries no control for this
-            //    preference at all — it only reads what the detail page's toggle
-            //    last wrote — so a default of `off` made the numbers unreachable
-            //    from here without visiting another page first.
+            // 1. THE LIST PAGE, arrived at cold. Its own card format is
+            //    unchanged by req #3242 (that requirement touched the DETAIL
+            //    page's header only) — still `<title> <met>/<total>`.
             await page.goto('/swarm/pipelines');
             await expect(page.getByTestId('pipelines-cards-view'))
                 .toBeVisible({ timeout: 30000 });
@@ -1626,22 +1619,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 'the card names the plan AND its met/total, with nothing enabled')
                 .toContainText(`${title} ${counts.met}/${counts.total}`);
 
-            // 2. THE PLAN PAGE, same cold start: the header title and the
-            //    breadcrumb both carry it, and the toggle reports itself ON
-            //    rather than merely behaving as though it were.
+            // 2. THE PLAN PAGE, same cold start: the header title carries epic
+            //    count AND requirement met/total (req #3242's reformat), and
+            //    there is no control anywhere on the page to turn it off.
             await page.setViewportSize({ width: 1800, height: 1000 });
             await openPlanVisualizer(page, fixture.mainPipelineId);
-            await expect(page.getByTestId('pipeline-title'))
-                .toHaveText(`${title} ${counts.met}/${counts.total}`);
-            // BY `aria-pressed`, not by a MUI variant class (req #3261 P5/S7).
-            // The control is a chip now — one vocabulary for the whole row — but
-            // the deeper reason the class was the wrong hook is that it only
-            // ever proved what a SIGHTED reader sees. This toggle shipped with
-            // no `aria-pressed` at all, so a screen reader was told there is a
-            // button called "Counts" and never told whether it was on, and every
-            // assertion in this test passed throughout.
-            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
-                .toHaveAttribute('aria-pressed', 'true');
+            await expect(page.getByTestId('pipeline-title')).toHaveText(
+                `${title} ${epicCount} Epic${epicCount === 1 ? '' : 's'}, `
+                + `${counts.met}/${counts.total} Requirement${counts.total === 1 ? '' : 's'}`);
+            await expect(page.getByTestId('pipeline-reqcounts-toggle'),
+                'the toggle is gone — the counts are permanent, not a preference')
+                .toHaveCount(0);
 
             // 3. THE EPIC BAND LABELS — the surface the req #3225 header-width
             //    argument never applied to, since they are drawn on the canvas.
@@ -1657,27 +1645,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 '.pipeline-viz-epic-name').allInnerTexts();
             const countedChips = async () =>
                 (await chipTexts()).filter((t) => /\s\d+\/\d+$/.test(t)).length;
-            //    "no chips at all" and "chips without counts" are DIFFERENT
-            //    failures and must not share a message — and without this,
-            //    step 4's `.toBe(0)` would also pass vacuously on a plan that
-            //    rendered no chips.
             await expect.poll(async () => (await chipTexts()).length,
                 { message: 'the fixture draws epic chips to read' })
                 .toBeGreaterThan(0);
             await expect.poll(countedChips,
                 { message: 'at least one epic band label carries its met/total' })
                 .toBeGreaterThan(0);
-
-            // 4. AND IT IS STILL A CHOICE, not a hardcode: turning it off takes
-            //    the numbers off BOTH surfaces. Without this, a default-on that
-            //    ignored the toggle entirely would pass every check above.
-            await page.getByTestId('pipeline-reqcounts-toggle').click();
-            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
-                .toHaveAttribute('aria-pressed', 'false');
-            await expect(page.getByTestId('pipeline-title')).toHaveText(title);
-            await expect.poll(countedChips,
-                { message: 'turning Counts off clears the band labels too' })
-                .toBe(0);
         });
 
     // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────

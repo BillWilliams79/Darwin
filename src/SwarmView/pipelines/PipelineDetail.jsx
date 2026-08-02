@@ -26,7 +26,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
-import Breadcrumbs from '@mui/material/Breadcrumbs';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -66,7 +65,6 @@ import {
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
-import { formatDateTime } from '../../utils/dateFormat';
 import {
     PIPELINE_DETAIL_MODES,
     PIPELINE_DETAIL_MODE_STORAGE_KEY,
@@ -93,13 +91,10 @@ import {
     isStepWidth, normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
 import {
-    DEFAULT_REQ_COUNTS,
     PLAN_REQUIREMENT_FIELDS,
-    REQ_COUNTS_STORAGE_KEY,
     buildCostIndex,
     buildPipelineModel,
     orderedPlan,
-    pipelineSummary,
 } from './pipelineViewModel';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
@@ -107,9 +102,9 @@ import {
 // exactly the state a failed or in-flight read sits in — and that changing
 // identity permanently defeats every useMemo downstream of it: costIndex, plan
 // (so `new Date()` is re-read on every render, contradicting the "now is read
-// ONCE per model change" contract below), pipelineSummary, and the table's own
-// planRenderRows. One stable reference costs nothing and keeps the memo chain
-// honest in the error path the costError branch exists to handle.
+// ONCE per model change" contract below), and the table's own planRenderRows.
+// One stable reference costs nothing and keeps the memo chain honest in the
+// error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
 
 // ── Editable pipeline description (req #3119, moved req #3179) ──────────────
@@ -286,14 +281,11 @@ export default function PipelineDetail() {
     // is exactly that: this page writes it, the list page's own hook reads it
     // fresh when React Router mounts that page.
     //
-    // ON BY DEFAULT since req #3241, from the ONE shared key/default pair the
-    // list page also reads. It shipped off on a header-width argument; this
-    // requirement solved the header width directly (the row is `nowrap` with
-    // the title as its elastic member) and the argument never touched the epic
-    // band labels, which are drawn on the canvas.
-    const [showReqCountsPref, setShowReqCountsPref] = useViewPreference(
-        REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
-    const showReqCounts = showReqCountsPref === 'on';
+    // ALWAYS ON (req #3242 user directive) — the toggle that used to gate this
+    // is gone; requirement counts are now a permanent part of the plan name and
+    // every epic band label, not a preference. No storage key, no setter: there
+    // is nothing left to persist.
+    const showReqCounts = true;
     // Req #3179 — the goal text is behind the header's info button now. Shut it
     // when the route changes plans: this component is re-rendered, not remounted,
     // on an :id change, so an open dialog would otherwise stay open and re-title
@@ -341,11 +333,9 @@ export default function PipelineDetail() {
     //
     // It arrives in the CANVAS's vocabulary ('out'|'mid'|'in'), because that is
     // what `semanticLevel()` returns and the panel reports what it actually
-    // drew. `PipelinePlanToolbar` maps it with `PLAN_LEVEL_NUMBER` (req #3241,
-    // moved there by req #3261) — handing the string straight through would
-    // leave every chip unpressed and the control would silently claim nothing
-    // was active. It travels out of this page as the canvas's own string,
-    // because that is what the canvas reported.
+    // drew. `PLAN_LEVEL_NUMBER` maps it at the control (req #3241) — handing the
+    // string straight through would leave every chip unpressed and the control
+    // would silently claim nothing was active.
     const [effectiveLevel, setEffectiveLevel] = useState(null);
     // Req #3216 — Reset joins the header's zoom controls (it used to float
     // over the canvas in the bottom-right corner). The click has to reach
@@ -539,7 +529,6 @@ export default function PipelineDetail() {
     const plan = useMemo(
         () => orderedPlan(model, { now: new Date(), costIndex }),
         [model, costIndex]);
-    const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
     // req #3225 — the whole-plan met/total, read straight off `orderedPlan`'s
     // own derivation (no second pass over `model`).
     const planReqCounts = plan.requirementCounts?.overall;
@@ -596,26 +585,20 @@ export default function PipelineDetail() {
     const hasStatusChips = pipeline.pipeline_status === 'paused'
         || !!orchestrationHolder;
 
-    // ── ONE STRING PER ELLIPSIZING LINE (req #3241) ─────────────────────────
-    // Both of these are now `noWrap` with a tooltip, and both of those need the
-    // whole text as a VALUE: CSS `text-overflow` needs a single inline flow to
-    // clip, and a tooltip that is the recovery path for a clip has to carry
-    // exactly what was clipped. Building the title's suffix inline in the JSX
-    // and passing the bare `pipeline.title` to the tooltip would clip
-    // "Darwin 30/64" to "Darwin 30/6…" and recover only "Darwin" — losing the
-    // one part of the string the reader could not already infer (review
-    // finding). The title reads the same in the breadcrumb, so it is built once
-    // and used in all three places.
-    const titleText = pipeline.title
-        + (showReqCounts && planReqCounts
-            ? ` ${planReqCounts.met}/${planReqCounts.total}` : '');
-    const accountingText = `${summary.total} step${summary.total === 1 ? '' : 's'} — `
-        + `${summary.done} complete · ${summary.running} running · `
-        + `${summary.pending} scheduled`
-        + (pipeline.started_at
-            ? ` · started ${formatDateTime(pipeline.started_at, timezone)}` : '')
-        + (pipeline.completed_at
-            ? ` · completed ${formatDateTime(pipeline.completed_at, timezone)}` : '');
+    // req #3242 — epics represented in THIS plan (a requirement with no epic
+    // is excluded by `requirementCounts` itself, so this is never inflated by
+    // a "no epic" bucket).
+    const planEpicCount = plan.requirementCounts?.byEpic?.length ?? 0;
+
+    // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
+    // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
+    // `text-overflow` needs a single inline flow to clip, and a tooltip that is
+    // the recovery path for a clip has to carry exactly what was clipped.
+    const titleText = pipeline.title + (planReqCounts
+        ? ` ${planEpicCount} Epic${planEpicCount === 1 ? '' : 's'}, `
+            + `${planReqCounts.met}/${planReqCounts.total} `
+            + `Requirement${planReqCounts.total === 1 ? '' : 's'}`
+        : '');
 
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
@@ -631,72 +614,6 @@ export default function PipelineDetail() {
     // this page: nothing else reads it.
     return (
         <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
-            {/* ── The breadcrumb line now also carries the ACCOUNTING (req
-                #3241) ────────────────────────────────────────────────────────
-                This is the header row's overflow answer, and it is the cheapest
-                one available. MEASURED, on the live plan's own strings, at the
-                real 180px sidebar + 24px page padding (244px of chrome):
-
-                    accounting "64 steps — 30 complete · 2 running ·
-                                32 scheduled · started …"          530px
-                    next widest occupant of that row (Width: S|M|L) 139px
-
-                It is the largest single occupant of the row below by nearly 4×,
-                and the only pure PROSE on it — everything else there is a
-                control the reader clicks. This line already exists, already
-                renders, already uses the same `body2` scale, and carried only
-                163px of content across the full page width. So the move costs NO
-                row and NO pixel of page height — which matters here more than on
-                most pages, because the visualizer measures its own top and turns
-                every pixel above it into canvas.
-
-                Both are `minWidth: 0` with ellipsis, so this line cannot become
-                two either. Flex distributes shrink in PROPORTION to width and
-                the accounting is 3.3× the breadcrumb, so it absorbs most of any
-                deficit on its own — a narrow viewport loses the trailing
-                timestamps well before it touches the plan's name. The full
-                string is on the tooltip regardless. */}
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1,
-                        flexWrap: 'nowrap', minWidth: 0, mb: 1 }}
-                 data-testid="pipeline-subheader-row">
-                {/* `MuiBreadcrumbs-ol` wraps by default and its `li`s carry the
-                    same `min-width: auto` the header's children do, so both have
-                    to be answered here or this line reintroduces exactly the
-                    problem the row below just solved. The LAST crumb — the plan
-                    name — is the one allowed to give, mirroring the header's own
-                    rule; the "Pipelines" link is navigation and keeps its size. */}
-                <Breadcrumbs sx={{ minWidth: 0, flexShrink: 1,
-                                    '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
-                                    '& .MuiBreadcrumbs-li:last-of-type': { minWidth: 0 } }}>
-                    <Link component="button" variant="body2" underline="hover"
-                          onClick={() => navigate('/swarm/pipelines')}
-                          data-testid="pipeline-breadcrumb-list">
-                        Pipelines
-                    </Link>
-                    {/* Tooltipped for the same reason the header title is: the
-                        header comment calls this crumb the place a reader
-                        recovers a truncated plan name, and below ~945px of
-                        viewport it truncates too, so without one the stated
-                        fallback would not exist at the widths that need it
-                        (review finding). */}
-                    <Tooltip title={titleText}>
-                        <Typography variant="body2" color="text.primary" noWrap>
-                            {titleText}
-                        </Typography>
-                    </Tooltip>
-                </Breadcrumbs>
-
-                {/* Accounting — the whole plan, never a filtered view
-                    (view-switchable-pages § V7). */}
-                <Tooltip title={accountingText}>
-                    <Typography variant="body2" color="text.secondary" noWrap
-                                sx={{ minWidth: 0, flexShrink: 1 }}
-                                data-testid="pipeline-accounting">
-                        {accountingText}
-                    </Typography>
-                </Tooltip>
-            </Box>
-
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
                 "the title of the visualizer, it became three rows for seemingly
                 no reason." Earlier in req #3168 this was split into a PIPELINE
@@ -710,15 +627,15 @@ export default function PipelineDetail() {
                 spacer, S11), the active mode's own controls, then the
                 description at the right end. Since req #3261 those controls are
                 GROUPED and the groups are separated by a vertical rule:
-                [mode] | [display] | [zoom] | [status] | [description].
+                [mode] | [view] | [display] | [status] | [description].
 
                 EVERY MEASUREMENT BELOW IS HISTORICAL — it describes the row as
                 req #3241 left it, and it is kept because it is the argument, not
-                the state. That row has since gained three dividers, two group
-                captions, a labelled description chip and an `h5` title, so none
-                of these figures is this row's width today. Nothing depends on
-                one any more; the ceiling they were rationing against is gone
-                (see the S13 note below).
+                the state. That row has since lost the Counts toggle and gained
+                three dividers, a group caption, a labelled description chip and
+                an `h5` title, so none of these figures is this row's width
+                today. Nothing depends on one any more; the ceiling they were
+                rationing against is gone (see the S13 note below).
 
                 ── IT IS NOW ONE ROW AS A PROPERTY, NOT AS A MEASUREMENT (req
                 #3241) ────────────────────────────────────────────────────────
@@ -740,17 +657,18 @@ export default function PipelineDetail() {
                         → would have wrapped below ~1610px, i.e. on a
                           1440px laptop too. That is the cost req #3214
                           recorded, and it is real.
-                    this row, after the two changes below         883px
+                    this row, after the three changes below       883px
                         → ONE line at EVERY width, because it cannot wrap
                           at all; the whole name fits down to ~1127px and
                           ellipsizes below that.
 
-                The two changes that make it true at every width:
+                The two changes that made it true at every width:
 
-                  1. The ACCOUNTING LINE LEFT — it is on the breadcrumb line
+                  1. The ACCOUNTING LINE LEFT — it went to the breadcrumb line
                      above, which already existed and had the room. That is the
                      530px this row needed and the whole reason the level
-                     selector fits.
+                     selector fits. (Req #3242 then removed that line, and the
+                     breadcrumb with it, so neither exists today.)
                   2. `flexWrap: 'nowrap'` — the row cannot become two rows, by
                      construction. There is nothing left to measure.
 
@@ -778,9 +696,11 @@ export default function PipelineDetail() {
                 every pixel of slack while there is slack, and zero once there is
                 not. So a desktop sees no scrollbar at all, a narrow viewport
                 spends the title first exactly as before, and only then does the
-                band scroll — with the plan's name still on the breadcrumb line
-                above and on both tooltips. What no longer happens is the page
-                itself moving.
+                band scroll — with the plan's name still on its tooltip. What no
+                longer happens is the page itself moving. It matters more since
+                req #3242 removed the breadcrumb: this row IS the plan's
+                identity now, so the page dragging sideways would drag the name
+                with it.
 
                 ONE CAVEAT, latent rather than live: per CSS Overflow 3 a
                 `visible` value paired with a non-`visible` one computes to
@@ -838,46 +758,42 @@ export default function PipelineDetail() {
                     what makes twelve of its controls readable: groups, separated
                     by a vertical rule. This row had none, so five unrelated
                     controls read as one undifferentiated strip. The groups are
-                    [mode] | [display] | [zoom] | [status] | [description], and
+                    [mode] | [view] | [display] | [status] | [description], and
                     every divider on this row is pure addition — nothing moved to
-                    make room for one. */}
+                    make room for one.
+
+                    P2 named the groups as `[display: Counts, Width, Colour] |
+                    [zoom: Level, Reset]`, in that order. Both halves of that
+                    have since been overtaken by req #3242's user directives,
+                    which are LATER and specific: Counts was removed outright,
+                    and Reset was moved to sit immediately left of the level
+                    selector "ahead of the whole zoom/layout control cluster
+                    rather than trailing it". So the view group leads and the
+                    display group follows. What P2 actually asked for — that
+                    there BE groups and that a rule separate them — is applied to
+                    the order the user asked for, which is the only reading under
+                    which both requirements are satisfied. */}
                 <Divider orientation="vertical" flexItem
                          sx={{ mx: 0.5, flexShrink: 0 }} />
-
-                {/* ── DISPLAY GROUP — what the plan DRAWS ─────────────────────
-                    req #3225 — Counts is visible in EITHER mode (the plan name
-                    reads it here, the epic band label reads it in Plan mode), so
-                    it opens the group in both and the mode-conditional controls
-                    follow it.
-
-                    `aria-pressed` (req #3261 P5, S7): this and Time/Tokens were
-                    the two toggles on the row that carried their state in the
-                    variant alone, so a screen reader was told there was a button
-                    called "Counts" and never told whether it was on. */}
-                <Tooltip title={'Show requirements met / total beside the plan '
-                    + 'name and every epic band label'}>
-                    <Chip
-                        label="Counts"
-                        // WCAG 2.5.3 — MUI's Tooltip injects its title as the
-                        // child's `aria-label` unless the child sets one, so
-                        // this chip would display "Counts" and announce a
-                        // sentence that never says the word. It spreads the
-                        // child's props LAST, so this one wins.
-                        aria-label={'Counts — show requirements met / total '
-                            + 'beside the plan name and every epic band label'}
-                        onClick={() => setShowReqCountsPref(showReqCounts ? 'off' : 'on')}
-                        {...toolbarChipProps(showReqCounts, { sx: { flexShrink: 0 } })}
-                        data-testid="pipeline-reqcounts-toggle"
-                    />
-                </Tooltip>
 
                 {activeMode === 'table' ? (
                     <Tooltip title="Show each step's elapsed time and token cost">
                         <Chip
                             label="Time / Tokens"
+                            // WCAG 2.5.3 — MUI's Tooltip injects its title as
+                            // the child's `aria-label` unless the child sets
+                            // one, so this chip would display "Time / Tokens"
+                            // and announce a sentence that never says it. MUI
+                            // spreads the child's props LAST, so this one wins.
                             aria-label={'Time / Tokens — show each step\'s '
                                 + 'elapsed time and token cost'}
                             onClick={() => setShowCost((v) => !v)}
+                            // `aria-pressed` (req #3261 P5, S7): this was one of
+                            // the two toggles on the row that carried their
+                            // state in the variant alone, so a screen reader was
+                            // told there was a button called "Time / Tokens" and
+                            // never told whether it was on. (The other was
+                            // Counts, which req #3242 removed.)
                             {...toolbarChipProps(showCost, { sx: { flexShrink: 0 } })}
                             data-testid="pipeline-cost-toggle"
                         />
@@ -913,7 +829,7 @@ export default function PipelineDetail() {
                     This slot is the one thing on the row the canonical
                     `ViewerHeader` has no place for (P11), recorded and left
                     where it is: whether V3 grows a `status` slot or this prose
-                    moves to the accounting line is its own question. */}
+                    moves elsewhere is its own question. */}
                 {hasStatusChips && (
                     <Divider orientation="vertical" flexItem
                              sx={{ mx: 0.5, flexShrink: 0 }} />
@@ -953,17 +869,20 @@ export default function PipelineDetail() {
                             color={orchestrationHolder.stale ? 'warning' : 'success'}
                             variant={orchestrationHolder.stale ? 'outlined' : 'filled'}
                             label={`Orchestrated by ${orchestrationHolder.label}`}
-                            // ELASTIC, unlike every control on this row (req
-                            // #3241 review finding). It was `flexShrink: 0` like
-                            // them, but it is not a control — it is ~158px of
-                            // PROSE that appears only while somebody holds a
-                            // reservation, and as a rigid member it pushed the
-                            // whole page into horizontal scroll on a 1152px
-                            // window for one plan and not another: intermittent
-                            // and tied to live ops state, which is the worst
-                            // version of a layout bug. MUI's own Chip label
+                            // ELASTIC, unlike every other occupant of this row
+                            // (req #3241 review finding). It was `flexShrink: 0`
+                            // like the controls, but it is not a control — it is
+                            // ~158px of PROSE that appears only while somebody
+                            // holds a reservation, and as a rigid member it
+                            // raised the row's incompressible width by that much
+                            // exactly when it happened to be showing. That put
+                            // the page into horizontal scroll on a 1152px window
+                            // for one plan and not another, which is the worst
+                            // version of a layout bug: intermittent and tied to
+                            // live ops state. MUI's own Chip label already
                             // ellipsizes, and the machine's full identity is on
-                            // the tooltip, so shrinking it loses nothing.
+                            // the tooltip, so shrinking it loses nothing the
+                            // reader cannot get back.
                             //
                             // The page-scroll half of that is gone since req
                             // #3261 (the row scrolls its own band now), but
@@ -1018,12 +937,12 @@ export default function PipelineDetail() {
                                 // MUI gives `.MuiChip-icon` its own colour
                                 // (`grey[700]` / `grey[300]` by theme mode —
                                 // Chip.js's `iconColor === color` variant),
-                                // which does NOT follow the
-                                // root's — so on the filled chip the icon would
-                                // stay dark grey on the primary fill. `inherit`
-                                // is what makes the two states read as one
-                                // control changing, rather than a chip whose
-                                // icon failed to change with it.
+                                // which does NOT follow the root's — so on the
+                                // filled chip the icon would stay dark grey on
+                                // the primary fill. `inherit` is what makes the
+                                // two states read as one control changing,
+                                // rather than a chip whose icon failed to
+                                // change with it.
                                 '& .MuiChip-icon': { color: 'inherit' },
                             },
                         })}

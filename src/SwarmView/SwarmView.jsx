@@ -333,19 +333,31 @@ const SwarmView = () => {
                         {/* `!drill` for the same reason the status chips carry it:
                             a Trends drill-down bypasses both filters, so leaving
                             the control on screen would show an ON toggle that is
-                            not applying. */}
-                        {view === 'table' && !drill && (
+                            not applying. Cards view joined Table (req #3258):
+                            editing/hand-sorting an orchestrated requirement's
+                            position there doesn't mean anything (the plan owns
+                            it, not the card), so hiding it fixes the card view's
+                            own broken edit affordance, not just its clutter —
+                            see CategoryCard.jsx's identical predicate. */}
+                        {/* req #3242 user directive — the icon reads as ON
+                            (blue) exactly when orchestrated requirements are
+                            ON screen, and OFF (default/white) when they are
+                            hidden. That is the opposite mapping from before:
+                            `hidePipelined` used to light up blue to announce
+                            the filter it applies; now the icon announces what
+                            is CURRENTLY VISIBLE, not which control is active. */}
+                        {(view === 'cards' || (view === 'table' && !drill)) && (
                             <Tooltip title={hidePipelined
-                                ? 'Showing only requirements NO pipeline step carries — click to show all'
-                                : 'Hide requirements carried by a pipeline step'}>
+                                ? 'Hiding orchestrated requirements'
+                                : 'Showing orchestrated requirements'}>
                                 <IconButton
                                     size="small"
                                     onClick={toggleHidePipelined}
-                                    color={hidePipelined ? 'primary' : 'default'}
+                                    color={hidePipelined ? 'default' : 'primary'}
                                     aria-label={hidePipelined
-                                        ? 'Show requirements carried by a pipeline step'
-                                        : 'Hide requirements carried by a pipeline step'}
-                                    aria-pressed={hidePipelined}
+                                        ? 'Hiding orchestrated requirements'
+                                        : 'Showing orchestrated requirements'}
+                                    aria-pressed={!hidePipelined}
                                     data-testid="hide-pipelined-toggle"
                                     sx={{ flexShrink: 0 }}
                                 >

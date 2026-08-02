@@ -530,6 +530,12 @@ const BAND_HEADER = 83;
 // How far lane 0's step label reaches back up into the header: 31px above the
 // bead, less the 10px the bead sits below the header.
 const STEP_LABEL_RISE = 21;
+// Where a bead sits inside its lane, measured from the lane's top. Named
+// because the NEXT-STEP HALO's ceiling is derived from it (req #3271): the room
+// above a LANE-0 bead is the epic chip's strip, and the distance to it is
+// `STEP_LABEL_RISE + BEAD_LANE_OFFSET` — headerH cancels, so the bound holds for
+// batch-hosting and staggered bands identically.
+export const BEAD_LANE_OFFSET = 10;
 const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
                                 // reserves the letter strip + keeps box tops
                                 // below the epic label (review finding)
@@ -546,13 +552,43 @@ const BATCH_LETTER_GAP = 3;
 // over it something else sits between the two and the line is what keeps them
 // one thing.
 const BATCH_LETTER_LEADER_MIN = 20;
+// The launch-unit box's own geometry, relative to the beads it encloses: how
+// far it insets from its column, its width floor, and how far above/below a
+// bead centre its edges sit. Named because the NEXT-STEP HALO's ceiling is the
+// SMALLEST of these clearances (req #3271) — a halo that grew past one would
+// leave the box that says "one /swarm-start launches these", at exactly the
+// zoom level a launch unit is read at.
+const BATCH_BOX_INSET = 8;
+const BATCH_BOX_MIN_W = 56;
+const BATCH_BOX_RISE = 40;      // above the bead centre
+const BATCH_BOX_DROP_V = 28;    // below it, 'vertical' reqs — the TIGHTEST edge
+const BATCH_BOX_DROP_H = 30;    // below it, 'horizontal' reqs
 const BAND_GAP = 8;
 const LANE_BASE_H = 62;         // POC 56 + type-scale headroom, before the title slot
+// The content floor a column may never shrink below, per requirement layout.
+// Named rather than inlined at the `colW` sizing because the NEXT-STEP HALO's
+// magnification ceiling is derived from the smaller of the two (req #3271): the
+// halo may grow at Overview, and the tightest bead-to-bead pitch it must stop
+// short of is this number. Two copies that "only have to agree" is exactly the
+// desync this module has already taken review findings on.
+const COL_MIN_W_HORIZONTAL = 64;
+const COL_MIN_W_VERTICAL = 70;
 const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 // One requirement mark per line at font 13.75. EXPORTED since the swim-lane
 // directive: it is the exact vertical cost a lane pays when titles stagger, and
 // a test that re-typed the number could agree with a changed layout by accident.
-export const REQ_LINE_H = 15;
+//
+// +25% (req #3242 user directive, "a little more space between the lanes...
+// for readability") — was 15. This is the SAME constant that sets the
+// staggered-column vertical offset (`reqStaggerOf`), which is what was
+// actually reported: two single-requirement steps in ADJACENT columns
+// (`Dual-Path Purge` -> `Wontfix Fold-In` on the live plan), both eligible to
+// stagger, landed on lines only 1px apart vertically while overlapping ~60px
+// horizontally — inside the zero-overlap contract (rects never touch) but
+// with no visual breathing room at all. One shared constant, so the fix is
+// generic rather than a special case for that pair: every lane, every
+// staggered pair, gets the same extra room.
+export const REQ_LINE_H = 18.75;
 const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // ── The 35-character CEILING (user directives 2026-08-01) ──────────────────
 // "let's go with all three levels of zoom showing 35 chars", then — decisively —
@@ -574,7 +610,7 @@ const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // The ceiling BITES only where the existing budget already exceeded it (the
 // `horizontal` step label, which drew 42-50 characters), and is inert where the
 // budget is the binding constraint (`vertical`, 24-29).
-export const LABEL_MAX_CHARS = 35;
+export const LABEL_MAX_CHARS = 40;
 // Staggering (req #3119, the Build Visualizer's version-label pattern —
 // `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
 // draw their long text one line further from the bead, so a label and its
@@ -582,6 +618,11 @@ export const LABEL_MAX_CHARS = 35;
 // column. Only the SAME-PARITY columns (d±2) share a line, and the budget below
 // keeps two of those from meeting.
 const STAGGER_GAP = 18;
+// The shortest a lane can ever be: `lanePitch()` adds a per-lane requirement
+// stack on top of this and never subtracts. Named because two separate proofs
+// read it — the batch-letter sweep's band-scoping argument, and the next-step
+// halo's band-rectangle clearance (req #3271).
+const MIN_LANE_PITCH = LANE_BASE_H + TITLE_SLOT + STAGGER_GAP;
 // Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
 // Labels are centred on their column, so the budget must bound the reach into
 // the NARROWER neighbour and then apply symmetrically — bounding the sum of both
@@ -600,12 +641,28 @@ const STAGGER_REACH = 0.4;
 // requirement id is ~64px, i.e. ~16 characters after the reach is added. Giving
 // the column a floor raises the budget for every title at once; STEP_LABEL_MAX
 // is only the ceiling that stops a pathological title from running forever.
-const TITLE_COL_MIN = 144;
+// Exported (req #3242) so the header's Width control can show the reader the
+// actual pixel width each S/M/L option draws, rather than a bare letter —
+// `TITLE_COL_MIN * STEP_WIDTH_FACTORS[width]` is the representative column
+// width in vertical/title mode (the only mode the UI offers today), the same
+// arithmetic `colW` itself applies at line ~1176.
+export const TITLE_COL_MIN = 144;
 export const PLAN_VIZ_FONT = {
     label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9, slot: 13,
 };
 
 export const BEAD_RADIUS = BEAD_R;
+
+// The bead's own ring, in the two weights `beadStyle` picks between. EXPORTED
+// and named rather than left as literals because the next-step halo's ceiling
+// is measured against the EMPHASIS weight (req #3271): what bounds the halo's
+// growth at Overview is the distance to the neighbouring bead's outer edge, and
+// that edge is `BEAD_RADIUS + BEAD_RING_W_EMPHASIS / 2`. A literal there and a
+// literal here would only agree by accident.
+export const BEAD_RING_W_EMPHASIS = 2.5;   // manual, or eligible-now
+export const BEAD_RING_W_BASE = 1.5;
+// The outer edge of the widest bead ring drawn — 11.25.
+export const BEAD_OUTER_RADIUS = BEAD_R + BEAD_RING_W_EMPHASIS / 2;
 
 // The bead's invisible HIT circle, slightly larger than the bead so a small
 // target stays easy to point at. It lives here rather than as a literal in the
@@ -639,6 +696,10 @@ export const BEAD_HIT_RADIUS = BEAD_R + 5;
 // S/M/L all by 10% higher except L by 20%" — so S is no longer the identity and
 // the compact plan is deliberately a little airier than the pre-#3168 one.
 export const STEP_WIDTH_FACTORS = { compact: 1.1, medium: 1.1836, wide: 1.428 };
+// The narrowest world the user can ask for. Read by the next-step halo's
+// ceiling (req #3271), which measures against the TIGHTEST column any setting
+// can produce, never against the unmultiplied content floor.
+export const MIN_STEP_WIDTH_FACTOR = Math.min(...Object.values(STEP_WIDTH_FACTORS));
 export const DEFAULT_STEP_WIDTH = 'compact';
 // `Object.hasOwn`, not a truthiness test on the lookup (review finding). The
 // value arrives from localStorage, so `"toString"` and `"constructor"` are both
@@ -1126,7 +1187,15 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     maxChars = LABEL_MAX_CHARS } = {}) {
     if (reqLabel !== 'title') return String(reqId);
     const t = titleLookup(reqTitles, reqId);
-    return t ? truncate(t, Math.max(4, Math.min(LABEL_MAX_CHARS, maxChars))) : String(reqId);
+    // The id rides ALONGSIDE the title, not instead of it (user directive) — an
+    // id-only mark reading "3242" gives no hint what's under it without a
+    // hover; "3242 - Pipeline Visualizer Polish" answers that at the same L3
+    // glance the title itself was added for. Built BEFORE truncation, same as
+    // the bare id below, so the id survives the cut and the title is what
+    // gives way on a tight column — the id is the one piece of this string a
+    // reader can always resolve to the actual requirement.
+    return t ? truncate(`${reqId} - ${t}`, Math.max(4, Math.min(LABEL_MAX_CHARS, maxChars)))
+        : String(reqId);
 }
 
 const reqStr = (row) => (row.reqIds || []).join(' ');
@@ -1237,9 +1306,10 @@ export function computePlanLayout(rows, batches, {
             : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW_LABEL + 16));
         let w;
         if (reqLayout === 'horizontal') {
-            w = Math.max(64, labelW, ...steps.map((r) => reqStr(r).length * CHW_REQ + 30));
+            w = Math.max(COL_MIN_W_HORIZONTAL, labelW,
+                ...steps.map((r) => reqStr(r).length * CHW_REQ + 30));
         } else {
-            w = Math.max(70, labelW,
+            w = Math.max(COL_MIN_W_VERTICAL, labelW,
                 ...steps.map((r) => Math.min(reqStr(r).length, 6) * CHW_REQ + 40));
         }
         // The user's width choice (req #3168) applies HERE, after the content
@@ -1882,7 +1952,8 @@ export function computePlanLayout(rows, batches, {
             nodes.set(r.id, {
                 id: r.id,
                 x: colX[d],
-                y: band.y + band.headerH + band.laneY[laneById.get(r.id)] + 10,
+                y: band.y + band.headerH + band.laneY[laneById.get(r.id)]
+                    + BEAD_LANE_OFFSET,
                 depth: d,
                 lane: laneById.get(r.id),
                 bandIndex,
@@ -2000,15 +2071,17 @@ export function computePlanLayout(rows, batches, {
         for (const cell of cells) {
             const ms = byCell.get(cell);
             const [bandIndex, depth] = cell.split('|').map(Number);
-            const w = Math.max((colW[depth] || 110) - 8, 56);
-            const yTop = Math.min(...ms.map((n) => n.y)) - 40;
+            const w = Math.max((colW[depth] || 110) - BATCH_BOX_INSET,
+                BATCH_BOX_MIN_W);
+            const yTop = Math.min(...ms.map((n) => n.y)) - BATCH_BOX_RISE;
             const yBot = Math.max(...ms.map((n) => {
                 const row = byId.get(n.id);
                 const nReqs = (row.reqIds || []).length;
                 // The box must enclose the marks it is drawn around, and in
                 // titles mode an odd column's stack starts a line lower.
                 return n.y + reqStaggerOf(n.depth) + (reqLayout === 'vertical'
-                    ? 28 + Math.max(0, nReqs - 1) * REQ_LINE_H : 30);
+                    ? BATCH_BOX_DROP_V + Math.max(0, nReqs - 1) * REQ_LINE_H
+                    : BATCH_BOX_DROP_H);
             }));
             batchBoxes.push({
                 letter: b.letter, stepIds: ms.map((n) => n.id),
@@ -2286,22 +2359,39 @@ export function computePlanLayout(rows, batches, {
     // where mates share only their remaining gate, and an unlabelled dashed box
     // beside a labelled one reads as a second, anonymous batch. Repeating
     // "batch A" is the honest rendering: both boxes ARE batch A.
-    // Beads as rects covering their hit circle, PER BAND — the sweep below is
-    // band-scoped and the memo is what makes that cheap. Scoping is sound
-    // because a letter cannot leave its own band (its ceiling is inside it) and
-    // the nearest foreign bead is ~103px away: the previous band's deepest bead
-    // sits at least `lanePitch − 10` above its band bottom, and `lanePitch` is
-    // at least LANE_BASE_H + TITLE_SLOT + STAGGER_GAP = 94, comfortably more
-    // than BEAD_HIT_RADIUS + 10. That inequality is the dependency; if a lane
-    // could ever be shorter than a bead, this filter would have to go.
+    // Beads as rects covering EVERYTHING A BEAD OWNS, PER BAND — the sweep
+    // below is band-scoped and the memo is what makes that cheap. Scoping is
+    // sound because a letter cannot leave its own band (its ceiling is inside
+    // it) and the nearest foreign bead is ~103px away: the previous band's
+    // deepest bead sits at least `lanePitch − BEAD_LANE_OFFSET` above its band
+    // bottom, and `lanePitch` is at least MIN_LANE_PITCH = 94, comfortably more
+    // than the bead's own reach plus BEAD_LANE_OFFSET. That inequality is the
+    // dependency; if a lane could ever be shorter than a bead, this filter
+    // would have to go. THE NUMBER TO BEAT IS 37, NOT 25 — req #3271 widened
+    // the rects from the hit circle (15) to the halo's reach (27), so the
+    // margin here narrowed from 69 to 57 while the conclusion held.
     const bandBeadRects = new Map();
     const beadRectsOf = (bandIndex) => {
         if (!bandBeadRects.has(bandIndex)) {
+            // THE HIT CIRCLE IS NO LONGER THE OUTERMOST THING A BEAD OWNS
+            // (req #3271). The next-step halo magnifies at Overview and reaches
+            // NEXT_HALO_MAX_OUTER — further than BEAD_HIT_RADIUS — so a search
+            // that cleared only the hit circle left the letter inside the ring:
+            // measured over the fuzz corpus, 4 letters in 467 sliced by a
+            // NEIGHBOURING column's halo. A per-bead entry in
+            // NEXT_HALO_CLEARANCES cannot bound that, because the letter belongs
+            // to a different column's box — the clearance model that has to
+            // widen is this one. `max()` rather than the halo constant alone, so
+            // the hit circle still governs if it ever grows past the halo.
+            //
+            // Read at CALL time, not at module init: `computePlanLayout` runs
+            // long after this module is evaluated, so the forward reference to a
+            // constant declared below is not a TDZ hazard.
+            const reach = Math.max(BEAD_HIT_RADIUS, NEXT_HALO_MAX_OUTER);
             bandBeadRects.set(bandIndex, [...nodes.values()]
                 .filter((n) => n.bandIndex === bandIndex)
                 .map((n) => ({
-                    x: n.x - BEAD_HIT_RADIUS, y: n.y - BEAD_HIT_RADIUS,
-                    w: 2 * BEAD_HIT_RADIUS, h: 2 * BEAD_HIT_RADIUS,
+                    x: n.x - reach, y: n.y - reach, w: 2 * reach, h: 2 * reach,
                 })));
         }
         return bandBeadRects.get(bandIndex);
@@ -2343,8 +2433,9 @@ export function computePlanLayout(rows, batches, {
         // lands the letter's top edge exactly on the bead's CENTRE — measured in
         // review on every congested column, breaking the no-label-on-bead and
         // hit-circle invariants at once and putting the letter's own hover rect
-        // over a step's. Beads join the sweep as rects covering the hit circle,
-        // so the search displaces off them exactly as it does off a label.
+        // over a step's. Beads join the sweep as rects covering the bead's full
+        // reach (`BEAD_MARK_RADIUS` — the halo, not just the hit circle, since
+        // req #3271), so the search displaces off them exactly as off a label.
         const beadRects = beadRectsOf(box.bandIndex);
         const hits = (r, xx, yy) => r.x < xx + w && xx < r.x + r.w
             && r.y < yy + BATCH_LETTER_H && yy < r.y + r.h;
@@ -2375,7 +2466,11 @@ export function computePlanLayout(rows, batches, {
             // `band.y + 78`, identically in both stagger modes (the `+18` in
             // `headerH` cancels the `−18` lift). Measured at review over 1592
             // batch-hosting bands: zero rects in that window, the nearest
-            // topping at `band.y + 55` against the 40 required. Kept anyway,
+            // topping at `band.y + 55` against the 40 required — measured when
+            // the bead rects were the hit circle. RE-MEASURED at req #3271's
+            // wider rects over the fuzz corpus: still zero fallbacks and an
+            // unchanged max climb of 85, with the first fallback appearing only
+            // at a rect radius of 60 against the 27 shipped. Kept anyway,
             // because a `best` of null would otherwise be a crash and because
             // the strip is the one place whose freedom is a construction rather
             // than a measurement.
@@ -2791,7 +2886,8 @@ export function beadStyle(row, eligible, suppressed = false) {
     return {
         fill,
         ring: eligible ? P.eligibleRing : baseRing,
-        ringWidth: row.run === 'manual' || eligible ? 2.5 : 1.5,
+        ringWidth: row.run === 'manual' || eligible
+            ? BEAD_RING_W_EMPHASIS : BEAD_RING_W_BASE,
         pulse: running,
         check: done,
         // Req #3168 — "highlight for next steps". The ring alone carried this,
@@ -2800,6 +2896,8 @@ export function beadStyle(row, eligible, suppressed = false) {
         // answer was the hardest mark on it to find. `next` drives an animated
         // OUTER halo the renderer draws at every zoom level, including Overview,
         // where "what runs next" is asked most and a 1px ring reads as nothing.
+        // Drawing it there was never enough on its own — see
+        // `nextHaloMagnify` for what it took to make it READ there (req #3271).
         next: !!eligible,
         haloColor: suppressed ? PAUSE_PAUSED_COLOR : P.eligibleRing,
     };
@@ -2825,6 +2923,147 @@ export const NEXT_HALO_RADIUS = BEAD_R + 2.5;
 export const NEXT_HALO_STROKE = 2;
 export const NEXT_HALO_OPACITY = 0.85;
 export const NEXT_HALO_DASH = [3, 3];
+
+// ── The halo has to survive Overview (req #3271) ────────────────────────────
+// Every world node draws inside `<Group scaleX={k} scaleY={k}>`, and Konva's
+// `strokeScaleEnabled` defaults to TRUE — so radius, stroke width AND dash
+// pitch above are all multiplied by k. MEASURED on the live plan (pipeline 2,
+// 136 rows, world width 3620): `kDefault = max(kFit, K_READABLE)` is 0.8 at
+// every realistic panel width, so the 'out' level is by definition k < 0.4, and
+// the plan OPENS there on a 1440px panel (kFit = 0.398). At k = 0.4 this mark
+// renders as a 0.8px stroke with 1.2px dashes at 85% opacity, and its inner
+// edge sits 0.1px from the bead's own eligible ring — a sub-pixel dashed
+// outline touching a solid one. It is not that the halo is not drawn at
+// Overview; it is that at Overview it is not a ring.
+//
+// THE MARK MUST MOVE OUTWARD, and there is no alternative. Thickening it in
+// place is arithmetically impossible: the text bound below caps the outer edge
+// at 13.75 and the bead's ring caps the inner edge at 11.5, so the world stroke
+// can be at most 2 — exactly what it already is. Making the stroke
+// screen-constant while pinning the radius merges the two rings for all k < 0.8.
+// The only room is the room the LABELS vacate, which is why this is gated on
+// the label predicate and not on k alone.
+//
+// ONE MAGNIFICATION FOR THE WHOLE MARK, never per-property. Radius, stroke and
+// dash all scale by the same `m`, so the halo is always the same SHAPE — the
+// dash-to-circumference ratio is fixed, and because only the halo grows while
+// the bead does not, the gap between the two rings can only OPEN. A fix that
+// counter-scaled the stroke alone would close it.
+//
+// `m` targets a fixed on-screen radius, so between the ceiling and k = 1 the
+// apparent thickness is a flat NEXT_HALO_STROKE px and the dash pitch a flat
+// NEXT_HALO_DASH px — the k = 1 appearance, held constant as you zoom out
+// instead of thinning to nothing. ON A LARGE PLAN THE CEILING BINDS FIRST and
+// that band is never reached: the live plan's 'out' is the whole reachable
+// range below k = 0.4, which asks for 2.5× at its top and 12.1× at the zoom
+// floor, against a ceiling of 2.0. Measured at the view the plan OPENS in
+// (1440px panel, kFit 0.398,
+// the view the plan OPENS in): radius 9.94px, stroke 1.59px, dash 2.39px, ten
+// dash cycles, and 4.67px of clear space to the bead — against 4.97 / 0.80 /
+// 1.19 / 0.10 before. The mark is unambiguous at the scale the question is
+// asked at, which is what was actually broken.
+export const NEXT_HALO_SCREEN_RADIUS = 12.5;
+// The halo's outer edge at m = 1: 13.5 against the 14 the text bound allows.
+const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
+// HOW FAR IT MAY GROW: the SMALLEST clearance to any piece of world furniture
+// the halo would otherwise cross. Enumerated, because picking one and reasoning
+// about it is how this got written twice and reviewed wrong twice:
+//
+//  - HALF A COLUMN PITCH was the first ceiling (2.37×). Wrong in the other
+//    direction: the live plan's Overview asks for 2.51 at kFit = 0.398, so the
+//    screen-constant branch would never once have executed on the very plan
+//    this was filed against.
+//  - "NEVER REACHES ANOTHER BEAD" was the second (3.76×). It cleared beads and
+//    crossed everything else — the epic chip's strip at every k below 0.371
+//    (which INCLUDES the opening view on a 1200px panel), and its own launch
+//    -unit box on all four sides through essentially the whole 'out' band. Both
+//    found in review, measured, not hypothetical.
+//
+// So the ceiling is `min()` over the real list, and each entry is DERIVED from
+// the constant that actually places that furniture. A new mark near a bead adds
+// an entry here; it does not get to be discovered on screen.
+//
+// TWO DELIBERATE EXCLUSIONS, named so the rule above is not read too literally:
+//
+//  - DEPENDENCY ARCS radiate FROM the bead — `x1 = a.x + BEAD_R + 1`, so every
+//    arc starts 11 world px from the centre, on the bead's own row. They passed
+//    through the halo at m = 1 too. Entering them here would force the ceiling
+//    below the UNMAGNIFIED radius, i.e. it would forbid the mark that already
+//    exists. An arc is not furniture the halo runs into; it is the bead's own
+//    connection, and crossing it reads as attachment rather than collision.
+//  - LANE WIRES run straight THROUGH bead centres by construction, for the same
+//    reason.
+//
+// AND ONE PIECE OF FURNITURE IS NOT BOUNDABLE HERE AT ALL: the launch-unit
+// LETTER. The letter a halo crosses belongs to a NEIGHBOURING column's box, so
+// no per-bead clearance reaches it. It is handled where the stale model was —
+// `beadRectsOf` sizes its rects on `max(BEAD_HIT_RADIUS, NEXT_HALO_MAX_OUTER)`.
+// Named here because this list advertises itself as the index.
+//
+// The test for this lives in the halo's own describe block and measures against
+// the layout's OUTPUT — batch boxes, chip strips, letters, bead pairs — not
+// against the constants below, because measuring against the constants is
+// exactly what let two wrong ceilings through review.
+export const NEXT_HALO_CLEARANCES = {
+    // The launch-unit box, whose four edges are the tightest things a bead has
+    // near it. `DROP_V` (28) is the binding one across the whole module.
+    batchBoxBelow: BATCH_BOX_DROP_V,
+    batchBoxAbove: BATCH_BOX_RISE,
+    batchBoxSide: (COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR
+        - BATCH_BOX_INSET) / 2,
+    // The epic chip's strip, above a LANE-0 bead. `headerH` cancels out of the
+    // derivation, so one number covers batch-hosting and staggered bands too.
+    // It describes the chip's RESTING position: `placeEpicChips` pins a chip
+    // down into the band body while its band is partly scrolled off, and in that
+    // state the chip overlaps beads and halos alike. Pre-existing sticky
+    // behaviour, not something a world clearance can promise about.
+    epicChipStrip: STEP_LABEL_RISE + BEAD_LANE_OFFSET,
+    // The time axis's vertical slot rules, drawn at column LEFT EDGES — so half
+    // the tightest column, not the whole pitch. Non-binding today (35.2 against
+    // the batch box's 28) and listed because it would bind before the
+    // neighbouring bead if this list ever loosened.
+    slotRule: COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR / 2,
+    // The BAND rectangle, which is the last piece of world geometry a bead can
+    // reach. A lane-0 bead is `headerH + BEAD_LANE_OFFSET` >= 93 below the band
+    // top; the deepest lane's bead is `lanePitch - BEAD_LANE_OFFSET` >= 84 above
+    // the bottom. Non-binding by a wide margin, listed because a list that
+    // silently omits the outermost boundary is not the index it claims to be.
+    bandRect: MIN_LANE_PITCH - BEAD_LANE_OFFSET,
+    // The nearest other bead's own outer ring. The column pitch is the tightest
+    // bead-to-bead distance (the lane pitch is at least
+    // `LANE_BASE_H + TITLE_SLOT + STAGGER_GAP` = 94) and `widthFactor` only ever
+    // widens, so its floor is the horizontal column floor times the smallest
+    // width factor the user can choose.
+    neighbourBead: COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR
+        - BEAD_OUTER_RADIUS,
+};
+// One world pixel of margin, so "clears it" is not "touches it".
+export const NEXT_HALO_MAX_OUTER =
+    Math.min(...Object.values(NEXT_HALO_CLEARANCES)) - 1;
+export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
+
+/**
+ * The magnification applied to the next-step halo's radius, stroke width and
+ * dash pattern (req #3271). ALWAYS 1 where the step and requirement labels are
+ * drawn: their boxes start 14px from the bead centre in both directions, and
+ * that bound is what fixes NEXT_HALO_RADIUS in the first place. It is also 1
+ * once the mark is already at or above its target size on screen, so zooming IN
+ * never changes it — at 'in' and 'mid' the halo is byte-identical to what it
+ * was before this function existed.
+ *
+ * @param {number} k             the world→screen scale actually being drawn at
+ * @param {boolean} labelsDrawn  does this level draw step/requirement labels?
+ *                               (the visualizer's own `drawsKind('step')` — the
+ *                               halo takes exactly the room the labels vacate)
+ * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY]
+ */
+export function nextHaloMagnify(k, labelsDrawn) {
+    if (labelsDrawn) return 1;
+    if (!Number.isFinite(k) || k <= 0) return 1;
+    const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
+    if (!(want > 1)) return 1;
+    return Math.min(want, NEXT_HALO_MAX_MAGNIFY);
+}
 
 // ── Epic focus geometry (req #3204) ─────────────────────────────────────────
 // Clicking an epic's name fits that epic's steps to the viewport. This is pure

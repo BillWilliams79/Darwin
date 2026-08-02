@@ -49,6 +49,10 @@ import { TOOLBAR_CAPTION_SX } from './toolbarStyles';
  * @param {function} props.onChangePinnedLevel  receives null | 1 | 2 | 3
  * @param {string} [props.testIdPrefix]      'bv' keeps the Build Visualizer's ids
  * @param {string} [props.label]             the leading caption
+ * @param {React.ReactNode} [props.leadingChildren]  controls inside the group,
+ *        BEFORE the Auto chip (req #3242 — Reset reads "View: Reset Auto L1…").
+ *        Unlike Auto/L1/L2/L3 these are not part of the pinned-level state —
+ *        the caller owns whatever they do.
  * @param {React.ReactNode} [props.children] trailing controls inside the group
  */
 export default function SemanticLevelControl({
@@ -57,6 +61,7 @@ export default function SemanticLevelControl({
     onChangePinnedLevel,
     testIdPrefix = 'semantic',
     label = 'Detail:',
+    leadingChildren = null,
     children = null,
 }) {
     if (!onChangePinnedLevel) return null;
@@ -72,6 +77,7 @@ export default function SemanticLevelControl({
                     {label}
                 </Box>
             )}
+            {leadingChildren}
             <Chip
                 label="Auto"
                 size="small"
