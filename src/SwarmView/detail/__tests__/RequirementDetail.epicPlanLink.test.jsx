@@ -48,10 +48,20 @@ vi.mock('../../../RestApi/RestApi', () => ({
         let hit = emptyOk;
         if (uri.includes('/features?epic_fk=')) hit = pick('features');
         else if (uri.includes('/requirements?feature_fk=')) hit = pick('requirements');
-        else if (uri.includes('/pipeline_step_requirements?requirement_fk=')) hit = pick('stepLinks');
+        // TWO chains read this table and the difference is the FILTER SHAPE.
+        // `useEpicPipelineLocation` widens through every sibling requirement of
+        // the epic, so it asks for an id LIST — `requirement_fk=(101)`.
+        // `useRequirementStepLocation` (req #3253) asks about THIS requirement
+        // alone — `requirement_fk=42`. Routing them to one fixture would make a
+        // test that cannot tell "the epic is on a plan" from "this requirement
+        // is on a step", which is the exact distinction the link now turns on.
+        else if (uri.includes('/pipeline_step_requirements?requirement_fk=(')) hit = pick('stepLinks');
+        else if (uri.includes('/pipeline_step_requirements?requirement_fk=')) hit = pick('ownStepLinks');
         else if (uri.includes('/pipeline_steps?id=')) hit = pick('steps');
         else if (uri.includes('/pipelines?id=')) hit = pick('pipelines');
-        return Promise.resolve({ httpStatus: { httpStatus: hit.status }, data: hit.data });
+        const answer = { httpStatus: { httpStatus: hit.status }, data: hit.data };
+        // `hold` keeps ONE hop in flight so the in-flight window is observable.
+        return hit.hold ? hit.hold.then(() => answer) : Promise.resolve(answer);
     }),
 }));
 
@@ -141,6 +151,10 @@ describe('RequirementDetail — epic box plan link (req #3235)', () => {
             stepLinks: { status: 200, data: [{ step_fk: 47 }] },
             steps: { status: 200, data: [{ id: 47, pipeline_fk: 2 }] },
             pipelines: { status: 200, data: [{ id: 2, pipeline_status: 'active' }] },
+            // THIS requirement is on no step — a sibling under the same epic is
+            // what put the epic on the plan. So the link falls back to the epic
+            // fit, which is req #3235's behaviour, unchanged.
+            ownStepLinks: { status: 200, data: [] },
         };
         mount();
         await flush();
@@ -155,6 +169,123 @@ describe('RequirementDetail — epic box plan link (req #3235)', () => {
         // Distinguishable text — never a second bare "Big Epic" anchor.
         expect(planLink.textContent).not.toBe('Big Epic');
         expect(epicLink.getAttribute('aria-label')).not.toBe(planLink.getAttribute('aria-label'));
+    });
+
+    // ── Req #3253 ───────────────────────────────────────────────────────────
+    it('links to THIS requirement\'s step, not the epic fit, when a step carries it', async () => {
+        requirementRow = baseRequirement({ feature_fk: 88 });
+        featureResponse = { status: 200, data: [{ id: 88, title: 'Cool Feature', epic_fk: 55 }] };
+        epicResponse = { status: 200, data: [{ id: 55, title: 'Big Epic' }] };
+        chain = {
+            features: { status: 200, data: [{ id: 88 }] },
+            requirements: { status: 200, data: [{ id: 101 }] },
+            stepLinks: { status: 200, data: [{ step_fk: 47 }] },
+            steps: { status: 200, data: [{ id: 47, pipeline_fk: 2 }] },
+            pipelines: { status: 200, data: [{ id: 2, pipeline_status: 'active' }] },
+            ownStepLinks: { status: 200, data: [{ step_fk: 47 }] },
+        };
+        mount();
+        await flush();
+
+        const planLink = node('epic-linkage-plan-link');
+        expect(planLink).not.toBeNull();
+        expect(planLink.getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        // The accessible name has to change with the target: a reader told
+        // "view epic Big Epic" and landed on one step of it was told wrong.
+        expect(planLink.getAttribute('aria-label')).not.toContain('Big Epic');
+        // The epic link itself is untouched.
+        expect(node('epic-linkage-link').getAttribute('href')).toBe('/swarm/epics?id=55');
+    });
+
+    it('takes the lowest step id when two steps of one plan carry it', async () => {
+        // Documented tie-break. "First in display order" is derived from the
+        // WHOLE plan (deps, states, epic labels) and this page deliberately does
+        // not load one to decide a link; the lowest id is deterministic and
+        // stable across refetches. Reachable only by a requirement seated twice
+        // on one plan, which the plan model already treats as a defect.
+        requirementRow = baseRequirement({ feature_fk: 88 });
+        featureResponse = { status: 200, data: [{ id: 88, title: 'Cool Feature', epic_fk: 55 }] };
+        epicResponse = { status: 200, data: [{ id: 55, title: 'Big Epic' }] };
+        chain = {
+            features: { status: 200, data: [{ id: 88 }] },
+            requirements: { status: 200, data: [{ id: 101 }] },
+            stepLinks: { status: 200, data: [{ step_fk: 47 }] },
+            // Deliberately returned high-id-first: the order the wire happens to
+            // send must not decide the link.
+            steps: { status: 200, data: [{ id: 91, pipeline_fk: 2 }, { id: 47, pipeline_fk: 2 }] },
+            pipelines: { status: 200, data: [{ id: 2, pipeline_status: 'active' }] },
+            ownStepLinks: { status: 200, data: [{ step_fk: 91 }, { step_fk: 47 }] },
+        };
+        mount();
+        await flush();
+
+        expect(node('epic-linkage-plan-link').getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+    });
+
+    it('shows NO link while the step chain is in flight — never the epic one', async () => {
+        // Code review MAJ-1. A null step id means either "no step" or "not
+        // answered yet", and falling back to the epic href on the second renders
+        // a CLICKABLE whole-epic fit — exactly the defect this requirement
+        // removes. Reachable on the ordinary path: opening a sibling requirement
+        // re-renders rather than remounts, so the epic chain is a cache hit and
+        // answers on the first paint while the step chain re-queries.
+        //
+        // Held at the step-links hop, with the epic chain fully resolved, which
+        // is that race made deterministic.
+        let releaseOwn;
+        const held = new Promise((r) => { releaseOwn = r; });
+        requirementRow = baseRequirement({ feature_fk: 88 });
+        featureResponse = { status: 200, data: [{ id: 88, title: 'Cool Feature', epic_fk: 55 }] };
+        epicResponse = { status: 200, data: [{ id: 55, title: 'Big Epic' }] };
+        chain = {
+            features: { status: 200, data: [{ id: 88 }] },
+            requirements: { status: 200, data: [{ id: 101 }] },
+            stepLinks: { status: 200, data: [{ step_fk: 47 }] },
+            steps: { status: 200, data: [{ id: 47, pipeline_fk: 2 }] },
+            pipelines: { status: 200, data: [{ id: 2, pipeline_status: 'active' }] },
+            ownStepLinks: { status: 200, data: [{ step_fk: 47 }], hold: held },
+        };
+        mount();
+        await flush();
+
+        // The epic link itself is resolved and rendered — this is not "the page
+        // has not loaded", it is "one of the two answers is still coming".
+        expect(node('epic-linkage-link')).not.toBeNull();
+        expect(node('epic-linkage-plan-link'), 'no plan link mid-flight').toBeNull();
+
+        releaseOwn();
+        await flush();
+        expect(node('epic-linkage-plan-link').getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+    });
+
+    it('never pairs a step with a plan it is not on', async () => {
+        // The pipeline tie-break picks the ACTIVE plan; a step belonging to the
+        // loser must not ride along with the winner's id, or the link names a
+        // step the visualizer will correctly refuse to focus.
+        requirementRow = baseRequirement({ feature_fk: 88 });
+        featureResponse = { status: 200, data: [{ id: 88, title: 'Cool Feature', epic_fk: 55 }] };
+        epicResponse = { status: 200, data: [{ id: 55, title: 'Big Epic' }] };
+        chain = {
+            features: { status: 200, data: [{ id: 88 }] },
+            requirements: { status: 200, data: [{ id: 101 }] },
+            stepLinks: { status: 200, data: [{ step_fk: 47 }] },
+            steps: { status: 200, data: [{ id: 12, pipeline_fk: 9 }, { id: 47, pipeline_fk: 2 }] },
+            pipelines: { status: 200, data: [
+                { id: 2, pipeline_status: 'active' },
+                { id: 9, pipeline_status: 'draft' },
+            ] },
+            ownStepLinks: { status: 200, data: [{ step_fk: 12 }, { step_fk: 47 }] },
+        };
+        mount();
+        await flush();
+
+        // Plan 2 wins on `active`, so step 47 — the one that is ON plan 2 —
+        // is the link, never the numerically lower step 12 from plan 9.
+        expect(node('epic-linkage-plan-link').getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
     });
 
     it('omits the plan link — never a dead one — when the epic is in no pipeline', async () => {

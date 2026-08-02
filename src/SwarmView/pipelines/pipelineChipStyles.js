@@ -97,6 +97,53 @@ export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed',
 // the way. Excluding `paused` would hide a plan the instant someone pauses it.
 export const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 
+// ── THE CANVAS TOOLBAR'S ONE CONTROL VOCABULARY (req #3261, S6 + S7) ────────
+// The plan page's header row spoke SIX widget vocabularies — ToggleButtonGroup,
+// Button, the shared level control's chips, Chip, IconButton and Typography —
+// while the Build Visualizer expresses strictly MORE controls in one: a small
+// Chip, filled when on and outlined when off. That is the vocabulary this
+// returns, and it is the one `SemanticLevelControl` already speaks, so the row
+// reads as a single control set including the shared component it cannot change.
+//
+// ONE HELPER RATHER THAN A CONVENTION because S7 has two halves — the VARIANT a
+// sighted reader sees and the `aria-pressed` a screen reader hears — and every
+// control that shipped with only the first half (the Counts and Time/Tokens
+// toggles) is what P5 was filed about. Returning both together makes applying
+// one without the other take deliberate effort.
+//
+// `pressed: false` is for the controls that are NOT toggles: Reset performs an
+// action rather than holding a state, and the description button's fill reports
+// whether there is prose behind it, which is a property of the DATA and not of
+// the button. `aria-pressed` on either would tell a screen reader the control
+// has an on position it does not have.
+//
+// A FILLED CHIP MUST RE-ASSERT ITS FILL ON HOVER AND ON FOCUS, and this is the
+// whole reason the ON state is a constant rather than two lines at each call
+// site (req #3261 code review — measured, not inferred). MUI's `clickable` Chip
+// variant emits `&:hover { background-color: rgba(0,0,0,0.12) }` and
+// `&.Mui-focusVisible { … 0.2 }` into the SAME emotion class as the `sx`
+// declarations, and a pseudo-class selector is specificity (0,2,0) against the
+// bare declaration's (0,1,0) — so hover wins whatever the source order. A chip
+// styled `bgcolor: primary.main; color: primary.contrastText` therefore drops to
+// near-white-on-white the instant the pointer lands on it, and the reader loses
+// the ON state exactly while pointing at the control. `Button variant="contained"`
+// and `.cal-toggle-btn.Mui-selected`, which this vocabulary replaced, both carry
+// their own hover, so nothing about this was visible before.
+const TOOLBAR_CHIP_ON_SX = {
+    bgcolor: 'primary.main',
+    color: 'primary.contrastText',
+    '&:hover, &.Mui-focusVisible': { bgcolor: 'primary.dark' },
+};
+
+export const toolbarChipProps = (on, { pressed = true, sx } = {}) => ({
+    size: 'small',
+    ...(pressed ? { 'aria-pressed': on ? 'true' : 'false' } : {}),
+    ...(on ? {} : { variant: 'outlined' }),
+    // No `cursor: 'pointer'` — MUI's own `clickable` variant already emits it,
+    // and every caller of this helper passes an `onClick`.
+    sx: { ...(on ? TOOLBAR_CHIP_ON_SX : {}), ...sx },
+});
+
 export const pipelineStatusChipProps = (status) => {
     switch (status) {
         case 'draft':     return { sx: { bgcolor: '#546e7a', color: '#fff' } };

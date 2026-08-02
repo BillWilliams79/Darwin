@@ -8,10 +8,15 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    FOCUS_LEVEL_PARAM,
     FOCUS_STEP_PARAM,
+    STEP_PLAN_LINK_LEVEL,
     readFocusStepParam,
+    readLevelParam,
     stepLinkTo,
+    stepPlanLinkTo,
 } from '../pipelineStepLink';
+import { PLAN_LEVEL_BY_PREF } from '../pipelinePlanLayout';
 
 describe('stepLinkTo', () => {
     it('names the plan, the table mode and the step', () => {
@@ -73,5 +78,84 @@ describe('readFocusStepParam', () => {
     it('exports the key both halves agree on', () => {
         expect(FOCUS_STEP_PARAM).toBe('step');
         expect(stepLinkTo(1, 2)).toContain(`${FOCUS_STEP_PARAM}=2`);
+    });
+});
+
+// ── Req #3253 — the same step, seen on the PLAN ─────────────────────────────
+describe('stepPlanLinkTo', () => {
+    it('names the plan, the plan mode, the step and the level', () => {
+        expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+    });
+
+    it('is the SAME step parameter as the table link, not a third landing mode', () => {
+        const table = new URLSearchParams(stepLinkTo(2, 47).split('?')[1]);
+        const plan = new URLSearchParams(stepPlanLinkTo(2, 47).split('?')[1]);
+        expect(readFocusStepParam(plan)).toBe(readFocusStepParam(table));
+        expect(plan.get('mode')).toBe('plan');
+        expect(table.get('mode')).toBe('table');
+    });
+
+    it('applies the same id validation — a dead link is worse than no link', () => {
+        expect(stepPlanLinkTo(null, 47)).toBeNull();
+        expect(stepPlanLinkTo(2, null)).toBeNull();
+        expect(stepPlanLinkTo(2, '')).toBeNull();
+        expect(stepPlanLinkTo('abc', 47)).toBeNull();
+        expect(stepPlanLinkTo(2, 1.5)).toBeNull();
+    });
+
+    it('pins a level the canvas vocabulary actually defines', () => {
+        // The string is interpolated into the URL and read back through
+        // `isPlanLevelPref`; a value the map does not carry would round-trip to
+        // null and silently pin nothing.
+        expect(PLAN_LEVEL_BY_PREF[STEP_PLAN_LINK_LEVEL]).toBe('mid');
+    });
+});
+
+describe('readLevelParam', () => {
+    const params = (search) => new URLSearchParams(search);
+
+    it('reads the level a link names', () => {
+        expect(readLevelParam(params('mode=plan&level=2'))).toBe('2');
+        expect(readLevelParam(params('level=auto'))).toBe('auto');
+        expect(readLevelParam(params('level=1'))).toBe('1');
+        expect(readLevelParam(params('level=3'))).toBe('3');
+    });
+
+    it('is null — NOT auto — for anything outside the vocabulary', () => {
+        // 'auto' is a real pin: answering it here would DISCARD a reader's stored
+        // L3 on a typo. Null leaves the stored preference in charge, which is the
+        // rule `?mode=xyz` already follows.
+        expect(readLevelParam(params('mode=plan'))).toBeNull();
+        expect(readLevelParam(params('level='))).toBeNull();
+        expect(readLevelParam(params('level=9'))).toBeNull();
+        expect(readLevelParam(params('level=2.0'))).toBeNull();
+        expect(readLevelParam(params('level=mid'))).toBeNull();
+    });
+
+    it('rejects an inherited property name reached through the level map', () => {
+        // The value is address-bar text used as an object key. `isPlanLevelPref`
+        // is `Object.hasOwn`-based for exactly this.
+        expect(readLevelParam(params('level=constructor'))).toBeNull();
+        expect(readLevelParam(params('level=__proto__'))).toBeNull();
+        expect(readLevelParam(params('level=toString'))).toBeNull();
+    });
+
+    it('survives a caller with no search params at all', () => {
+        expect(readLevelParam(null)).toBeNull();
+        expect(readLevelParam(undefined)).toBeNull();
+        expect(readLevelParam({})).toBeNull();
+    });
+
+    it('round-trips what stepPlanLinkTo built', () => {
+        const to = stepPlanLinkTo(2, 47);
+        const search = new URLSearchParams(to.slice(to.indexOf('?')));
+        expect(readFocusStepParam(search)).toBe(47);
+        expect(readLevelParam(search)).toBe(STEP_PLAN_LINK_LEVEL);
+        expect(search.get('mode')).toBe('plan');
+    });
+
+    it('exports the key both halves agree on', () => {
+        expect(FOCUS_LEVEL_PARAM).toBe('level');
+        expect(stepPlanLinkTo(1, 2)).toContain(`${FOCUS_LEVEL_PARAM}=`);
     });
 });

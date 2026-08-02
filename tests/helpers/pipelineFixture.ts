@@ -571,9 +571,21 @@ export async function seedPipelineFixture(idToken: string,
             id: machineIdOf.get(m.id)!, title: `${stamp}-${m.title}`,
         }));
 
+        // `title` on each model's pipeline row (req #3261). It was missing, and
+        // PIPE-20 read it as `String(fixture.models.main.pipeline.title)` — which
+        // is the one wrapper that turns a missing field into a plausible-looking
+        // string, so the spec asserted `toContainText('undefined 37/54')` and
+        // FAILED on every run rather than reporting the gap. The value is the
+        // same expression the insert above uses; stating it twice is what a
+        // model built from literals costs, and the alternative (returning the
+        // inserted row) is a read per plan.
         const models = {
             main: {
-                pipeline: { id: mainPipelineId, pipeline_status: 'active' },
+                pipeline: {
+                    id: mainPipelineId,
+                    title: `${stamp} Substrate Rebuild Pipeline`,
+                    pipeline_status: 'active',
+                },
                 steps: seededSteps,
                 stepRequirements: seededStepRequirements,
                 stepDeps: seededStepDeps,
@@ -587,7 +599,11 @@ export async function seedPipelineFixture(idToken: string,
                 features, epics, machines,
             },
             batch: {
-                pipeline: { id: batchPipelineId, pipeline_status: 'active' },
+                pipeline: {
+                    id: batchPipelineId,
+                    title: `${stamp} Launch Batch Plan`,
+                    pipeline_status: 'active',
+                },
                 steps: batchSteps,
                 stepRequirements: batchLinks,
                 stepDeps: batchDeps,
@@ -595,7 +611,11 @@ export async function seedPipelineFixture(idToken: string,
                 features, epics, machines,
             },
             cycle: {
-                pipeline: { id: cyclePipelineId, pipeline_status: 'draft' },
+                pipeline: {
+                    id: cyclePipelineId,
+                    title: `${stamp} Corrupted Plan`,
+                    pipeline_status: 'draft',
+                },
                 steps: cycleSteps,
                 stepRequirements: [],
                 stepDeps: [

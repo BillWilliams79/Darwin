@@ -25,9 +25,13 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId }) {
+    const Panel = (name) => function ModeStub({ focusStepId, levelPref }) {
         return <div data-testid={`mode-${name}`}
-                    data-focus={focusStepId == null ? '' : String(focusStepId)} />;
+                    data-focus={focusStepId == null ? '' : String(focusStepId)}
+                    // Req #3253 — the level the panel is told to draw at. The
+                    // canvas is react-konva and cannot mount here, so the only
+                    // observable half of the `?level=` contract is the prop.
+                    data-level={levelPref == null ? '' : String(levelPref)} />;
     };
     const MODES = [
         { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
@@ -101,6 +105,7 @@ function mount(url) {
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const focusOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus');
+const levelOf = (name) => node(`mode-${name}`)?.getAttribute('data-level');
 const click = (el) => act(() => { el.click(); });
 
 // `useViewPreference` stores a RAW string and reads sessionStorage FIRST, falling
@@ -135,12 +140,23 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
         expect(focusOf('table')).toBe('47');
     });
 
-    it('forces the TABLE even when ?mode= names the visualizer', () => {
-        // Only the table consumes focusStepId. Honouring ?mode=plan here would
-        // land the reader on a plan with nothing highlighted and nothing to say why.
+    // REVERSED BY REQ #3253, deliberately. The old rule forced the table even on
+    // `?mode=plan&step=`, and its stated reason was that only the table consumed
+    // `focusStepId` — a plan landing would have highlighted nothing. The plan
+    // visualizer now consumes it (it centres and zooms on the bead), so the
+    // reason is gone and an explicit `?mode=plan` is honoured.
+    it('honours ?mode=plan when the link explicitly asks for it', () => {
         mount('/swarm/pipeline/2?mode=plan&step=47');
+        expect(node('mode-plan')).not.toBeNull();
+        expect(node('mode-table')).toBeNull();
+        expect(focusOf('plan')).toBe('47');
+    });
+
+    it('still defaults a bare ?step= to the TABLE', () => {
+        // The Steps editor's row link carries `mode=table` explicitly, but a
+        // hand-typed or truncated URL must not silently change surface.
+        mount('/swarm/pipeline/2?step=47');
         expect(node('mode-table')).not.toBeNull();
-        expect(node('mode-plan')).toBeNull();
         expect(focusOf('table')).toBe('47');
     });
 
@@ -192,5 +208,73 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
         click(node('pipeline-mode-plan'));
         click(node('pipeline-mode-table'));
         expect(focusOf('table')).toBe('');
+    });
+});
+
+// ── Req #3253 — `?level=`, the transient semantic-level pin ─────────────────
+// The requirement page's "view on plan" link lands on ONE STEP, and a one-step
+// fit sits well past `SEMANTIC_IN_MIN`, so the canvas would auto-derive L3 and
+// draw every requirement TITLE. The link pins L2 for that landing — and, like
+// every other parameter on this page, for that landing ONLY: the reader's stored
+// level is not rewritten and any manual pick ends the pin.
+const storeLevel = (value) => {
+    localStorage.setItem('darwin-pipeline-viz-level', value);
+    sessionStorage.setItem('darwin-pipeline-viz-level', value);
+};
+
+describe('PipelineDetail — ?level= (req #3253)', () => {
+    it('pins the level the link names', () => {
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+    });
+
+    it('wins over the reader\'s stored level for this landing', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+        // ...and never writes it. The stored value is what the reader gets back
+        // the next time they open a plan by any other route.
+        expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('3');
+    });
+
+    it('leaves the stored level in charge with no ?level=', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(levelOf('plan')).toBe('3');
+    });
+
+    it('ignores a value outside the vocabulary rather than pinning auto', () => {
+        // `normalizePlanLevelPref` would answer 'auto' for these, which would
+        // DISCARD the reader's stored L3. Falling through to null is the same
+        // rule `?mode=xyz` follows.
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan&level=9');
+        expect(levelOf('plan')).toBe('3');
+        mount('/swarm/pipeline/2?mode=plan&level=constructor');
+        expect(levelOf('plan')).toBe('3');
+        mount('/swarm/pipeline/2?mode=plan&level=');
+        expect(levelOf('plan')).toBe('3');
+    });
+
+    it('a manual LEVEL pick clears the link pin and persists the choice', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+        click(node('pipeline-viz-level-3'));
+        expect(levelOf('plan')).toBe('3');
+        expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('3');
+        // Re-render via an unrelated state change — the pin must not come back.
+        click(node('pipeline-description-btn'));
+        expect(levelOf('plan')).toBe('3');
+    });
+
+    it('a manual MODE pick clears the link pin too', () => {
+        storeLevel('auto');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+        click(node('pipeline-mode-table'));
+        click(node('pipeline-mode-plan'));
+        expect(levelOf('plan')).toBe('auto');
+        expect(focusOf('plan')).toBe('');
     });
 });

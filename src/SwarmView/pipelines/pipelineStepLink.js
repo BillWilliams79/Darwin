@@ -25,7 +25,71 @@
 // component file with non-component exports drops out of Fast Refresh (the
 // instructionSort.js lesson).
 
+// ONE import, and it is the level VOCABULARY (req #3253). `readLevelParam`
+// below validates address-bar text against the set of levels the canvas
+// actually defines, and a local copy of that set is the drift this file's whole
+// design exists to prevent — it owns both halves of a contract precisely so the
+// writer and the reader cannot disagree. The module's "no JSX, no React" rule is
+// unaffected: `pipelinePlanLayout` is pure arithmetic with one import of its
+// own (`pipelineModel`), so this file still runs under vitest with no DOM, which
+// its own test suite exercises.
+import { isPlanLevelPref } from './pipelinePlanLayout';
+
 export const FOCUS_STEP_PARAM = 'step';
+
+// ── The SAME step, seen on the PLAN instead of in the table (req #3253) ──────
+// The requirement page's "view on plan" link used to name the whole EPIC, and
+// `?epic=` fits the entire band — which on a large epic IS a zoomed-out view.
+// The link means "show me where this requirement lives", so it names the STEP.
+//
+// A step is a bead as well as a row, so this is the SAME `?step=` parameter with
+// `mode=plan` instead of `mode=table` — deliberately not a third landing mode.
+// Both panels now consume `focusStepId`: the table scrolls to and highlights the
+// row, the visualizer centres and zooms the camera on the bead.
+export const FOCUS_LEVEL_PARAM = 'level';
+// L2 — `PLAN_LEVEL_BY_PREF['2'] === 'mid'`. Written as the PREF value the page
+// already speaks rather than the canvas's 'mid', because that is what the
+// receiving `levelPref` state holds and what `normalizePlanLevelPref` validates.
+// A step fit lands well past `SEMANTIC_IN_MIN`, so without the pin the canvas
+// would auto-derive L3 and draw every requirement TITLE — an unreadable wall of
+// prose at the exact moment the reader wanted to find one bead.
+export const STEP_PLAN_LINK_LEVEL = '2';
+
+/**
+ * The route a step's location ON THE PLAN links to (req #3253).
+ *
+ * Same validation and same null-rather-than-a-dead-link rule as `stepLinkTo`;
+ * the only differences are the mode and the pinned level.
+ *
+ * @param {?number} pipelineId
+ * @param {?number} stepId
+ * @returns {?string}
+ */
+export function stepPlanLinkTo(pipelineId, stepId) {
+    const pid = toId(pipelineId);
+    const sid = toId(stepId);
+    if (pid == null || sid == null) return null;
+    return `/swarm/pipeline/${pid}?mode=plan&${FOCUS_STEP_PARAM}=${sid}`
+        + `&${FOCUS_LEVEL_PARAM}=${STEP_PLAN_LINK_LEVEL}`;
+}
+
+/**
+ * The semantic-level preference a `?level=` parameter names, or null.
+ *
+ * VALIDATED against the level vocabulary itself, never trusted — and null on
+ * anything unrecognised rather than `normalizePlanLevelPref`'s 'auto', because
+ * the two answers differ: 'auto' would PIN the reader to auto and silently
+ * discard the level they have stored, while null leaves their stored preference
+ * in charge. That is the same rule `?mode=xyz` already follows.
+ *
+ * @param {{get: function(string): ?string}} searchParams
+ * @returns {?string} 'auto' | '1' | '2' | '3'
+ */
+export function readLevelParam(searchParams) {
+    const raw = searchParams && typeof searchParams.get === 'function'
+        ? searchParams.get(FOCUS_LEVEL_PARAM) : null;
+    return isPlanLevelPref(raw) ? String(raw) : null;
+}
 
 /**
  * The route a step row links to.

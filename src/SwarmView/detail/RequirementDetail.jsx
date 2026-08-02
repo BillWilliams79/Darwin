@@ -5,7 +5,9 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
 import { useAllCategories, useMachines, useFeatureById, useEpicById } from '../../hooks/useDataQueries';
 import { useEpicPipelineLocation } from './useEpicPipelineLocation';
+import { useRequirementStepLocation } from './useRequirementStepLocation';
 import { epicLinkTo } from '../pipelines/pipelineEpicLink';
+import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 import { siblingActiveSort } from './requirementSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../../utils/requirementStatusTimestamps';
@@ -268,7 +270,50 @@ const RequirementDetail = () => {
     // but `to={null}` handed straight to react-router's RouterLink throws at
     // render instead. Mirrors `StepsPage.jsx`'s `const to = stepLinkTo(...)`
     // guard for the sibling module.
-    const epicPlanLinkTo = linkedEpic ? epicLinkTo(epicPipelineId, linkedEpic.id) : null;
+    // ── Req #3253 — the link lands on THIS REQUIREMENT'S STEP, not its epic ──
+    // `?epic=` fits the WHOLE band, and on a large epic (Pipeline on plan 2 spans
+    // most of the plan) fitting the entire epic IS a zoomed-out view. The link
+    // means "show me where this requirement lives", so it names the step.
+    //
+    // The epic chain above still runs, and is still the answer when NO step
+    // carries this requirement — that is the one case an epic fit is right for,
+    // and it is left byte-identical to what req #3235 shipped.
+    //
+    // WHY IT LIVES IN THE EPIC BOX. This is req #3235's control, re-pointed —
+    // the epic fieldset is its home and the requirement describes it there. A
+    // requirement on a step but under NO epic therefore still shows no plan link
+    // (the box renders "No epic" and nothing else), which is the box's existing
+    // contract rather than something this change decides.
+    const { stepId: planStepId, pipelineId: stepPipelineId,
+        isSettled: stepLocSettled } =
+        useRequirementStepLocation(profile?.userName, id);
+    // Hoisted, and null-guarded the same way `epicLinkTo`'s result is: both
+    // builders return null for an unusable id and `to={null}` handed to
+    // react-router's Link throws at render.
+    const stepPlanLink = planStepId != null
+        ? stepPlanLinkTo(stepPipelineId, planStepId) : null;
+    // ── THE FALLBACK WAITS FOR AN ANSWER (code review MAJ-1) ────────────────
+    // A null `stepPlanLink` means EITHER "no step carries this requirement" OR
+    // "the step chain has not answered yet", and only the first of those is a
+    // reason to fall back. Falling back on the second renders the epic href —
+    // and lets the reader click it — for the round trip or two the chain takes,
+    // landing them on exactly the whole-epic fit this requirement removes.
+    //
+    // Reachable on the ORDINARY path, not a cold load: opening a sibling
+    // requirement from the list on this page re-renders rather than remounts, so
+    // every hop of the epic chain is a cache hit and answers on the first paint
+    // while the step chain re-queries from scratch.
+    //
+    // Showing NO link for that window is the right trade — the epic box already
+    // omits this link rather than rendering a dead one, so an absent link is a
+    // state the reader has seen, and a wrong destination is not.
+    const epicPlanLinkTo = stepPlanLink
+        || (stepLocSettled && linkedEpic ? epicLinkTo(epicPipelineId, linkedEpic.id) : null);
+    // WHICH of the two the reader is about to follow. The label and the icon are
+    // shared — it is one control that goes to one plan — but the tooltip and the
+    // accessible name must not claim to show the epic's location when the camera
+    // is about to land on one step of it (and vice versa).
+    const planLinkIsStep = stepPlanLink != null;
 
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
@@ -921,17 +966,31 @@ const RequirementDetail = () => {
                                 )}
                                 {/* Req #3235 — omitted, not a dead link, when the epic is in no
                                     pipeline (epicPlanLinkTo stays null) or the lookup is still
-                                    resolving. A dead link is worse than an absent one. */}
+                                    resolving. A dead link is worse than an absent one.
+
+                                    Req #3253 — the same control, now pointed at this
+                                    REQUIREMENT'S step whenever one carries it. Same
+                                    icon and same label: it is one control going to
+                                    one plan, and a reader picking between "epic" and
+                                    "step" wording would be picking between two things
+                                    that are not on offer. What DOES change is the
+                                    tooltip and the accessible name, which must not
+                                    claim the camera is about to fit the epic when it
+                                    is about to land on one step of it. */}
                                 {epicPlanLinkTo != null && (
                                     <Stack direction="row" spacing={0.5} alignItems="center">
-                                        <Tooltip title="View this epic's location on the plan visualizer">
+                                        <Tooltip title={planLinkIsStep
+                                            ? "View this requirement's step on the plan visualizer"
+                                            : "View this epic's location on the plan visualizer"}>
                                             <LanIcon fontSize="small" sx={{ color: 'text.secondary' }} />
                                         </Tooltip>
                                         <Typography
                                             component={RouterLink}
                                             to={epicPlanLinkTo}
                                             variant="body2"
-                                            aria-label={`View epic ${linkedEpic.title} on the plan visualizer`}
+                                            aria-label={planLinkIsStep
+                                                ? `View this requirement's step on the plan visualizer`
+                                                : `View epic ${linkedEpic.title} on the plan visualizer`}
                                             sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
                                             data-testid="epic-linkage-plan-link"
                                         >

@@ -3402,7 +3402,95 @@ export function bandFitRect(layout, band) {
  *   sensible to fit (no viewport yet, no columns, degenerate band).
  */
 export function epicFocusTransform(layout, band, size, kBase) {
-    const rect = bandFitRect(layout, band);
+    return fitTransform(bandFitRect(layout, band), size, kBase);
+}
+
+/**
+ * The world-space rectangle ONE STEP occupies (req #3253).
+ *
+ * Exactly `bandFitRect`'s union, narrowed from a band's steps to one:
+ *   - the column that step sits in, and the bead drawn in it, and
+ *   - every label belonging to it — the step's own title, its requirement marks,
+ *     and the reserved title slot, all of which carry `stepId`.
+ *
+ * The second term is what makes the rect right rather than merely centred. A
+ * step's requirement marks stack BELOW its bead (`n.y + 14 + i * REQ_LINE_H`)
+ * and its title sits ABOVE it, so a fit to the bead alone would centre the bead
+ * and push the requirement ids — the thing the reader followed the link to see —
+ * off the bottom of a tight viewport. The band case fits vertically to
+ * `band.height`, which already contains all of that; a single step has no such
+ * precomputed extent and has to take the union itself.
+ *
+ * The COLUMN is included for the same reason it is in `bandFitRect`: it keeps a
+ * step whose label happens to be short from being magnified past its neighbours
+ * into a view with no context. The `FOCUS_MAX_RATIO` clamp handles the rest.
+ *
+ * THE BATCH BOX IS OMITTED, and NOT for `bandFitRect`'s reason (code review).
+ * That one argues the box can never exceed the column extent, which is a
+ * HORIZONTAL argument resting on a band's vertical fit already being
+ * `band.height`; a single step has no such precomputed extent. It is omitted
+ * because a batch box spans every step in its segment, and fitting one step to
+ * a rectangle drawn around its SIBLINGS is the zoomed-out view this function
+ * exists to replace. So the box may legitimately clip top and bottom — the
+ * reader asked for one step, and its own bead, label and requirement marks are
+ * all inside the rect.
+ *
+ * @returns {{x:number,y:number,w:number,h:number}|null} null when the step is
+ *   not placed on this layout — the caller must not fit.
+ */
+export function stepFitRect(layout, stepId) {
+    if (!layout || !layout.nodes || !Array.isArray(layout.colX)) return null;
+    const n = layout.nodes.get(stepId);
+    if (!n || !Number.isFinite(n.depth) || !Number.isFinite(n.x) || !Number.isFinite(n.y)) {
+        return null;
+    }
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    const span = (x0, x1, y0, y1) => {
+        if (!Number.isFinite(x0) || !Number.isFinite(x1)
+            || !Number.isFinite(y0) || !Number.isFinite(y1)) return;
+        if (x0 < left) left = x0;
+        if (x1 > right) right = x1;
+        if (y0 < top) top = y0;
+        if (y1 > bottom) bottom = y1;
+    };
+    const colW = layout.colW?.[n.depth];
+    if (Number.isFinite(layout.colX[n.depth]) && Number.isFinite(colW)) {
+        span(layout.colX[n.depth] - colW / 2, layout.colX[n.depth] + colW / 2,
+             n.y - BEAD_R, n.y + BEAD_R);
+    }
+    span(n.x - BEAD_R, n.x + BEAD_R, n.y - BEAD_R, n.y + BEAD_R);
+    for (const l of (layout.labels || [])) {
+        if (l.stepId !== stepId) continue;
+        span(l.x, l.x + (l.w || 0), l.y, l.y + (l.h || 0));
+    }
+    if (!(right > left) || !(bottom > top)) return null;
+    return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/**
+ * The {x, y, k} that centres ONE STEP in the viewport (req #3253).
+ *
+ * The receiving end of the requirement page's "view on plan" link. Shares
+ * `epicFocusTransform`'s arithmetic verbatim — including the scale clamp, which
+ * is load-bearing rather than defensive: `zoom.transform` applies what it is
+ * given without calling `constrain`, so a k outside the behaviour's own
+ * `scaleExtent` would look correct until the reader's first wheel event snapped
+ * it back. A second copy of that clamp that "only had to agree" is the desync
+ * this file has already taken two review findings on, so there is one.
+ *
+ * @returns {{x:number,y:number,k:number}|null} null when the step is not on this
+ *   layout, or there is no viewport yet.
+ */
+export function stepFocusTransform(layout, stepId, size, kBase) {
+    return fitTransform(stepFitRect(layout, stepId), size, kBase);
+}
+
+// The centring itself, shared by both focus targets (extracted req #3253).
+// A rect, a viewport and the base scale in; the transform d3-zoom is handed out.
+function fitTransform(rect, size, kBase) {
     if (!rect) return null;
     const w = size?.w || 0;
     const h = size?.h || 0;
