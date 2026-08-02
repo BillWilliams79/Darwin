@@ -185,6 +185,24 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // 'none'). Pinned to the default so PIPE-15's gesture starts from a
             // known position and no other test inherits a previous one.
             set('darwin-pipeline-viz-color-key', 'state');
+            // Req #3252 — THE CAMERA IS NOW PART OF THE PINNED STATE. The
+            // visualizer remembers its pan and zoom per tab, so a `goto` no
+            // longer implies the default view: PIPE-14 pans, wheel-zooms and
+            // focuses a band before re-opening the plan, and would then look for
+            // an epic chip that its own earlier gesture had carried off screen.
+            // Every `goto` in this suite starts from the readable default, which
+            // is what these tests have always assumed.
+            //
+            // Cleared by PREFIX rather than by key, because the key carries a
+            // pipeline id and the fixture's ids are allocated at seed time.
+            //
+            // This runs on every NAVIGATION, i.e. on every new document — so a
+            // test that needs the camera to SURVIVE (PIPE-21) must travel by
+            // in-app routing, which creates no new document and therefore does
+            // not re-run this. That is also the journey the user actually makes.
+            for (const k of Object.keys(sessionStorage)) {
+                if (k.startsWith('darwin-viewport-')) sessionStorage.removeItem(k);
+            }
         }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
@@ -1956,5 +1974,144 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // makes the chip two controls rather than one ambiguous one.
             await expect(page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`))
                 .toHaveAttribute('title', `Open “${epicText}” in the features view`);
+        });
+
+    // ── PIPE-21: the visualizer maintains the last viewport (req #3252) ─────
+    //
+    // The user's report: "there are multiple occasions when I am returning back
+    // to the visualizer ... it will not recall my view port. so have the ability
+    // to return to just that view port for all occasion not just the three i
+    // mentioned."
+    //
+    // TRAVELS BY IN-APP ROUTING ONLY, never `page.goto`. Two reasons and both
+    // matter: that is the journey the user actually makes, and `pinPreferences`
+    // clears the saved camera on every new document (see its comment), so a
+    // `goto` here would be testing the pin rather than the feature.
+    test('PIPE-21: the camera survives leaving the visualizer and coming back',
+        async ({ page }) => {
+            const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            const read = async () =>
+                (await container.getAttribute('data-transform'))!.split(',').map(Number);
+
+            const opened = await read();
+
+            // Pan somewhere distinctive. `data-transform` is the component's own
+            // published camera, so the assertion never has to infer one.
+            const box = (await canvas.boundingBox())!;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            await page.mouse.move(cx, cy);
+            await page.mouse.down();
+            await page.mouse.move(cx - 140, cy - 70, { steps: 12 });
+            await page.mouse.up();
+            // Polled on the DISTANCE, not on `not.toHaveAttribute(opened)`:
+            // `read()` maps through Number, so the published "0.00,-12.50,0.8000"
+            // round-trips to "0,-12.5,0.8" — a string the component's own
+            // toFixed(2)/toFixed(4) can never emit, making that comparison
+            // vacuously true and the wait no wait at all (review finding).
+            await expect.poll(async () => {
+                const [x, y] = await read();
+                return Math.hypot(x - opened[0], y - opened[1]);
+            }, { timeout: 10000 }).toBeGreaterThan(50);
+            const panned = await read();
+
+            /** Every camera number back where it was left. */
+            const expectRestored = async (what: string) => {
+                await expect(container).toBeVisible({ timeout: 15000 });
+                await expect.poll(async () => (await read())[2], { timeout: 10000 })
+                    .toBeCloseTo(panned[2], 3);
+                const [x, y] = await read();
+                expect(x, `${what}: x`).toBeCloseTo(panned[0], 0);
+                expect(y, `${what}: y`).toBeCloseTo(panned[1], 0);
+            };
+
+            // ── Occasion 1: the mode toggle. A return with NO navigation at
+            // all — the visualizer unmounts inside one route, which is why no
+            // per-call-site patch could ever have covered it.
+            await page.getByTestId('pipeline-mode-table').click();
+            await expect(page.getByTestId('pipeline-plan-table')).toBeVisible();
+            await page.getByTestId('pipeline-mode-plan').click();
+            await expectRestored('mode toggle');
+
+            // ── Occasion 2: out to a requirement and back through the page's
+            // own "Back to Plan" control. This is the case the user named first,
+            // and it needs BOTH halves: the camera, and landing on the Plan
+            // panel at all (req #3252 carries `mode` in the router state — the
+            // stored preference here is `plan`, but a reader who arrived by
+            // `?mode=plan` link would previously have been returned to the Table
+            // and never seen the restored camera).
+            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+                { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
+            // The label to click is chosen by WHERE IT NOW IS, not by being
+            // first in the list. The camera has been panned by (-140, -70), and
+            // the first `kind === 'req'` label sits near the world's left edge —
+            // so the naive choice can land outside the canvas entirely and the
+            // click hits nothing (review finding). Pick one comfortably inside
+            // the panned viewport.
+            // The predicate must clear the CHROME, not just the panel edges: a
+            // click that lands on the floating key or an epic chip is swallowed
+            // by the visualizer's own CHROME_SELECTOR guard and resolves against
+            // no bead at all, so the navigation simply never happens and the
+            // wait below times out with nothing to explain it. The key is up to
+            // PLAN_KEY_MAX_W (470px) wide in the TOP-RIGHT corner and is open by
+            // default; the epic chips clamp to the top of the viewport.
+            const [tx, ty, k] = panned;
+            const M = 24;             // panel edges
+            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, top-right
+            const CHIP_H = 100;       // the clamped epic-chip strip along the top
+            const reqLabel = (layout.labels as Array<
+                { kind: string; x: number; y: number; reqId: number }>).find((l) => {
+                    if (l.kind !== 'req') return false;
+                    const sx = tx + (l.x + 3) * k;
+                    const sy = ty + (l.y + 3) * k;
+                    if (sx <= M || sx >= box.width - M) return false;
+                    if (sy <= CHIP_H || sy >= box.height - M) return false;
+                    // Anything in the top-right rectangle belongs to the key.
+                    return !(sx > box.width - KEY_W && sy < 260);
+                })!;
+            expect(reqLabel,
+                'a requirement label is on screen at the panned camera').toBeTruthy();
+            await page.mouse.click(box.x + tx + (reqLabel.x + 3) * k,
+                box.y + ty + (reqLabel.y + 3) * k);
+            await expect(page).toHaveURL(
+                new RegExp(`/swarm/requirement/${reqLabel.reqId}$`), { timeout: 15000 });
+
+            await page.getByTestId('btn-back-to-swarm').click();
+            await expect(page).toHaveURL(/\/swarm\/pipeline\/\d+(\?mode=plan)?$/,
+                { timeout: 15000 });
+            await expectRestored('back from a requirement');
+
+            // ── Occasion 3: browser Back, from the epic chip's ↗ navigation.
+            // A different exit and a different way home, restoring the same way.
+            const epicBand = layout.bands.find(
+                (b: { epicId: number | null }) => b.epicId != null) as { epicId: number };
+            expect(epicBand, 'the plan renders epic bands').toBeTruthy();
+            await page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`).click();
+            await expect(page).toHaveURL(
+                new RegExp(`/swarm/features\\?epic=${epicBand.epicId}$`), { timeout: 15000 });
+            await page.goBack();
+            await expectRestored('browser Back');
+
+            // ── And Reset still resets, and STICKS. The camera memory must not
+            // turn the header's Reset into a control that is undone by the next
+            // navigation — it is an explicit, in-the-moment instruction, so it
+            // overwrites what was remembered.
+            await page.getByTestId('pipeline-viz-reset').click();
+            await expect.poll(async () => (await read())[0], { timeout: 10000 })
+                .not.toBeCloseTo(panned[0], 0);
+            const afterReset = await read();
+            await page.getByTestId('pipeline-mode-table').click();
+            await expect(page.getByTestId('pipeline-plan-table')).toBeVisible();
+            await page.getByTestId('pipeline-mode-plan').click();
+            await expect(container).toBeVisible({ timeout: 15000 });
+            await expect.poll(async () => (await read())[0], { timeout: 10000 })
+                .toBeCloseTo(afterReset[0], 0);
+            const [rx, ry, rk] = await read();
+            expect(ry, 'Reset survives the round trip: y').toBeCloseTo(afterReset[1], 0);
+            expect(rk, 'Reset survives the round trip: k').toBeCloseTo(afterReset[2], 3);
+            expect(Math.hypot(rx - panned[0], ry - panned[1]),
+                'and it is the reset view, not the pan that preceded it')
+                .toBeGreaterThan(1);
         });
 });

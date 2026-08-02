@@ -109,7 +109,7 @@ import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips, collectWorldObstacles,
-    epicFocusTransform, factoryDefaultScale,
+    epicFocusTransform, factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
@@ -118,6 +118,8 @@ import {
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor,
 } from './pipelinePlanLayout';
+import { useSavedViewport } from '../../hooks/useSavedViewport';
+import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
@@ -395,6 +397,68 @@ export default function PipelinePlanVisualizer({
     const [transform, setTransform] = useState(null);
     const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'batch', ...}
 
+    // ── The camera survives leaving the page (req #3252) ────────────────────
+    // `transform` above is component state, and EVERY way of leaving this panel
+    // unmounts the component: a requirement label, an epic chip's ↗, the
+    // breadcrumb, a bead click (which switches the page to Table mode — a return
+    // with no navigation at all), browser Back, a reload. The comment on the
+    // requirement label below used to end "only pan/zoom re-fits"; this is that
+    // sentence being retired.
+    //
+    // There is deliberately NO LIST OF RETURN PATHS anywhere in this file. The
+    // camera is written down whenever it moves and read back when the canvas
+    // lands, so a link added tomorrow is covered without being enumerated today
+    // — the user's ask was "all occasions, not just the three I mentioned".
+    //
+    // KEYED ON THE PLAN: two plans open in one tab keep their own camera, and
+    // `pipeline?.id` being absent disables persistence rather than letting an
+    // unidentified canvas read another one's position.
+    const viewportKey = pipeline?.id != null
+        ? viewportStorageKey('pipeline-plan', pipeline.id) : null;
+    // SIGNATURE is the world the camera was taken over, DERIVED from the layout
+    // rather than enumerated from the inputs that produce it. `computePlanLayout`
+    // takes eight options and reads the whole plan; listing the ones that move
+    // geometry is a list that goes stale the first time a ninth is added, while
+    // the layout's own dimensions cannot. A wider column, a step added by a
+    // background refetch, a band gained — all move these three numbers, and a
+    // restore whose signature disagrees is refused (see useSavedViewport).
+    //
+    // `colorKey` is deliberately absent: it repaints fills and moves nothing, so
+    // it must NOT invalidate a camera.
+    const viewportFingerprint = `${Math.round(layout.width)}x${Math.round(layout.height)}`
+        + `:${rows.length}:${layout.bands.length}`;
+    const viewport = useSavedViewport(viewportKey, viewportFingerprint);
+    // The live camera, mirrored out of the d3-zoom 'zoom' handler so the commit
+    // on unmount has something to write. A ref, not state: this is read only by
+    // effects and costs one assignment per pointermove.
+    const liveTransformRef = useRef(null);
+    // Raised for the duration of a `?epic=` deep-link focus so that ONE camera
+    // move does not persist (req #3252). Everything else does — a drag, a wheel,
+    // Reset, a band-header click, the landing view — because those are the reader
+    // moving the camera. A deep link is an EXTERNAL condition, and this page's
+    // standing doctrine for `?mode=`/`?step=`/`?epic=` is that a link asks to see
+    // one thing ONCE and must never rewrite what the reader chose (PipelineDetail's
+    // transient-override comment). A saved viewport IS what the reader chose here,
+    // so the link is shown and the stored camera is left alone; the reader's very
+    // next gesture saves normally.
+    //
+    // Suppress the ONE exception rather than tagging the several rules: the
+    // default is persist, so a flag that leaked would save an epic-focus camera
+    // (harmless) and can never lose one.
+    const suppressSaveRef = useRef(false);
+    // Has the reader CHOSEN where to look this mount? Guards the `?epic=`
+    // re-focus below — see it for why (req #3252 review).
+    //
+    // Three things set it, and they are exactly the three that also persist:
+    // a d3 gesture (drag or wheel), the header's Reset, and a band-header or
+    // sticky-chip focus click. The last two are the ones a `sourceEvent` test
+    // alone MISSES — both reach the camera through `zoom.transform`, which
+    // carries no source event, so watching gestures only would let a window
+    // resize yank a reader who had explicitly clicked Reset (or another band)
+    // straight back onto the linked epic. `persist` is the same predicate in
+    // both places for the same reason: it means "the reader asked for this".
+    const userMovedCameraRef = useRef(false);
+
     useLayoutEffect(() => {
         if (!containerEl) return undefined;
         const ro = new ResizeObserver((entries) => {
@@ -536,13 +600,20 @@ export default function PipelinePlanVisualizer({
         // panel. Without it the bound would force a re-centre on the very first
         // transform, moving the world frame that the E2E click maths reads as
         // `screen = world × k + t`.
+        //
+        // THE ARITHMETIC MOVED to `clampPlanTransform` in pipelinePlanLayout.js
+        // (req #3252) and this reads it. It was a closure here while the zoom
+        // behavior was the only thing that could produce a transform; a viewport
+        // RESTORED from storage is a second producer, it arrives through
+        // `zoom.transform` (which constrains nothing — see the `scaleExtent`
+        // comment below), and two copies of a bound that "only have to agree" is
+        // the desync class this file has already taken two review findings on.
+        // Passing `t.k` for both scale bounds clamps the translation only, which
+        // is all `constrain` wants: d3 has applied `scaleExtent` before calling it.
         const bound = (t) => {
-            const loX = Math.min(0, size.w / 2 - t.k * layout.width);
-            const loY = Math.min(0, size.h / 2 - t.k * layout.height);
-            const x = Math.min(Math.max(t.x, loX), Math.max(0, size.w / 2));
-            const y = Math.min(Math.max(t.y, loY), Math.max(0, size.h / 2));
-            return (x === t.x && y === t.y) ? t : t.translate((x - t.x) / t.k,
-                (y - t.y) / t.k);
+            const c = clampPlanTransform(t, size, layout, t.k, t.k);
+            return (c.x === t.x && c.y === t.y) ? t : t.translate((c.x - t.x) / t.k,
+                (c.y - t.y) / t.k);
         };
         const zb = d3zoom()
             // The SAME pair the epic-focus clamp reads (req #3204). They have to
@@ -578,6 +649,16 @@ export default function PipelinePlanVisualizer({
             .on('zoom', (ev) => {
                 const tr = ev.transform;
                 setTransform({ x: tr.x, y: tr.y, k: tr.k });
+                // req #3252 — one ref assignment per pointermove, no render and
+                // no write. The write happens once, on 'end' below.
+                liveTransformRef.current = { x: tr.x, y: tr.y, k: tr.k };
+                if (!suppressSaveRef.current) viewport.record(liveTransformRef.current);
+                // `sourceEvent` is non-null only for a USER gesture — a drag or
+                // a wheel — and null for every programmatic transform. Once the
+                // reader has moved the camera themselves, the `?epic=` deep link
+                // has been answered and must never move it again (req #3252
+                // review). See that effect for what this stops.
+                if (ev.sourceEvent) userMovedCameraRef.current = true;
                 // The world slides under a stationary datacard, which would
                 // then caption whatever bead ends up beneath it — dismiss.
                 setCard(null);
@@ -589,6 +670,13 @@ export default function PipelinePlanVisualizer({
                 if (c) c.style.cursor = 'grabbing';
             })
             .on('end', () => {
+                // req #3252 — BEFORE the cursor guard, deliberately. d3 emits
+                // 'end' exactly once per gesture: a drag, a wheel's settle
+                // timeout, a transition, or a programmatic `zoom.transform`. Only
+                // the first of those sets `draggingRef`, so committing after the
+                // guard below would persist drags and silently drop every wheel
+                // zoom, every Reset and every band-header fit.
+                viewport.commit();
                 if (!draggingRef.current) return;
                 draggingRef.current = false;
                 const c = stageRef.current?.container();
@@ -608,7 +696,8 @@ export default function PipelinePlanVisualizer({
             // page to Table mode, which unmounts this component.
             sel.interrupt();
         };
-    }, [containerEl, size.w, size.h, kFit, kDefault, kZoomFloor, layout.width, layout.height]);
+    }, [containerEl, size.w, size.h, kFit, kDefault, kZoomFloor, layout.width, layout.height,
+        viewport]);
 
     // ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────
     // Deliberately NOT `kDefault` above — see `factoryDefaultScale`'s own
@@ -648,12 +737,126 @@ export default function PipelinePlanVisualizer({
         const k = recenterModeRef.current === 'factory' ? kFactoryDefault : kDefault;
         select(el).call(zb.transform, zoomIdentity.scale(k));
     }, [containerEl, size.w, kDefault, kFactoryDefault]);
+    // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
+    // What this canvas shows when it arrives at a given world. Two answers, in
+    // order: the camera the reader left on this plan under THIS geometry, or —
+    // failing that, and it is the first visit or the geometry moved — the base
+    // view `resetView` computes, byte-identical to what this effect did before.
+    //
+    // THE RESTORE SUBSTITUTES FOR resetView, IT DOES NOT RACE IT. Same code
+    // path, same `zb.transform`, one of them runs. `resetView` itself is left
+    // alone and still means "the base view", which is what keeps the header's
+    // Reset honest: if the read lived inside `resetView`, a Reset click would
+    // read back the pan it was asked to discard and do nothing.
+    //
+    // ── WHEN IT LANDS: on a RESCALE, never on a mere resize or growth ───────
+    // `landKey` is the plan plus the world's WIDTH, because width is what
+    // rescales the columns: it drives `kFit` → `kDefault`, and after it moves a
+    // remembered pan points at unrelated content. That is exactly the set the
+    // effect this replaced re-fitted on (through `resetView`'s own identity),
+    // so a layout toggle re-lands as it always did.
+    //
+    // Three things must NOT re-land, and each was a measured defect:
+    //   · A RESIZE. That is the difference between "maintains last viewport" and
+    //     the contract this requirement retires — and the panel is sized TWICE
+    //     at mount (the `calc(100vh - 260px)` fallback, then `measureAvailH`),
+    //     so keying on size discarded a camera set milliseconds earlier.
+    //   · A WORLD THAT GREW BUT WAS NOT RESCALED — a background refetch adding a
+    //     step to an existing column moves `layout.height` and `rows.length`
+    //     while every column stays put. Keying the landing on the full
+    //     fingerprint snapped the reader home mid-read for a plan they could
+    //     still perfectly well see (review finding).
+    //   · THE PLAN ID ALONE. `landKey` carries `viewportKey`, so an in-place
+    //     switch between two plans of coincidentally identical width still
+    //     lands — `PipelineDetail` renders this component with no `key` and
+    //     survives a `pipelineId` change without remounting (review finding).
+    //
+    // The readiness guard does NOT consume the mark: with no container, no
+    // behaviour or no measured width there is nothing to apply a transform to,
+    // and marking that as "landed" would strand the canvas at the identity
+    // transform forever. `focusEpic`'s own retry contract, for the same reason.
+    const landKey = `${viewportKey}|${Math.round(layout.width)}`;
+    const landedKeyRef = useRef(null);
+    const committedFingerprintRef = useRef(null);
     useEffect(() => {
-        resetView();
-    }, [resetView, size.h, reqLayout, stepLabel, stepWidth, reqLabel]);
+        const el = containerEl;
+        const zb = zoomRef.current;
+        if (!el || zb == null || size.w === 0) return;
+        const kMax = kDefault * ZOOM_MAX_RATIO;
+        // CLAMPED BEFORE IT IS APPLIED, k first and then the translation — the
+        // pan bound is computed FROM k, so clamping position first would
+        // immediately re-invalidate it. `zoom.transform` runs neither
+        // `constrain` nor `scaleExtent` (it applies what it is given verbatim).
+        const apply = (t) => {
+            const c = clampPlanTransform(t, size, layout, kZoomFloor, kMax);
+            // THROUGH THE BEHAVIOUR, never `setTransform`. Writing state alone
+            // leaves d3's own `__zoom` stale and the next wheel or drag snaps
+            // back — the integration bug this file warns about twice.
+            select(el).call(zb.transform,
+                zoomIdentity.translate(c.x, c.y).scale(c.k));
+        };
+
+        if (landedKeyRef.current !== landKey) {
+            landedKeyRef.current = landKey;
+            committedFingerprintRef.current = viewportFingerprint;
+            const saved = viewport.read();
+            // Clamp rather than refuse: a clamped camera is still near where the
+            // reader was, which is the whole ask. Refusing is reserved for one
+            // that cannot be trusted at all — a fingerprint mismatch or a
+            // non-finite number — and `viewport.read()` has already done that.
+            if (saved) apply(saved);
+            else resetView();
+            return;
+        }
+
+        // ── Already landed on this world. Two housekeeping jobs, and NEITHER
+        // may move the camera the reader chose.
+        const live = liveTransformRef.current;
+        if (!live) return;
+
+        // (a) THE EXTENT MOVES WITH THE PANEL. Both ends are proportional to
+        // `size.w` (`kFit` → `kDefault` → `kZoomFloor` and `kDefault * MAX`), so
+        // narrowing the window can leave a perfectly good camera above the
+        // ceiling. Nothing else re-clamps it — `constrain` only ever fixes
+        // translation and `scaleExtent` is consulted only by a wheel — so it
+        // would sit there looking correct until the reader's first scroll
+        // snapped it (review finding). Re-clamp ONLY when it is actually out of
+        // range, so a resize is otherwise a no-op on the camera.
+        const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
+        if (c.k !== live.k || c.x !== live.x || c.y !== live.y) {
+            apply(live);
+            return;
+        }
+
+        // (b) THE WORLD GREW UNDER A CAMERA THAT IS STILL CORRECT. Re-stamp the
+        // stored record with the new fingerprint, or the reader's position would
+        // be refused on their next return for a change they never made and could
+        // not see. Costs one write per geometry change, never per render.
+        //
+        // WRITTEN DIRECTLY, not through `record`/`commit` (review finding). The
+        // hook stamps from a ref it assigns during RENDER, while this branch
+        // DECIDES from the effect closure's `viewportFingerprint` — and React
+        // only guarantees render-N's passive effects run before render N+1's
+        // COMMIT, not before its render. An N/N+1 interleave could therefore
+        // stamp the record with one fingerprint while the guard had approved
+        // another, and mark it committed under the third. Both halves read the
+        // same two closure values here, so the pair cannot disagree.
+        if (committedFingerprintRef.current !== viewportFingerprint) {
+            committedFingerprintRef.current = viewportFingerprint;
+            writeViewport(viewportKey, viewportFingerprint, live);
+        }
+    // `reqLayout`/`stepLabel`/`stepWidth`/`reqLabel` are deliberately NOT on this
+    // list any more. They were here as a hand-maintained enumeration of "things
+    // that rescale the world", and `landKey` is that same fact DERIVED — it
+    // cannot go stale when a ninth layout option is added, and a list can.
+    }, [resetView, containerEl, size, layout, kZoomFloor, kDefault,
+        landKey, viewportFingerprint, viewport]);
 
     const factoryReset = useCallback(() => {
         recenterModeRef.current = 'factory';
+        // An explicit, in-the-moment instruction about where to look — so it
+        // ends any `?epic=` re-fit, exactly as a drag does (req #3252 review).
+        userMovedCameraRef.current = true;
         resetView();
     }, [resetView]);
     // `resetViewNonce` only ever increments (the header's click handler), so
@@ -888,7 +1091,11 @@ export default function PipelinePlanVisualizer({
     // mount-time effect below needs that signal: without it, a transient
     // zero-size container would be recorded as "already focused" and the deep
     // link would silently never apply once the canvas actually became ready.
-    const focusEpic = useCallback((band) => {
+    // `persist` is false for the ONE caller that is not the reader moving the
+    // camera: the `?epic=` deep link (req #3252 — see that effect below). A
+    // band-header or sticky-chip click is a user pick, indistinguishable in
+    // intent from a drag, and saves like one.
+    const focusEpic = useCallback((band, { persist = true } = {}) => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb) return false;
@@ -898,14 +1105,40 @@ export default function PipelinePlanVisualizer({
         // as it does on a pan.
         setCard(null);
         focusingRef.current = true;
+        // ASSIGNED, not raised (req #3252 review). A `persist: true` focus that
+        // begins while a deep link's suppression is still up must LOWER it —
+        // otherwise the band fit the reader explicitly clicked for is swallowed
+        // by the previous transition's flag and never saved. Only this
+        // transition's own intent decides, and it decides every time.
+        suppressSaveRef.current = !persist;
+        // A band-header click is the reader choosing where to look; the
+        // `?epic=` deep link is not. See `userMovedCameraRef`'s own comment.
+        if (persist) userMovedCameraRef.current = true;
         const seq = (focusSeqRef.current += 1);
         select(el).transition().duration(FOCUS_MS)
-            // 'end' fires on completion, 'interrupt' when a user gesture, a
-            // second focus or the unmount cleanup pre-empts this one — both mean
-            // the world has stopped being a moving target. Only the LATEST
-            // transition may lower the flag.
-            .on('end.focus interrupt.focus', () => {
-                if (focusSeqRef.current === seq) focusingRef.current = false;
+            // 'end' fires on completion; a pre-emption fires one of two
+            // different events and BOTH must be listened for. d3-transition
+            // dispatches 'interrupt' only for a transition that has already
+            // STARTED, and 'cancel' for one still scheduled — see
+            // d3-transition/src/interrupt.js, `state > STARTING && state < ENDING`.
+            // A transition created inside an effect sits at CREATED/SCHEDULED
+            // until the next animation frame, so anything that pre-empts it
+            // inside that window — a mousedown, a wheel, the unmount cleanup's
+            // `sel.interrupt()`, or `resetView`'s own `zoom.transform` (which
+            // interrupts first) — dispatched 'cancel' and NOTHING lowered these
+            // flags. `focusingRef` stuck true kills every world click; a stuck
+            // `suppressSaveRef` silently stops persisting for the whole visit.
+            // Both were reachable by pressing the mouse within one frame of a
+            // `?epic=` landing, and unbounded in a backgrounded tab where no
+            // frame ever comes. (The `focusingRef` half predates req #3252.)
+            //
+            // Only the LATEST transition may lower them: d3 pre-empts the older
+            // one on the next tick, i.e. AFTER its successor has already set the
+            // flags, so an unstamped handler would clear its successor's.
+            .on('end.focus interrupt.focus cancel.focus', () => {
+                if (focusSeqRef.current !== seq) return;
+                focusingRef.current = false;
+                suppressSaveRef.current = false;
             })
             .call(zb.transform, zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
         return true;
@@ -927,28 +1160,53 @@ export default function PipelinePlanVisualizer({
     // dependencies rather than marking a no-op "applied".
     //
     // `epicFocusAppliedRef` KEYS ON THE MEASURED SIZE TOO, not just the
-    // (pipeline, epic) pair (code review finding) — the panel is sized TWICE
-    // at mount (the `calc(100vh - 260px)` fallback in the JSX below, then
-    // again once `measureAvailH` resolves), and that second resize re-runs
-    // the `resetView` effect above (its deps include `size.h`), whose
-    // cleanup INTERRUPTS an in-flight focus transition and snaps the camera
-    // back to the default view — after which this effect, unkeyed on size,
-    // would see its own stale "applied" mark and never retry. Folding the
-    // measured size into the key means that second resize (and any later
-    // real one) invalidates the earlier mark and reapplies the focus, landing
-    // AFTER `resetView` in the same commit because both effects react to the
-    // same size change and this one is declared later in hook order. A
-    // genuine later browser resize reapplying the focus for the same reason
-    // matches `resetView`'s own existing contract, which already discards
-    // whatever view the reader was on whenever the container resizes.
+    // (pipeline, epic) pair (req #3235 code review finding) — the panel is
+    // sized TWICE at mount (the `calc(100vh - 260px)` fallback in the JSX
+    // below, then again once `measureAvailH` resolves), and the focus applied
+    // against the first of those is a fit for a panel the reader never sees.
+    // Folding the measured size into the key re-fits it once the panel has
+    // settled.
+    //
+    // ── BUT NOT AFTER THE READER HAS TAKEN THE WHEEL (req #3252 review) ─────
+    // That key used to be justified by REPAIR: the second resize re-ran the
+    // `resetView` effect, whose cleanup interrupted the focus and snapped the
+    // camera home, so re-applying put back what the resize had broken. Req
+    // #3252 replaced that effect with one keyed on the world's own geometry, so
+    // A RESIZE NO LONGER RESETS ANYTHING — and the re-focus stopped being a
+    // repair and became the only thing moving the camera, away from wherever
+    // the reader had put it. `availH` is re-measured on EVERY render, so a
+    // header-height change alone (the description dialog, an order-violations
+    // alert appearing on a refetch) was enough to yank a reader who had panned
+    // somewhere else back onto the linked band — while storage still held their
+    // pan, so the screen and the memory silently disagreed.
+    //
+    // `userMovedCameraRef` is the boundary: the deep link may re-fit itself as
+    // the panel settles, and stops existing the moment the reader drags or
+    // wheels. One flag, set from the only place that can know the difference —
+    // d3's `sourceEvent`.
+    //
+    // ── AND IT DOES NOT OVERWRITE THE SAVED CAMERA (req #3252) ──────────────
+    // A `?epic=` link WINS over a restored viewport — it is the more specific
+    // request, and letting a stale camera silently swallow it produces exactly
+    // the dead-link outcome req #3235 exists to rule out. But it must not
+    // PERSIST, because this page's standing doctrine for `?mode=`/`?step=`/
+    // `?epic=` is that a link asks to see one thing ONCE and must never rewrite
+    // what the reader chose as their own default — and a saved viewport IS what
+    // the reader chose here. So the band is shown and the stored camera is left
+    // untouched; the reader's very next gesture saves normally.
+    //
+    // Concretely: pan to the bottom of a plan, follow an `?epic=` link into it,
+    // then Back to the plain plan URL — you are returned to your pan, not to the
+    // epic the link happened to name.
     const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
         if (focusEpicId == null) return;
+        if (userMovedCameraRef.current) return;
         const key = `${pipeline?.id}:${focusEpicId}:${size.w}x${size.h}`;
         if (epicFocusAppliedRef.current === key) return;
         const band = layout.bands.find((b) => b.epicId === focusEpicId);
         if (!band) return;
-        if (focusEpic(band)) epicFocusAppliedRef.current = key;
+        if (focusEpic(band, { persist: false })) epicFocusAppliedRef.current = key;
     }, [focusEpicId, pipeline?.id, size, layout, focusEpic]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
@@ -1260,13 +1518,23 @@ export default function PipelinePlanVisualizer({
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       // Carry the plan's identity so the requirement page's Back
-                      // returns HERE and not to the Roadmap (req #3119). The
-                      // mode/layout/label toggles restore themselves — they are
-                      // useViewPreference — so landing back on this route is
-                      // enough to resume the view; only pan/zoom re-fits.
+                      // returns HERE and not to the Roadmap (req #3119).
+                      //
+                      // `mode: 'plan'` (req #3252) is the other half of "HERE".
+                      // The route alone names the PLAN, not the panel: which
+                      // panel it opens is a stored preference, and a reader who
+                      // reached the visualizer through a `?mode=plan` link never
+                      // persisted `plan` — that override is transient by design.
+                      // So Back landed them in the TABLE, where the camera this
+                      // requirement restores is not even on screen. Naming the
+                      // mode makes Back return to the panel they left.
+                      //
+                      // The pan and zoom now come back too, which is what retires
+                      // the old closing clause of this comment ("only pan/zoom
+                      // re-fits") — see the saved-viewport block near the top.
                       onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
                           pipeline?.id
-                              ? { state: { from: 'pipeline', pipelineId: pipeline.id } }
+                              ? { state: { from: 'pipeline', pipelineId: pipeline.id, mode: 'plan' } }
                               : undefined)} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
