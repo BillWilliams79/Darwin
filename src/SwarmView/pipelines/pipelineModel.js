@@ -1268,10 +1268,14 @@ export function aggregateRowCost(row, index) {
 // acceptance criteria of its own; counting it either way would make a plan
 // that TRACKS ITSELF read as permanently short of — or trivially at — 100%.
 //
-// `wontfix`/`deferred` stay IN THE DENOMINATOR and OUT OF THE NUMERATOR
-// (req #3225's own recommendation): the ratio answers "how much of this is
-// FINISHED", not "how much has stopped moving" — a plan can sit permanently
-// short of its total, and that is the intended reading, not a stall.
+// THE NUMERATOR IS `TERMINAL_REQUIREMENT_STATUSES`, not a bare `=== 'met'`
+// compare (req #3269). `wontfix`/`deferred` count toward it exactly like
+// `met` does — the same set that already makes a step derive `done` (design
+// rule 1), so a step whose requirements are all deferred is already Complete
+// and its epic's count must agree rather than reading one short. req #3225's
+// original "deferred/wontfix count toward the denominator only" reading made
+// the label disagree with the state machine drawn beside it; this is the
+// correction, not a new notion of doneness.
 //
 // GROUPED BY THE REQUIREMENT'S OWN feature_fk -> epic chain, deliberately not
 // the step's dominant epic (rule 10's tie-break answers a different question —
@@ -1294,7 +1298,7 @@ export function requirementCounts(model) {
     const byEpic = new Map();
     for (const req of (model && model.requirements) || []) {
         if (!req || isTrackingRequirement(req)) continue;
-        const met = req.requirement_status === 'met';
+        const met = TERMINAL_REQUIREMENT_STATUSES.includes(req.requirement_status);
         overall.total += 1;
         if (met) overall.met += 1;
         const feature = req.feature_fk != null ? featuresById.get(req.feature_fk) : null;

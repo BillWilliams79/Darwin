@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 //
-// Req #2884 reproduction harness — does a background-refetch re-seed of
-// `requirementsArray` steal focus from the template title field in the card view?
-// Mounts the REAL CategoryCard, focuses the template <textarea>, then simulates a
-// background refetch returning new `serverRequirements` (the refetchOnWindowFocus
-// path) and asserts whether focus survives.
+// Req #3258 — Cards view joins the Table view's `hidePipelinedRequirements`
+// toggle (req #3180). Mounts the REAL CategoryCard against a controllable
+// `usePipelinedRequirementIds` mock and the REAL useShowClosedStore, and
+// asserts the toggle actually removes/restores the row in this view too.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React, { useState } from 'react';
@@ -18,29 +17,30 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 
-// Controllable query data. useRequirements returns the current module-level array
-// (a new reference per re-seed); useSessions stays a stable empty list.
-let reqData = [{ id: 10, title: 'Existing req', requirement_status: 'authoring', category_fk: 5, sort_order: 0 }];
+const reqData = [
+    { id: 10, title: 'Not pipelined', requirement_status: 'authoring', category_fk: 5, sort_order: 0 },
+    { id: 11, title: 'Pipelined', requirement_status: 'authoring', category_fk: 5, sort_order: 1 },
+];
 const EMPTY_SESSIONS = [];
+let pipelinedIds = new Set([11]);
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
-    usePipelinedRequirementIds: () => new Set(),
+    usePipelinedRequirementIds: () => pipelinedIds,
 }));
 
 vi.mock('../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
 import CategoryCard from '../CategoryCard';
+import { useShowClosedStore } from '../../stores/useShowClosedStore';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 
 const CATEGORY = { id: 5, category_name: 'Test Cat', project_fk: 1, sort_mode: 'process', color: null };
 const noop = () => {};
 
-let bumpHarness;
 function Harness() {
     const [, setTick] = useState(0);
-    bumpHarness = () => setTick((t) => t + 1);
     return (
         <CategoryCard
             category={CATEGORY}
@@ -83,44 +83,50 @@ function mount() {
     return { container };
 }
 
-function templateTextarea(container) {
-    return container.querySelector('[data-testid="requirement-template"] textarea:not([aria-hidden="true"])');
-}
+// RequirementRow.jsx renders each real row's container as
+// `data-testid="requirement-<id>"` (the template row is `requirement-template`).
+const rowPresent = (container, id) => container.querySelector(`[data-testid="requirement-${id}"]`) !== null;
 
-describe('CategoryCard template title keeps focus across a background re-seed (req #2884)', () => {
+describe('CategoryCard hides/shows pipelined requirements with the shared toggle (req #3258)', () => {
     beforeEach(() => {
-        reqData = [{ id: 10, title: 'Existing req', requirement_status: 'authoring', category_fk: 5, sort_order: 0 }];
+        pipelinedIds = new Set([11]);
         roots = [];
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
     afterEach(() => {
         act(() => { roots.forEach((r) => r.unmount()); });
         document.body.innerHTML = '';
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('keeps focus on the template title when serverRequirements refetches', async () => {
+    it('toggle OFF (no longer the default since req #3242 — set explicitly here): both rows render', () => {
+        const { container } = mount();
+        expect(rowPresent(container, 10)).toBe(true);
+        expect(rowPresent(container, 11)).toBe(true);
+    });
+
+    it('toggle ON: the pipelined row is hidden, the other stays', async () => {
         const { container } = mount();
 
-        const ta = templateTextarea(container);
-        expect(ta).not.toBeNull();
-
-        // User clicks into the template title field.
-        await act(async () => { ta.focus(); });
-        expect(document.activeElement).toBe(ta);
-
-        // Background refetch lands: a NEW requirement appears, shifting the template's
-        // index (1 → 2). This is the decisive case for index-vs-key reconciliation.
         await act(async () => {
-            reqData = [
-                { id: 10, title: 'Existing req', requirement_status: 'authoring', category_fk: 5, sort_order: 0 },
-                { id: 11, title: 'Brand new req', requirement_status: 'authoring', category_fk: 5, sort_order: 1 },
-            ];
-            bumpHarness();
+            useShowClosedStore.getState().toggleHidePipelinedRequirements();
         });
-        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-        // The template field must still be focused.
-        const taAfter = templateTextarea(container);
-        expect(taAfter).not.toBeNull();
-        expect(document.activeElement).toBe(taAfter);
+        expect(rowPresent(container, 10)).toBe(true);
+        expect(rowPresent(container, 11)).toBe(false);
+    });
+
+    it('toggle ON then OFF: the pipelined row returns', async () => {
+        const { container } = mount();
+
+        await act(async () => {
+            useShowClosedStore.getState().toggleHidePipelinedRequirements();
+        });
+        expect(rowPresent(container, 11)).toBe(false);
+
+        await act(async () => {
+            useShowClosedStore.getState().toggleHidePipelinedRequirements();
+        });
+        expect(rowPresent(container, 11)).toBe(true);
     });
 });

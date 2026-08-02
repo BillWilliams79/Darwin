@@ -1218,19 +1218,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .map((el) => el.getAttribute('data-viz-chrome')));
             expect(vizChrome, 'the collapse button is the only canvas chrome left')
                 .toEqual(['legend']);
-            // The accounting line is what LEFT the row to pay for the selector
-            // (req #3241). It is not deleted — it is on the breadcrumb line
-            // above, which already existed and had the width to spare. Asserted
-            // from both ends for the same reason as the selector.
-            await expect(page.locator('[data-testid="pipeline-header-row"]'
-                + ' [data-testid="pipeline-accounting"]'),
-            'the accounting line left the header row').toHaveCount(0);
-            await expect(page.locator('[data-testid="pipeline-subheader-row"]'
-                + ' [data-testid="pipeline-accounting"]'),
-            'the accounting line is on the breadcrumb line').toHaveCount(1);
+            // The breadcrumb/accounting subheader row (req #3241) was REMOVED
+            // outright (req #3242 user directive) rather than kept and emptied —
+            // there is no "Pipelines / <plan name>" line above this one any
+            // more, and no accounting line anywhere on the page.
+            await expect(page.getByTestId('pipeline-subheader-row'),
+                'the breadcrumb/accounting row is gone').toHaveCount(0);
             await expect(page.getByTestId('pipeline-accounting'),
-                'and it still says what it always said')
-                .toContainText(/\d+ steps? — \d+ complete · \d+ running/);
+                'the accounting line is gone with it').toHaveCount(0);
             // Production's order at the two ends that the user reads by: the mode
             // switch opens the row and the description button closes it. Asserted
             // by DOM position among the row's own children, so a wrap cannot
@@ -1488,7 +1483,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 for (const id of ['pipeline-detail-mode-toggle',
                     'pipeline-viz-level-control', 'pipeline-viz-stepwidth-toggle',
                     'pipeline-viz-colorkey-toggle', 'pipeline-viz-reset',
-                    'pipeline-reqcounts-toggle', 'pipeline-description-btn']) {
+                    'pipeline-description-btn']) {
                     const el = page.getByTestId(id);
                     await expect(el, `${id} is still visible at ${width}px`)
                         .toBeVisible();
@@ -1500,25 +1495,25 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
         });
 
-    // ── PIPE-20: the met/total counts are ON without being asked (req #3241) ─
+    // ── PIPE-20: the met/total counts are ALWAYS on, permanently (req #3242) ─
     //
-    // Req #3225 built this correctly on both surfaces and defaulted it OFF, so
-    // the user who asked to SEE the numbers had to find a toggle first. Req
-    // #3241 flipped the default. NOTHING HERE TOUCHES A PREFERENCE before the
-    // first assertion — that is the whole claim, and pinning the key would
-    // silently make this a test of the pinned value instead.
+    // Req #3225 built this correctly on both surfaces and defaulted it OFF; req
+    // #3241 flipped the default ON; req #3242 removed the toggle outright — the
+    // counts are no longer a preference at all, so there is nothing left to pin
+    // or click. NOTHING HERE TOUCHES A PREFERENCE before the first assertion —
+    // that is the whole claim.
 
-    test('PIPE-20: met/total shows on the plan name and epic bands by default',
+    test('PIPE-20: met/total shows on the plan name and epic bands, with no toggle to turn it off',
         async ({ page }) => {
             const counts = plan.requirementCounts.overall;
+            const epicCount = plan.requirementCounts.byEpic.length;
             expect(counts.total, 'the fixture has requirements to count')
                 .toBeGreaterThan(0);
             const title = String(fixture.models.main.pipeline.title);
 
-            // 1. THE LIST PAGE, arrived at cold. It carries no control for this
-            //    preference at all — it only reads what the detail page's toggle
-            //    last wrote — so a default of `off` made the numbers unreachable
-            //    from here without visiting another page first.
+            // 1. THE LIST PAGE, arrived at cold. Its own card format is
+            //    unchanged by req #3242 (that requirement touched the DETAIL
+            //    page's header only) — still `<title> <met>/<total>`.
             await page.goto('/swarm/pipelines');
             await expect(page.getByTestId('pipelines-cards-view'))
                 .toBeVisible({ timeout: 30000 });
@@ -1526,15 +1521,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 'the card names the plan AND its met/total, with nothing enabled')
                 .toContainText(`${title} ${counts.met}/${counts.total}`);
 
-            // 2. THE PLAN PAGE, same cold start: the header title and the
-            //    breadcrumb both carry it, and the toggle reports itself ON
-            //    rather than merely behaving as though it were.
+            // 2. THE PLAN PAGE, same cold start: the header title carries epic
+            //    count AND requirement met/total (req #3242's reformat), and
+            //    there is no control anywhere on the page to turn it off.
             await page.setViewportSize({ width: 1800, height: 1000 });
             await openPlanVisualizer(page, fixture.mainPipelineId);
-            await expect(page.getByTestId('pipeline-title'))
-                .toHaveText(`${title} ${counts.met}/${counts.total}`);
-            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
-                .toHaveClass(/MuiButton-contained/);
+            await expect(page.getByTestId('pipeline-title')).toHaveText(
+                `${title} ${epicCount} Epic${epicCount === 1 ? '' : 's'}, `
+                + `${counts.met}/${counts.total} Requirement${counts.total === 1 ? '' : 's'}`);
+            await expect(page.getByTestId('pipeline-reqcounts-toggle'),
+                'the toggle is gone — the counts are permanent, not a preference')
+                .toHaveCount(0);
 
             // 3. THE EPIC BAND LABELS — the surface the req #3225 header-width
             //    argument never applied to, since they are drawn on the canvas.
@@ -1550,27 +1547,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 '.pipeline-viz-epic-name').allInnerTexts();
             const countedChips = async () =>
                 (await chipTexts()).filter((t) => /\s\d+\/\d+$/.test(t)).length;
-            //    "no chips at all" and "chips without counts" are DIFFERENT
-            //    failures and must not share a message — and without this,
-            //    step 4's `.toBe(0)` would also pass vacuously on a plan that
-            //    rendered no chips.
             await expect.poll(async () => (await chipTexts()).length,
                 { message: 'the fixture draws epic chips to read' })
                 .toBeGreaterThan(0);
             await expect.poll(countedChips,
                 { message: 'at least one epic band label carries its met/total' })
                 .toBeGreaterThan(0);
-
-            // 4. AND IT IS STILL A CHOICE, not a hardcode: turning it off takes
-            //    the numbers off BOTH surfaces. Without this, a default-on that
-            //    ignored the toggle entirely would pass every check above.
-            await page.getByTestId('pipeline-reqcounts-toggle').click();
-            await expect(page.getByTestId('pipeline-reqcounts-toggle'))
-                .toHaveClass(/MuiButton-outlined/);
-            await expect(page.getByTestId('pipeline-title')).toHaveText(title);
-            await expect.poll(countedChips,
-                { message: 'turning Counts off clears the band labels too' })
-                .toBe(0);
         });
 
     // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────

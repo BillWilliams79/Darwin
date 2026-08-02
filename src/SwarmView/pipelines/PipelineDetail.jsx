@@ -26,7 +26,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
-import Breadcrumbs from '@mui/material/Breadcrumbs';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -65,7 +64,6 @@ import {
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
-import { formatDateTime } from '../../utils/dateFormat';
 import {
     PIPELINE_DETAIL_MODES,
     PIPELINE_DETAIL_MODE_STORAGE_KEY,
@@ -86,16 +84,14 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 // import was the visible trace this requirement was filed from.
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_STEP_WIDTH,
-    PLAN_LEVEL_NUMBER, isStepWidth, normalizeColorKey, normalizePlanLevelPref,
+    PLAN_LEVEL_NUMBER,
+    isStepWidth, normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
 import {
-    DEFAULT_REQ_COUNTS,
     PLAN_REQUIREMENT_FIELDS,
-    REQ_COUNTS_STORAGE_KEY,
     buildCostIndex,
     buildPipelineModel,
     orderedPlan,
-    pipelineSummary,
 } from './pipelineViewModel';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
@@ -103,9 +99,9 @@ import {
 // exactly the state a failed or in-flight read sits in — and that changing
 // identity permanently defeats every useMemo downstream of it: costIndex, plan
 // (so `new Date()` is re-read on every render, contradicting the "now is read
-// ONCE per model change" contract below), pipelineSummary, and the table's own
-// planRenderRows. One stable reference costs nothing and keeps the memo chain
-// honest in the error path the costError branch exists to handle.
+// ONCE per model change" contract below), and the table's own planRenderRows.
+// One stable reference costs nothing and keeps the memo chain honest in the
+// error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
 
 // ── Editable pipeline description (req #3119, moved req #3179) ──────────────
@@ -282,14 +278,11 @@ export default function PipelineDetail() {
     // is exactly that: this page writes it, the list page's own hook reads it
     // fresh when React Router mounts that page.
     //
-    // ON BY DEFAULT since req #3241, from the ONE shared key/default pair the
-    // list page also reads. It shipped off on a header-width argument; this
-    // requirement solved the header width directly (the row is `nowrap` with
-    // the title as its elastic member) and the argument never touched the epic
-    // band labels, which are drawn on the canvas.
-    const [showReqCountsPref, setShowReqCountsPref] = useViewPreference(
-        REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
-    const showReqCounts = showReqCountsPref === 'on';
+    // ALWAYS ON (req #3242 user directive) — the toggle that used to gate this
+    // is gone; requirement counts are now a permanent part of the plan name and
+    // every epic band label, not a preference. No storage key, no setter: there
+    // is nothing left to persist.
+    const showReqCounts = true;
     // Req #3179 — the goal text is behind the header's info button now. Shut it
     // when the route changes plans: this component is re-rendered, not remounted,
     // on an :id change, so an open dialog would otherwise stay open and re-title
@@ -527,7 +520,6 @@ export default function PipelineDetail() {
     const plan = useMemo(
         () => orderedPlan(model, { now: new Date(), costIndex }),
         [model, costIndex]);
-    const summary = useMemo(() => pipelineSummary(plan.rows), [plan.rows]);
     // req #3225 — the whole-plan met/total, read straight off `orderedPlan`'s
     // own derivation (no second pass over `model`).
     const planReqCounts = plan.requirementCounts?.overall;
@@ -578,26 +570,20 @@ export default function PipelineDetail() {
         ? 'Description — the plan\'s goal'
         : 'Description — none yet; click to write one';
 
-    // ── ONE STRING PER ELLIPSIZING LINE (req #3241) ─────────────────────────
-    // Both of these are now `noWrap` with a tooltip, and both of those need the
-    // whole text as a VALUE: CSS `text-overflow` needs a single inline flow to
-    // clip, and a tooltip that is the recovery path for a clip has to carry
-    // exactly what was clipped. Building the title's suffix inline in the JSX
-    // and passing the bare `pipeline.title` to the tooltip would clip
-    // "Darwin 30/64" to "Darwin 30/6…" and recover only "Darwin" — losing the
-    // one part of the string the reader could not already infer (review
-    // finding). The title reads the same in the breadcrumb, so it is built once
-    // and used in all three places.
-    const titleText = pipeline.title
-        + (showReqCounts && planReqCounts
-            ? ` ${planReqCounts.met}/${planReqCounts.total}` : '');
-    const accountingText = `${summary.total} step${summary.total === 1 ? '' : 's'} — `
-        + `${summary.done} complete · ${summary.running} running · `
-        + `${summary.pending} scheduled`
-        + (pipeline.started_at
-            ? ` · started ${formatDateTime(pipeline.started_at, timezone)}` : '')
-        + (pipeline.completed_at
-            ? ` · completed ${formatDateTime(pipeline.completed_at, timezone)}` : '');
+    // req #3242 — epics represented in THIS plan (a requirement with no epic
+    // is excluded by `requirementCounts` itself, so this is never inflated by
+    // a "no epic" bucket).
+    const planEpicCount = plan.requirementCounts?.byEpic?.length ?? 0;
+
+    // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
+    // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
+    // `text-overflow` needs a single inline flow to clip, and a tooltip that is
+    // the recovery path for a clip has to carry exactly what was clipped.
+    const titleText = pipeline.title + (planReqCounts
+        ? ` ${planEpicCount} Epic${planEpicCount === 1 ? '' : 's'}, `
+            + `${planReqCounts.met}/${planReqCounts.total} `
+            + `Requirement${planReqCounts.total === 1 ? '' : 's'}`
+        : '');
 
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
@@ -613,72 +599,6 @@ export default function PipelineDetail() {
     // this page: nothing else reads it.
     return (
         <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
-            {/* ── The breadcrumb line now also carries the ACCOUNTING (req
-                #3241) ────────────────────────────────────────────────────────
-                This is the header row's overflow answer, and it is the cheapest
-                one available. MEASURED, on the live plan's own strings, at the
-                real 180px sidebar + 24px page padding (244px of chrome):
-
-                    accounting "64 steps — 30 complete · 2 running ·
-                                32 scheduled · started …"          530px
-                    next widest occupant of that row (Width: S|M|L) 139px
-
-                It is the largest single occupant of the row below by nearly 4×,
-                and the only pure PROSE on it — everything else there is a
-                control the reader clicks. This line already exists, already
-                renders, already uses the same `body2` scale, and carried only
-                163px of content across the full page width. So the move costs NO
-                row and NO pixel of page height — which matters here more than on
-                most pages, because the visualizer measures its own top and turns
-                every pixel above it into canvas.
-
-                Both are `minWidth: 0` with ellipsis, so this line cannot become
-                two either. Flex distributes shrink in PROPORTION to width and
-                the accounting is 3.3× the breadcrumb, so it absorbs most of any
-                deficit on its own — a narrow viewport loses the trailing
-                timestamps well before it touches the plan's name. The full
-                string is on the tooltip regardless. */}
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1,
-                        flexWrap: 'nowrap', minWidth: 0, mb: 1 }}
-                 data-testid="pipeline-subheader-row">
-                {/* `MuiBreadcrumbs-ol` wraps by default and its `li`s carry the
-                    same `min-width: auto` the header's children do, so both have
-                    to be answered here or this line reintroduces exactly the
-                    problem the row below just solved. The LAST crumb — the plan
-                    name — is the one allowed to give, mirroring the header's own
-                    rule; the "Pipelines" link is navigation and keeps its size. */}
-                <Breadcrumbs sx={{ minWidth: 0, flexShrink: 1,
-                                    '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
-                                    '& .MuiBreadcrumbs-li:last-of-type': { minWidth: 0 } }}>
-                    <Link component="button" variant="body2" underline="hover"
-                          onClick={() => navigate('/swarm/pipelines')}
-                          data-testid="pipeline-breadcrumb-list">
-                        Pipelines
-                    </Link>
-                    {/* Tooltipped for the same reason the header title is: the
-                        header comment calls this crumb the place a reader
-                        recovers a truncated plan name, and below ~945px of
-                        viewport it truncates too, so without one the stated
-                        fallback would not exist at the widths that need it
-                        (review finding). */}
-                    <Tooltip title={titleText}>
-                        <Typography variant="body2" color="text.primary" noWrap>
-                            {titleText}
-                        </Typography>
-                    </Tooltip>
-                </Breadcrumbs>
-
-                {/* Accounting — the whole plan, never a filtered view
-                    (view-switchable-pages § V7). */}
-                <Tooltip title={accountingText}>
-                    <Typography variant="body2" color="text.secondary" noWrap
-                                sx={{ minWidth: 0, flexShrink: 1 }}
-                                data-testid="pipeline-accounting">
-                        {accountingText}
-                    </Typography>
-                </Tooltip>
-            </Box>
-
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
                 "the title of the visualizer, it became three rows for seemingly
                 no reason." Earlier in req #3168 this was split into a PIPELINE
@@ -788,24 +708,6 @@ export default function PipelineDetail() {
 
                 <Box sx={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }} />
 
-                {/* req #3225 — visible in EITHER mode (the plan name reads it
-                    here, the epic band label reads it in Plan mode), so it
-                    lives outside the mode-conditional block below rather than
-                    joining one side of it. */}
-                <Tooltip title={'Show requirements met / total beside the plan '
-                    + 'name and every epic band label'}>
-                    <Button
-                        size="small"
-                        className="cal-toggle-btn"
-                        variant={showReqCounts ? 'contained' : 'outlined'}
-                        onClick={() => setShowReqCountsPref(showReqCounts ? 'off' : 'on')}
-                        sx={{ flexShrink: 0 }}
-                        data-testid="pipeline-reqcounts-toggle"
-                    >
-                        Counts
-                    </Button>
-                </Tooltip>
-
                 {activeMode === 'table' ? (
                     <Button
                         size="small"
@@ -847,8 +749,10 @@ export default function PipelineDetail() {
                             it: Auto plus three named levels selecting which
                             marks are DRAWN, with the camera untouched across a
                             change. Nothing about transforms or scale extents
-                            applies to it, which is also why it sits beside Width
-                            (a layout control) rather than beside Reset.
+                            applies to it — Reset moved to sit immediately LEFT
+                            of it regardless (req #3242 user directive), ahead
+                            of the whole zoom/layout control cluster rather than
+                            trailing it.
 
                             THE SHARED COMPONENT, not a header-shaped copy of it
                             — req #3168 extracted it from the Build Visualizer
@@ -882,6 +786,52 @@ export default function PipelineDetail() {
                                 effectiveLevel={PLAN_LEVEL_NUMBER[effectiveLevel] ?? null}
                                 onChangePinnedLevel={(lvl) => setLevelPref(
                                     lvl == null ? 'auto' : String(lvl))}
+                                // req #3242 user directive — "Detail:" -> "View"
+                                label="View"
+                                // req #3242 user directive — Reset reads
+                                // "View: Reset Auto L1 L2 L3": a pill the
+                                // same shape/size as Auto, but NOT part of
+                                // the pinned-level state (no pressed look,
+                                // never mutually exclusive with Auto/L1-L3) —
+                                // its own colour says "this is a different
+                                // KIND of control" at a glance — as the
+                                // OUTLINE and TEXT colour, never a filled
+                                // background (req #3242 user correction: a
+                                // first pass filled the chip solid and the
+                                // user asked for the same colour used the way
+                                // Auto/L1-L3 already use theirs when
+                                // unpressed — border + label only). Click
+                                // behaviour is unchanged: FACTORY DEFAULT,
+                                // not the readable landing scale the page
+                                // opens on — one click always shows the
+                                // whole plan's vertical extent, from any pan
+                                // or zoom. Width re-centres on every change
+                                // (it rescales every column) onto WHICHEVER
+                                // of the two scales is currently active —
+                                // see `recenterModeRef` in
+                                // PipelinePlanVisualizer.jsx — so clicking
+                                // Width right after Reset keeps showing the
+                                // whole plan instead of snapping back to the
+                                // readable scale out from under its own
+                                // neighbour.
+                                leadingChildren={(
+                                    <Tooltip title={'Reset — fully zoomed '
+                                        + "out, the whole plan's vertical "
+                                        + 'extent visible'}>
+                                        <Chip
+                                            label="Reset"
+                                            size="small"
+                                            variant="outlined"
+                                            onClick={handleResetView}
+                                            sx={{
+                                                borderColor: 'secondary.main',
+                                                color: 'secondary.main',
+                                                cursor: 'pointer',
+                                            }}
+                                            data-testid="pipeline-viz-reset"
+                                        />
+                                    </Tooltip>
+                                )}
                                 testIdPrefix="pipeline-viz"
                             />
                         </Box>
@@ -890,7 +840,20 @@ export default function PipelineDetail() {
                             WIDENS (see STEP_WIDTH_FACTORS): a narrower column
                             than the content needs would push requirement marks
                             out of their own slab, which is the zero-overlap
-                            contract the layout module proves. */}
+                            contract the layout module proves.
+
+                            Deliberately plain labels (req #3242 user
+                            correction) — a same-turn attempt added the actual
+                            pixel widths to the button text and tooltip, and
+                            enlarged the buttons 25%. Both were reverted: the
+                            pixel numbers were meant for chat, not the control
+                            itself, and the size was never asked for at all —
+                            "mutating the button was never part of the
+                            spacing increase." `TITLE_COL_MIN` and
+                            `STEP_WIDTH_FACTORS` are exported from
+                            pipelinePlanLayout.js precisely so that number can
+                            still be answered in conversation without a
+                            component-level constant carrying it unused. */}
                         <ToggleButtonGroup value={stepWidth} exclusive size="small"
                                            sx={{ flexShrink: 0 }}
                                            onChange={(_e, v) => v && setStepWidthPref(v)}
@@ -940,31 +903,6 @@ export default function PipelineDetail() {
                                     Machine
                                 </ToggleButton>
                             </ToggleButtonGroup>
-                        </Tooltip>
-                        {/* Req #3216 — Reset joins the zoom control group here,
-                            out of the bottom-right corner of the canvas it used
-                            to float in. FACTORY DEFAULT, not the readable
-                            landing scale the page opens on: one click always
-                            shows the whole plan's vertical extent, from any
-                            pan or zoom. Width re-centres on every change (it
-                            rescales every column), and does so onto WHICHEVER
-                            of the two scales is currently active — see
-                            `recenterModeRef` in PipelinePlanVisualizer.jsx —
-                            so clicking Width right after Reset keeps showing
-                            the whole plan instead of snapping back to the
-                            readable scale out from under its own neighbour. */}
-                        <Tooltip title={'Reset — fully zoomed out, the whole '
-                            + "plan's vertical extent visible"}>
-                            <Button
-                                size="small"
-                                className="cal-toggle-btn"
-                                variant="outlined"
-                                onClick={handleResetView}
-                                sx={{ flexShrink: 0 }}
-                                data-testid="pipeline-viz-reset"
-                            >
-                                Reset
-                            </Button>
                         </Tooltip>
                     </>
                 )}
