@@ -731,6 +731,50 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
         });
 
+    test('PIPE-10c: the time ruler pins to the viewport top through a vertical pan (req #3254)',
+        async ({ page }) => {
+            // Req #3254: the ruler used to be plain world content — attached to
+            // the top of the timeline — so a vertical pan scrolled it away with
+            // the rest of the plan. `data-ruler-y` publishes what the sticky
+            // Group is ACTUALLY drawn at (`stickyRulerY(t)`, the same device as
+            // `data-transform` beside it), so this is checked without a pixel
+            // diff — the same reasoning PIPE-10b uses for the ruler's other
+            // half (the degradation count).
+            const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
+            const container = page.getByTestId('pipeline-plan-visualizer');
+
+            const readTy = async () =>
+                Number((await container.getAttribute('data-transform'))!.split(',')[1]);
+
+            // At the DEFAULT view the world hasn't scrolled past the top yet,
+            // so the strip draws at its natural (unpinned) position — 0, same
+            // as `t.y` at the identity transform.
+            const tyBefore = await readTy();
+            expect(tyBefore).toBeCloseTo(0, 3);
+            await expect(container).toHaveAttribute('data-ruler-y', '0.00');
+
+            // A LARGE, PURELY VERTICAL drag — the batch plan has more than one
+            // band, so there is real room to scroll down into it.
+            const box = (await canvas.boundingBox())!;
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 400,
+                { steps: 12 });
+            await page.mouse.up();
+
+            const tyAfter = await readTy();
+            // The pan must be REAL, not swallowed by the zoom behavior's
+            // filter or clamped away by `bound()` — otherwise the assertion
+            // below (that the strip stayed pinned) would be vacuous.
+            expect(tyBefore - tyAfter, 'the drag must move the world vertically')
+                .toBeGreaterThan(50);
+
+            // The whole point: once the world has scrolled past the top, the
+            // strip clamps flush to the viewport edge — 0 again — rather than
+            // following `t.y` off-screen the way it did before this fix.
+            await expect(container).toHaveAttribute('data-ruler-y', '0.00');
+        });
+
     test('PIPE-11: bead, requirement and epic click targets navigate', async ({ page }) => {
         // The BATCH plan, on purpose. Canvas hit targets are world-space and the
         // stage is fit to width, so the screen-space tolerance is
@@ -1551,9 +1595,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const keyBox = (await key.boundingBox())!;
             const panelBox = (await page.getByTestId('pipeline-plan-visualizer')
                 .boundingBox())!;
-            expect(keyBox.x - panelBox.x, 'the key is in the RIGHT half of the panel')
-                .toBeGreaterThan(panelBox.width / 2);
-            expect(keyBox.y - panelBox.y, 'the key is at the TOP of the panel')
+            // req #3255: the key moved from the top-right corner to viewport
+            // middle-bottom, out of the epics' typical down-and-to-the-right
+            // reading flow.
+            const keyCenterX = keyBox.x + keyBox.width / 2;
+            const panelCenterX = panelBox.x + panelBox.width / 2;
+            expect(Math.abs(keyCenterX - panelCenterX),
+                'the key is horizontally CENTERED in the panel')
+                .toBeLessThan(40);
+            const keyBottomGap = (panelBox.y + panelBox.height)
+                - (keyBox.y + keyBox.height);
+            expect(keyBottomGap, 'the key is at the BOTTOM of the panel')
                 .toBeLessThan(40);
             for (const mark of ['Complete', 'Running', 'Scheduled', 'Manual', 'next up']) {
                 await expect(key, `the key names "${mark}"`).toContainText(mark);
