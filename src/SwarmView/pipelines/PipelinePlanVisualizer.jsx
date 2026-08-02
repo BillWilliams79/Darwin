@@ -1248,12 +1248,29 @@ export default function PipelinePlanVisualizer({
     // `placeEpicChips` — every other rectangle on this surface is decided by a
     // pure function precisely so that overlap is testable, and the chips were the
     // one exception. Under req #3257's rule the placement is two `min()`s over
-    // the band's rectangle and the visible content area, and chip-on-chip
-    // overlap is impossible by construction rather than avoided by a pass. The
-    // key (bottom-center since req #3255; was the top-right corner) is the one
-    // obstacle that still binds, and it CLIPS a name rather than displacing it.
-    // All of it is asserted in `__tests__/pipelinePlanLayout.test.js` over a
-    // swept transform
+    // the band's rectangle and the visible content area. The key (bottom-center
+    // since req #3255; was the top-right corner) is the one obstacle that still
+    // binds, and it CLIPS a name rather than displacing it. All of it is
+    // asserted in `__tests__/pipelinePlanLayout.test.js` over a swept transform.
+    //
+    // req #3272 put the legibility floor on the FONT (11px) and derives the box
+    // from it, so the name no longer shrinks to ~6.9px and is no longer DROPPED
+    // when the epic lane cannot hold it — it draws over the first row of step
+    // labels on its 60%-opaque panel instead. Three consequences reach this file,
+    // none of them a change to what this component does:
+    //
+    //   · `e.clipped` NO LONGER IMPLIES A KEY. The floored chip is 20–60% wider,
+    //     so the band's own right edge became a clip rather than a drop, and a
+    //     name is now cut short with no key on screen at all. The `maxWidth` +
+    //     `overflow: hidden` block below is written against the FLAG and never
+    //     against the key, which is why it needed no change.
+    //   · `e.h` can now EXCEED its band's own on-screen height. Nothing here
+    //     assumes otherwise — the box is absolutely positioned and sized from
+    //     `e.h` — and `placeEpicChips` bounds how far the name may sit from the
+    //     band it names, so the click target (req #3204) still belongs to the
+    //     epic the reader is pointing at.
+    //   · chip-on-chip overlap, which USED to be impossible by construction, is
+    //     now prevented by a vertical de-collision pass inside `placeEpicChips`.
     //
     // The chip's METRICS come from the layout module too (`EPIC_CHIP_H`,
     // `EPIC_CHIP_CHAR_W`), and are deliberately not passed from here: this file
@@ -1866,12 +1883,18 @@ export default function PipelinePlanVisualizer({
                                 // ↗ control that rides beside the name.
                                 height: e.h, lineHeight: 1,
                                 // WIDTH IS CAPPED ONLY WHEN IT WAS CUT (req
-                                // #3257): `e.clipped` says the on-screen key ate
-                                // the tail of this chip, and the cap plus
+                                // #3257): `e.clipped` says something ate the
+                                // tail of this chip, and the cap plus
                                 // `overflow: hidden` is what stops the name
-                                // running under the key — the one obstacle a
-                                // chip may still meet, and one it may never
-                                // slide sideways out of its rectangle to avoid.
+                                // running past it. THREE things can, and the
+                                // renderer must not care which (req #3272): the
+                                // on-screen key, the panel's own right edge, and
+                                // the BAND'S right edge — a rectangle narrower
+                                // on screen than the name it carries, which used
+                                // to drop the name instead. So `clipped` is
+                                // reached with no key present. None of the three
+                                // may ever be dodged by sliding the chip
+                                // sideways out of its rectangle.
                                 // Capping UNCONDITIONALLY would hand the drawn
                                 // box to `EPIC_CHIP_CHAR_W`, an ESTIMATE: a hair
                                 // short and every name on the plan truncates.

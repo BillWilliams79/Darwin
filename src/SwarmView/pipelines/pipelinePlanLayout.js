@@ -2566,21 +2566,61 @@ export function computePlanLayout(rows, batches, {
 //     to EVERY band, so a focused band's neighbours keep their names by the same
 //     rule as everything else instead of by a special case. Its guarantee is
 //     re-asserted in vitest against the new rule rather than assumed.
-//   · CHIP-ON-CHIP OVERLAP is now IMPOSSIBLE BY CONSTRUCTION rather than avoided
-//     by a pass. Bands never overlap in world Y; the chip is sized to its band's
-//     own epic lane (`h + 2·CHIP_MARGIN_Y ≤ epicLaneH·k ≤ band.height·k`) and
-//     clamped inside its band's rectangle — so two chips would have to share a
-//     rectangle to touch. The sweep asserts it; the geometry is what guarantees
-//     it.
+//   · CHIP-ON-CHIP OVERLAP was, under #3257 alone, IMPOSSIBLE BY CONSTRUCTION —
+//     bands never overlap in world Y, the chip was sized to its band's own epic
+//     lane (`h + 2·CHIP_MARGIN_Y ≤ epicLaneH·k ≤ band.height·k`) and clamped
+//     inside its band's rectangle, so two chips would have had to share a
+//     rectangle to touch. **REQ #3272 ENDS THAT PREMISE** by flooring `h`, and
+//     the guarantee is restored by an explicit VERTICAL de-collision pass — see
+//     the block below and `placeEpicChips`' own stack pass. The sweep asserted
+//     it before and asserts it now; what changed is whether the geometry alone
+//     is the proof.
+//
+// ── THE LEGIBILITY FLOOR IS ON THE FONT, NOT ON THE BOX (req #3272) ─────────
+//
+// The two sentences immediately below this one used to read "below
+// `EPIC_CHIP_MIN_H` the chip is DROPPED rather than drawn over the first row of
+// steps", and that is exactly what a zoomed-out reader saw: a screenshot of
+// production on 2026-08-02 showing the whole plan with NO EPIC NAMES AT ALL,
+// and — one zoom step in — names at `15 × 11/24 ≈ 6.9px`. Both were deliberate
+// choices, correctly implemented. **THE USER OVERRULED THE CHOICE**: the name
+// must not shrink to nothing, it must hold a minimum legible size, and small is
+// fine.
+//
+// So the floor moved to the thing it was always about. `EPIC_CHIP_MIN_FONT` is
+// the input and the BOX is derived from it (`EPIC_CHIP_MIN_H` is now a
+// consequence, 17.6px, not a constant anybody picks). TWO documented decisions
+// are REVERSED here, and both are reversals rather than fixes:
+//
+//   1. THE DROP IS GONE. A lane too short for the floored chip no longer
+//      refuses the name — the chip is drawn over the first row of step labels.
+//      That collision is the one the epic lane exists to prevent, and paying it
+//      is acceptable for two reasons already in this code: the chip draws on a
+//      60%-OPAQUE PANEL, and #3257 already ruled that where it crosses a bead,
+//      an arc or a step label IT DRAWS OVER IT. A name present and slightly
+//      overlapping beats a name absent, which is the user's whole point.
+//   2. THE VERTICAL CLAMP GAINS ONE `max`. `bottom − CHIP_MARGIN_Y − h` is what
+//      makes a name leave WITH its rectangle; once `h` is floored it can exceed
+//      the band's own on-screen height, and that term then parks the name ABOVE
+//      its band's top — where it reads as the band ABOVE's name, which is worse
+//      than either symptom being fixed. `max(top + CHIP_MARGIN_Y, …)` stops it,
+//      and it is PROVABLY INERT wherever `h + 2·CHIP_MARGIN_Y ≤ band.height·k`,
+//      i.e. everywhere the geometry is unchanged from #3257.
+//
+// WHAT IS NOT REVERSED: the placement rule itself (top-left of the band
+// rectangle ∩ the visible content area, clamped), the refusal to move a name
+// SIDEWAYS out of its own rectangle, the clip-or-drop resolution of the key and
+// the panel edge, and the `EPIC_CHIP_MIN_CHARS` floor — that one is stated in
+// CHARACTERS OF THE NAME and is a different rule from this one.
 //
 // WHAT SURVIVES:
 //
-//   · THE PER-BAND SCALE SHRINK. The chip is a fixed SCREEN height and the epic
-//     lane reserving room for it is WORLD px, so below some k the lane is
-//     genuinely shorter on screen than the chip. Shrinking is the only move that
-//     keeps the name out of lane 0's step labels at every k, and it degrades
-//     honestly. Below `EPIC_CHIP_MIN_H` the chip is DROPPED rather than drawn
-//     over the first row of steps.
+//   · THE PER-BAND SCALE SHRINK, now BOUNDED. The chip is a fixed SCREEN height
+//     and the epic lane reserving room for it is WORLD px, so below some k the
+//     lane is genuinely shorter on screen than the chip. Shrinking still keeps
+//     the name out of lane 0's step labels for as long as it can — it simply
+//     stops at `EPIC_CHIP_MIN_FONT` instead of running to 6.9px and then to
+//     nothing.
 //   · THE LEGEND'S MEASURED KEEP-OUT — the one obstacle that may still bind.
 //     Resolved by CLIPPING the chip's width at the key's edge, and by dropping it
 //     when too little of the NAME is left to read; NEVER by sliding it sideways
@@ -2639,18 +2679,50 @@ export const EPIC_CHIP_OPEN_LINK_W = 24;
 export const EPIC_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
 const EPIC_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
 export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
-// The floor a scaled chip stops at. Below this the name is not readable anyway,
-// and the layout would rather draw a small legible-ish chip inside its own lane
-// than a full-size one over the first row of steps.
-export const EPIC_CHIP_MIN_H = 11;
+// ── THE FLOOR (req #3272) ──────────────────────────────────────────────────
+// The smallest size the epic NAME may ever render at. This is the whole of the
+// requirement: a floor on the FONT, with the box derived from it, replacing a
+// floor on the BOX whose font came out at 6.9px and whose failure mode below
+// that was to drop the name entirely.
+//
+// 11px, and it carries no new magic: it is the number `READABLE_MIN_PX` already
+// uses for the plan's smallest REQUIRED text (the requirement ids, which
+// `K_READABLE` is derived from), it is the floor MUI itself uses for
+// `caption`-class type, and it is the number this file already had in hand —
+// the old `EPIC_CHIP_MIN_H`. 11px bold mono is small and legible, which is
+// exactly what the user asked for ("it may be small").
+export const EPIC_CHIP_MIN_FONT = 11;
+// The scale the floor corresponds to. The chip's font is `EPIC_CHIP_FONT ×
+// h / labelH`, so a font floor IS a scale floor and the box follows from it.
+const EPIC_CHIP_MIN_SCALE = EPIC_CHIP_MIN_FONT / EPIC_CHIP_FONT;   // 11/15
+// The shortest box a chip is ever drawn in — 17.6px. **A CONSEQUENCE, NOT AN
+// INPUT** (req #3272 reversed which of the two is which). Exported because the
+// tests and any future caller need the derived number, never so that somebody
+// can pick it: editing it here would silently desync the box from the font it
+// is supposed to hold, which is the defect this requirement exists to fix.
+// Callers passing a non-default `labelH` get `labelH × EPIC_CHIP_MIN_SCALE`;
+// this constant is that value for the default chip.
+export const EPIC_CHIP_MIN_H = EPIC_CHIP_H * EPIC_CHIP_MIN_SCALE;
+// The clearance between two chips the de-collision pass stacks (req #3272).
+// `CHIP_MARGIN_Y` itself rather than a fresh number: it is already "the gap a
+// chip keeps from the thing above it", and two stacked names want the same
+// breathing room a name keeps from its band's own top edge.
+const CHIP_STACK_GAP = CHIP_MARGIN_Y;
 // The floor a CLIPPED chip stops at (req #3257), stated in CHARACTERS OF THE
 // NAME rather than in pixels — that is the thing the chip exists to show. The
 // key's keep-out is resolved by cutting the chip's width off at the key's edge
 // (never by sliding it out of its own rectangle), and a chip clipped to its
 // padding plus the pause dot would render THE DOT AND NOTHING ELSE: box, border,
 // colour, and none of the name. That is not "a bit of the name", it is a
-// different mark. Dropping is the honest outcome there, exactly as it is below
-// `EPIC_CHIP_MIN_H`.
+// different mark. Dropping is the honest outcome there.
+//
+// **THIS FLOOR IS UNTOUCHED BY REQ #3272, DELIBERATELY.** That requirement
+// removed the drop below `EPIC_CHIP_MIN_H` — a floor on the chip's HEIGHT,
+// which controls how big the name is drawn. This one is a floor on how much of
+// the name SURVIVES A CLIP, which is a different question with a different
+// answer: a name that is present but too small to read is now refused (the
+// font floor), and a box that is present but contains none of the name is
+// still refused (this). The requirement says so in as many words.
 //
 // The floor is applied SCALED, in the same units as the chip's own measured
 // width (`EPIC_CHIP_PAD_W * scale + … + n * charW * scale`) — comparing a
@@ -2711,6 +2783,27 @@ export function placeEpicChips({
     if (viewTop >= vh) return [];
 
     const out = [];
+    // The bottom edge of the last chip the VERTICAL DE-COLLISION PASS placed
+    // (req #3272), or `-Infinity` before the first one. Bands arrive top to
+    // bottom and never overlap in world Y, so one running value is the whole
+    // pass: each name is pushed DOWN to clear the one above it, and the stack
+    // stays in band order because the natural positions already are.
+    //
+    // WHY A PASS EXISTS AT ALL, when #3257 deleted the last one: it deleted a
+    // pass over OBSTACLES, resolved SIDEWAYS, which is the defect that
+    // requirement names. This one resolves purely VERTICALLY and only against
+    // other chips. It became necessary the moment `h` gained a floor — a chip
+    // taller than its band's on-screen height cannot be contained by that band,
+    // so "two chips would have to share a rectangle to touch" stopped being
+    // true. The alternative to pushing is dropping, and dropping the name is
+    // the symptom this requirement exists to remove.
+    //
+    // It is updated BEFORE the key's clip and never after it, so `y` is a pure
+    // function of the bands and the transform. That is not tidiness: #3257's
+    // invariant is that the key may take WIDTH off a name or take the name
+    // away, and may NEVER move it. A stack that reserved space only for chips
+    // the key had spared would move every name below a dropped one.
+    let stackBottom = -Infinity;
 
     // The band rectangle's x-extent is the SAME one the canvas draws (`x={2}`,
     // `width={layout.width - 4}` in the component's band Rects) — every band
@@ -2718,7 +2811,19 @@ export function placeEpicChips({
     const left = t.x + 2 * t.k;
     const right = t.x + (worldWidth - 2) * t.k;
 
-    for (const band of bands) {
+    // TOP-TO-BOTTOM, ENFORCED RATHER THAN ASSUMED (req #3272). `computePlanLayout`
+    // assigns `band.y` in one ascending sweep so a live caller is always ordered,
+    // and until the de-collision pass existed the order was cosmetic. It is now
+    // load-bearing — a running `stackBottom` only means "the chip above" if the
+    // bands arrive in that order — and the callers this module cannot see are
+    // hand-built band lists in tests. MEASURED on a shuffled 4-band list: one
+    // name landed 67px below its own band's top, past three others. One sorted
+    // copy of a 4-to-10-element array per frame is not a cost worth arguing over.
+    const ordered = bands.length > 1
+        ? [...bands].sort((a, b) => (a.y || 0) - (b.y || 0))
+        : bands;
+
+    for (const band of ordered) {
         const top = t.y + band.y * t.k;
         const bottom = t.y + (band.y + band.height) * t.k;
 
@@ -2739,12 +2844,15 @@ export function placeEpicChips({
         // the name, it never resizes it.
         const laneBottom = t.y + (band.y + (band.epicLaneH ?? band.headerH)) * t.k;
         const laneH = Math.max(0, laneBottom - top);
-        // Too little lane to draw a legible chip in. Dropping is what #3168
-        // already did here and the requirement keeps it: the alternative is the
-        // epic name over the first row of step labels, which is the collision
-        // the lane exists to prevent.
-        if (laneH - 2 * CHIP_MARGIN_Y < EPIC_CHIP_MIN_H) continue;
-        const h = Math.min(labelH, laneH - 2 * CHIP_MARGIN_Y);
+        // THE FLOOR IS ON THE FONT, AND THE BOX IS DERIVED FROM IT (req #3272).
+        // The chip shrinks INTO its lane exactly as it always did — and stops at
+        // the size below which the name stops being a name. There is no `continue`
+        // here any more: a lane too short for the floored chip gets the chip
+        // anyway, drawn over the first row of step labels on its 60%-opaque
+        // panel. See this section's header for why that reversal is the
+        // requirement rather than a regression.
+        const h = Math.max(labelH * EPIC_CHIP_MIN_SCALE,
+            Math.min(labelH, laneH - 2 * CHIP_MARGIN_Y));
         // Font and character width track the box, so a scaled chip's WIDTH is
         // measured at the size it is actually drawn.
         const scale = h / labelH;
@@ -2765,35 +2873,164 @@ export function placeEpicChips({
         // First term: the intersection's own corner, plus the margin. Second:
         // the band's far edge, so the name is pushed off BY ITS OWN RECTANGLE
         // as that rectangle leaves, instead of lingering at the clamp line.
-        const x = Math.min(ix0 + CHIP_MARGIN_X, right - CHIP_MARGIN_X - wFull);
-        const y = Math.min(iy0 + CHIP_MARGIN_Y, bottom - CHIP_MARGIN_Y - h);
-
-        // A rectangle NARROWER than its own name. The two terms above have
-        // crossed: honouring the left margin would push the name past the right
-        // edge and vice versa, so there is no position inside the rectangle at
-        // all. Drop — sliding out of the rectangle is the defect req #3257 names.
         //
-        // There is no vertical twin of this test on purpose: `h + 2·CHIP_MARGIN_Y
-        // ≤ laneH ≤ band.height · k` by the sizing above, so the vertical terms
-        // can never cross. The sweep asserts that rather than trusting it.
-        if (x < left + CHIP_MARGIN_X - 0.01) continue;
-
-        // ── WIDTH IS CLIPPABLE; HEIGHT IS NOT ───────────────────────────────
-        // Two things cut the chip short on its right, and they are resolved
-        // IDENTICALLY because the reader cannot tell them apart: the panel edge
-        // (a band ENTERING from the right, whose name genuinely starts inside
-        // the content area and runs out of it) and the on-screen key. Both take
-        // WIDTH off the chip — never move it, which is the defect req #3257
-        // names — and both drop it when less than the floor would survive:
-        // padding + the pause dot + `EPIC_CHIP_MIN_CHARS` of the actual name.
+        // …and BOTH far-edge terms are floored at the band's OWN near corner
+        // (req #3272), because the floor can make the chip bigger than the space
+        // the far edge leaves, and the two terms then CROSS. On x that used to
+        // be a DROP; it is now a clip, for the reason below.
         //
-        // Clipping the panel edge rather than dropping there is what keeps the
-        // two consistent. Dropping instead made the KEY able to SAVE a chip: a
+        // A RECTANGLE NARROWER THAN ITS OWN NAME IS A CLIP, NOT A DROP. `wFull`
+        // scales with `h`, so flooring the height WIDENS every floored chip by
+        // 20–60% — and the crossing test that used to refuse a name only at
+        // absurd zooms now refuses it at zooms the reader can reach. MEASURED:
+        // a 29-character epic name on a 900px panel over a 900px-wide world is
+        // drawn by the pre-#3272 code at k = 0.25 (its own reachable zoom floor)
+        // and REFUSED by the floored one, i.e. the fix re-created the vanishing
+        // name on the other axis. So the band's right edge now joins the panel
+        // edge and the key as a thing that takes WIDTH off the chip, resolved by
+        // the identical clip-or-drop below and by the identical
+        // `EPIC_CHIP_MIN_CHARS` floor. That is one rule for width where there
+        // were two, and it is the rule #3257 already argued for: the reader
+        // cannot tell one right-hand obstacle from another.
+        const x = Math.min(ix0 + CHIP_MARGIN_X,
+            Math.max(left + CHIP_MARGIN_X, right - CHIP_MARGIN_X - wFull));
+        // …and the far-edge term is itself floored at the band's OWN top corner
+        // (req #3272). `h` now has a floor, so it can exceed `band.height · k`,
+        // and where it does the far-edge term resolves ABOVE the band's top —
+        // parking the name over the band BEFORE it, where a reader reads it as
+        // that band's name. Reading it as the wrong epic is a worse failure than
+        // either symptom this requirement fixes.
+        //
+        // INERT ABOVE THE FLOOR, and that is the point: whenever
+        // `h + 2·CHIP_MARGIN_Y ≤ band.height · k` we have
+        // `bottom − CHIP_MARGIN_Y − h ≥ top + CHIP_MARGIN_Y`, so the `max`
+        // returns its second argument and this expression is #3257's, character
+        // for character. Every clause that requirement proved — the top-left
+        // corner, the clamp below pinned chrome, the push-off as the rectangle
+        // leaves — is untouched wherever the chip still fits its band.
+        //
+        // Where it is NOT inert (a chip taller than its band on screen) the name
+        // tracks its band's TOP edge: it sits at the band's corner while the
+        // band is in view and slides up and off with that corner as the band
+        // leaves, which is the same push-off, taken from the other edge because
+        // that is the only edge the name can still be anchored to.
+        const yNatural = Math.min(iy0 + CHIP_MARGIN_Y,
+            Math.max(top + CHIP_MARGIN_Y, bottom - CHIP_MARGIN_Y - h));
+        let y = yNatural;
+
+        // A DEGENERATE BAND POISONS THE PASS, so it is refused here rather than
+        // carried. `stackBottom` is the first state this function has ever held
+        // ACROSS bands, and NaN propagates through it: a band with no `height`
+        // makes `bottom` NaN, every comparison against NaN is false so the
+        // intersection test above does not fire, and `stackBottom = NaN` then
+        // silently disables de-collision for the band AFTER it. Refusing is what
+        // the other degenerate inputs already do (see the transform/viewport/
+        // worldWidth guard above); this is the same posture, applied to the one
+        // thing the pass carries between iterations.
+        if (!Number.isFinite(y) || !Number.isFinite(h)) continue;
+
+        // ── VERTICAL DE-COLLISION (req #3272) ───────────────────────────────
+        // Two epic names must never overlap each other, and a floored chip can
+        // be taller than its band, so the guarantee #3257 got from the geometry
+        // now needs a pass. It is the smallest one that can work: push DOWN,
+        // never sideways (that is the defect #3257 deleted) and never by
+        // shrinking (that is the floor this requirement just installed).
+        //
+        // Pushing down rather than up because the name belongs to the band at
+        // its TOP: a name may run into the bands below it and still read
+        // correctly — it starts at its own band — while a name pushed up starts
+        // inside somebody else's.
+        //
+        // **THE PUSH IS BOUNDED BY THE BAND, AND PAST THE BOUND IT DROPS.** An
+        // unbounded push is misattribution with extra steps: each floored chip
+        // consumes `h + CHIP_STACK_GAP` of vertical budget while a band supplies
+        // only `band.height · k`, so on a plan of short bands the shortfall
+        // ACCUMULATES with nothing to stop it — MEASURED at the reachable zoom
+        // floor of a 900px panel, the worst name landed FIVE WHOLE BANDS below
+        // the band it names, and the chip is a click target that zooms to its
+        // epic (req #3204), so it also becomes the wrong control sitting over
+        // another epic's beads. That is the same failure the `max` above exists
+        // to prevent, taken in the other direction, and "the reader can see a
+        // name" is worth nothing if the name is attached to the wrong thing.
+        //
+        // THE BOUND IS THE BAND'S OWN RECTANGLE: the name's top-left corner —
+        // the corner the eye reads from — stays inside the band it names, at
+        // every zoom. A push that would break it drops the name instead.
+        // `yNatural` is in the cap so a chip that had NO conflict is never
+        // refused by this: the bound limits how far de-collision may MOVE a
+        // name, never whether it may exist.
+        //
+        // The invariant is therefore `top ≤ y ≤ max(bottom, top + CHIP_MARGIN_Y)`
+        // and NOT the tidier `top ≤ y ≤ bottom` (review finding). The second
+        // term is `yNatural`'s own floor showing through: a band less than
+        // `CHIP_MARGIN_Y` TALL ON SCREEN has no room even for the margin, so its
+        // natural position is already past its own bottom edge — measured, 1.84px
+        // past, on bands under 0.1px high. The push never causes it. Stating the
+        // stronger bound would be stating something this code does not do.
+        //
+        // WHAT THE BOUND COSTS, measured rather than assumed. On the LIVE plan
+        // (pipeline 2 read 2026-08-02: 139 steps, seven bands of 616/197/4550/
+        // 1040/616/885/522 world px) it costs NOTHING — all seven names are
+        // drawn at full zoom out on a 1200, 1500, 1900 and 2400px panel, which
+        // is this requirement's own acceptance criterion. Drift only accumulates
+        // across CONSECUTIVE bands too short to pay for their own name, and a
+        // real plan's short bands have tall neighbours. It bites only on a plan
+        // of UNIFORMLY minimum-height bands — 24 of them at `MIN_LANE_PITCH`'s
+        // 177 world px, laid out at this module's own 185px pitch (`+ BAND_GAP`,
+        // review finding: 177 was the band, not the pitch) — a shape no live
+        // plan has: 14/24 named at a 900px panel, 18/24 at 1200px, and 24/24
+        // from 1500px up, against 0/24 before this requirement at every one of
+        // them. The full table is in the vitest block, which fails if it rots.
+        if (y < stackBottom + CHIP_STACK_GAP) {
+            y = stackBottom + CHIP_STACK_GAP;
+            if (y > Math.max(yNatural, bottom) + 0.01) continue;
+        }
+
+        // HEIGHT IS NOT CLIPPABLE, and it is not shrinkable either since req
+        // #3272 put the floor on the font — so a band ENTERING from the BOTTOM
+        // still simply waits until its name fits, rather than emitting a box
+        // below the panel that the reader cannot see (measured pre-#3272: a band
+        // with 2px on screen put its whole 24px chip past `vh`). This is also
+        // where the de-collision pass DROPS rather than pushes: a name shoved
+        // past the panel's bottom edge by the stack above it is a name nobody
+        // can read, and the push has nowhere further to go.
+        //
+        // A band LEAVING over the top is the opposite case and is deliberately
+        // NOT caught here: its own rectangle is pushing the name off, which is
+        // clause 3, and this test cannot fire on it — such a band's `bottom` is
+        // near the content area's TOP, not past `vh`, and `y + h` is bounded by
+        // `bottom` plus one chip on either branch of the `max` above (review
+        // finding: the old wording gave `y + h = bottom − CHIP_MARGIN_Y`, which
+        // is the un-floored branch only).
+        //
+        // ORDER MATTERS AND IS LOAD-BEARING: this drop, and the stack reservation
+        // below it, are decided BEFORE the key is consulted, so neither depends
+        // on the key. That is what keeps `y` a pure function of the transform —
+        // #3257's "the key takes width, never position" invariant.
+        if (y + h > vh + 0.01) continue;
+        stackBottom = y + h;
+
+        // ── WIDTH IS CLIPPABLE ──────────────────────────────────────────────
+        // THREE things cut the chip short on its right, and they are resolved
+        // IDENTICALLY because the reader cannot tell them apart: the BAND'S OWN
+        // RIGHT EDGE (req #3272 — a rectangle narrower on screen than the name
+        // it carries, which used to be a drop), the panel edge (a band ENTERING
+        // from the right, whose name genuinely starts inside the content area
+        // and runs out of it) and the on-screen key. All three take WIDTH off
+        // the chip — never move it, which is the defect req #3257 names — and
+        // all three drop it when less than the floor would survive: padding +
+        // the pause dot + `EPIC_CHIP_MIN_CHARS` of the actual name.
+        //
+        // Clipping the panel edge rather than dropping there is what keeps them
+        // consistent. Dropping instead made the KEY able to SAVE a chip: a
         // name too wide for the panel was dropped with no key present and drawn
         // with one, because the key had already narrowed it to fit.
         let w = wFull;
         let clipped = false;
-        let limit = vw;
+        // The band's own right edge is a limit like any other. INERT wherever
+        // the name already fitted: `x ≤ right − CHIP_MARGIN_X − wFull` there, so
+        // `x + wFull ≤ limit` and nothing is cut.
+        let limit = Math.min(vw, right - CHIP_MARGIN_X);
         if (keepOut && keepOut.x + keepOut.w > x
             && y < keepOut.y + keepOut.h && keepOut.y < y + h) {
             limit = Math.min(limit, keepOut.x - CHIP_PAD);
@@ -2806,20 +3043,6 @@ export function placeEpicChips({
             w = room;
             clipped = true;
         }
-
-        // HEIGHT has no equivalent: the chip is already scaled to its band's
-        // epic lane, and shrinking it again here would be the second shrink
-        // rule the requirement rules out. So a band ENTERING from the BOTTOM
-        // simply waits until its name fits, rather than emitting a box below
-        // the panel that the reader cannot see (measured: a band with 2px on
-        // screen put its whole 24px chip past `vh`).
-        //
-        // A band LEAVING over the top is the opposite case and is deliberately
-        // NOT caught here: its own rectangle is pushing the name off, which is
-        // clause 3, and this test cannot fire on it — the far-edge term puts
-        // `y + h` at `bottom - CHIP_MARGIN_Y`, and a band leaving over the top
-        // has its bottom near the content area's TOP, not past `vh`.
-        if (y + h > vh + 0.01) continue;
 
         // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
         // wholly outside the content area for the final margin's worth of the

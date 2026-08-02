@@ -21,7 +21,7 @@ import {
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
-    EPIC_CHIP_PAD_W,
+    EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
@@ -1386,10 +1386,14 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // to say what "there was room for a name" means without guessing — and it
     // doubles as a check that the exported metrics really are the ones the
     // placement reads.
+    //
+    // req #3272 — there is NO "too little lane" answer any more. The floor is on
+    // the FONT and the box is derived from it, so the chip shrinks into its lane
+    // and then STOPS at `EPIC_CHIP_MIN_H`; a lane shorter than that gets the
+    // chip drawn over it rather than no chip at all.
     const chipMetrics = (band, k) => {
         const laneH = (band.epicLaneH ?? band.headerH) * k;
-        if (laneH - 2 * MY < EPIC_CHIP_MIN_H) return null;
-        const h = Math.min(EPIC_CHIP_H, laneH - 2 * MY);
+        const h = Math.max(EPIC_CHIP_MIN_H, Math.min(EPIC_CHIP_H, laneH - 2 * MY));
         const scale = h / EPIC_CHIP_H;
         const text = band.epicLabel || band.epic;
         const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
@@ -1397,6 +1401,19 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             + EPIC_PAUSE_BUBBLE_W;
         return { w, h };
     };
+
+    // WHETHER THE BAND CAN STILL HOLD ITS OWN NAME at this zoom (req #3272).
+    // Above this line every #3257 clause is untouched and the chip is contained
+    // in its rectangle on both axes; below it the floored chip is taller than
+    // the band is on screen, and the name deliberately overflows DOWNWARD. The
+    // predicate is the same one the module's `max(top + MY, …)` turns on.
+    const bandHoldsChip = (band, k) =>
+        chipMetrics(band, k).h + 2 * MY <= band.height * k + 0.01;
+    // Horizontal containment is unconditional at every zoom — the whole of
+    // #3257 is that a name never moves sideways out of its own rectangle, and
+    // req #3272 changed nothing on that axis.
+    const containsX = (outer, inner, eps = 0.01) =>
+        inner.x >= outer.x - eps && inner.x + inner.w <= outer.x + outer.w + eps;
 
     // A SWEEP IN BOTH AXES: every zoom the panel can reach, crossed with pans
     // that actually traverse the plan at that zoom rather than a fixed handful
@@ -1427,20 +1444,54 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         }
     });
 
-    // ── (a) CONTAINED IN ITS OWN RECTANGLE — the requirement's core claim ───
-    it('every chip is inside its own band\'s rectangle, at every zoom and pan', () => {
+    // ── (a) CONTAINED IN ITS OWN RECTANGLE — the requirement's core claim,
+    // RE-STATED PER AXIS by req #3272. Horizontally it is unconditional and
+    // always was. Vertically it now holds exactly while the band can still hold
+    // the floored chip; below that the name overflows DOWNWARD, deliberately,
+    // and the one thing that never happens is a name starting ABOVE its own
+    // band's top — that is the position a reader attributes to the band before
+    // it, which is worse than either symptom #3272 fixes.
+    it('every chip is inside its own band\'s rectangle, at every zoom and pan — '
+        + 'on both axes while the band can hold it, on the x axis always', () => {
         let drawn = 0;
+        let overflowed = 0;
         for (const t of sweep()) {
             for (const chip of chipsAt(t)) {
                 drawn++;
-                expect(contains(bandRect(chip.band, t), chip),
-                    `"${chip.text}" escaped its own rectangle at `
+                const r = bandRect(chip.band, t);
+                expect(containsX(r, chip),
+                    `"${chip.text}" escaped its own rectangle SIDEWAYS at `
                     + `k=${t.k} x=${t.x.toFixed(0)} y=${t.y.toFixed(0)}`)
                     .toBe(true);
+                // NEVER ABOVE ITS OWN BAND'S TOP — at any zoom, floored or not.
+                expect(chip.y, `"${chip.text}" started above its own band at `
+                    + `k=${t.k} y=${t.y.toFixed(0)}`)
+                    .toBeGreaterThanOrEqual(r.y - 0.01);
+                if (bandHoldsChip(chip.band, t.k)) {
+                    expect(contains(r, chip),
+                        `"${chip.text}" escaped its own rectangle at `
+                        + `k=${t.k} x=${t.x.toFixed(0)} y=${t.y.toFixed(0)} — `
+                        + 'and the band had room for it')
+                        .toBe(true);
+                } else if (chip.y + chip.h > r.y + r.h + 0.01) {
+                    overflowed++;
+                }
             }
         }
         // A rule that drew nothing would pass the loop above.
         expect(drawn).toBeGreaterThan(200);
+        // The floored regime was REACHED — without this the per-axis split
+        // above is a distinction the sweep never exercises. It is the fixture's
+        // shortest band (197 world px, so the floored chip exceeds it below
+        // k≈0.1) carrying the fixture's LONGEST name (37 chars, 297px wide at
+        // the floor). Note the second half of that: until the band's own right
+        // edge became a CLIP rather than a DROP, this name was refused
+        // horizontally at exactly those zooms and the branch was unreachable
+        // here — the two halves of req #3272 are one behaviour, and the vertical
+        // half is only observable because the horizontal one stopped hiding it.
+        expect(overflowed,
+            'no chip ever overflowed its band, so the floor was never binding')
+            .toBeGreaterThan(0);
     });
 
     // ── (a) CONTAINED IN THE VISIBLE CONTENT AREA — and the exact, named
@@ -1564,7 +1615,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 // draw whenever this holds, on both axes.
                 const iw = Math.min(r.x + r.w, VIEWPORT.w) - Math.max(r.x, 0);
                 const ih = Math.min(r.y + r.h, VIEWPORT.h) - Math.max(r.y, 0);
-                const roomy = onScreen && m !== null
+                const roomy = onScreen
                     && iw >= m.w + 2 * MX && ih >= m.h + 2 * MY;
                 const chip = chips.find((c) => c.band === band);
                 if (roomy) {
@@ -1588,12 +1639,15 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     });
 
     // ── (c) NO CHIP-ON-CHIP OVERLAP ────────────────────────────────────────
-    // Impossible BY CONSTRUCTION under this rule — bands never overlap in world
-    // Y, the chip is sized to its own band's epic lane and clamped inside its
-    // own rectangle, so two chips would have to share a rectangle to touch.
-    // Swept anyway, on the fixture AND on the many-short-bands shape that was
-    // the only geometry ever measured colliding (70 hits over k ∈ [0.05, 0.5]
-    // under the pre-#3168 rule).
+    // Was impossible BY CONSTRUCTION under #3257 alone — bands never overlap in
+    // world Y, the chip was sized to its own band's epic lane and clamped inside
+    // its own rectangle, so two chips would have had to share a rectangle to
+    // touch. **REQ #3272 ENDED THAT PREMISE** by flooring the chip's height, and
+    // the guarantee is now carried by an explicit VERTICAL de-collision pass.
+    // The same sweeps therefore matter MORE than they did, not less: on the
+    // fixture AND on the many-short-bands shape that was the only geometry ever
+    // measured colliding (70 hits over k ∈ [0.05, 0.5] under the pre-#3168 rule)
+    // — and which, under a floored chip, is the shape the pass exists for.
     const SHORT_BANDS = Array.from({ length: 6 }, (_, i) => ({
         key: i, epicId: i + 1, epic: `Epic number ${i + 1}`, color: '#8ce99a',
         y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
@@ -1627,9 +1681,20 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 drawn += chips.length;
                 assertNoChipOverlap(chips, `on short bands at k=${k.toFixed(2)} y=${y}`);
                 for (const chip of chips) {
-                    expect(contains(bandRect(chip.band, { x: 0, y, k }, 3000), chip),
-                        `"${chip.text}" escaped its rectangle at k=${k.toFixed(2)}`)
-                        .toBe(true);
+                    const r = bandRect(chip.band, { x: 0, y, k }, 3000);
+                    // SIDEWAYS containment is unconditional; vertical holds
+                    // while the band can hold the floored chip (req #3272).
+                    expect(containsX(r, chip),
+                        `"${chip.text}" escaped its rectangle SIDEWAYS at `
+                        + `k=${k.toFixed(2)}`).toBe(true);
+                    expect(chip.y, `"${chip.text}" started above its own band `
+                        + `at k=${k.toFixed(2)}`).toBeGreaterThanOrEqual(r.y - 0.01);
+                    if (bandHoldsChip(chip.band, k)) {
+                        expect(contains(r, chip),
+                            `"${chip.text}" escaped its rectangle at `
+                            + `k=${k.toFixed(2)} — and the band had room for it`)
+                            .toBe(true);
+                    }
                 }
             }
         }
@@ -1816,7 +1881,11 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                             EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
                             + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
                     }
-                    expect(contains(bandRect(chip.band, t), chip)).toBe(true);
+                    // The clip never moves a name out of its rectangle
+                    // SIDEWAYS — the axis the key acts on, and the whole of
+                    // #3257's claim here. Vertical containment is req #3272's
+                    // conditional one and is asserted in (a).
+                    expect(containsX(bandRect(chip.band, t), chip)).toBe(true);
                 }
             }
         }
@@ -1843,11 +1912,18 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     });
 
     // ── THE BAND'S OWN EPIC LANE ───────────────────────────────────────────
-    // The per-band SCALE SHRINK survives req #3257 unchanged: the chip is sized
-    // to the reserved strip above lane 0 so it never rides in the top steps'
-    // lane, and is dropped below `EPIC_CHIP_MIN_H` rather than drawn over them.
-    it('stays inside its own epic lane while the band\'s top is in view, '
-        + 'scaling down rather than overflowing', () => {
+    // The per-band SCALE SHRINK survives #3257 unchanged and is BOUNDED by
+    // req #3272: the chip is sized to the reserved strip above lane 0 so it
+    // never rides in the top steps' lane — until the lane is shorter than the
+    // FONT FLOOR's box, at which point it deliberately draws over them rather
+    // than being dropped. `EPIC_CHIP_MIN_H` is where the two regimes meet.
+    const laneHoldsChip = (band, k) =>
+        (band.epicLaneH ?? band.headerH) * k - 2 * MY >= EPIC_CHIP_MIN_H - 0.01;
+
+    it('stays inside its own epic lane while the lane can hold the floored chip, '
+        + 'scaling down to the floor and no further', () => {
+        let inLane = 0;
+        let overLane = 0;
         for (const t of sweep()) {
             for (const chip of chipsAt(t)) {
                 const band = chip.band;
@@ -1856,23 +1932,38 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 const laneBottom = t.y + (band.y + band.epicLaneH) * t.k;
                 expect(chip.y, `${chip.text} above its lane at k=${t.k}`)
                     .toBeGreaterThanOrEqual(top - 0.01);
-                expect(chip.y + chip.h, `${chip.text} past its lane at k=${t.k}`)
-                    .toBeLessThanOrEqual(laneBottom + 0.01);
+                if (laneHoldsChip(band, t.k)) {
+                    inLane++;
+                    expect(chip.y + chip.h, `${chip.text} past its lane at k=${t.k}`)
+                        .toBeLessThanOrEqual(laneBottom + 0.01);
+                } else {
+                    overLane++;
+                    // The reversal, stated positively: below the floor the chip
+                    // is DRAWN — at the floor's own size — instead of dropped.
+                    expect(chip.h).toBeCloseTo(EPIC_CHIP_MIN_H, 6);
+                }
                 // Scaled, never clipped: the drawn font matches the measured box.
                 expect(chip.fontSize / chip.h)
                     .toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 6);
             }
         }
+        // BOTH regimes were reached, or the split above proves nothing.
+        expect(inLane, 'no chip ever fitted its lane').toBeGreaterThan(100);
+        expect(overLane, 'no chip was ever held up by the font floor')
+            .toBeGreaterThan(0);
     });
 
-    it('never touches a step, requirement or title label while the band\'s own '
-        + 'top is in view — the lane is what buys that', () => {
+    it('never touches a step, requirement or title label while its lane can '
+        + 'hold it — the lane is what buys that', () => {
         const content = layout.labels.filter((l) => l.stepId != null);
+        let checked = 0;
         for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5]) {
             for (const y of [0, -120, -600, -1400]) {
                 const t = { x: 0, y, k };
                 for (const chip of chipsAt(t)) {
                     if (t.y + chip.band.y * k < 0) continue;  // clamped, see below
+                    if (!laneHoldsChip(chip.band, k)) continue;   // req #3272
+                    checked++;
                     for (const l of content) {
                         const screen = { x: l.x * k, y: y + l.y * k, w: l.w * k, h: l.h * k };
                         expect(rectsOverlap(chip, screen),
@@ -1882,6 +1973,40 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 }
             }
         }
+        expect(checked, 'the lane-clearance sweep checked real chips')
+            .toBeGreaterThan(20);
+    });
+
+    // THE OTHER HALF OF THAT, ASSERTED SO IT READS AS THE DECISION IT IS
+    // (req #3272). Below the font floor the name DOES cross the first row of
+    // step labels, and it is drawn anyway — on the chip's 60%-opaque panel, by
+    // the same rule #3257 already applied to beads, arcs and step labels. A
+    // name present and slightly overlapping beats a name absent, which is the
+    // user's whole point; the old behaviour here was to draw NOTHING.
+    it('DRAWS OVER the first row of step labels below the font floor, rather '
+        + 'than dropping the name — the reversal req #3272 asked for', () => {
+        const content = layout.labels.filter((l) => l.stepId != null);
+        let drawnOverLabels = 0;
+        let namedBelowTheFloor = 0;
+        for (const k of [0.12, 0.15, 0.2, 0.25]) {
+            const t = { x: 0, y: 0, k };
+            for (const chip of chipsAt(t)) {
+                if (laneHoldsChip(chip.band, k)) continue;
+                namedBelowTheFloor++;
+                for (const l of content) {
+                    const screen = { x: l.x * k, y: l.y * k, w: l.w * k, h: l.h * k };
+                    if (rectsOverlap(chip, screen)) { drawnOverLabels++; break; }
+                }
+            }
+        }
+        expect(namedBelowTheFloor,
+            'no band was named at a zoom where its lane cannot hold the chip — '
+            + 'which is the pre-#3272 behaviour this requirement removed')
+            .toBeGreaterThan(0);
+        expect(drawnOverLabels,
+            'the overlap the epic lane exists to prevent was never actually '
+            + 'paid for, so this test is not witnessing the reversal')
+            .toBeGreaterThan(0);
     });
 
     // The DELIBERATE consequence of the rule, stated so it reads as a decision
@@ -2026,6 +2151,589 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(chipsAt({ x: 0, y: 0, k: 1 }, null, { topInset: -500 }).length)
             .toBe(chipsAt({ x: 0, y: 0, k: 1 }).length);
         expect(placeEpicChips()).toEqual([]);
+    });
+});
+
+// ── THE LEGIBILITY FLOOR IS ON THE FONT (req #3272) ─────────────────────────
+// The two symptoms this replaces were two branches of the SAME four lines, and
+// both were deliberate: a floor on the BOX (`EPIC_CHIP_MIN_H = 11`) yielding a
+// 6.9px font at the floor, and a `continue` one line above it that dropped the
+// name outright when the lane could not hold an 11px box. A screenshot of
+// production on 2026-08-02 shows the whole plan with NO epic labels at all.
+//
+// The floor is now on the FONT and the box is DERIVED from it. This block
+// asserts the four things the requirement asked for and the two it forbade.
+describe('the epic name holds a legible minimum font (req #3272)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const VIEWPORT = { w: 1500, h: 900 };
+    const MX = 6;
+    const MY = 2;
+
+    const chipsAt = (transform, overrides = {}) => placeEpicChips({
+        bands: layout.bands, transform, viewport: VIEWPORT,
+        worldWidth: layout.width, ...overrides,
+    });
+
+    // THE ZOOM RANGE THE READER CAN ACTUALLY REACH, computed exactly as
+    // PipelinePlanVisualizer computes it (`kZoomFloor`, `kDefault`) rather than
+    // guessed — "zoomed fully out" is a real number on this surface and the
+    // acceptance criterion is stated at it.
+    const kFit = VIEWPORT.w / layout.width;
+    const kDefault = Math.max(kFit, K_READABLE);
+    const kZoomFloor = Math.min(kFit, kDefault) * ZOOM_MIN_RATIO;
+    const kCeiling = kDefault * ZOOM_MAX_RATIO;
+
+    // The many-short-bands shape — the ONLY geometry that reaches the regime the
+    // floor creates (a chip taller than its band on screen). The fixture cannot:
+    // its shortest band is 197 world px and carries its longest name, so #3257's
+    // horizontal refusal drops that chip before the floor can overflow it.
+    const SHORT_BANDS = Array.from({ length: 8 }, (_, i) => ({
+        key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
+        y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+    }));
+    const shortChipsAt = (transform, overrides = {}) => placeEpicChips({
+        bands: SHORT_BANDS, transform, viewport: VIEWPORT, worldWidth: 3000,
+        ...overrides,
+    });
+
+    // ── THE FLOOR ITSELF ───────────────────────────────────────────────────
+    it('states the floor on the FONT and DERIVES the box from it — the inverse '
+        + 'of the pre-#3272 constants', () => {
+        expect(EPIC_CHIP_MIN_FONT).toBe(11);
+        // 17.6px. A CONSEQUENCE of the font floor at the chip's own 24/15
+        // ratio, not a number anybody picked — that inversion IS the fix.
+        expect(EPIC_CHIP_MIN_H)
+            .toBeCloseTo(EPIC_CHIP_H * (EPIC_CHIP_MIN_FONT / EPIC_CHIP_FONT), 9);
+        expect(EPIC_CHIP_MIN_H).toBeCloseTo(17.6, 6);
+        // The number the OLD floor produced, pinned so the improvement is a
+        // measurement rather than a claim: a box floored at 11px drew the name
+        // at 15 × 11/24 ≈ 6.875px.
+        expect(EPIC_CHIP_FONT * (11 / EPIC_CHIP_H)).toBeCloseTo(6.875, 3);
+        // …and it is the same 11px `READABLE_MIN_PX` already uses for the
+        // plan's smallest REQUIRED text, so the surface has one legibility
+        // floor and not two.
+        expect(EPIC_CHIP_MIN_FONT).toBe(READABLE_MIN_PX);
+    });
+
+    it('never renders a name below the font floor, at any zoom or pan, on '
+        + 'either geometry', () => {
+        let drawn = 0;
+        let atTheFloor = 0;
+        for (let k = 0.02; k <= kCeiling; k *= 1.15) {
+            const spanY = layout.height * k + VIEWPORT.h;
+            const spanX = layout.width * k + VIEWPORT.w;
+            for (let i = 0; i <= 4; i++) {
+                for (let j = 0; j <= 3; j++) {
+                    const t = { x: VIEWPORT.w - (spanX * j) / 3,
+                        y: VIEWPORT.h - (spanY * i) / 4, k };
+                    for (const chip of [...chipsAt(t), ...shortChipsAt(t)]) {
+                        drawn++;
+                        expect(chip.fontSize,
+                            `"${chip.text}" rendered at ${chip.fontSize.toFixed(2)}px `
+                            + `at k=${k.toFixed(3)}`)
+                            .toBeGreaterThanOrEqual(EPIC_CHIP_MIN_FONT - 1e-9);
+                        expect(chip.h).toBeGreaterThanOrEqual(EPIC_CHIP_MIN_H - 1e-9);
+                        // The box and the font are ONE decision — the renderer
+                        // draws at `fontSize` inside `h`, so a pair that drifted
+                        // would be a clamp decided against a box that is not on
+                        // screen.
+                        expect(chip.fontSize / chip.h)
+                            .toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 9);
+                        if (chip.fontSize <= EPIC_CHIP_MIN_FONT + 1e-9) atTheFloor++;
+                    }
+                }
+            }
+        }
+        expect(drawn, 'the sweep drew real chips').toBeGreaterThan(300);
+        // The floor was REACHED, not merely never crossed — a sweep that only
+        // visited zooms where the chip is full size proves nothing.
+        expect(atTheFloor, 'no chip was ever held at the floor').toBeGreaterThan(50);
+    });
+
+    // ── THE DROP IS GONE ───────────────────────────────────────────────────
+    it('names EVERY band whose rectangle is on screen at every zoom the reader '
+        + 'can reach down to fully-out — the screenshot this requirement is '
+        + 'about had none at all', () => {
+        // "Zoomed out" = every zoom at which the whole plan fits the panel, from
+        // the behavior's own floor up. The plan is wholly visible there, so
+        // "any pixel on screen" is every band, and the criterion is exact.
+        const kWhole = Math.min(kFit, VIEWPORT.h / layout.height);
+        expect(kZoomFloor).toBeLessThan(kWhole);
+        let checked = 0;
+        for (let k = kZoomFloor; k <= kWhole; k += (kWhole - kZoomFloor) / 12) {
+            const chips = chipsAt({ x: 0, y: 0, k });
+            expect(chips.length,
+                `only ${chips.length} of ${layout.bands.length} epic names at `
+                + `k=${k.toFixed(3)} — the plan fits the panel here, so every `
+                + 'band has pixels on screen')
+                .toBe(layout.bands.length);
+            expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
+            for (const band of layout.bands) {
+                expect(chips.some((c) => c.band === band),
+                    `"${band.epic}" unnamed at k=${k.toFixed(3)}`).toBe(true);
+            }
+            checked++;
+        }
+        expect(checked).toBeGreaterThan(10);
+    });
+
+    it('draws the chip a lane can no longer hold instead of dropping it — the '
+        + 'reversal, on the geometry that reaches it', () => {
+        // Eight 150px bands: below k≈0.144 the floored chip is taller than the
+        // band it belongs to, which is exactly where the pre-#3272 code drew
+        // nothing at all (its own drop fired at 62·k − 4 < 11, i.e. k < 0.242).
+        let namedBelowTheOldDrop = 0;
+        let overflowedItsBand = 0;
+        for (let k = 0.06; k <= 0.24; k += 0.005) {
+            const t = { x: 0, y: 0, k };
+            for (const chip of shortChipsAt(t)) {
+                namedBelowTheOldDrop++;
+                const bandBottom = (chip.band.y + chip.band.height) * k;
+                if (chip.y + chip.h > bandBottom + 0.01) overflowedItsBand++;
+            }
+        }
+        expect(namedBelowTheOldDrop,
+            'nothing was named below the old drop line, so the drop is still there')
+            .toBeGreaterThan(100);
+        expect(overflowedItsBand,
+            'no chip was ever taller than its own band, so this geometry does '
+            + 'not reach the regime the floor creates and proves nothing')
+            .toBeGreaterThan(0);
+    });
+
+    // ── WHAT THE REVERSAL MAY NOT COST ─────────────────────────────────────
+    it('never lets two epic names overlap, at any zoom or pan, on either '
+        + 'geometry — the de-collision pass, since the geometry no longer '
+        + 'guarantees it', () => {
+        const assertClear = (chips, where) => {
+            for (let i = 0; i < chips.length; i++) {
+                for (let j = i + 1; j < chips.length; j++) {
+                    expect(rectsOverlap(chips[i], chips[j]),
+                        `"${chips[i].text}" over "${chips[j].text}" ${where}`)
+                        .toBe(false);
+                }
+            }
+        };
+        let drawn = 0;
+        for (let k = 0.05; k <= 2.5; k *= 1.12) {
+            for (const y of [0, -80, -300, -900, -1600, 200, 600]) {
+                for (const x of [0, -300, 400]) {
+                    const t = { x, y, k };
+                    const a = chipsAt(t);
+                    const b = shortChipsAt(t);
+                    drawn += a.length + b.length;
+                    assertClear(a, `on the fixture at k=${k.toFixed(3)} y=${y} x=${x}`);
+                    assertClear(b, `on short bands at k=${k.toFixed(3)} y=${y} x=${x}`);
+                }
+            }
+        }
+        expect(drawn, 'the sweep drew real chips').toBeGreaterThan(1000);
+    });
+
+    it('de-collides VERTICALLY ONLY — a pushed name keeps the x it would have '
+        + 'had alone, and never rises above its own band', () => {
+        // #3257's rule is that a name never moves SIDEWAYS out of its
+        // rectangle, and #3272's pass must not become the displacement search
+        // that requirement deleted. Compared against each band placed ALONE,
+        // where no push can happen by construction.
+        let pushed = 0;
+        for (let k = 0.06; k <= 0.3; k += 0.01) {
+            const t = { x: 0, y: 0, k };
+            const together = shortChipsAt(t);
+            for (const chip of together) {
+                const [alone] = placeEpicChips({
+                    bands: [chip.band], transform: t, viewport: VIEWPORT,
+                    worldWidth: 3000,
+                });
+                expect(alone, `"${chip.text}" is only drawable in company`).toBeTruthy();
+                expect(chip.x, `"${chip.text}" moved sideways at k=${k.toFixed(2)}`)
+                    .toBeCloseTo(alone.x, 6);
+                expect(chip.w).toBeCloseTo(alone.w, 6);
+                expect(chip.h).toBeCloseTo(alone.h, 6);
+                // The push is DOWNWARD only.
+                expect(chip.y).toBeGreaterThanOrEqual(alone.y - 1e-9);
+                if (chip.y > alone.y + 1e-9) pushed++;
+                // …and a name never starts above its own band's top, pushed or
+                // not: that position reads as the band BEFORE it.
+                expect(chip.y).toBeGreaterThanOrEqual(chip.band.y * k - 0.01);
+            }
+        }
+        expect(pushed, 'the de-collision pass never actually moved anything')
+            .toBeGreaterThan(0);
+    });
+
+    it('keeps the chip\'s POSITION independent of the on-screen key — the push '
+        + 'is computed before the clip, so the key still only takes width', () => {
+        // The ordering inside `placeEpicChips` is load-bearing: a stack that
+        // reserved room only for chips the key had spared would move every name
+        // below a dropped one, breaking #3257's "the key never moves a name".
+        const keepOut = { x: 500, y: 700, w: 500, h: 180 };
+        let compared = 0;
+        for (let k = 0.06; k <= 1.2; k *= 1.2) {
+            for (const y of [0, -200, -700]) {
+                const t = { x: 0, y, k };
+                const bare = new Map(shortChipsAt(t).map((c) => [c.key, c]));
+                for (const chip of shortChipsAt(t, { keepOut })) {
+                    const was = bare.get(chip.key);
+                    expect(was, 'the key CREATED a chip').toBeTruthy();
+                    expect(chip.x).toBeCloseTo(was.x, 9);
+                    expect(chip.y, `"${chip.text}" moved vertically because of the key`)
+                        .toBeCloseTo(was.y, 9);
+                    expect(chip.w).toBeLessThanOrEqual(was.w + 1e-9);
+                    compared++;
+                }
+            }
+        }
+        expect(compared).toBeGreaterThan(50);
+    });
+
+    // ── L3 IS UNTOUCHED ────────────────────────────────────────────────────
+    it('is geometrically identical to the pre-#3272 rule wherever the lane can '
+        + 'still hold the chip — which is all of L2 and L3', () => {
+        // The pre-#3272 arithmetic, restated here so "unchanged" is a
+        // comparison and not an assurance: `h = min(labelH, laneH − 2·MY)`,
+        // `y = min(iy0 + MY, bottom − MY − h)`, with no floor and no pass.
+        const before = (band, t) => {
+            const laneH = Math.max(0, (band.epicLaneH ?? band.headerH) * t.k);
+            if (laneH - 2 * MY < 11) return null;          // the old drop
+            const h = Math.min(EPIC_CHIP_H, laneH - 2 * MY);
+            const scale = h / EPIC_CHIP_H;
+            const top = t.y + band.y * t.k;
+            const bottom = t.y + (band.y + band.height) * t.k;
+            const left = t.x + 2 * t.k;
+            const right = t.x + (layout.width - 2) * t.k;
+            const ix0 = Math.max(left, 0);
+            const iy0 = Math.max(top, 0);
+            if (Math.min(right, VIEWPORT.w) <= ix0
+                || Math.min(bottom, VIEWPORT.h) <= iy0) return null;
+            const text = band.epicLabel || band.epic;
+            const w = text.length * EPIC_CHIP_CHAR_W * scale
+                + EPIC_CHIP_PAD_W * scale
+                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+                + EPIC_PAUSE_BUBBLE_W;
+            const x = Math.min(ix0 + MX, right - MX - w);
+            const y = Math.min(iy0 + MY, bottom - MY - h);
+            if (x < left + MX - 0.01) return null;
+            if (x + w > VIEWPORT.w) return null;           // pre-clip candidates only
+            if (y + h > VIEWPORT.h + 0.01) return null;
+            if (x + w <= 0 || y + h <= 0) return null;
+            return { x, y, w, h, fontSize: EPIC_CHIP_FONT * scale };
+        };
+        // Every k at which the lane still holds the floored chip: 62·k − 4 ≥
+        // 17.6, i.e. k ≥ 0.348. L2 begins well below that and L3 is above it.
+        let compared = 0;
+        for (const k of [0.35, 0.4, 0.5, 0.7, K_READABLE, 1, 1.5, 2, 3, 5]) {
+            for (const y of [0, -200, -900, -1500]) {
+                for (const x of [0, -600, 300]) {
+                    const t = { x, y, k };
+                    for (const chip of chipsAt(t)) {
+                        const old = before(chip.band, t);
+                        if (!old) continue;
+                        expect(chip.x, `x moved at k=${k}`).toBeCloseTo(old.x, 6);
+                        expect(chip.y, `y moved at k=${k}`).toBeCloseTo(old.y, 6);
+                        expect(chip.w, `w moved at k=${k}`).toBeCloseTo(old.w, 6);
+                        expect(chip.h, `h moved at k=${k}`).toBeCloseTo(old.h, 6);
+                        expect(chip.fontSize).toBeCloseTo(old.fontSize, 6);
+                        compared++;
+                    }
+                }
+            }
+        }
+        expect(compared, 'nothing was compared against the pre-#3272 geometry')
+            .toBeGreaterThan(50);
+    });
+
+    // ── THE HORIZONTAL HALF (review finding, req #3272) ────────────────────
+    // `wFull` scales with `h`, so flooring the height WIDENS every floored chip
+    // by 20–60%. The "rectangle narrower than its own name" test was a DROP, so
+    // the fix re-created the vanishing name on the x axis at zooms the reader
+    // can reach. The band's own right edge is now a CLIP, like the panel edge
+    // and the key, under the same `EPIC_CHIP_MIN_CHARS` floor.
+    it('CLIPS a name too wide for its own band\'s rectangle rather than dropping '
+        + 'it — the vanishing name must not come back on the other axis', () => {
+        // The measured case: a 29-character epic name, a 900px-wide world, a
+        // 900px panel. `kZoomFloor` there is 0.25, and the pre-fix code refused
+        // this name from 0.25 up to 0.29 — i.e. at FULL ZOOM OUT that plan
+        // showed no epic name at all, which is the 2026-08-02 screenshot.
+        const NARROW = { w: 900, h: 900 };
+        const band = { key: 1, epicId: 1, epic: 'Orchestration runtime & pause',
+            color: '#8ce99a', y: 8, height: 300, headerH: 83, epicLaneH: 62 };
+        for (let k = 0.25; k <= 0.30; k += 0.01) {
+            const [chip] = placeEpicChips({
+                bands: [band], transform: { x: 0, y: 0, k }, viewport: NARROW,
+                worldWidth: 900,
+            });
+            expect(chip, `"${band.epic}" vanished at k=${k.toFixed(2)}`)
+                .toBeTruthy();
+            expect(chip.fontSize).toBeGreaterThanOrEqual(EPIC_CHIP_MIN_FONT - 1e-9);
+            // Clipped, never MOVED: still at its rectangle's own left margin,
+            // and cut off at its rectangle's right edge — #3257's rule.
+            const left = 2 * k;
+            const right = (900 - 2) * k;
+            expect(chip.x).toBeCloseTo(left + MX, 6);
+            expect(chip.x + chip.w).toBeLessThanOrEqual(right - MX + 0.01);
+            if (chip.clipped) {
+                const scale = chip.h / EPIC_CHIP_H;
+                expect(chip.w).toBeGreaterThanOrEqual(
+                    EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                    + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
+            }
+        }
+        // …and the clip is INERT wherever the name already fitted: at a zoom
+        // with room to spare nothing is cut.
+        const [roomy] = placeEpicChips({
+            bands: [band], transform: { x: 0, y: 0, k: 1 }, viewport: NARROW,
+            worldWidth: 900,
+        });
+        expect(roomy.clipped).toBe(false);
+    });
+
+    // ── THE PUSH IS BOUNDED BY THE BAND (review finding, req #3272) ────────
+    // An unbounded push accumulates: MEASURED at a 900px panel's own zoom floor,
+    // the worst name landed five whole bands below the band it names — and the
+    // chip is a click target that zooms to its epic, so it also becomes the
+    // wrong control over another epic's beads.
+    it('never draws a name whose top-left corner is outside its own band, '
+        + 'however many short bands are stacked above it', () => {
+        const MANY = Array.from({ length: 24 }, (_, i) => ({
+            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 185, height: 177, headerH: 83, epicLaneH: 62,
+        }));
+        let drawn = 0;
+        let atTheBound = 0;
+        for (const vw of [900, 1200, 1500, 1900]) {
+            const VIEW = { w: vw, h: 900 };
+            const kFloorHere = Math.min(vw / 3620, Math.max(vw / 3620, K_READABLE))
+                * ZOOM_MIN_RATIO;
+            for (let k = kFloorHere; k <= 0.4; k *= 1.15) {
+                for (const y of [0, -60, -240]) {
+                    const t = { x: 0, y, k };
+                    const chips = placeEpicChips({ bands: MANY, transform: t,
+                        viewport: VIEW, worldWidth: 3620 });
+                    for (const chip of chips) {
+                        drawn++;
+                        const top = t.y + chip.band.y * k;
+                        const bottom = t.y + (chip.band.y + chip.band.height) * k;
+                        expect(chip.y, `"${chip.text}" starts above its own band `
+                            + `at k=${k.toFixed(3)} vw=${vw}`)
+                            .toBeGreaterThanOrEqual(top - 0.01);
+                        // `max(bottom, top + MY)` and not the tidier `bottom`:
+                        // a band under `CHIP_MARGIN_Y` tall ON SCREEN has no
+                        // room even for the margin, so its NATURAL position is
+                        // already fractionally past its own bottom edge. The
+                        // push never causes that (measured: 1.84px, only on
+                        // bands under 0.1px high) and the bound admits it, so
+                        // this is the invariant that actually holds.
+                        expect(chip.y, `"${chip.text}" drifted ${
+                            (chip.y - bottom).toFixed(1)}px BELOW its own band at `
+                            + `k=${k.toFixed(3)} vw=${vw} — a name over somebody `
+                            + 'else\'s epic')
+                            .toBeLessThanOrEqual(Math.max(bottom, top + MY) + 0.02);
+                        if (chip.y > bottom - 1) atTheBound++;
+                    }
+                    // …and the bound never costs the zero-overlap guarantee.
+                    for (let i = 0; i < chips.length; i++) {
+                        for (let j = i + 1; j < chips.length; j++) {
+                            expect(rectsOverlap(chips[i], chips[j])).toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+        expect(drawn, 'the sweep drew real chips').toBeGreaterThan(500);
+        expect(atTheBound, 'the bound was never actually reached, so this test '
+            + 'is not exercising it').toBeGreaterThan(0);
+    });
+
+    // THE ACCEPTANCE CRITERION, ON THE PLAN IT NAMES. Measured against the LIVE
+    // pipeline 2 read on 2026-08-02 — 139 steps, 5822 × 8535 world px, seven
+    // bands of 616 / 197 / 4550 / 1040 / 616 / 885 / 522 world px. Fully zoomed
+    // out (each panel's own `kZoomFloor`) EVERY band is named, at the floor's
+    // 11px, at every panel width. The bound costs NOTHING here: drift only
+    // accumulates across CONSECUTIVE bands too short to pay for their own name,
+    // and the live plan's one short band has tall neighbours.
+    //
+    // The band heights are the fixture, not the numbers: a live read cannot run
+    // in vitest, so what is frozen here is the SHAPE that was measured.
+    const LIVE_PIPELINE_2 = [
+        ['Application Backlog', 616.3], ['Primary AI/Swarm Session adopt Agent Harness', 197],
+        ['Pipeline', 4550], ['Swarm Cloned Git', 1040], ['Mapping Aggregator Card', 615.8],
+        ['Swarm Backlog', 885], ['Agent Polish', 522.5],
+    ].reduce((acc, [name, h], i) => {
+        acc.bands.push({ key: i, epicId: i + 1, epic: name, color: '#8ce99a',
+            y: acc.y, height: h, headerH: 101, epicLaneH: 62 });
+        acc.y += h;
+        return acc;
+    }, { bands: [], y: 44 }).bands;
+    const LIVE_WORLD_W = 5822;
+
+    it('names every band of the LIVE plan at full zoom out, on every panel width '
+        + '— the requirement\'s own acceptance criterion', () => {
+        for (const vw of [1200, 1500, 1900, 2400]) {
+            const VIEW = { w: vw, h: 900 };
+            const kFit = vw / LIVE_WORLD_W;
+            const k = Math.min(kFit, Math.max(kFit, K_READABLE)) * ZOOM_MIN_RATIO;
+            const chips = placeEpicChips({
+                bands: LIVE_PIPELINE_2, transform: { x: 0, y: 0, k },
+                viewport: VIEW, worldWidth: LIVE_WORLD_W,
+            });
+            const onScreen = LIVE_PIPELINE_2.filter(
+                (b) => b.y * k < VIEW.h && (b.y + b.height) * k > 0);
+            expect(onScreen.length,
+                `the plan does not fit a ${vw}px panel at its own zoom floor`)
+                .toBe(LIVE_PIPELINE_2.length);
+            expect(chips.length,
+                `only ${chips.length} of ${onScreen.length} epic names at full `
+                + `zoom out on a ${vw}px panel`)
+                .toBe(onScreen.length);
+            for (const chip of chips) {
+                expect(chip.fontSize).toBeCloseTo(EPIC_CHIP_MIN_FONT, 6);
+            }
+        }
+    });
+
+    // WHAT THE BOUND COSTS WHERE IT DOES BITE, measured rather than waved at, so
+    // the trade is on the record: 24 bands ALL at `MIN_LANE_PITCH`'s 177 world
+    // px, at the module's own 185px PITCH (`height + BAND_GAP` — a review
+    // finding: abutting them understated the budget by 8px per band and cost one
+    // extra name at 1500px) — a shape no live plan has — at each panel's own
+    // zoom floor. Bands that short cannot each carry a 19.6px name without
+    // either overlapping (forbidden) or drifting off their own band (worse), so
+    // something must give and this is which:
+    //
+    //     panel   band / pitch on screen   named       vs. pre-#3272
+    //      900px      11.0 / 11.5px        14 / 24         0 / 24
+    //     1200px      14.7 / 15.3px        18 / 24         0 / 24
+    //     1500px      18.3 / 19.2px        24 / 24         0 / 24
+    //     1900px      23.2 / 24.3px        24 / 24         0 / 24
+    it('degrades by DROPPING names, never by misattributing them, on a plan of '
+        + 'uniformly minimum-height bands', () => {
+        const MANY = Array.from({ length: 24 }, (_, i) => ({
+            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 185, height: 177, headerH: 83, epicLaneH: 62,
+        }));
+        const EXPECTED = { 900: 14, 1200: 18, 1500: 24, 1900: 24 };
+        for (const vw of [900, 1200, 1500, 1900]) {
+            const VIEW = { w: vw, h: 900 };
+            const kFit = vw / 3620;
+            const k = Math.min(kFit, Math.max(kFit, K_READABLE)) * ZOOM_MIN_RATIO;
+            const chips = placeEpicChips({ bands: MANY, transform: { x: 0, y: 0, k },
+                viewport: VIEW, worldWidth: 3620 });
+            expect(chips.length, `the ${vw}px column of the table above is stale`)
+                .toBe(EXPECTED[vw]);
+            // Whatever survives is correct: in its own band, and clear of every
+            // other name.
+            for (const chip of chips) {
+                expect(chip.y).toBeGreaterThanOrEqual(chip.band.y * k - 0.01);
+                expect(chip.y).toBeLessThanOrEqual(
+                    (chip.band.y + chip.band.height) * k + 0.02);
+            }
+        }
+    });
+
+    // ── DEGENERATE INPUT MUST NOT POISON THE PASS (review finding) ─────────
+    it('refuses a band with a non-finite rectangle instead of carrying NaN into '
+        + 'the next band\'s de-collision', () => {
+        const good = Array.from({ length: 4 }, (_, i) => ({
+            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+        }));
+        const t = { x: 0, y: 0, k: 0.1 };
+        const args = { transform: t, viewport: VIEWPORT, worldWidth: 3000 };
+        const control = placeEpicChips({ bands: good, ...args });
+        const poisoned = placeEpicChips({
+            bands: [{ ...good[0], height: undefined }, ...good.slice(1)], ...args,
+        });
+        // The bad band draws nothing…
+        expect(poisoned.some((c) => c.key === 0)).toBe(false);
+        // …and every SURVIVING chip sits exactly where it does when the bad band
+        // is simply absent — the NaN never reached `stackBottom`.
+        const without = placeEpicChips({ bands: good.slice(1), ...args });
+        expect(poisoned.map((c) => [c.key, +c.y.toFixed(6)]))
+            .toEqual(without.map((c) => [c.key, +c.y.toFixed(6)]));
+        expect(control.length).toBeGreaterThan(without.length);
+    });
+
+    // ── BAND ORDER IS ENFORCED, NOT ASSUMED (review finding) ───────────────
+    it('places a shuffled band list exactly as it places a sorted one — the '
+        + 'pass no longer depends on the caller\'s ordering', () => {
+        const bands = Array.from({ length: 6 }, (_, i) => ({
+            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+        }));
+        const shuffled = [bands[3], bands[0], bands[5], bands[1], bands[4], bands[2]];
+        for (const k of [0.08, 0.1, 0.15, 0.3, 1]) {
+            const args = { transform: { x: 0, y: 0, k }, viewport: VIEWPORT,
+                worldWidth: 3000 };
+            const byKey = (cs) => new Map(cs.map((c) => [c.key,
+                [+c.x.toFixed(6), +c.y.toFixed(6), +c.w.toFixed(6)]]));
+            expect(byKey(placeEpicChips({ bands: shuffled, ...args })),
+                `a shuffled band list placed differently at k=${k}`)
+                .toEqual(byKey(placeEpicChips({ bands, ...args })));
+        }
+    });
+
+    // ── THE PINNED RULER, IN THE FLOORED REGIME ────────────────────────────
+    // A chip taller than the visible sliver of its band cannot be both below
+    // req #3254's pinned ruler and inside its own band — the two constraints
+    // are contradictory there. It follows the band, so the name crosses under
+    // the ruler for the last frames of that band's exit. Bounded and stated,
+    // rather than fixed by making the name LINGER at the clamp line, which is
+    // exactly what #3257 clause 3 forbids.
+    it('may cross under the pinned ruler only while its own band is leaving, '
+        + 'and never by more than its own height', () => {
+        let crossed = 0;
+        for (const topInset of [30, 60]) {
+            for (let k = 0.08; k <= 0.3; k += 0.01) {
+                for (let y = -400; y <= 100; y += 7) {
+                    for (const chip of shortChipsAt({ x: 0, y, k }, { topInset })) {
+                        if (chip.y >= topInset - 0.01) continue;
+                        crossed++;
+                        // Bounded by the chip's own height — past that the
+                        // wholly-outside guard drops it.
+                        expect(topInset - chip.y).toBeLessThan(chip.h + 0.01);
+                        // NEVER WHOLLY HIDDEN. The bound above allows a chip
+                        // exactly flush with the ruler's underside; this says a
+                        // sliver of every drawn name is always below it, so
+                        // "drawn and invisible" stays the state this module
+                        // refuses to emit.
+                        expect(chip.y + chip.h,
+                            `"${chip.text}" is entirely under the ruler at `
+                            + `k=${k.toFixed(2)} y=${y}`)
+                            .toBeGreaterThan(topInset);
+                        // …and it only happens while the band itself is leaving
+                        // over the top.
+                        expect(y + chip.band.y * k).toBeLessThan(topInset);
+                    }
+                }
+            }
+        }
+        expect(crossed, 'the sweep never reached the case this test describes')
+            .toBeGreaterThan(0);
+    });
+
+    // ── THE OTHER FLOOR IS A DIFFERENT RULE, AND IS UNTOUCHED ──────────────
+    it('still DROPS a chip clipped past the readable-characters floor — that '
+        + 'floor is stated in characters and req #3272 leaves it alone', () => {
+        // A key spanning nearly the whole panel and tall enough to reach every
+        // chip row: nothing survives with three characters of name left.
+        const keepOut = { x: 4, y: 0, w: VIEWPORT.w - 8, h: VIEWPORT.h };
+        for (const k of [0.1, 0.3, 1]) {
+            const bare = chipsAt({ x: 0, y: 0, k });
+            expect(bare.length, `nothing to drop at k=${k}`).toBeGreaterThan(0);
+            expect(chipsAt({ x: 0, y: 0, k }, { keepOut }).length,
+                `a chip survived a key that left no room at k=${k}`).toBe(0);
+        }
+        // And a partial clip still keeps at least the floor's worth of name.
+        const key = { x: 700, y: 0, w: 800, h: VIEWPORT.h };
+        for (const chip of chipsAt({ x: 0, y: 0, k: 0.2 }, { keepOut: key })) {
+            if (!chip.clipped) continue;
+            const scale = chip.h / EPIC_CHIP_H;
+            expect(chip.w).toBeGreaterThanOrEqual(
+                EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
+        }
     });
 });
 
