@@ -1316,11 +1316,12 @@ export default function PipelinePlanVisualizer({
                       fontSize={F.batch} fontFamily={MONO} fill={P.batch}
                       listening={false} />);
             // The letter names the box, so it answers with the box's card (req
-            // #3213 D2 acceptance). It sits in the band's header strip, which
-            // is often ABOVE the box's top edge — the leader line below exists
-            // exactly because of that gap — so this is not a duplicate of the
-            // rectangle's own hover but the only way to reach a batch by its
-            // name.
+            // #3213 D2 acceptance). It sits just ABOVE the box's top edge (req
+            // #3256), or — when that column had no clear room — back in the
+            // band's header strip with the leader line below joining the two.
+            // Either way it is outside the rectangle, so this is not a
+            // duplicate of the rectangle's own hover but the only way to reach
+            // a batch by its name.
             worldNodes.push(labelHit(`lblhit-${i}`, label, {
                 onMouseEnter: (e) => { cursorPointer(e, true); showBatchCard(label.letter, e); },
                 onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },

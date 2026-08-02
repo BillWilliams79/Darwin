@@ -503,6 +503,19 @@ const STEP_LABEL_RISE = 21;
 const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
                                 // reserves the letter strip + keeps box tops
                                 // below the epic label (review finding)
+// The batch letter's own rect (req #3256). How far above its box the letter may
+// be displaced looking for clear space is NOT a constant — see the search
+// itself: the room above a box is one lane pitch, and a lane pitch grows with
+// the requirement stack its lane carries (req #3119), so any fixed window is
+// beaten by a lane with one more requirement than the number it was tuned
+// against. Measured: a 96px window held to 3 requirements and fell back to the
+// header strip — a 455px leader — at 4.
+const BATCH_LETTER_H = 11;
+const BATCH_LETTER_GAP = 3;
+// Under this the letter is the box's caption and a drop-line would be noise;
+// over it something else sits between the two and the line is what keeps them
+// one thing.
+const BATCH_LETTER_LEADER_MIN = 20;
 const BAND_GAP = 8;
 const LANE_BASE_H = 62;         // POC 56 + type-scale headroom, before the title slot
 const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
@@ -1441,7 +1454,56 @@ export function computePlanLayout(rows, batches, {
         // encloses exactly its members — never a foreign bead. (Review found
         // the earlier next-free-lane packing letting mates spread around an
         // occupied lane, boxing unrelated steps in ~15% of multi-batch plans.)
+        //
+        // THE RUN IS RESERVED, NOT MERELY ALLOCATED (req #3256). Mates place in
+        // DEPTH order like everything else, so a batch spanning two columns —
+        // which req #3188's remaining-gate key made routine — has its deeper
+        // mates placed after every shallower non-member. Anything that takes a
+        // lane VALUE inside the run in that window splits it, because the
+        // ordinal renumber below preserves ORDER, not distance. Measured on the
+        // live plan: batch A on lanes 7/9/10/11 with an empty row at 8, whose
+        // only occupant sat one column to the left — the doubled first-to-second
+        // gap in the reported screenshot. `batchRunSpan` is what the two paths
+        // that can do it consult: another batch's run allocation, and the
+        // dep-adjacent fractional insertion below.
         const batchRunNext = new Map(); // letter -> next lane in this band's run
+        const batchRunSpan = new Map(); // letter -> [first, last] lane of the run
+        // EVERY lane value handed out in this band, fractions included — the
+        // renumber sorts exactly this set, so it is what says whether a run of
+        // integers is really contiguous. It is NOT read off `laneBeads`, which
+        // today holds the same values but only through an argument about
+        // `take()`'s no-op-on-occupied behaviour, ascending-column placement and
+        // mates sorting before non-members. The contiguity guard should not
+        // depend on that argument staying true.
+        const assignedLanes = new Set();
+        // The end of the run `v` falls in, or null when it falls in none.
+        // Inclusive of both ends: a run lane a mate has not reached yet is free
+        // in `used` and must still not be handed out.
+        const runEndAt = (v) => {
+            for (const [s, e] of batchRunSpan.values()) if (v >= s && v <= e) return e;
+            return null;
+        };
+        // The first fresh lane value below every run `v` sits in. Fresh in the
+        // same sense the insertion path already relies on: a value absent from
+        // `laneBeads` carries no cells and no corridors (a corridor is only ever
+        // reserved between two beads on one lane), so it always places.
+        //
+        // Each pass leaves `out` strictly ABOVE the end of the run it was in, so
+        // the run ends visited strictly increase and there are at most as many
+        // of them as there are runs — the bound below IS that termination proof,
+        // not a safety net. Falling out of it would return a value still inside
+        // a run, which is the dead lane row this whole guard exists to prevent.
+        const belowBatchRuns = (v) => {
+            let out = v;
+            for (let guard = 0; guard <= batchRunSpan.size; guard++) {
+                const end = runEndAt(out);
+                if (end === null) return out;
+                const nx = [...laneBeads.keys()]
+                    .filter((k) => k > end).sort((p, q) => p - q)[0];
+                out = nx === undefined ? end + 1 : (end + nx) / 2;
+            }
+            return out;
+        };
         for (const r of steps) {
             const d = colOf.get(r.id);
             const letter = batchOf.get(r.id);
@@ -1450,6 +1512,31 @@ export function computePlanLayout(rows, batches, {
                 if (!batchRunNext.has(letter)) {
                     const n = steps.filter((s) => batchOf.get(s.id) === letter).length;
                     const runOk = (start) => {
+                        // Never overlap a run already reserved in this band:
+                        // `laneOk` reads `used`, which says nothing about a lane
+                        // a deeper mate has yet to occupy, so two batches would
+                        // interleave and both boxes would enclose the other's
+                        // members.
+                        const last = start + n - 1;
+                        for (const [s, e] of batchRunSpan.values()) {
+                            if (start <= e && s <= last) return false;
+                        }
+                        // …and never STRADDLE a lane already handed out (req
+                        // #3256). The run is allocated at the FIRST mate, which
+                        // — depth order again — can be deeper than non-members
+                        // that already opened inserted lanes, and the anchored
+                        // candidate below can itself be one of those fractional
+                        // lanes. Contiguity is a property of the SORTED values
+                        // the renumber sees, not of the arithmetic: a run is
+                        // contiguous only if nothing that is not one of its own
+                        // lanes sits between its ends. Measured in fuzz: 56 of
+                        // 3848 boxes still spanned a dead lane with only the
+                        // insertion side guarded, every one of them this case.
+                        const mine = new Set();
+                        for (let k = 0; k < n; k++) mine.add(start + k);
+                        for (const v of assignedLanes) {
+                            if (v > start && v < last && !mine.has(v)) return false;
+                        }
                         for (let k = 0; k < n; k++) {
                             if (!laneOk(r, d, start + k)) return false;
                         }
@@ -1465,6 +1552,7 @@ export function computePlanLayout(rows, batches, {
                         while (!runOk(start)) start += 1;
                     }
                     batchRunNext.set(letter, start);
+                    batchRunSpan.set(letter, [start, start + n - 1]);
                 }
                 lane = batchRunNext.get(letter);
                 batchRunNext.set(letter, lane + 1);
@@ -1493,6 +1581,13 @@ export function computePlanLayout(rows, batches, {
                             .filter((v) => v > al)
                             .sort((p, q) => p - q)[0];
                         lane = below === undefined ? al + 1 : (al + below) / 2;
+                        // …and never inside a batch's reserved run: a fractional
+                        // value between two mates becomes a WHOLE lane row at
+                        // the renumber below, and the batch box then spans a
+                        // lane no member occupies (req #3256). Stepping past the
+                        // whole run keeps the value fresh, so everything this
+                        // path assumes about a fresh lane still holds.
+                        lane = belowBatchRuns(lane);
                     } else {
                         lane = 0;
                         while (!laneOk(r, d, lane)) lane += 1;
@@ -1500,6 +1595,7 @@ export function computePlanLayout(rows, batches, {
                 }
             }
             laneById.set(r.id, lane);
+            assignedLanes.add(lane);
             take(d, lane, r.id);
             // Reserve the corridor of every straight (same-lane) arc into this
             // step, so no LATER chain inherits a lane through it. take() never
@@ -1573,10 +1669,14 @@ export function computePlanLayout(rows, batches, {
         // Retained for consumers that want a representative pitch; band height
         // now comes from laneY, never from sub × pitch.
         const pitch = lanePitch(0);
-        // Bands hosting batch members take a taller header: the batch letter
-        // lives in a reserved header strip (below the epic label, above lane
-        // 0's step label) and the box top must clear the epic label — found in
-        // review as an epic-label × batch-label collision on long epic titles.
+        // Bands hosting batch members take a taller header: it reserves the
+        // batch-letter strip (below the epic label, above lane 0's step label)
+        // and keeps the box top clear of the epic label — found in review as an
+        // epic-label × batch-label collision on long epic titles. Since req
+        // #3256 the letter normally rides its own box and the strip is its
+        // FALLBACK, but a lane-0 box's top still lands inside this header and
+        // the strip is still what guarantees the fallback somewhere legal to
+        // go, so the reservation is unchanged.
         // The header also absorbs the stagger, but ONLY in title mode: lane 0's
         // step label is what gets LIFTED on odd columns (req #3119), and without
         // the extra line it rises into the epic label — and, in a band hosting a
@@ -1986,11 +2086,43 @@ export function computePlanLayout(rows, batches, {
             w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W, h: 16,
         });
     }
-    // Batch letters live in the reserved header strip of a segment's band —
-    // below the epic label (ends at band.y+19), above lane 0's step label
-    // (starts at band.y + headerH − 16 = band.y + 40 with the extended header)
-    // — so the letter can never collide with either, whatever the epic title
-    // length. Letters sharing a band stagger rightward.
+    // ── Batch letters ───────────────────────────────────────────────────────
+    // THE LETTER RIDES ITS BOX (req #3256). It used to live in the band's
+    // reserved header strip whatever lane the box sat on, with a dashed LEADER
+    // dropped from the letter to the box top so the two still read as one
+    // thing. That is right for a box on lane 0 and absurd for a box far down a
+    // tall band: the reporting screenshot's batch A dropped 689px down an
+    // otherwise empty band, and re-measured on the live plan 2026-08-02 batch B
+    // still dropped 407px. A hairline crossing several hundred pixels of
+    // nothing reads as an empty vertical corridor, not as an association.
+    // Anchored a letter-height above its own box top, inside the box's own
+    // x-range, it usually needs no line at all.
+    //
+    // Each of the box's TWO ends is tried, and each is DISPLACED UPWARD past
+    // everything already on the canvas in its x-range — labels AND beads, see
+    // both below. What is in the way is its own member's step label, which
+    // `title` mode LIFTS above the box top on odd columns, and whatever the
+    // lane above left in this column: a staggered title slot can sit as little
+    // as 6px above a box top. A search rather than a tuned constant because the
+    // vertical neighbourhood of a box top is genuinely different in each of the
+    // four layout combinations, and a constant clearing all four today is one
+    // type-scale change away from being wrong in silence. `labels` already
+    // holds every step, requirement, title, ruler and epic rect at this point,
+    // and each earlier batch letter as it is pushed — so letters displace off
+    // each other too and need no separate stagger.
+    //
+    // WHERE IT ENDS UP IS BOUNDED BY THE BAND, not by a distance: the ceiling
+    // is the band's own reserved letter strip. A box whose column is congested
+    // the whole way there falls back to that strip, which the search reaches by
+    // itself — see the `best === null` note below for why nothing can actually
+    // get there. The strip is free by construction (BATCH_HEADER_EXTRA buys it,
+    // below the epic label and above lane 0's step label), so the two review
+    // findings it was built for stand untouched.
+    //
+    // WHAT THIS DOES NOT CLAIM. The worst case is still a long drop-line: 1 of
+    // 3848 fuzzed boxes climbs 245px, against the 689px the header placement
+    // drew on the live plan and against 0px for every box on the live plan now.
+    // The corridor is not abolished — it stops being the normal case.
     //
     // EVERY SEGMENT IS LABELLED, not just the first (req #3188). While a batch
     // could only segment across BANDS — which the engine can no longer produce
@@ -1998,44 +2130,119 @@ export function computePlanLayout(rows, batches, {
     // vertically. Column segments sit SIDE BY SIDE and are reachable on any plan
     // where mates share only their remaining gate, and an unlabelled dashed box
     // beside a labelled one reads as a second, anonymous batch. Repeating
-    // "batch A" is the honest rendering: both boxes ARE batch A. The stagger
-    // loop already keeps two letters in one band apart, and segments in
-    // different columns start far enough apart that it rarely has to.
-    const placedLetters = new Map(); // bandIndex -> [{x, w}]
+    // "batch A" is the honest rendering: both boxes ARE batch A.
+    // Beads as rects covering their hit circle, PER BAND — the sweep below is
+    // band-scoped and the memo is what makes that cheap. Scoping is sound
+    // because a letter cannot leave its own band (its ceiling is inside it) and
+    // the nearest foreign bead is ~103px away: the previous band's deepest bead
+    // sits at least `lanePitch − 10` above its band bottom, and `lanePitch` is
+    // at least LANE_BASE_H + TITLE_SLOT + STAGGER_GAP = 94, comfortably more
+    // than BEAD_HIT_RADIUS + 10. That inequality is the dependency; if a lane
+    // could ever be shorter than a bead, this filter would have to go.
+    const bandBeadRects = new Map();
+    const beadRectsOf = (bandIndex) => {
+        if (!bandBeadRects.has(bandIndex)) {
+            bandBeadRects.set(bandIndex, [...nodes.values()]
+                .filter((n) => n.bandIndex === bandIndex)
+                .map((n) => ({
+                    x: n.x - BEAD_HIT_RADIUS, y: n.y - BEAD_HIT_RADIUS,
+                    w: 2 * BEAD_HIT_RADIUS, h: 2 * BEAD_HIT_RADIUS,
+                })));
+        }
+        return bandBeadRects.get(bandIndex);
+    };
     for (const box of batchBoxes) {
         const text = `batch ${box.letter}`;
         const w = text.length * 6;
         const band = bands[box.bandIndex];
-        let x = box.x + 5;
-        const others = placedLetters.get(box.bandIndex) || [];
-        let moved = true;
-        while (moved) {
-            moved = false;
-            for (const o of others) {
-                if (x < o.x + o.w + 8 && o.x < x + w + 8) {
-                    x = o.x + o.w + 8;
-                    moved = true;
-                }
+        // TWO ANCHORS, NEAREST WINS. A column's furniture is centred on the
+        // bead — step label, requirement marks, title slot, the bead itself —
+        // so the two ends of a box have DIFFERENT vertical profiles, and the
+        // letter climbing 300px at one end can often sit 14px above the box at
+        // the other. Measured over 3848 fuzzed boxes: with the left end alone,
+        // two climbed 245px and 326px — the corridor this requirement exists to
+        // remove, just shorter; with both, one climbs 245px and nothing else
+        // exceeds 75px, and the right end wins on ~7% of boxes. Both keep the
+        // letter inside the box's own x-range, so neither costs the association.
+        //
+        // Clamped into the box, and de-duplicated: `batchLetter` runs past 'Z'
+        // to 'AA' and beyond, so on a minimum-width column the two ends can meet
+        // or cross, and an unclamped right anchor would hang off the left of the
+        // very box it names.
+        const anchorAt = (xx) => Math.max(box.x, Math.min(xx, box.x + box.width - w));
+        const anchors = [...new Set([
+            anchorAt(box.x + 5), anchorAt(box.x + box.width - 5 - w),
+        ])];
+        // THE CEILING IS THE BAND'S OWN LETTER STRIP, and nothing narrower. The
+        // room above a box is one lane pitch, a lane pitch grows with the
+        // requirement stack its lane carries (req #3119), and the marks in that
+        // stack can leave no 11px gap at all — so any tighter ceiling is a
+        // constant that some plan beats, and beating it means falling back to
+        // the band header and the several-hundred-pixel leader this requirement
+        // exists to remove. Climbing costs a drop-line; giving up costs the
+        // defect back.
+        const ceiling = band.y + 26;
+        // WHAT THE LETTER MUST CLEAR IS EVERY MARK, NOT EVERY LABEL. A bead is
+        // not a label, and leaving it out of this test is not a near-miss: a
+        // requirement mark sits `n.y + 14` under its bead, so displacing off one
+        // lands the letter's top edge exactly on the bead's CENTRE — measured in
+        // review on every congested column, breaking the no-label-on-bead and
+        // hit-circle invariants at once and putting the letter's own hover rect
+        // over a step's. Beads join the sweep as rects covering the hit circle,
+        // so the search displaces off them exactly as it does off a label.
+        const beadRects = beadRectsOf(box.bandIndex);
+        const hits = (r, xx, yy) => r.x < xx + w && xx < r.x + r.w
+            && r.y < yy + BATCH_LETTER_H && yy < r.y + r.h;
+        const clash = (xx, yy) => labels.find((l) => hits(l, xx, yy))
+            || beadRects.find((b) => hits(b, xx, yy));
+        let best = null;
+        for (const x of anchors) {
+            // Strictly decreasing: a clashing rect's own top is always above
+            // `y + BATCH_LETTER_H`, so the next candidate is above this one, and
+            // `ceiling` bounds the walk. It therefore exits either clear or
+            // below the ceiling — never clear-but-untested, which is why the
+            // rejection below tests only the ceiling.
+            let y = box.y - BATCH_LETTER_H - BATCH_LETTER_GAP;
+            for (let hit = clash(x, y); hit && y >= ceiling; hit = clash(x, y)) {
+                y = hit.y - BATCH_LETTER_H - BATCH_LETTER_GAP;
             }
+            if (y < ceiling) continue;
+            // Largest y = smallest climb. Strict, so the left end keeps a tie.
+            if (best === null || y > best.y) best = { x, y };
         }
-        others.push({ x, w });
-        placedLetters.set(box.bandIndex, others);
-        const y = band.y + 26;
-        // A box whose top member sits below lane 0 leaves a gap between the
-        // header-strip letter and the box; the leader is a dashed drop-line the
-        // renderer draws from the letter to the box top so the association
-        // stays readable (review finding: a 133px orphaned letter). Clamped
-        // into the box's x-range for staggered letters.
-        const leader = box.y - (y + 11) > 6
-            ? {
-                x1: x + 4, y1: y + 12,
-                x2: Math.min(Math.max(x + 4, box.x + 6), box.x + box.width - 6),
-                y2: box.y,
-            }
-            : null;
+        if (best === null) {
+            // THE LAST RESORT, AND IT IS STRUCTURALLY UNREACHABLE. Getting here
+            // needs a rect topped above `ceiling + 14` and bottomed below
+            // `ceiling` — inside the strip BATCH_HEADER_EXTRA reserves. Every
+            // band reaching this loop hosts a batch member, so it carries that
+            // extra; the epic label and the ruler ticks end ABOVE the ceiling,
+            // and the lowest-topped thing under them is lane 0's step label at
+            // `band.y + 78`, identically in both stagger modes (the `+18` in
+            // `headerH` cancels the `−18` lift). Measured at review over 1592
+            // batch-hosting bands: zero rects in that window, the nearest
+            // topping at `band.y + 55` against the 40 required. Kept anyway,
+            // because a `best` of null would otherwise be a crash and because
+            // the strip is the one place whose freedom is a construction rather
+            // than a measurement.
+            best = { x: anchors[0], y: ceiling };
+        }
+        // A leader is drawn only when the letter ended up far enough above its
+        // box that something ELSE is between the two — under that it reads as
+        // the box's caption and a line would be noise. So the leader stops being
+        // the normal case and becomes what it was always for. Its own path is
+        // NOT swept: a drop-line may cross a mark the letter climbed past. That
+        // is deliberate — a leader that dodged would stop reading as a join —
+        // and it is the one piece of geometry here no invariant covers.
+        const leaderTo = (lx, ly) => ({
+            x1: lx + 4, y1: ly + BATCH_LETTER_H + 1,
+            x2: Math.min(Math.max(lx + 4, box.x + 6), box.x + box.width - 6),
+            y2: box.y,
+        });
+        const leader = box.y - (best.y + BATCH_LETTER_H) > BATCH_LETTER_LEADER_MIN
+            ? leaderTo(best.x, best.y) : null;
         labels.push({
             kind: 'batch', letter: box.letter, text,
-            x, y, w, h: 11, leader,
+            x: best.x, y: best.y, w, h: BATCH_LETTER_H, leader,
         });
     }
 
