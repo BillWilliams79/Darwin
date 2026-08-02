@@ -63,6 +63,10 @@ import {
     ROW_ACCENT,
     BATCH_ACCENT,
     ELIGIBLE_MARKER_COLOR,
+    // req #3226 — the SAME red the pause bubble/halo use, so "suppressed"
+    // reads as one fact across every surface it appears on rather than three
+    // coincidental reds.
+    PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
@@ -512,6 +516,24 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                     data-testid={`pipeline-eligible-${row.id}`}
                                                 >
                                                     ● eligible
+                                                </Typography>
+                                            )}
+                                            {/* req #3226 — rendered ALONGSIDE
+                                                "eligible", never replacing it:
+                                                a step in a paused scope is
+                                                still genuinely eligible (the
+                                                engine's own eligibility() does
+                                                not change), it just will not
+                                                launch on its own right now. */}
+                                            {eligible && row.launchSuppressed && (
+                                                <Typography
+                                                    variant="caption"
+                                                    sx={{ color: PAUSE_PAUSED_COLOR,
+                                                           ...NOWRAP }}
+                                                    data-testid={`pipeline-suppressed-${row.id}`}
+                                                    title="This scope is paused — held, not about to launch"
+                                                >
+                                                    ⏸ held
                                                 </Typography>
                                             )}
                                         </Box>

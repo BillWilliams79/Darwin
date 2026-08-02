@@ -116,6 +116,7 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
+    EPIC_PAUSE_BUBBLE_D, pauseBubbleColor,
 } from './pipelinePlanLayout';
 import '../../CalendarFC/swarmVisualizer.css';
 
@@ -308,9 +309,13 @@ export default function PipelinePlanVisualizer({
         () => computePlanLayout(rows, plan.batches || [], {
             reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
             timeAxis: plan.timeAxis || null, epicCounts,
+            // req #3226 — `plan.pause` comes from `orderedPlan` (same
+            // provenance as `requirementCounts`/`timeAxis` above): one
+            // derivation, read here rather than recomputed.
+            pauseInfo: plan.pause || null,
         }),
         [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel, stepWidth,
-            reqLabel, reqTitles, epicCounts]);
+            reqLabel, reqTitles, epicCounts, plan.pause]);
 
     // ── The REQUIREMENT-ID channel (req #3119, tri-state req #3168) ─────────
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -1131,17 +1136,22 @@ export default function PipelinePlanVisualizer({
     rows.forEach((row) => {
         const n = layout.nodes.get(row.id);
         if (!n) return;
-        const style = beadStyle(row, eligibleStepIds.has(row.id));
+        const style = beadStyle(row, eligibleStepIds.has(row.id), row.launchSuppressed);
         // ── Highlight for next steps (req #3168) ────────────────────────────
         // Drawn BEFORE the bead so the halo sits under it, and at EVERY zoom
         // level including 'out' — a 2.5px ring is the only thing that used to
         // mark a launchable step, and at Overview it is a pixel of a green that
         // the Complete fill already owns. The one question a plan view is opened
         // to answer should be answerable at the level you open it in.
+        //
+        // req #3226 — `style.haloColor` is red instead of the eligible green
+        // when the engine says this step's launch is SUPPRESSED (a paused
+        // scope): the ring beneath it stays green (still eligible), so the
+        // two together read as "eligible, but held", not "about to run".
         if (style.next) {
             worldNodes.push(
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
-                        radius={NEXT_HALO_RADIUS} stroke={P.eligibleRing}
+                        radius={NEXT_HALO_RADIUS} stroke={style.haloColor}
                         strokeWidth={NEXT_HALO_STROKE} opacity={NEXT_HALO_OPACITY}
                         dash={NEXT_HALO_DASH} listening={false} />);
         }
@@ -1474,7 +1484,17 @@ export default function PipelinePlanVisualizer({
                             // the fact the reader actually needs to decide
                             // whether to click.
                             title={e.sticky ? stickyTitle : 'Zoom pipeline epic'}
-                            aria-label={e.sticky ? stickyTitle : `Zoom pipeline epic ${e.text}`}
+                            // req #3226 — the pause bubble is colour-only
+                            // (green/red), the least discriminable pair for
+                            // the most common colour-vision deficiency and
+                            // silent to a screen reader. Folded into the SAME
+                            // label the chip already carries rather than a
+                            // second announced element, so pause reads as one
+                            // more fact about the epic being named, not a
+                            // separate control.
+                            aria-label={(e.sticky ? stickyTitle
+                                : `Zoom pipeline epic ${e.text}`)
+                                + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
@@ -1533,6 +1553,30 @@ export default function PipelinePlanVisualizer({
                                 The pinned position (viewport edge, not a band)
                                 plus the solid border and the "Jump to…" title
                                 below are the sticky affordance instead. */}
+                            {/* The pause status bubble (req #3226) — a FLAT,
+                                unscaled dot (unlike the name text, which
+                                scales with the chip): its footprint is
+                                reserved unconditionally in
+                                `placeEpicChips`' own width measurement, so
+                                nothing here can draw past what the
+                                collision math cleared. Every band gets one,
+                                "No epic" included — pause is a scope fact,
+                                and the unlabelled band's scope is exactly
+                                the whole plan's. */}
+                            <Box
+                                component="span"
+                                data-testid={`pipeline-viz-epic-pause-${e.key}`}
+                                title={e.band?.paused
+                                    ? 'This scope is paused — not swarm-starting'
+                                    : 'This scope is active — may swarm-start'}
+                                sx={{
+                                    flexShrink: 0,
+                                    width: EPIC_PAUSE_BUBBLE_D,
+                                    height: EPIC_PAUSE_BUBBLE_D,
+                                    borderRadius: '50%',
+                                    bgcolor: pauseBubbleColor(!!e.band?.paused),
+                                }}
+                            />
                             <Box component="span" className="pipeline-viz-epic-name">
                                 {e.text}
                             </Box>

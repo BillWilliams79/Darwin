@@ -142,6 +142,11 @@ export const STEP_DONE = 'done';
 export const STEP_RUNNING = 'running';
 export const STEP_PENDING = 'pending';
 
+// The one value `pipeline_status` and `epic_status` share meaning for (req
+// #3223): PAUSED IS THE SAME STRING AT BOTH SCOPES, so `pauseState` below
+// tests one constant against both columns rather than two.
+export const PAUSED_STATUS = 'paused';
+
 // Requirement statuses that close a step (rule 1).
 export const TERMINAL_REQUIREMENT_STATUSES = ['met', 'deferred', 'wontfix'];
 
@@ -1303,5 +1308,79 @@ export function requirementCounts(model) {
     return {
         overall,
         byEpic: [...byEpic.values()].sort((a, b) => a.epicId - b.epicId),
+    };
+}
+
+// ── Pause (req #3223, rendered by req #3226) ────────────────────────────────
+//
+// A faithful port of `pipeline_derive.py::pause_state` — the enforcement half
+// already ships this fact on the composed MCP read, but the browser reaches
+// Lambda-Rest directly (never the localhost MCP daemon), so this engine has to
+// derive it independently, exactly as `requirementCounts` above already does
+// for req #3225's met/total counts.
+//
+// PAUSE SUPPRESSES LAUNCHING AND NOTHING ELSE, and is deliberately NOT folded
+// into `eligibility`: a consumer has to be able to tell eligible-and-suppressed
+// from not-eligible, because they read as opposite things (one is "waiting on
+// a person", the other "waiting on a gate") and the plan visualizer renders
+// them differently.
+//
+// TWO SCOPES, ONE RULE. A step is suppressed when its PLAN is paused, or when
+// its DOMINANT epic (rule 10) is paused — an epic pause binds a whole-plan
+// orchestrator too, so the suppression is a property of the STEP and no
+// consumer has to know which orchestrator would be asking. `suppressedBy` is a
+// list, not a winner, because a reader who unpauses only the plan needs to
+// know the epic pause still holds the step.
+//
+// A missing `epic_status` reads as `active` — the column's own DB default and
+// what every pre-migration row carries.
+//
+// @param {PipelineModel} model
+// @param {PlanRow[]} rows   MUTATED IN PLACE with launchSuppressed/suppressedBy,
+//                           the same discipline `orderedPlan` already applies
+//                           for `row.cost` — these are freshly built rows this
+//                           call owns, never a caller's cached object.
+// @returns {{pipelineStatus: ?string, pipelinePaused: boolean,
+//            pausedEpicIds: number[], suppressedStepIds: number[]}}
+export function pauseState(model, rows) {
+    const pipeline = (model && model.pipeline) || {};
+    const pipelineStatus = pipeline.pipeline_status;
+    const pipelinePaused = pipelineStatus === PAUSED_STATUS;
+
+    // `model.epics` is the WHOLE label dictionary in the browser (design rule
+    // 5 — `buildPipelineModel` passes it through unfiltered, unlike the
+    // server's composed read, which scopes `epics` to this plan already). So
+    // a paused epic elsewhere in Darwin must not appear in THIS plan's
+    // `pausedEpicIds` — intersect against the epic ids this plan's own rows
+    // actually carry, which is what keeps this field matching
+    // `pause_state()`'s plan-scoped answer.
+    const rowEpicIds = new Set();
+    for (const row of rows || []) {
+        if (row.epicId != null) rowEpicIds.add(row.epicId);
+    }
+
+    const pausedEpicIds = new Set();
+    for (const epic of (model && model.epics) || []) {
+        if (epic && epic.epic_status === PAUSED_STATUS && epic.id != null
+            && rowEpicIds.has(epic.id)) {
+            pausedEpicIds.add(epic.id);
+        }
+    }
+
+    const suppressedStepIds = [];
+    for (const row of rows || []) {
+        const reasons = [];
+        if (pipelinePaused) reasons.push('pipeline');
+        if (row.epicId != null && pausedEpicIds.has(row.epicId)) reasons.push('epic');
+        row.launchSuppressed = reasons.length > 0;
+        row.suppressedBy = reasons;
+        if (reasons.length) suppressedStepIds.push(row.id);
+    }
+
+    return {
+        pipelineStatus,
+        pipelinePaused,
+        pausedEpicIds: [...pausedEpicIds].sort((a, b) => a - b),
+        suppressedStepIds,
     };
 }

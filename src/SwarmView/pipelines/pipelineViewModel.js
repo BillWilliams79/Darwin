@@ -23,6 +23,7 @@ import {
     condensationProposals,
     eligibility,
     requirementCounts,
+    pauseState,
     STEP_DONE,
     STEP_RUNNING,
     STEP_PENDING,
@@ -288,6 +289,13 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         }
     }
 
+    // req #3226 — pause suppression (req #3223's enforcement half, rendered
+    // here). Mutates each row with `launchSuppressed`/`suppressedBy`, the same
+    // "freshly built rows this call owns" discipline `row.cost` relies on
+    // below, so it runs first and the cost loop's own comment still describes
+    // every mutation these rows carry.
+    const pause = pauseState(model || {}, rows);
+
     // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
     // call owns (buildPlanRows returns new objects every time), never the caller's
     // input, so there is nothing outside this function to surprise.
@@ -317,6 +325,10 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         // req #3225 — pure CPU over `model.requirements`/`model.features`,
         // both already in hand. No extra read, same as cost/timeAxis above.
         requirementCounts: requirementCounts(model || {}),
+        // req #3226 — see the mutation above; carried here too so a consumer
+        // that only has `plan` (not the rows) can still read the plan-wide
+        // and epic-wide pause facts.
+        pause,
     };
 }
 

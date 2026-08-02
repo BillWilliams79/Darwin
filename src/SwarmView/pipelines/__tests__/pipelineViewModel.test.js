@@ -194,6 +194,28 @@ describe('orderedPlan — engine run + self-check', () => {
         expect(plan.requirementCounts).toEqual(requirementCounts(model()));
         expect(plan.requirementCounts.overall.total).toBeGreaterThan(0);
     });
+
+    it('carries pause state, and unpaused fixture rows are never suppressed '
+        + '(req #3226)', () => {
+        expect(plan.pause).toEqual({
+            pipelineStatus: PIPELINE.pipeline_status,
+            pipelinePaused: false,
+            pausedEpicIds: [],
+            suppressedStepIds: [],
+        });
+        expect(plan.rows.every((r) => r.launchSuppressed === false)).toBe(true);
+    });
+
+    it('a paused pipeline suppresses every row and is reflected in plan.pause '
+        + '(req #3226)', () => {
+        const paused = orderedPlan(buildPipelineModel({
+            ...READS, pipeline: { ...PIPELINE, pipeline_status: 'paused' },
+        }));
+        expect(paused.pause.pipelinePaused).toBe(true);
+        expect(paused.pause.suppressedStepIds.sort((a, b) => a - b))
+            .toEqual(paused.rows.map((r) => r.id).sort((a, b) => a - b));
+        expect(paused.rows.every((r) => r.launchSuppressed)).toBe(true);
+    });
 });
 
 // A minimal plan with a genuine batch: two pending steps sharing an identical

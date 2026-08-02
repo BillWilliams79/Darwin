@@ -11,6 +11,7 @@ import {
     eligibility, launchBatches, condensationProposals,
     dominantLabels, machineLabels, fmtCost, aggregateStepCost,
     aggregateRowCost, sumReqCost, requirementCounts, isTrackingRequirement,
+    pauseState, PAUSED_STATUS,
 } from '../pipelineModel';
 import { PLAN_JSON_ROWS, SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -1250,6 +1251,99 @@ describe('requirementCounts — met/total, per epic and for the whole plan (req 
             return f && f.epic_fk === trackingEpicId;
         }).length;
         expect(trackingBucket.total).toBe(expectedBucketTotal);
+    });
+});
+
+describe('pauseState — plan-paused OR dominant-epic-paused suppresses launch (req #3226)', () => {
+    const rows = (...epicIds) => epicIds.map((epicId, i) => ({ id: i + 1, epicId }));
+
+    it('an unpaused plan with no paused epics suppresses nothing', () => {
+        const model = { pipeline: { pipeline_status: 'active' }, epics: [{ id: 1 }] };
+        const r = rows(1, null);
+        const pause = pauseState(model, r);
+        expect(pause).toEqual({
+            pipelineStatus: 'active', pipelinePaused: false,
+            pausedEpicIds: [], suppressedStepIds: [],
+        });
+        expect(r.every((row) => row.launchSuppressed === false)).toBe(true);
+        expect(r.every((row) => row.suppressedBy.length === 0)).toBe(true);
+    });
+
+    it('a paused PLAN suppresses every row, including the "No epic" band', () => {
+        const model = { pipeline: { pipeline_status: PAUSED_STATUS }, epics: [] };
+        const r = rows(1, 2, null);
+        const pause = pauseState(model, r);
+        expect(pause.pipelinePaused).toBe(true);
+        expect(pause.suppressedStepIds).toEqual([1, 2, 3]);
+        expect(r.every((row) => row.launchSuppressed)).toBe(true);
+        expect(r.every((row) => row.suppressedBy.length > 0)).toBe(true);
+        expect(r[0].suppressedBy).toEqual(['pipeline']);
+    });
+
+    it('a paused EPIC suppresses only ITS rows, leaving neighbour epics untouched', () => {
+        const model = {
+            pipeline: { pipeline_status: 'active' },
+            epics: [{ id: 1, epic_status: PAUSED_STATUS }, { id: 2, epic_status: 'active' }],
+        };
+        const r = rows(1, 2, null);
+        const pause = pauseState(model, r);
+        expect(pause.pipelinePaused).toBe(false);
+        expect(pause.pausedEpicIds).toEqual([1]);
+        expect(pause.suppressedStepIds).toEqual([1]);
+        expect(r[0].launchSuppressed).toBe(true);
+        expect(r[0].suppressedBy).toEqual(['epic']);
+        expect(r[1].launchSuppressed).toBe(false);
+        expect(r[2].launchSuppressed).toBe(false);
+    });
+
+    it('BOTH reasons are named, not a winner, when plan and epic are both paused', () => {
+        const model = {
+            pipeline: { pipeline_status: PAUSED_STATUS },
+            epics: [{ id: 1, epic_status: PAUSED_STATUS }],
+        };
+        const r = rows(1);
+        pauseState(model, r);
+        expect(r[0].suppressedBy).toEqual(['pipeline', 'epic']);
+    });
+
+    it('a missing epic_status reads as active — the column default', () => {
+        const model = { pipeline: { pipeline_status: 'active' }, epics: [{ id: 1 }] };
+        const r = rows(1);
+        pauseState(model, r);
+        expect(r[0].launchSuppressed).toBe(false);
+    });
+
+    it('pausedEpicIds is sorted ascending regardless of epic array order', () => {
+        const model = {
+            pipeline: { pipeline_status: 'active' },
+            epics: [
+                { id: 22, epic_status: PAUSED_STATUS },
+                { id: 11, epic_status: PAUSED_STATUS },
+            ],
+        };
+        expect(pauseState(model, rows(22, 11)).pausedEpicIds).toEqual([11, 22]);
+    });
+
+    it('pausedEpicIds is scoped to THIS plan — a paused epic no row here links '
+        + 'is not reported (model.epics is the whole dictionary, unlike the '
+        + "server's already-scoped composed read)", () => {
+        const model = {
+            pipeline: { pipeline_status: 'active' },
+            epics: [
+                { id: 1, epic_status: PAUSED_STATUS },
+                { id: 99, epic_status: PAUSED_STATUS }, // no row links this plan
+            ],
+        };
+        const pause = pauseState(model, rows(1, null));
+        expect(pause.pausedEpicIds).toEqual([1]);
+    });
+
+    it('tolerates an absent pipeline/epics/rows rather than throwing', () => {
+        expect(pauseState({}, [])).toEqual({
+            pipelineStatus: undefined, pipelinePaused: false,
+            pausedEpicIds: [], suppressedStepIds: [],
+        });
+        expect(() => pauseState({}, undefined)).not.toThrow();
     });
 });
 

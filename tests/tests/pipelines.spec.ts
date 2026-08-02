@@ -1931,7 +1931,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // hard-coding the current default.
             const epicBand = layout.bands.find(
                 (b: { epicId: number | null }) => b.epicId != null) as
-                { epicId: number; epic: string; epicLabel: string };
+                { epicId: number; epic: string; epicLabel: string; paused: boolean };
             const epicText = epicBand.epicLabel || epicBand.epic;
             // The precondition guards that the FIXTURE exercises the counted
             // path, not that this particular band shows a number. Asserting the
@@ -1946,8 +1946,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(chip).toHaveAttribute('title', 'Zoom pipeline epic');
             // The accessible name still carries WHICH epic — a tooltip that
             // named only the gesture would be a regression for a screen reader.
+            // req #3226 — and now the pause fact too, folded onto the SAME
+            // label rather than a second announced element (the bubble beside
+            // the name is colour-only, and colour alone is not accessible).
             await expect(chip).toHaveAttribute(
-                'aria-label', `Zoom pipeline epic ${epicText}`);
+                'aria-label', `Zoom pipeline epic ${epicText}`
+                    + (epicBand.paused ? ' — paused' : ' — active'));
             // …and the ↗ beside it still names itself distinctly, which is what
             // makes the chip two controls rather than one ambiguous one.
             await expect(page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`))
