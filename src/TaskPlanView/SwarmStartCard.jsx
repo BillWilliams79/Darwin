@@ -24,6 +24,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 
 // Chip statuses shown on this card. Mirrors the requirements page filter chips minus
 // 'deferred' and 'wontfix' — both terminal/historical states outside this card's
@@ -126,8 +127,11 @@ const SwarmStartCard = () => {
     }, []);
 
     // Active-status query — disabled when Met is selected (the done query below
-    // is the row source in that case).
+    // is the row source in that case). started_at/completed_at/deferred_at are
+    // added to the default projection (req #3244) so statusClick's revert-on-failure
+    // path has the row's real prior timestamps to restore, not undefined.
     const { data: serverRequirements } = useRequirementsByStatus(profile?.userName, effectiveStatus, {
+        fields: 'id,title,requirement_status,coordination_type,ai_model,effort,machine_fk,category_fk,started_at,completed_at,deferred_at',
         enabled: !isMet,
     });
 
@@ -327,21 +331,34 @@ const SwarmStartCard = () => {
     // Status click — items cycle off the selected status leave the card.
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
-        const current = requirementsArray[requirementIndex].requirement_status;
+        const currentRow = requirementsArray[requirementIndex];
+        const current = currentRow.requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return;
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        // req #3244 — every requirement_status write re-derives all three status
+        // timestamps, matching darwin-mcp's update_requirement, so this UI path
+        // never leaves a stale started_at/completed_at/deferred_at behind. One `now`
+        // shared between the PUT body and the local-state form so they can't drift.
+        const now = new Date().toISOString();
+        const timestampState = requirementStatusTimestampState(next, now);
+        const timestampFields = requirementStatusTimestampFields(next, now);
+        const previousTimestamps = {
+            started_at: currentRow.started_at,
+            completed_at: currentRow.completed_at,
+            deferred_at: currentRow.deferred_at,
+        };
 
         // Capture cache snapshots BEFORE touching local state (shared refs, see helper comment).
-        const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next });
+        const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next, ...timestampState });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, requirement_status: next }], idToken)
+            [{ id: requirementId, requirement_status: next, ...timestampFields }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     revert();
                     setRequirementsArray(prev => prev ? prev.map(r =>
-                        r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
+                        r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r) : prev);
                     showError(result, 'Unable to change requirement status');
                 } else {
                     // Item no longer matches the card's aggregate status — remove it.
@@ -353,14 +370,14 @@ const SwarmStartCard = () => {
             }).catch(error => {
                 revert();
                 setRequirementsArray(prev => prev ? prev.map(r =>
-                    r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
+                    r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r) : prev);
                 showError(error, 'Unable to change requirement status');
             });
 
         // Immutable local update — new object at the target index rather than in-place
         // mutation on a cache-shared object reference.
         setRequirementsArray(prev => prev ? prev.map((r, i) =>
-            i === requirementIndex ? { ...r, requirement_status: next } : r) : prev);
+            i === requirementIndex ? { ...r, requirement_status: next, ...timestampState } : r) : prev);
     };
 
     // Coordination click — mirrors CategoryCard

@@ -1103,6 +1103,34 @@ describe('floating epic chips (req #3168)', () => {
         }
     });
 
+    // THE MOVE (req #3255): the legend is now bottom-center, not top-right —
+    // PipelinePlanVisualizer.jsx computes `keepOut` as
+    // `{ x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h, ... }`.
+    // Same sweep, same fixture, geometry matched to that formula rather than
+    // the old top-right one.
+    it('never overlaps the legend now that it sits at viewport middle-bottom', () => {
+        for (const legendW of [220, 420, 700]) {
+            const legendH = 30;
+            const keepOut = {
+                x: (VIEWPORT.w - legendW) / 2,
+                y: VIEWPORT.h - 12 - legendH,
+                w: legendW, h: legendH,
+            };
+            for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
+                for (const y of [0, -150, -900]) {
+                    for (const x of [0, -400, 600, 1200]) {
+                        for (const chip of chipsAt({ x, y, k }, keepOut)) {
+                            expect(rectsOverlap(chip, keepOut),
+                                `chip "${chip.text}" under the legend `
+                                + `at k=${k} x=${x} y=${y}`)
+                                .toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     // THE DIRECTIVE (user, 2026-08-01): "the epic must not overwrite or ride in
     // the same swim lane as the top most steps — give the epic its own swim lane
     // to eliminate collision."

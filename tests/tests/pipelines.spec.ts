@@ -1577,9 +1577,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const keyBox = (await key.boundingBox())!;
             const panelBox = (await page.getByTestId('pipeline-plan-visualizer')
                 .boundingBox())!;
-            expect(keyBox.x - panelBox.x, 'the key is in the RIGHT half of the panel')
-                .toBeGreaterThan(panelBox.width / 2);
-            expect(keyBox.y - panelBox.y, 'the key is at the TOP of the panel')
+            // req #3255: the key moved from the top-right corner to viewport
+            // middle-bottom, out of the epics' typical down-and-to-the-right
+            // reading flow.
+            const keyCenterX = keyBox.x + keyBox.width / 2;
+            const panelCenterX = panelBox.x + panelBox.width / 2;
+            expect(Math.abs(keyCenterX - panelCenterX),
+                'the key is horizontally CENTERED in the panel')
+                .toBeLessThan(40);
+            const keyBottomGap = (panelBox.y + panelBox.height)
+                - (keyBox.y + keyBox.height);
+            expect(keyBottomGap, 'the key is at the BOTTOM of the panel')
                 .toBeLessThan(40);
             for (const mark of ['Complete', 'Running', 'Scheduled', 'Manual', 'next up']) {
                 await expect(key, `the key names "${mark}"`).toContainText(mark);
