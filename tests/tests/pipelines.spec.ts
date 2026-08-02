@@ -1480,9 +1480,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    same `epicLabel` the canvas draws, so they are assertable text.
             //    POLLED, not read once: chip placement depends on the
             //    ResizeObserver's first report AND on the key's measured rect
-            //    (`legendSize`), which lands on a later commit and displaces
-            //    chips — so a single `allInnerTexts()` taken the moment the
-            //    canvas turns visible can legitimately see zero of them.
+            //    (`legendSize`), which lands on a later commit and clips or
+            //    drops chips (req #3257) — so a single `allInnerTexts()` taken
+            //    the moment the canvas turns visible can legitimately see zero
+            //    of them.
             const chipTexts = async () => page.locator(
                 '.pipeline-viz-epic-name').allInnerTexts();
             const countedChips = async () =>
@@ -1602,10 +1603,22 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
 
-            // 5. It still costs the epic labels no chip — the key's measured rect
-            //    is their keep-out, and collapsing it is the control for that
-            //    claim: a key that were stealing the corner would let MORE chips
-            //    draw once collapsed.
+            // 5. AT THIS CAMERA the key costs the epic labels no chip, and
+            //    collapsing it is the control for that: a key stealing the
+            //    corner would let MORE chips draw once collapsed.
+            //
+            //    WHAT THIS DOES *NOT* ASSERT (req #3257): that the key is free
+            //    in general. It is not, and its own re-measured cost curve lives
+            //    in `pipelinePlanLayout.test.js` — since #3257 a name is pinned
+            //    to its band's rectangle and the key CLIPS or DROPS it rather
+            //    than displacing it, so BOTH the key's width and its height cost
+            //    names (measured: 187 dropped at 470×30, 256 at 470×180, over a
+            //    swept camera). This assertion holds because at the DEFAULT
+            //    camera every chip sits at its rectangle's left edge and the key
+            //    is in the top-RIGHT corner — the two simply do not meet. The
+            //    sibling requirement moving the key to the bottom centre changes
+            //    exactly that premise, so if this step ever fails, re-read the
+            //    premise before treating it as an epic-label regression.
             await stateBtn.click();
             const chips = page.locator('[data-testid^="pipeline-viz-epic-"]');
             const withKeyOpen = await chips.count();
