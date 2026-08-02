@@ -12,7 +12,13 @@ const HomePage = () => {
 
     const homePath = useMemo(() => {
         if (import.meta.env.DEV) {
-            return '/systems2';
+            // Session-scoped default (req #3242): devserver-start.sh writes
+            // VITE_DEV_DEFAULT_ROUTE into this worktree's own
+            // .env.development.local whenever a deep-link ROUTE is passed, so
+            // this session's dev server opens to the surface it's about
+            // rather than the hardcoded /systems2 fallback below — every
+            // other worktree's dev server, and production, are unaffected.
+            return import.meta.env.VITE_DEV_DEFAULT_ROUTE || '/systems2';
         }
         // Find first link of first enabled group. Per-key default lives in
         // GROUP_PROFILE_DEFAULT (req #2611) — must match NavBarSidebar so a
