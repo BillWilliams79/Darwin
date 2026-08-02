@@ -36,6 +36,12 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 
+// req #3261 — the caption's style moved to a pure module so the plan page's
+// Width and Colour captions are literally the same three properties rather than
+// a second copy of them. Two places to change one voice is the drift S9 exists
+// to prevent, and it would be invisible on either surface alone.
+import { TOOLBAR_CAPTION_SX } from './toolbarStyles';
+
 /**
  * @param {Object} props
  * @param {?number} props.pinnedLevel        null = auto-by-zoom; 1|2|3 = pinned
@@ -62,8 +68,7 @@ export default function SemanticLevelControl({
                 // section already carries its own uppercase caption, so the
                 // control's built-in "Detail:" would be a second label in a
                 // different typographic voice on the same row.
-                <Box component="span"
-                     sx={{ fontSize: '0.75rem', color: 'text.secondary', mr: 0.25 }}>
+                <Box component="span" sx={TOOLBAR_CAPTION_SX}>
                     {label}
                 </Box>
             )}
@@ -71,8 +76,18 @@ export default function SemanticLevelControl({
                 label="Auto"
                 size="small"
                 onClick={() => onChangePinnedLevel(null)}
+                // The hover/focus re-assertion is NOT decoration (req #3261 code
+                // review): MUI's `clickable` variant emits `&:hover` and
+                // `&.Mui-focusVisible` background rules into the same emotion
+                // class as these declarations, at (0,2,0) specificity against
+                // their (0,1,0) — so without it a pressed chip drops to
+                // near-white-on-white the moment the pointer lands on it, and
+                // the reader loses the pressed state exactly while pointing at
+                // the control. Same defect, same fix, in
+                // `pipelineChipStyles.toolbarChipProps`.
                 {...(pinnedLevel == null
-                    ? { sx: { bgcolor: 'primary.main', color: 'primary.contrastText', cursor: 'pointer' } }
+                    ? { sx: { bgcolor: 'primary.main', color: 'primary.contrastText', cursor: 'pointer',
+                        '&:hover, &.Mui-focusVisible': { bgcolor: 'primary.dark' } } }
                     : { variant: 'outlined', sx: { cursor: 'pointer' } })}
                 aria-pressed={pinnedLevel == null ? 'true' : 'false'}
                 data-testid={`${testIdPrefix}-level-auto`}
@@ -87,8 +102,14 @@ export default function SemanticLevelControl({
                         label={`L${lvl}`}
                         size="small"
                         onClick={() => onChangePinnedLevel(pinned ? null : lvl)}
+                        // `text.secondary` on hover, not a `.dark` shade —
+                        // `text.primary` is a text colour and has none. It reads
+                        // as a slight lift in the light theme and a slight dim in
+                        // the dark one, i.e. feedback in both, and the chip stays
+                        // unmistakably filled either way.
                         {...(pinned
-                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer' } }
+                            ? { sx: { bgcolor: 'text.primary', color: 'background.paper', cursor: 'pointer',
+                                '&:hover, &.Mui-focusVisible': { bgcolor: 'text.secondary' } } }
                             : {
                                 variant: 'outlined',
                                 sx: {
