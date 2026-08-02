@@ -189,30 +189,21 @@ const SwarmStartCard = () => {
     //
     // req #3180 — a launch chip's count applies the SAME rule as its list, from
     // the same Set, so the header can never disagree with the rows beneath it.
-    // `hidden` tallies what the exclusion removed per status, so a chip that
-    // drops to zero can SAY why (see the card body) instead of reading as
-    // "there is no work" while the requirements table plainly shows some.
     //
-    // LOAD-BEARING: `hidden[s]` is the count dropped from that chip's LIST only
-    // because both sources are the same population — `useAllRequirements` here
-    // and `useRequirementsByStatus` above both read /requirements with NO
-    // category predicate and NO closed-category guard. RequirementsTableView
-    // does filter through `categoryMap`, and copying that here would look like
-    // an improvement while desynchronizing the count from the list AND
-    // overcounting the note, in one edit. See `tallyRequirementStatuses`.
-    const { statusCountMap, hiddenCountMap } = React.useMemo(() => {
-        const { counts, hidden } = tallyRequirementStatuses(
+    // LOAD-BEARING: the two queries feeding count and list read the SAME
+    // population — `useAllRequirements` here and `useRequirementsByStatus` above
+    // both read /requirements with NO category predicate and NO closed-category
+    // guard. RequirementsTableView does filter through `categoryMap`, and
+    // copying that here would look like an improvement while desynchronizing the
+    // count from the list. See `tallyRequirementStatuses`.
+    const { statusCountMap } = React.useMemo(() => {
+        const { counts } = tallyRequirementStatuses(
             allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds);
         if (Array.isArray(serverMetRequirements)) {
             counts.met = serverMetRequirements.length;
         }
-        return { statusCountMap: counts, hiddenCountMap: hidden };
+        return { statusCountMap: counts };
     }, [allRequirementsForCounts, serverMetRequirements, pipelinedIds]);
-
-    // How many rows the exclusion removed from the chip currently on screen.
-    // Surfaced in the card body — a hidden row the user is never told about is
-    // the defect this requirement is about.
-    const hiddenCount = chipOffersLaunch ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -542,31 +533,6 @@ const SwarmStartCard = () => {
                         {requirementsArray.filter(r => r.id !== '').length === 0 && (
                             <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
                                 No {requirementStatusLabel(effectiveStatus).toLowerCase()} requirements
-                            </Typography>
-                        )}
-                        {/* req #3180 — a chip that hides work must SAY SO. On the
-                            live plan every swarm-ready requirement is plan-carried,
-                            so without this the card reads "No swarm ready
-                            requirements" while the requirements table plainly shows
-                            fifteen — the same "shrinking pool with no explanation
-                            reads as a bug" failure /swarm-start's STOP message
-                            exists to prevent. Rendered whether or not the list is
-                            empty, because a partly-filtered chip is just as
-                            misleading as an empty one.
-
-                            The wording must READ CORRECTLY AT ZERO. "N more …"
-                            was the first attempt and it presupposes rows above it,
-                            which is exactly wrong in the guaranteed opening state:
-                            the default chip is Swarm-Ready, and today that chip is
-                            15 of 15 hidden. */}
-                        {hiddenCount > 0 && (
-                            <Typography variant="body2"
-                                        sx={{ color: 'text.secondary', px: 1, pb: 1, fontStyle: 'italic' }}
-                                        data-testid="swarm-start-pipelined-note">
-                                {hiddenCount} {requirementStatusLabel(effectiveStatus).toLowerCase()}{' '}
-                                requirement{hiddenCount === 1 ? ' is' : 's are'} carried by a pipeline
-                                step — launched from the plan, not from here. See Pipelines, or launch
-                                one directly by id.
                             </Typography>
                         )}
                         {requirementsArray.map((requirement, requirementIndex) => (

@@ -107,40 +107,26 @@ describe('tallyRequirementStatuses', () => {
         req(6, { requirement_status: 'met' }),
     ];
 
-    it('counts every chip and hides nothing when no requirement is pipelined', () => {
-        const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set());
+    it('counts every chip when no requirement is pipelined', () => {
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set());
         expect(counts).toEqual({
             authoring: 2, approved: 1, swarm_ready: 1, development: 1, met: 1,
         });
-        expect(Object.values(hidden).every(n => n === 0)).toBe(true);
     });
 
-    it('moves a pipelined launch-chip requirement from counts into hidden', () => {
-        const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([2, 4]));
+    it('drops a pipelined launch-chip requirement from counts', () => {
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([2, 3, 4]));
         expect(counts.authoring).toBe(1);
-        expect(hidden.authoring).toBe(1);
+        expect(counts.approved).toBe(0);
         expect(counts.swarm_ready).toBe(0);
-        expect(hidden.swarm_ready).toBe(1);
     });
 
     it('leaves development and met counted even when pipelined', () => {
         // THE decision. If this test starts failing because someone made the
         // exclusion uniform, the Development chip has just gone blank.
-        const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]));
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]));
         expect(counts.development).toBe(1);
         expect(counts.met).toBe(1);
-        expect(hidden.development).toBe(0);
-        expect(hidden.met).toBe(0);
-    });
-
-    it('keeps count + hidden summing to the population, so the note is exact', () => {
-        // `hidden[s]` is the number of rows dropped from that chip's LIST, which
-        // is only true while count and list read the same population.
-        const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([1, 2, 3, 4]));
-        for (const s of ALL_CHIPS) {
-            const total = rows.filter(r => r.requirement_status === s).length;
-            expect(counts[s] + hidden[s]).toBe(total);
-        }
     });
 
     it('never counts the template row', () => {
@@ -152,10 +138,9 @@ describe('tallyRequirementStatuses', () => {
     });
 
     it('matches a numeric Set against string row ids', () => {
-        const { counts, hidden } = tallyRequirementStatuses(
+        const { counts } = tallyRequirementStatuses(
             [{ id: '4', requirement_status: 'swarm_ready' }], ALL_CHIPS, new Set([4]));
         expect(counts.swarm_ready).toBe(0);
-        expect(hidden.swarm_ready).toBe(1);
     });
 
     it('ignores statuses outside the chip vocabulary', () => {
@@ -165,14 +150,13 @@ describe('tallyRequirementStatuses', () => {
         expect(Object.keys(counts)).toEqual(ALL_CHIPS);
     });
 
-    it('returns zeroed maps for a missing read, hiding nothing', () => {
+    it('returns a zeroed map for a missing read', () => {
         // The in-flight state. Showing MORE than we eventually will is the
         // deliberate direction — never hide eligible work behind a pending fetch.
-        const { counts, hidden } = tallyRequirementStatuses(undefined, ALL_CHIPS, new Set([1]));
+        const { counts } = tallyRequirementStatuses(undefined, ALL_CHIPS, new Set([1]));
         expect(counts).toEqual({
             authoring: 0, approved: 0, swarm_ready: 0, development: 0, met: 0,
         });
-        expect(hidden.authoring).toBe(0);
     });
 
     it('tolerates a missing pipelined Set', () => {
