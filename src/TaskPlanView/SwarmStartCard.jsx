@@ -23,6 +23,7 @@ import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
+import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 
@@ -150,23 +151,36 @@ const SwarmStartCard = () => {
     // ones a pipeline step already carries do not belong on its launch chips:
     // their launch is the coordinator's to make, at the point the plan says so.
     //
-    // The exclusion is UNCONDITIONAL — not a user preference. Offering an
-    // ineligible launch is a defect, not a viewing choice, so there is no toggle
-    // here; the user-controlled version of the question lives on the
-    // requirements BROWSE table, where both populations are legitimate to look
-    // at. It applies to PIPELINE_FILTERED_STATUSES only (see above).
+    // The launch exclusion (PIPELINE_FILTERED_STATUSES) is UNCONDITIONAL — not a
+    // user preference. Offering an ineligible launch is a defect, not a viewing
+    // choice, so nothing gates it here.
+    //
+    // The DEVELOPMENT/MET chips are different: both populations are legitimate
+    // to browse, same reasoning as the requirements table — so THOSE respect
+    // the same global toggle the table and Cards view do (req #3242), on top of
+    // (never instead of) the unconditional launch exclusion above.
     const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
+    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     const chipOffersLaunch = PIPELINE_FILTERED_STATUSES.includes(effectiveStatus);
+    const excludeFromThisChip = chipOffersLaunch || hidePipelined;
 
     // Memoized because this feeds a useEffect dependency and a useMemo below —
     // `excludePipelined` mints a new array whenever it actually drops something,
     // so an unmemoized call would re-seed local state on every render.
     const eligibleRequirements = React.useMemo(
-        () => excludePipelined(serverRequirements, pipelinedIds, chipOffersLaunch),
-        [serverRequirements, pipelinedIds, chipOffersLaunch]);
+        () => excludePipelined(serverRequirements, pipelinedIds, excludeFromThisChip),
+        [serverRequirements, pipelinedIds, excludeFromThisChip]);
+
+    // The Met chip's own population never went through `eligibleRequirements`
+    // (its query is `serverMetRequirements`, not `serverRequirements`) — so the
+    // toggle needs its own pass here. `chipOffersLaunch` never applies to Met
+    // (it is not in PIPELINE_FILTERED_STATUSES), hence `hidePipelined` alone.
+    const eligibleMetRequirements = React.useMemo(
+        () => excludePipelined(serverMetRequirements, pipelinedIds, hidePipelined),
+        [serverMetRequirements, pipelinedIds, hidePipelined]);
 
     // The array that drives the card body for the currently selected chip.
-    const currentRequirements = isMet ? serverMetRequirements : eligibleRequirements;
+    const currentRequirements = isMet ? eligibleMetRequirements : eligibleRequirements;
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -194,20 +208,34 @@ const SwarmStartCard = () => {
     // req #3180 — a launch chip's count applies the SAME rule as its list, from
     // the same Set, so the header can never disagree with the rows beneath it.
     //
-    // LOAD-BEARING: the two queries feeding count and list read the SAME
-    // population — `useAllRequirements` here and `useRequirementsByStatus` above
-    // both read /requirements with NO category predicate and NO closed-category
-    // guard. RequirementsTableView does filter through `categoryMap`, and
-    // copying that here would look like an improvement while desynchronizing the
-    // count from the list. See `tallyRequirementStatuses`.
-    const { statusCountMap } = React.useMemo(() => {
-        const { counts } = tallyRequirementStatuses(
-            allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds);
+    // LOAD-BEARING: `hidden[s]` is the count dropped from that chip's LIST only
+    // because both sources are the same population — `useAllRequirements` here
+    // and `useRequirementsByStatus` above both read /requirements with NO
+    // category predicate and NO closed-category guard. RequirementsTableView
+    // does filter through `categoryMap`, and copying that here would look like
+    // an improvement while desynchronizing the count from the list AND
+    // overcounting the note, in one edit. See `tallyRequirementStatuses`.
+    //
+    // req #3248 removed this notice + hidden-tracking on master (its only
+    // consumer was the explanatory sentence, and the user asked for that
+    // sentence gone after daily use) — kept here instead on the user's
+    // explicit direction during req #3242/#3258's merge, to revisit later
+    // rather than drop it a second time. `hidden` now also covers what the
+    // req #3258 toggle (not just the unconditional launch exclusion) removed.
+    const { statusCountMap, hiddenCountMap } = React.useMemo(() => {
+        const { counts, hidden } = tallyRequirementStatuses(
+            allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds, hidePipelined);
         if (Array.isArray(serverMetRequirements)) {
-            counts.met = serverMetRequirements.length;
+            counts.met = eligibleMetRequirements?.length ?? serverMetRequirements.length;
+            hidden.met = serverMetRequirements.length - counts.met;
         }
-        return { statusCountMap: counts };
-    }, [allRequirementsForCounts, serverMetRequirements, pipelinedIds]);
+        return { statusCountMap: counts, hiddenCountMap: hidden };
+    }, [allRequirementsForCounts, serverMetRequirements, eligibleMetRequirements, pipelinedIds, hidePipelined]);
+
+    // How many rows the exclusion removed from the chip currently on screen.
+    // Surfaced in the card body — a hidden row the user is never told about is
+    // the defect this requirement is about.
+    const hiddenCount = excludeFromThisChip ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -550,6 +578,23 @@ const SwarmStartCard = () => {
                         {requirementsArray.filter(r => r.id !== '').length === 0 && (
                             <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
                                 No {requirementStatusLabel(effectiveStatus).toLowerCase()} requirements
+                            </Typography>
+                        )}
+                        {/* req #3180 note, kept per user direction during the req #3242/#3258
+                            merge (req #3248 removed it on master; the user asked to keep it and
+                            revisit later rather than drop it a second time). Rendered whether or
+                            not the list is empty, because a partly-filtered chip is just as
+                            misleading as an empty one — "N more …" would presuppose rows above
+                            it, which is wrong in the guaranteed opening state (Swarm-Ready,
+                            fully hidden). */}
+                        {hiddenCount > 0 && (
+                            <Typography variant="body2"
+                                        sx={{ color: 'text.secondary', px: 1, pb: 1, fontStyle: 'italic' }}
+                                        data-testid="swarm-start-pipelined-note">
+                                {hiddenCount} {requirementStatusLabel(effectiveStatus).toLowerCase()}{' '}
+                                requirement{hiddenCount === 1 ? ' is' : 's are'} carried by a pipeline
+                                step — launched from the plan, not from here. See Pipelines, or launch
+                                one directly by id.
                             </Typography>
                         )}
                         {requirementsArray.map((requirement, requirementIndex) => (

@@ -6,7 +6,7 @@ import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useRequirements, useSessions } from '../hooks/useDataQueries';
+import { useRequirements, useSessions, usePipelinedRequirementIds } from '../hooks/useDataQueries';
 import { requirementKeys, categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -57,6 +57,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const sortModeMutationRef = useRef(0);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+    // req #3258 — same toggle as the requirements Table view (req #3180); Cards
+    // view was deliberately unfiltered by it until now (memory/architecture.md),
+    // but editing/hand-sorting an orchestrated requirement here doesn't make
+    // sense (its position is the plan's, not this card's), so hiding it is the
+    // fix for both the clutter and the broken edit affordance at once.
+    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -198,6 +204,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         enabled: category.id !== '',
     });
 
+    // req #3258 — THE membership answer, shared with the Table view and the
+    // SwarmStartCard (req #3180). Read unconditionally (hooks are not
+    // conditional) but consulted only while the toggle is ON; the junction
+    // read is small and the plan pages already hold it, so the cache entry is
+    // normally warm either way.
+    const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
+
     // Seed local state from query data (hybrid pattern — local state owns template row).
     //
     // The template row (id === '') is a local-only construct, never sourced from
@@ -222,12 +235,21 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 requirementStatusFilter.includes(p.requirement_status)
             );
 
+            // req #3258 — same predicate as the Table view: hide requirements a
+            // pipeline step carries when the toggle is on. A no-op array when
+            // the toggle is off, same as `requirementStatusFilter` above.
+            if (hidePipelined) {
+                sortedRequirementsArray = sortedRequirementsArray.filter(p =>
+                    !pipelinedIds.has(Number(p.id))
+                );
+            }
+
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
             setRequirementsArray(prev => [...sortedRequirementsArray, buildTemplate(prev)]);
         } else if (serverRequirements && serverRequirements.length === 0) {
             setRequirementsArray(prev => [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter]);
+    }, [serverRequirements, requirementStatusFilter, hidePipelined, pipelinedIds]);
 
     // Build session status map from query data
     useEffect(() => {
