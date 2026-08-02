@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
+import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel } from '../../konvaSwarmModel';
 import {
@@ -3619,4 +3620,218 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         expect(layout.bands[wrapIdx].color).toBe(layout.bands[0].color);
         expect(layout.bands[wrapIdx].epicId).not.toBe(layout.bands[0].epicId);
     });
+});
+
+// ── The cell invariant, over a fuzz corpus (req #3229) ──────────────────────
+// "Never two beads on one `(band, column, lane)` cell" is this module's oldest
+// invariant, it has an assertion in the plan-scale block above, and it was still
+// violated in the field. Every fixture this suite owns — Substrate (34 real
+// rows), the timed Substrate, the cross-epic plan — satisfies it. The shape that
+// breaks it is a plan with SEVERAL launch batches whose mates sit at DIFFERENT
+// dependency depths, which is a graph nobody hand-writes and which req #3188
+// made reachable when it regrouped batches on the REMAINING gate instead of a
+// shared dep set.
+//
+// So the corpus, not another fixture: 150 deterministic plans (see
+// `timedFuzzPlans.js` for the generator's shape argument), each laid out WITH
+// and WITHOUT a time axis. Deterministic means a failure names a seed and that
+// seed is a permanent repro — `makeTimedPlan(<seed>)` is the whole reproducer.
+//
+// The BEFORE measurement, kept because it is what the corpus is sized for: the
+// shipped 400 plans collide on seeds 89, 303 and 358 against the pre-fix module.
+// The original 150-plan cut collided on seed 115 at `(0, 2, 3)` between steps 13
+// and 11 — batch A's run allocated at column 0 and consumed at column 2, batch
+// B's run allocated in between — WITH and WITHOUT the axis (columns 5 and 2),
+// which is how the "the time axis causes it" reading was refuted.
+describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
+    const corpus = timedFuzzCorpus();
+
+    const cellCollisions = (layout) => {
+        const seen = new Map();
+        const out = [];
+        for (const n of layout.nodes.values()) {
+            const cell = `${n.bandIndex}|${n.depth}|${n.lane}`;
+            if (seen.has(cell)) out.push(`${cell}: steps ${seen.get(cell)} and ${n.id}`);
+            seen.set(cell, n.id);
+        }
+        return out;
+    };
+
+    it('the corpus is non-vacuous, and carries the hazard shape', () => {
+        // The precondition guard req #3207 added, for exactly the reason it
+        // added it: 16 plan-scale tests once asserted over an empty array in
+        // total silence, and shipped that way. A fuzz corpus is MORE exposed to
+        // that, not less — a generator that quietly stopped producing batches
+        // would leave three green tests asserting nothing about the defect they
+        // were written for. So the shape is asserted, not just the row count:
+        // the MULTI-COLUMN BATCH is the thing the fix is about.
+        let rows = 0;
+        let batches = 0;
+        let multiColumnBatches = 0;
+        let hazardPlans = 0;
+        let dated = 0;
+        for (const { reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            rows += plan.rows.length;
+            batches += plan.batches.length;
+            let wide = 0;
+            for (const b of plan.batches) {
+                const cells = new Set(b.stepIds
+                    .map((id) => layout.nodes.get(id)).filter(Boolean)
+                    .map((n) => `${n.bandIndex}|${n.depth}`));
+                if (cells.size >= 2) wide += 1;
+            }
+            multiColumnBatches += wide;
+            // A multi-column batch sharing its plan with another batch — the
+            // precise shape that produced the collision.
+            if (wide >= 1 && plan.batches.length >= 2) hazardPlans += 1;
+            dated += [...plan.timeAxis.stepStarts.values()]
+                .filter((s) => s && s.kind === 'dated').length;
+        }
+        expect(corpus).toHaveLength(400);
+        expect(rows).toBeGreaterThan(5000);
+        expect(batches).toBeGreaterThan(200);
+        expect(multiColumnBatches).toBeGreaterThan(100);
+        expect(hazardPlans).toBeGreaterThan(20);
+        expect(dated).toBeGreaterThan(2000);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — with a time axis', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches,
+                { timeAxis: plan.timeAxis });
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('never stacks two beads on one (band, column, lane) cell — without one', () => {
+        const failures = [];
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const layout = computePlanLayout(plan.rows, plan.batches);
+            expect(layout.nodes.size).toBe(plan.rows.length);
+            for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    // The user-visible consequence of a shared cell, asserted independently of
+    // the cell arithmetic: two coincident beads and two labels drawn on top of
+    // each other. Run over all four view combinations, because label geometry —
+    // unlike lane assignment — depends on both of them.
+    describe.each(COMBOS)('$reqLayout reqs × $stepLabel labels', (opts) => {
+        it('gives every bead its own position, and draws no label over another', () => {
+            for (const { seed, reads } of corpus) {
+                const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                const layout = computePlanLayout(plan.rows, plan.batches,
+                    { ...opts, timeAxis: plan.timeAxis });
+                const seen = new Map();
+                for (const n of layout.nodes.values()) {
+                    const pos = `${n.x}|${n.y}`;
+                    expect(seen.has(pos),
+                        `seed ${seed}: steps ${seen.get(pos)} and ${n.id} coincide at ${pos}`)
+                        .toBe(false);
+                    seen.set(pos, n.id);
+                }
+                assertNoLabelOverlap(layout, `seed ${seed}`);
+            }
+        });
+    });
+});
+
+// ── The batch box encloses ONLY its members (req #3229) ─────────────────────
+// A companion to the cell invariant above, and the reason it is here rather
+// than folded in: the two break through the SAME mechanism (a batch lane run
+// allocated in raw values over a lane space that is fractional until the
+// ordinal renumber) but they are different promises to the reader. A shared
+// cell draws two beads on top of each other; a run that is contiguous when
+// allocated and NOT contiguous after renumbering draws a launch-unit box
+// around a step that is not in the launch unit.
+//
+// THE FIVE-STEP CASE IS HAND-BUILT ON PURPOSE. The corpus below is what proved
+// the fix, but this shape needs no fuzzing at all — which is exactly why it
+// must not be corpus-only. Steps 5 and 6 are batch A and take raw lanes 0 and
+// 1; step 7 then finds its dep's lane occupied, mints the midpoint 0.5 through
+// dep-adjacent insertion, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — leaving
+// the non-member ordinally BETWEEN the two mates, inside their box.
+describe('launch-batch boxes enclose only their members (req #3229)', () => {
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 1, epic: 'E1',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+
+    const enclosedNonMembers = (layout) => {
+        const out = [];
+        for (const box of layout.batchBoxes) {
+            const members = new Set(box.batchStepIds);
+            for (const n of layout.nodes.values()) {
+                if (members.has(n.id)) continue;
+                if (n.x > box.x && n.x < box.x + box.width
+                    && n.y > box.y && n.y < box.y + box.height) {
+                    out.push(`batch ${box.letter} encloses step ${n.id}`);
+                }
+            }
+        }
+        return out;
+    };
+
+    it('keeps an inserted lane out of a batch run — five steps, no fuzzing', () => {
+        const rows = [mk(1, []), mk(2, []), mk(5, [1]), mk(6, [2]), mk(7, [1])];
+        const layout = computePlanLayout(rows, [{ letter: 'A', stepIds: [5, 6] }]);
+        // The precondition: the box has to actually be drawn, or this asserts
+        // nothing. Two mates in one column is one segment.
+        expect(layout.batchBoxes.length).toBeGreaterThan(0);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    // THE OTHER SIDE OF THE SAME DEFECT, and the one the corpus does NOT reach
+    // — found in the second code-review round, measured at 7 cases per 40,000
+    // layouts with none inside the shipped 400. `runIntervals` stops a later
+    // step entering a published run; this is a run being allocated AROUND a
+    // bead that is already sitting there. Batch B has a single mate at column
+    // 2, so it publishes no interval, and step 6 takes a fractional lane off
+    // its dep chain; batch C is then dep-anchored to a fractional `start` and
+    // its two lanes straddle it. Checking only `start + k` never looks between
+    // them. Ordinals come out `7@l0, 6@l1, 8@l2` — box C around a non-member.
+    it('never allocates a run AROUND a bead already inside it', () => {
+        const rows = [mk(1, []), mk(2, []), mk(3, []), mk(4, [1]), mk(5, [1]),
+            mk(6, [5]), mk(7, [4]), mk(8, [4]), mk(10, [6])];
+        const layout = computePlanLayout(rows, [
+            { letter: 'B', stepIds: [6, 10] },
+            { letter: 'C', stepIds: [7, 8] },
+        ]);
+        // Precondition: batch C must actually draw a box at step 6's column,
+        // or the assertion below is about nothing.
+        const n6 = layout.nodes.get(6);
+        expect(layout.batchBoxes.some((b) => b.letter === 'C' && b.depth === n6.depth))
+            .toBe(true);
+        expect(enclosedNonMembers(layout)).toEqual([]);
+    });
+
+    describe.each([{ axis: true }, { axis: false }])('over the corpus, axis=$axis',
+        ({ axis }) => {
+            it('never draws a launch-unit box around a non-member', () => {
+                const failures = [];
+                let boxes = 0;
+                for (const { seed, reads } of timedFuzzCorpus()) {
+                    const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                    const layout = computePlanLayout(plan.rows, plan.batches,
+                        axis ? { timeAxis: plan.timeAxis } : {});
+                    boxes += layout.batchBoxes.length;
+                    for (const f of enclosedNonMembers(layout)) {
+                        failures.push(`seed ${seed} — ${f}`);
+                    }
+                }
+                // Non-vacuity: the corpus must actually DRAW boxes.
+                expect(boxes).toBeGreaterThan(200);
+                expect(failures).toEqual([]);
+            });
+        });
 });
