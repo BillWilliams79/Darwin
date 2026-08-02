@@ -17,7 +17,9 @@ import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
-    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, EPIC_CHIP_CHAR_W,
+    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
+    NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
+    NEXT_HALO_CLEARANCES, nextHaloMagnify, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
@@ -1167,7 +1169,13 @@ describe('batch letters and box lane spans (req #3256)', () => {
         }
         // Guards the sweep against silently generating nothing to look at.
         expect(boxes).toBeGreaterThan(1000);
-    });
+        // The 5s default was never right for this one — "well under a second"
+        // above was measured on an idle machine, and 300 seeded plans × the
+        // full property set runs 1.1–3.9s in practice, so it timed out
+        // intermittently under any parallel load (observed on an unmodified
+        // tree, before req #3271 added to this file). A budget matched to the
+        // work it actually does, rather than a flake nobody owns.
+    }, 30000);
 });
 
 describe('bead vocabulary (POC roles)', () => {
@@ -2181,6 +2189,349 @@ describe('next-step highlight (req #3168)', () => {
     it('suppressed with no `next` (not eligible) is inert — nothing draws the halo', () => {
         const style = beadStyle(rowById.get(1), false, true);
         expect(style.next).toBe(false);
+    });
+});
+
+// ── The halo has to SURVIVE Overview (req #3271) ────────────────────────────
+// Everything above pins the halo's WORLD geometry. None of it could see the
+// bug: the mark is drawn inside a group scaled by `k`, and Konva scales stroke
+// width and dash pitch along with the radius, so at the live plan's Overview
+// (measured: kDefault 0.8, therefore k < 0.4 by the level ladder's own
+// definition of 'out') a 2px stroke with 3px dashes rendered at 0.8px and 1.2px
+// — emitted, and invisible. These cases pin the SCREEN-side behaviour, which is
+// the half no world-unit assertion can reach.
+describe('the next-step halo survives Overview (req #3271)', () => {
+    // A k sweep spanning everything the zoom behavior can reach: the scale
+    // extent is [kFloor, kDefault × 8] and kDefault is at least K_READABLE.
+    const K_SWEEP = [0.05, 0.1, 0.15, 0.2, 0.3, 0.35, 0.4, 0.5, 0.7,
+        0.9, 1, 1.2, 1.9, 2.5, 4, 6.4, 10];
+    const outerAt = (m) => (NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2) * m;
+    const innerAt = (m) => (NEXT_HALO_RADIUS - NEXT_HALO_STROKE / 2) * m;
+
+    // The halo's ceiling is measured against the bead's own ring, so that width
+    // has to be the one `beadStyle` HANDS THE CANVAS, not a second copy of it.
+    // (Asserting `BEAD_OUTER_RADIUS === BEAD_RADIUS + BEAD_RING_W_EMPHASIS / 2`
+    // as well would restate the line that defines it; the literal 2.5 is already
+    // pinned independently above.)
+    it('reads the bead ring width from the style the canvas is given', () => {
+        const eligibleRow = plan.rows.find((r) => r.id === 17);
+        expect(beadStyle(eligibleRow, true).ringWidth).toBe(BEAD_RING_W_EMPHASIS);
+    });
+
+    // THE 'in'/'mid' GUARANTEE, and the reason the label-clearance case above
+    // stays the binding one: wherever a step or requirement label is drawn, the
+    // halo is byte-identical to what it was before this existed.
+    it('is exactly 1 at every k where the labels are drawn', () => {
+        for (const k of K_SWEEP) {
+            expect(nextHaloMagnify(k, true), `k=${k}`).toBe(1);
+        }
+    });
+
+    // Zooming IN never changes the mark either. Only the zoomed-OUT half of the
+    // range, where the mark had shrunk below its target, is touched at all.
+    it('is exactly 1 once the mark already meets its target on screen', () => {
+        for (const k of K_SWEEP.filter((v) => v >= 1)) {
+            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
+        }
+    });
+
+    // THE REGRESSION PIN THE REQUIREMENT ASKED FOR. If this ever reverts to
+    // world units, every one of these products collapses to `constant × k` and
+    // the case fails at the first k in the sweep.
+    it('holds the halo SCREEN-constant across a k sweep, until the cap bites', () => {
+        for (const k of K_SWEEP) {
+            const m = nextHaloMagnify(k, false);
+            if (m >= NEXT_HALO_MAX_MAGNIFY || m === 1) continue;
+            // The RADIUS product is an algebraic identity of the definition of
+            // `m` and can never fail — it is here to name the target, not to
+            // guard it. The STROKE and DASH products are the load-bearing
+            // assertions: they hold only while the screen radius the halo aims
+            // at is its own world radius, so retuning NEXT_HALO_SCREEN_RADIUS
+            // in isolation breaks them.
+            expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`)
+                .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 10);
+            expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`)
+                .toBeCloseTo(NEXT_HALO_STROKE, 10);
+            for (const [i, d] of NEXT_HALO_DASH.entries()) {
+                expect(d * m * k, `dash[${i}] px at k=${k}`).toBeCloseTo(d, 10);
+            }
+        }
+        // The sweep must actually EXERCISE the screen-constant branch, or the
+        // loop above passes by skipping everything (review-proofing).
+        const exercised = K_SWEEP.filter((k) => {
+            const m = nextHaloMagnify(k, false);
+            return m > 1 && m < NEXT_HALO_MAX_MAGNIFY;
+        });
+        expect(exercised.length).toBeGreaterThan(0);
+    });
+
+    // ONE factor for the whole mark, so the shape is invariant: the halo can
+    // only move OUTWARD from a bead that does not grow with it, which is what
+    // keeps the two rings two marks. A fix that counter-scaled the stroke alone
+    // would close this gap instead of opening it.
+    //
+    // IN SCREEN PIXELS, because that is the only place the defect lived. The
+    // world-unit version of this case (`11.5m ≥ 11.25` for every `m ≥ 1`)
+    // cannot fail and says nothing — a review finding on the first draft of
+    // this very block.
+    it('never merges with the bead ring — the gap only opens, on SCREEN', () => {
+        // Below k = 0.5 the world gap of 0.25 is itself sub-pixel, so the
+        // magnification is the ONLY thing that separates the two rings there.
+        // Bounded below by the live plan's own reachable zoom floor
+        // (`min(kFit, kDefault) × ZOOM_MIN_RATIO` = 0.0829 on a 1200px panel) —
+        // the sweep runs further out than the camera can actually go.
+        const LIVE_ZOOM_FLOOR = (1200 / 3620.2) * ZOOM_MIN_RATIO;   // 0.0829
+        // The floor is IN the swept set, not merely its lower bound — a bound
+        // that filters everything below 0.1 does not test the floor it names.
+        // 0.9 rather than 1, because the floor measures 0.97px and rounding that
+        // up to a rule the code does not meet is how a green suite starts lying.
+        const swept = [LIVE_ZOOM_FLOOR,
+            ...K_SWEEP.filter((v) => v < 0.5 && v > LIVE_ZOOM_FLOOR)];
+        for (const k of swept) {
+            const gapPx = (innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS) * k;
+            const unfixedPx = (innerAt(1) - BEAD_OUTER_RADIUS) * k;
+            expect(unfixedPx, `world-constant gap px at k=${k}`).toBeLessThan(0.2);
+            expect(gapPx, `gap px at k=${k}`).toBeGreaterThan(0.9);
+            // The magnification is pinned at its ceiling across this whole band,
+            // so the ratio is one number restated per k — it pins the ceiling
+            // being REACHED, and the per-k pixel assertions carry the rest.
+            //
+            // A LOWER BOUND, not the exact 47. Pinning the number made this case
+            // a second and stricter opinion about how far the ceiling may move
+            // than `takes its ceiling` holds: a retune to 1.9 turns 47 into 42.4
+            // and reddens this for no reason a reader could see, and a ceiling
+            // above 2.5 puts k = 0.4 into the screen-constant branch and breaks
+            // it from the other side (review finding). 30 holds for any
+            // magnification at or above 1.65, and still says the thing worth
+            // saying — the two rings are tens of times further apart than the
+            // mark this requirement replaced.
+            expect(gapPx / unfixedPx, `gap ratio at k=${k}`).toBeGreaterThan(30);
+        }
+        // At the scale the plan OPENS in, the gap is comfortably supra-pixel —
+        // that is the claim this case exists to make, distinct from the floor.
+        const kOpen = 1440 / 3620.2;
+        expect((innerAt(nextHaloMagnify(kOpen, false)) - BEAD_OUTER_RADIUS) * kOpen,
+            'gap px at the opening view').toBeGreaterThan(4);
+        // And the world gap never closes at any k, magnified or not.
+        let prevGap = null;
+        for (const k of [...K_SWEEP].sort((a, b) => b - a)) {
+            const gap = innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS;
+            expect(gap, `k=${k}`).toBeGreaterThan(0);
+            if (prevGap !== null) expect(gap, `k=${k}`).toBeGreaterThanOrEqual(prevGap);
+            prevGap = gap;
+        }
+    });
+
+    // WHAT STOPS IT GROWING, measured against the furniture ITSELF rather than
+    // against the constants the ceiling is derived from. Review found the first
+    // two ceilings by doing exactly this by hand: "never reaches another bead"
+    // cleared beads and crossed the epic chip's strip and its own launch-unit
+    // box on all four sides, through the whole of Overview.
+    it('crosses no world furniture, at any k the zoom can reach', () => {
+        const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
+        // The substrate fixture in all four label/layout combinations, PLUS the
+        // timed fuzz corpus — which is the only source here that draws launch
+        // -unit boxes in quantity (the substrate plan draws none).
+        const layouts = [
+            ...COMBOS.map((opts) => ({
+                label: `${opts.reqLayout}/${opts.stepLabel}`,
+                layout: computePlanLayout(plan.rows, plan.batches, opts),
+            })),
+            // BOTH requirement layouts. `horizontal` is the default, and its
+            // box bottom is BATCH_BOX_DROP_H = 30 — three world px of slack.
+            // `vertical` is BATCH_BOX_DROP_V = 28, which is the clearance the
+            // ceiling is actually SET BY, leaving exactly the designed 1px. A
+            // sweep that ran only the default asserted 934 times against the
+            // looser constant and never touched the binding one (review finding).
+            ...[...timedFuzzCorpus()].flatMap(({ seed, reads }) => {
+                const p = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+                return ['horizontal', 'vertical'].map((reqLayout) => ({
+                    label: `fuzz seed ${seed} ${reqLayout}`,
+                    layout: computePlanLayout(p.rows, p.batches,
+                        { reqLayout, timeAxis: p.timeAxis }),
+                }));
+            }),
+        ];
+        // Violations are COLLECTED and asserted once, not `expect`ed per pair:
+        // this sweeps ~10^5 comparisons and vitest's per-expect overhead is what
+        // pushed the case past its timeout.
+        const bad = [];
+        const seen = { boxes: 0, bands: 0, laneZero: 0, letters: 0, letterPairs: 0 };
+        // Per requirement layout, because `vertical` is the one carrying the
+        // BINDING clearance (BATCH_BOX_DROP_V = 28, 1px of margin) and a total
+        // cannot tell a both-layout sweep from a horizontal-only one: the
+        // horizontal-only version drew 467 boxes, comfortably over any total
+        // threshold that a both-layout count of 934 would also clear.
+        const boxesByLayout = { horizontal: 0, vertical: 0 };
+        let minLetterD2 = Infinity;
+        let minLetterAt = 'none';
+        for (const { label: where, layout } of layouts) {
+            seen.boxes += layout.batchBoxes.length;
+            seen.bands += layout.bands.length;
+            for (const key of Object.keys(boxesByLayout)) {
+                if (where.includes(key)) boxesByLayout[key] += layout.batchBoxes.length;
+            }
+            // Its own launch-unit box, on all four sides.
+            for (const box of layout.batchBoxes) {
+                for (const id of box.stepIds) {
+                    const n = layout.nodes.get(id);
+                    const at = `${where} step ${id}`;
+                    if (n.y - worstOuter <= box.y) bad.push(`${at}: box top`);
+                    if (n.y + worstOuter >= box.y + box.height) bad.push(`${at}: box bottom`);
+                    if (n.x - worstOuter <= box.x) bad.push(`${at}: box left`);
+                    if (n.x + worstOuter >= box.x + box.width) bad.push(`${at}: box right`);
+                }
+            }
+            // The epic chip's strip, which is the room above a LANE-0 bead.
+            // Tested UNCONDITIONALLY for every lane-0 bead: the first version
+            // skipped on the PASSING condition, so its `expect` could only ever
+            // throw and 136 rows sailed past without one comparison running.
+            for (const band of layout.bands) {
+                const chipBottom = band.y + (band.epicLaneH ?? band.headerH);
+                for (const stepId of band.stepIds) {
+                    const n = layout.nodes.get(stepId);
+                    if (!n || n.lane !== 0) continue;
+                    seen.laneZero += 1;
+                    if (n.y - worstOuter <= chipBottom) {
+                        bad.push(`${where} step ${stepId}: epic chip strip`);
+                    }
+                }
+            }
+            // The launch-unit LETTER — text, and the one thing a per-bead
+            // clearance cannot bound, because the letter a halo crosses belongs
+            // to a NEIGHBOURING column's box. Measured at 4 crossings in 467
+            // letters before `beadRectsOf` was widened to the halo's reach.
+            //
+            // Stated as a measured MINIMUM DISTANCE rather than as "no pair
+            // intersects". After the fix no pair comes close, so an
+            // intersection counter reads zero for two different reasons — fixed,
+            // or never compared — and cannot tell them apart. A minimum shrinks
+            // visibly when the geometry moves. Squared distances: this is the
+            // hot loop of the case.
+            const beads = [...layout.nodes.values()];
+            for (const l of layout.labels.filter((x) => x.kind === 'batch')) {
+                seen.letters += 1;
+                for (const n of beads) {
+                    seen.letterPairs += 1;
+                    const dx = Math.max(l.x - n.x, 0, n.x - (l.x + l.w));
+                    const dy = Math.max(l.y - n.y, 0, n.y - (l.y + l.h));
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 < minLetterD2) {
+                        minLetterD2 = d2;
+                        minLetterAt = `${where}: letter ${l.letter} × bead ${n.id}`;
+                    }
+                }
+            }
+        }
+        expect(bad.slice(0, 12)).toEqual([]);
+        // No bead's halo reaches ANY launch-unit letter. MEASURED at its
+        // tightest: 30.82 world px, seed 127 / letter A / bead 4 — the same
+        // letter-and-bead the review found at 19.34, i.e. inside the 23..27
+        // annulus — against a reach of 27, so 3.8px of margin. The MINIMUM is
+        // the whole assertion: a letter far outside the ring and a letter
+        // wholly inside it are both safe, and only the first is reachable here.
+        expect(Math.sqrt(minLetterD2), `nearest letter: ${minLetterAt}`)
+            .toBeGreaterThan(worstOuter);
+        // Non-vacuity, per FURNITURE KIND — a total says nothing about whether
+        // each kind was actually compared against.
+        // Thresholds sit just under the MEASURED counts, not orders of
+        // magnitude below them: a guard at 20 against an actual 1624 catches
+        // total collapse and nothing else.
+        expect(boxesByLayout.horizontal, 'boxes swept, horizontal reqs')
+            .toBeGreaterThan(400);
+        expect(boxesByLayout.vertical, 'boxes swept, vertical reqs — the BINDING clearance')
+            .toBeGreaterThan(400);
+        expect(seen.boxes, 'launch-unit boxes swept').toBeGreaterThan(900);
+        expect(seen.bands, 'epic bands swept').toBeGreaterThan(1500);
+        expect(seen.laneZero, 'lane-0 beads compared to a chip strip')
+            .toBeGreaterThan(6000);
+        expect(seen.letters, 'launch-unit letters swept').toBeGreaterThan(900);
+        expect(seen.letterPairs, 'letter × bead pairs measured').toBeGreaterThan(15000);
+    }, 20000);
+
+    // Kept separate because it is O(beads²): the substrate fixture in all four
+    // combinations is enough to pin it, and the corpus above already covers the
+    // furniture that varies with the plan's SHAPE.
+    it('never reaches another bead, or another bead\'s hit circle', () => {
+        const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
+        let pairs = 0;
+        for (const opts of COMBOS) {
+            const pts = [...computePlanLayout(plan.rows, plan.batches, opts)
+                .nodes.values()];
+            for (let i = 0; i < pts.length; i += 1) {
+                for (let j = i + 1; j < pts.length; j += 1) {
+                    pairs += 1;
+                    const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+                    expect(d, `${opts.reqLayout}/${opts.stepLabel}: bead pair`)
+                        .toBeGreaterThan(worstOuter + BEAD_HIT_RADIUS);
+                }
+            }
+        }
+        expect(pairs, 'bead pairs swept').toBeGreaterThan(100);
+    });
+
+    // THE CEILING IS THE SMALLEST OF THE CLEARANCES, and every one of them is
+    // derived. A retuned constant anywhere in the module moves this number
+    // rather than silently invalidating it.
+    // THE TWO ASSERTIONS HERE THAT CAN ACTUALLY FAIL, and they are the pair
+    // that would have caught both wrong ceilings: a DELETED clearance (the list
+    // shrinking back toward the one-constraint answers), and a new TIGHT
+    // clearance silently strangling the fix — 2.37 was the first ceiling tried
+    // and it is below this floor. Re-deriving `MAX_OUTER` from
+    // `min(clearances) - 1` here would only restate the three lines above it in
+    // the source, so it is deliberately not asserted.
+    it('takes its ceiling from the tightest clearance, derived not typed', () => {
+        expect(Object.keys(NEXT_HALO_CLEARANCES).length).toBeGreaterThanOrEqual(7);
+        expect(NEXT_HALO_MAX_MAGNIFY).toBeGreaterThan(1.8);
+    });
+
+    it('is monotone — zooming out never shrinks the mark', () => {
+        const ms = K_SWEEP.map((k) => nextHaloMagnify(k, false));
+        for (let i = 1; i < ms.length; i += 1) {
+            expect(ms[i], `k=${K_SWEEP[i]}`).toBeLessThanOrEqual(ms[i - 1]);
+        }
+    });
+
+    it('falls back to 1 on a scale that is not a usable number', () => {
+        for (const k of [0, -1, NaN, Infinity, -Infinity, undefined, null]) {
+            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
+        }
+    });
+
+    // THE MEASUREMENT THIS REQUIREMENT WAS FILED ON, as an assertion. Live
+    // pipeline 2 renders 136 rows into a 3620px world, so kFit is 0.33–0.40 on
+    // a 1200–1440px panel and kDefault is K_READABLE (0.8) — which puts the
+    // plan's OPENING view at 'out', with k at or below the 0.4 ceiling the
+    // level ladder gives that level. Before this fix the halo drew a 0.80px
+    // stroke there; a sub-pixel dashed outline whose inner edge sat 0.1px from
+    // the bead's own ring.
+    it('turns the measured Overview scales into a mark that can be seen', () => {
+        // The three scales that matter on the live plan: fit-to-width on a
+        // 1200px and a 1440px panel (both level 'out' — the plan OPENS there),
+        // and the ceiling of 'out' itself.
+        const LIVE_WORLD_W = 3620.2;
+        const kOutCeiling = K_READABLE * 0.5;            // 0.4, 'out' by definition
+        const cases = [1200 / LIVE_WORLD_W, 1440 / LIVE_WORLD_W, kOutCeiling];
+        for (const k of cases) {
+            expect(nextHaloMagnify(k, true), `labels drawn at k=${k}`).toBe(1);
+            // What it used to be, at that same k: a sub-pixel dashed outline
+            // whose inner edge sat a tenth of a pixel from the bead's own ring.
+            expect(NEXT_HALO_STROKE * k, `old stroke px at k=${k}`).toBeLessThan(0.81);
+            expect((innerAt(1) - BEAD_OUTER_RADIUS) * k, `old gap px at k=${k}`)
+                .toBeLessThan(0.11);
+            // What it is now — a dashed ring, clear of the bead.
+            const m = nextHaloMagnify(k, false);
+            expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`).toBeGreaterThan(1.3);
+            expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`).toBeGreaterThan(8);
+            expect(NEXT_HALO_DASH[0] * m * k, `dash px at k=${k}`).toBeGreaterThan(1.9);
+            expect((innerAt(m) - BEAD_OUTER_RADIUS) * k, `gap px at k=${k}`)
+                .toBeGreaterThan(3.5);
+            // ...and enough circumference for the dashes to READ as dashes,
+            // which is the whole reason the mark is dashed at all.
+            const cycles = (2 * Math.PI * NEXT_HALO_RADIUS * m * k)
+                / (NEXT_HALO_DASH[0] + NEXT_HALO_DASH[1]);
+            expect(cycles, `dash cycles at k=${k}`).toBeGreaterThan(6);
+        }
     });
 });
 
