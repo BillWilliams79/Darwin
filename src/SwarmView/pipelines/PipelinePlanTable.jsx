@@ -264,8 +264,14 @@ function RequirementLinks({ row, pipelineId }) {
                         component={RouterLink}
                         to={`/swarm/requirement/${id}`}
                         // Provenance, so the detail page's Back returns to THIS plan
-                        // rather than the Roadmap (req #3119).
-                        state={pipelineId ? { from: 'pipeline', pipelineId } : undefined}
+                        // rather than the Roadmap (req #3119) — and to THIS PANEL of
+                        // it (req #3252). The route names the plan; which panel it
+                        // opens is a stored preference, and a reader who reached the
+                        // table through a bead click or a `?step=` link never
+                        // persisted `table` (both are transient overrides by design),
+                        // so Back sent them to whichever panel their preference held.
+                        state={pipelineId
+                            ? { from: 'pipeline', pipelineId, mode: 'table' } : undefined}
                         underline="hover"
                         sx={{
                             fontFamily: 'monospace',

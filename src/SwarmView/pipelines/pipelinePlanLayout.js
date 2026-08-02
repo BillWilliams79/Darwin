@@ -2916,4 +2916,50 @@ export function factoryDefaultScale(layout, size, kFit, kFloor) {
     return Math.max(Math.min(kFit, kVertFit), kFloor);
 }
 
+// ── The legal region of a transform (req #3168's bound, extracted req #3252) ──
+// The "scroll pane" rule: the world may overshoot the panel by at most HALF A
+// PANEL on each side, measured on screen at every scale, so a pan can never
+// carry the whole plan out of view. It lived as a closure inside
+// PipelinePlanVisualizer's zoom behaviour, which was correct while the zoom
+// behaviour was the only thing that could produce a transform.
+//
+// Req #3252 gave it a second producer: a viewport RESTORED from storage. That
+// one arrives through `zoom.transform`, which applies what it is given verbatim
+// and calls neither `constrain` nor `scaleExtent` (the `epicFocusTransform`
+// comment above, verified against d3-zoom 3.0.0) — so a camera saved when the
+// panel was tall, restored into a short one, would sit outside the bound until
+// the reader's first gesture snapped it. Two copies of this arithmetic that
+// "only have to agree" is the desync `factoryDefaultScale`'s own comment already
+// argues against, so there is one copy and both callers read it.
+//
+// `Math.min(0, …)` / `Math.max(0, …)` is what keeps the DEFAULT view — world
+// origin at the panel's top-left — legal on a plan smaller than the panel.
+// Without it the bound would force a re-centre on the very first transform.
+/**
+ * `t` clamped into the pan bound, and its scale into `[kMin, kMax]`.
+ *
+ * Pass `t.k` for both bounds to clamp the translation only, which is what the
+ * zoom behaviour's own `constrain` wants — d3 has already applied `scaleExtent`
+ * by the time it calls that.
+ *
+ * @param {{x:number,y:number,k:number}} t
+ * @param {{w:number,h:number}} size the viewport, in screen px
+ * @param {{width:number,height:number}} layout the world dimensions
+ * @param {number} kMin
+ * @param {number} kMax
+ * @returns {{x:number,y:number,k:number}}
+ */
+export function clampPlanTransform(t, size, layout, kMin, kMax) {
+    const k = Math.min(Math.max(t.k, kMin), kMax);
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    const loX = Math.min(0, w / 2 - k * (layout?.width || 0));
+    const loY = Math.min(0, h / 2 - k * (layout?.height || 0));
+    return {
+        x: Math.min(Math.max(t.x, loX), Math.max(0, w / 2)),
+        y: Math.min(Math.max(t.y, loY), Math.max(0, h / 2)),
+        k,
+    };
+}
+
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };
