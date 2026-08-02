@@ -108,7 +108,8 @@ import { aiModelLabel } from '../modelChipStyles';
 import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
-    computePlanLayout, beadStyle, placeEpicChips, epicFocusTransform, factoryDefaultScale,
+    computePlanLayout, beadStyle, placeEpicChips, collectWorldObstacles,
+    epicFocusTransform, factoryDefaultScale,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
@@ -823,6 +824,21 @@ export default function PipelinePlanVisualizer({
     }, [level]);
     const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
 
+    // Every world-space rect currently DRAWN — beads (widened to the
+    // eligible-step halo where one draws), batch-box outlines, whichever
+    // labels the semantic LEVEL actually shows, and every dependency arc's
+    // bbox — for the sticky epic chips (req #3210) to steer clear of.
+    // `collectWorldObstacles` is PURE (`pipelinePlanLayout.js`) precisely so
+    // this assembly — otherwise only provable by rendering the component — is
+    // a testable property of plain data; `drawsKind`/`level` is passed in
+    // because it is this component's own gate; the pure module has no notion
+    // of semantic level on its own (review finding — the first cut passed
+    // `layout.labels` unfiltered, which dropped stickies to avoid marks that
+    // were not actually on screen).
+    const worldObstacles = useMemo(
+        () => collectWorldObstacles(layout, { drawsKind, eligibleStepIds }),
+        [layout, drawsKind, eligibleStepIds]);
+
     // Report the level actually being rendered so the toolbar's selector can
     // softly mark it while on Auto — BuildVisualizerPage's `onEffectiveLevel`
     // handshake. In an EFFECT, not during render: this calls a setState on the
@@ -994,6 +1010,11 @@ export default function PipelinePlanVisualizer({
         keepOut: legendSize
             ? { x: size.w - 10 - legendSize.w, y: 8, w: legendSize.w, h: legendSize.h }
             : null,
+        // Sticky prev/next chips (req #3210) pin to the viewport edge rather
+        // than to their own band, so — unlike the natural chips, which are
+        // confined to their own band's content-free epic lane — they need an
+        // explicit collision source: `worldObstacles`, above.
+        worldObstacles,
     });
 
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
@@ -1406,11 +1427,24 @@ export default function PipelinePlanVisualizer({
                     Re-enabling pointer events does not cost the drag-pan: the
                     chip is a DESCENDANT of the container d3-zoom is bound to, so
                     a mousedown on the chip still bubbles and still starts a pan.
-                    Only the click is the chip's. */}
+                    Only the click is the chip's.
+
+                    SOME entries are STICKY (req #3210, `e.sticky === 'top' |
+                    'bottom'`): the epic immediately above/below the visible
+                    range, pinned to the viewport edge inside the blank margin
+                    `epicFocusTransform` already reserves, so a reader who has
+                    focused one epic can still see — and one click away from —
+                    its neighbours in the stack. `e.band` already resolves to
+                    that neighbour, so `focusEpic(e.band)` chains exactly like
+                    a normal chip click; nothing about the click wiring differs. */}
                 <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
-                    {floatingEpics.map((e) => (
+                    {floatingEpics.map((e) => {
+                        const stickyTitle = e.sticky === 'top'
+                            ? `Jump to the epic above — ${e.text}`
+                            : `Jump to the epic below — ${e.text}`;
+                        return (
                         <Box
                             key={e.key}
                             onClick={() => focusEpic(e.band)}
@@ -1434,8 +1468,13 @@ export default function PipelinePlanVisualizer({
                             // worse than either. The chip's two controls each
                             // name themselves: the body zooms, the ↗ below
                             // opens the features view, and both say so.
-                            title="Zoom pipeline epic"
-                            aria-label={`Zoom pipeline epic ${e.text}`}
+                            // A STICKY chip names the DIRECTION it climbs
+                            // instead (req #3210) — "Zoom pipeline epic" is
+                            // true of it too, but "the epic above/below" is
+                            // the fact the reader actually needs to decide
+                            // whether to click.
+                            title={e.sticky ? stickyTitle : 'Zoom pipeline epic'}
+                            aria-label={e.sticky ? stickyTitle : `Zoom pipeline epic ${e.text}`}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
                                 position: 'absolute', left: e.x, top: e.y,
@@ -1458,7 +1497,13 @@ export default function PipelinePlanVisualizer({
                                 // crosses.
                                 background: chipBg,
                                 px: 0.9, py: 0, borderRadius: '5px',
-                                border: `1px solid ${e.color}55`,
+                                // A sticky chip's border rides at full colour
+                                // rather than the ambient 33% (req #3210): it is
+                                // the one thing on screen naming an epic with no
+                                // content of its own in view, so it reads as a
+                                // standing control rather than a label that
+                                // happens to still be there.
+                                border: `1px solid ${e.color}${e.sticky ? '' : '55'}`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: 'auto',
                                 cursor: 'pointer',
@@ -1479,6 +1524,15 @@ export default function PipelinePlanVisualizer({
                                 },
                             }}
                         >
+                            {/* No directional glyph here on purpose (req #3210
+                                review finding): the chip's measured width comes
+                                straight from `placeEpicChips`, which — unlike
+                                the ↗ control below — sizes the chip to exactly
+                                `e.text`, so any further in-flow content would
+                                render past what the collision math measured.
+                                The pinned position (viewport edge, not a band)
+                                plus the solid border and the "Jump to…" title
+                                below are the sticky affordance instead. */}
                             <Box component="span" className="pipeline-viz-epic-name">
                                 {e.text}
                             </Box>
@@ -1519,7 +1573,8 @@ export default function PipelinePlanVisualizer({
                                 </Box>
                             )}
                         </Box>
-                    ))}
+                        );
+                    })}
                 </Box>
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────

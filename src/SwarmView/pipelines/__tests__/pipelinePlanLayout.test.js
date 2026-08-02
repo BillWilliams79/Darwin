@@ -14,10 +14,10 @@ import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
-    PLAN_VIZ_PALETTE, placeEpicChips,
+    PLAN_VIZ_PALETTE, placeEpicChips, collectWorldObstacles, EPIC_CHIP_OPEN_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, EPIC_CHIP_CHAR_W,
-    EPIC_CHIP_FONT, EPIC_CHIP_H,
+    EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
@@ -49,6 +49,15 @@ const beadRect = (n) => ({
     x: n.x - BEAD_RADIUS, y: n.y - BEAD_RADIUS,
     w: 2 * BEAD_RADIUS, h: 2 * BEAD_RADIUS,
 });
+
+// `placeEpicChips`'s `worldObstacles` (req #3210) is assembled by
+// `collectWorldObstacles` — deliberately the CALLER's job, since the layout
+// module has no notion of the component's semantic-level draw gate on its
+// own. Defaulting `drawsKind` here to "draw everything" is the conservative
+// (superset) case a level-aware caller only ever narrows from, so a chip this
+// function refuses to place would also be refused in production at SOME
+// level, never the reverse.
+const worldObstaclesOf = (layout) => collectWorldObstacles(layout);
 
 // The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
 // arc may cross only beads that are part of its own chain — a transitive
@@ -962,9 +971,14 @@ describe('floating epic chips (req #3168)', () => {
     const layout = computePlanLayout(plan.rows, plan.batches,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
+    // `worldObstacles` mirrors what PipelinePlanVisualizer.jsx actually
+    // assembles (req #3210) — the sticky chips this function can now also
+    // return need it to stay clear of drawn content, so a suite that omits it
+    // would be asserting against a configuration production never uses.
     const chipsAt = (transform, keepOut = null) => placeEpicChips({
         bands: layout.bands, transform, viewport: VIEWPORT,
         worldWidth: layout.width, keepOut,
+        worldObstacles: worldObstaclesOf(layout),
     });
 
     it('draws one chip per band at the default view', () => {
@@ -1158,6 +1172,376 @@ describe('floating epic chips (req #3168)', () => {
         expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
             viewport: { w: 0, h: 0 }, worldWidth: layout.width })).toEqual([]);
         expect(placeEpicChips()).toEqual([]);
+    });
+});
+
+// ── `collectWorldObstacles` (req #3210) ─────────────────────────────────────
+// The sticky chips' collision source is assembled by a PURE function
+// precisely so the caller-side semantic-level gate — otherwise only provable
+// by rendering PipelinePlanVisualizer.jsx — is a testable property of plain
+// data (review finding: an earlier version of this assembly lived only in
+// the component and had no coverage at all).
+describe('collectWorldObstacles (req #3210)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+
+    it('includes one rect per bead, at the bead radius, when nothing is eligible', () => {
+        const out = collectWorldObstacles(layout);
+        const beads = [...layout.nodes.values()].map(beadRect);
+        expect(out.length).toBeGreaterThanOrEqual(beads.length);
+        for (const b of beads) {
+            expect(out.some((o) => o.x === b.x && o.y === b.y && o.w === b.w && o.h === b.h))
+                .toBe(true);
+        }
+    });
+
+    it('widens an ELIGIBLE step\'s footprint to the halo radius, not the bead radius', () => {
+        const [firstRow] = plan.rows;
+        const eligibleStepIds = new Set([firstRow.id]);
+        const node = layout.nodes.get(firstRow.id);
+        const withHalo = collectWorldObstacles(layout, { eligibleStepIds });
+        const withoutHalo = collectWorldObstacles(layout);
+        const haloRect = withHalo.find((o) => o.x < node.x && o.x + o.w > node.x
+            && Math.abs((o.x + o.w / 2) - node.x) < 0.01 && Math.abs((o.y + o.h / 2) - node.y) < 0.01);
+        const bareRect = withoutHalo.find((o) => Math.abs((o.x + o.w / 2) - node.x) < 0.01
+            && Math.abs((o.y + o.h / 2) - node.y) < 0.01);
+        expect(haloRect.w).toBeGreaterThan(bareRect.w);
+        expect(haloRect.w).toBeCloseTo(2 * (NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2), 6);
+        expect(bareRect.w).toBeCloseTo(2 * BEAD_RADIUS, 6);
+    });
+
+    it('excludes epic labels — never drawn in the world — regardless of drawsKind', () => {
+        const out = collectWorldObstacles(layout, { drawsKind: () => true });
+        const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
+        expect(epicLabels.length).toBeGreaterThan(0);
+        for (const l of epicLabels) {
+            expect(out.some((o) => o.x === l.x && o.y === l.y && o.w === l.w && o.h === l.h))
+                .toBe(false);
+        }
+    });
+
+    it('honours the caller\'s drawsKind gate — a suppressed kind contributes no rect', () => {
+        const stepLabels = layout.labels.filter((l) => l.kind === 'step');
+        expect(stepLabels.length).toBeGreaterThan(0);
+        const withStep = collectWorldObstacles(layout, { drawsKind: () => true });
+        const withoutStep = collectWorldObstacles(layout, { drawsKind: (k) => k !== 'step' });
+        for (const l of stepLabels) {
+            expect(withStep.some((o) => o.x === l.x && o.y === l.y)).toBe(true);
+            expect(withoutStep.some((o) => o.x === l.x && o.y === l.y)).toBe(false);
+        }
+        // Nothing else moved — the gate is scoped to the ONE kind it names.
+        expect(withoutStep.length).toBe(withStep.length - stepLabels.length);
+    });
+
+    // The Substrate Rebuild fixture draws ZERO batch boxes (its nearest pair
+    // differs in run mode — see 'launch-batch box geometry' above), so a
+    // genuine one is built locally, minimally, rather than reused across
+    // `describe` blocks (each is its own closure).
+    it('normalizes batch-box width/height into the shared w/h rect shape', () => {
+        const batchReads = {
+            steps: [
+                { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
+                    completed_at: '2026-07-01T00:00:00' },
+                { id: 2, pipeline_fk: 1, title: 'batch mate A', run: 'auto', notes: null,
+                    completed_at: null },
+                { id: 3, pipeline_fk: 1, title: 'batch mate B', run: 'auto', notes: null,
+                    completed_at: null },
+            ],
+            stepRequirements: [
+                { step_fk: 2, requirement_fk: 900 },
+                { step_fk: 3, requirement_fk: 901 },
+            ],
+            stepDeps: [
+                { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+                { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
+            ],
+            requirements: [
+                { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
+                { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
+            ],
+            features: [{ id: 101, title: 'Wave One', epic_fk: 11 }],
+            epics: [{ id: 11, title: 'Batch Epic' }],
+            machines: MACHINES,
+        };
+        const batchPlan = orderedPlan(buildPipelineModel({
+            pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
+            ...batchReads,
+        }), { now: NOW });
+        expect(batchPlan.batches).toHaveLength(1);
+        const batchLayout = computePlanLayout(batchPlan.rows, batchPlan.batches);
+        expect(batchLayout.batchBoxes.length).toBeGreaterThan(0);
+        const out = collectWorldObstacles(batchLayout);
+        for (const b of batchLayout.batchBoxes) {
+            expect(out.some((o) => o.x === b.x && o.y === b.y
+                && o.w === b.width && o.h === b.height)).toBe(true);
+        }
+    });
+
+    it('includes every arc bbox', () => {
+        const out = collectWorldObstacles(layout);
+        for (const a of layout.arcs) {
+            expect(out.some((o) => o.x === a.bbox.x && o.y === a.bbox.y
+                && o.w === a.bbox.w && o.h === a.bbox.h)).toBe(true);
+        }
+    });
+
+    it('is inert on a null/undefined layout rather than throwing', () => {
+        expect(collectWorldObstacles(null)).toEqual([]);
+        expect(collectWorldObstacles(undefined)).toEqual([]);
+        expect(collectWorldObstacles({})).toEqual([]);
+    });
+});
+
+// ── Sticky prev/next epic chips (req #3210) ────────────────────────────────
+// "The epics above and below the displayed epic ... stick" — when the epic
+// immediately before/after the visible band range is scrolled entirely off
+// screen (the common case once a reader has focused one epic, req #3204),
+// its name pins to the corresponding viewport edge instead of vanishing, and
+// stays clickable to focus that band in turn.
+describe('sticky prev/next epic chips (req #3210)', () => {
+    const layout = computePlanLayout(plan.rows, plan.batches,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const VIEWPORT = { w: 1500, h: 900 };
+    // `worldObstacles` defaults to the layout's own (via `worldObstaclesOf`) —
+    // matching what PipelinePlanVisualizer.jsx actually assembles — so this
+    // suite exercises the collision sources the sticky chips are checked
+    // against in production, not an easier configuration that omits them.
+    const chipsAt = (transform, keepOut = null, overrides = {}) => placeEpicChips({
+        bands: layout.bands, transform, viewport: VIEWPORT,
+        worldWidth: layout.width, keepOut,
+        worldObstacles: worldObstaclesOf(layout),
+        ...overrides,
+    });
+    // The same kFit/kDefault the component computes (PipelinePlanVisualizer.jsx).
+    const kFit = VIEWPORT.w / layout.width;
+    const kDefault = Math.max(kFit, K_READABLE);
+
+    // The fixture needs at least 3 bands for "above" and "below" to both be
+    // exercisable in the same suite.
+    it('the fixture carries enough bands to exercise both directions', () => {
+        expect(layout.bands.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('draws no sticky chip when every band already fits on screen', () => {
+        // Fit-to-both-axes at the origin — the same "contain" idiom
+        // `factoryDefaultScale` uses — puts the whole plan in view, so there is
+        // no off-screen neighbour for either edge to represent.
+        const k = Math.min(VIEWPORT.w / layout.width, VIEWPORT.h / layout.height);
+        const chips = chipsAt({ x: 0, y: 0, k });
+        expect(chips.some((c) => c.sticky)).toBe(false);
+    });
+
+    // THE REVIEW FINDING, closed: `epicFocusTransform` — the ACTUAL production
+    // trigger (req #3204's "click an epic name to zoom to it") — is what this
+    // feature has to fire under, not a hand-picked transform. `FOCUS_PAD`
+    // (screen px) dwarfing `BAND_GAP` (world px) at every k the focus clamp can
+    // reach means a neighbour's own trailing content sliver always still
+    // technically intersects the viewport, so a first cut of this feature
+    // (gated on rect intersection) never engaged here — measured in review: 0
+    // sticky chips across every band on this fixture at its real focus
+    // transform. Swept over EVERY band so a fix that works on one but not
+    // another (a real risk given `FOCUS_PAD`/`BAND_GAP`'s ratio is roughly
+    // constant but band heights are not) cannot hide.
+    it('fires under the REAL epic-focus transform, for every band in the stack', () => {
+        for (let i = 0; i < layout.bands.length; i++) {
+            const band = layout.bands[i];
+            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault);
+            expect(t, `band ${i} ("${band.epic}") did not produce a focus transform`)
+                .toBeTruthy();
+            const chips = chipsAt(t);
+            // The focused band's own name is on screen — the feature's whole
+            // premise is that this alone is not enough.
+            expect(chips.some((c) => !c.sticky && c.band === band),
+                `band ${i} ("${band.epic}") drew no natural chip for itself`)
+                .toBe(true);
+            // "At least three names on screen" means the NEIGHBOUR'S IDENTITY
+            // is visible, not specifically that it arrives via a sticky chip —
+            // natural chips are anchored to a band's OWN top (the epic lane),
+            // so a band peeking in from BELOW (the next one down, focusing
+            // head-first into view) routinely earns its own natural chip
+            // without any help; a band peeking in from ABOVE (the tail of the
+            // one before, focusing in feet-first) never can, which is
+            // precisely the case the sticky exists for. Assert the fact that
+            // matters — the neighbour is named somehow — for both directions,
+            // and additionally require STICKY specifically on the top edge,
+            // since that direction has no other path to a name at all.
+            const namedBy = (target) => chips.find((c) => c.band === target);
+            if (i > 0) {
+                const prev = layout.bands[i - 1];
+                const shown = namedBy(prev);
+                expect(shown, `band ${i} ("${band.epic}") — "${prev.epic}" is not `
+                    + 'named on screen at all').toBeTruthy();
+                expect(shown.sticky, `band ${i} ("${band.epic}") — "${prev.epic}" `
+                    + 'is shown but not as a sticky-top').toBe('top');
+            } else {
+                expect(chips.some((c) => c.sticky === 'top')).toBe(false);
+            }
+            if (i < layout.bands.length - 1) {
+                const next = layout.bands[i + 1];
+                expect(namedBy(next), `band ${i} ("${band.epic}") — "${next.epic}" `
+                    + 'is not named on screen at all').toBeTruthy();
+            } else {
+                expect(chips.some((c) => c.sticky === 'bottom')).toBe(false);
+            }
+        }
+    });
+
+    it('pins the epic above to the top edge once it scrolls fully off, '
+        + 'clickable back to that same band', () => {
+        const target = layout.bands[1];
+        const k = 5;
+        const topOfNext = 30;   // band[1]'s screen top — inside its own budget
+        const t = { x: 0, y: -(target.y * k) + topOfNext, k };
+        const chips = chipsAt(t);
+        const sticky = chips.find((c) => c.sticky === 'top');
+        expect(sticky).toBeTruthy();
+        expect(sticky.band).toBe(layout.bands[0]);
+        expect(sticky.text).toBe(layout.bands[0].epicLabel || layout.bands[0].epic);
+        expect(sticky.epicId).toBe(layout.bands[0].epicId);
+        // Confined to the blank strip above band[1]'s own screen top — the
+        // "swim lane" — never past it.
+        expect(sticky.y).toBeGreaterThanOrEqual(0);
+        expect(sticky.y + sticky.h).toBeLessThanOrEqual(topOfNext + 0.01);
+        // Scaled honestly, same invariant the natural chips assert.
+        expect(sticky.fontSize / sticky.h).toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 6);
+        // band[1] itself is still on screen with room for its OWN chip too —
+        // both the current epic and the one above it are visible at once.
+        expect(chips.some((c) => !c.sticky && c.band === layout.bands[1])).toBe(true);
+    });
+
+    it('never draws a sticky chip for a side with no neighbouring band', () => {
+        // band[0] is the FIRST band in the stack: however much blank margin sits
+        // above it, there is nothing above to name — same for the LAST band and
+        // the bottom edge.
+        const first = layout.bands[0];
+        const chipsTop = chipsAt({ x: 0, y: -(first.y * 1) + 200, k: 1 });
+        expect(chipsTop.some((c) => c.sticky === 'top')).toBe(false);
+
+        const lastIdx = layout.bands.length - 1;
+        const last = layout.bands[lastIdx];
+        const chipsBottom = chipsAt({
+            x: 0, y: (VIEWPORT.h - 200) - (last.y + last.height) * 1, k: 1,
+        });
+        expect(chipsBottom.some((c) => c.sticky === 'bottom')).toBe(false);
+    });
+
+    it('draws nothing on that edge when the gap is honestly too small '
+        + `(below ${EPIC_CHIP_MIN_H}px)`, () => {
+        const target = layout.bands[1];
+        const k = 5;
+        // Only 6px of budget above band[1] — under EPIC_CHIP_MIN_H once the 4px
+        // margin is subtracted, so this is the same "nowhere honest left"
+        // refusal the natural chips make rather than a chip too small to read.
+        const t = { x: 0, y: -(target.y * k) + 6, k };
+        const chips = chipsAt(t);
+        expect(chips.some((c) => c.sticky === 'top')).toBe(false);
+    });
+
+    it('never collides with the legend keep-out even when a sticky chip '
+        + 'would otherwise land under it', () => {
+        const target = layout.bands[1];
+        const k = 5;
+        const topOfNext = 30;
+        // Panned so the natural (left-aligned) x for every chip sits under a
+        // top-right legend — the exact shape the non-sticky version of this
+        // collision is measured against elsewhere in this file.
+        const t = { x: 900, y: -(target.y * k) + topOfNext, k };
+        const keepOut = { x: VIEWPORT.w - 10 - 420, y: 8, w: 420, h: 30 };
+        for (const chip of chipsAt(t, keepOut)) {
+            expect(rectsOverlap(chip, keepOut),
+                `chip "${chip.text}" (sticky=${chip.sticky || 'no'}) under the legend`)
+                .toBe(false);
+        }
+    });
+
+    // THE OTHER REVIEW FINDING: a sticky chip is not confined to its own
+    // band's reserved epic lane the way a natural chip is (it's anchored to
+    // the viewport edge instead), so it needs an explicit collision source for
+    // the one thing genuinely drawn in that margin — a dependency arc crossing
+    // in from an off-screen band. Built directly rather than found on the
+    // fixture: a synthetic arc whose bbox sits exactly where the sticky-top
+    // slot would otherwise place its chip.
+    it('steps aside from a dependency arc crossing into its margin, rather '
+        + 'than drawing over it', () => {
+        const target = layout.bands[1];
+        const k = 5;
+        const topOfNext = 30;
+        const t = { x: 0, y: -(target.y * k) + topOfNext, k };
+        // Where the natural (unobstructed) sticky-top would land, in WORLD
+        // units — back-computed from the chip's own placement formula so the
+        // synthetic obstacle genuinely overlaps it rather than merely being
+        // nearby. Stands in for an arc's `bbox` (a rect either way, once past
+        // `computePlanLayout`'s own Bézier-hull computation — see that
+        // function's comment) — what matters here is that `worldObstacles`
+        // carries it, exactly as PipelinePlanVisualizer.jsx's own assembly
+        // folds `layout.arcs`' bboxes in.
+        const bareChip = chipsAt(t).find((c) => c.sticky === 'top');
+        expect(bareChip).toBeTruthy();
+        const blockingRect = {
+            x: (bareChip.x - t.x) / k, y: (bareChip.y - t.y) / k,
+            w: bareChip.w / k, h: bareChip.h / k,
+        };
+        const chips = chipsAt(t, null,
+            { worldObstacles: [...worldObstaclesOf(layout), blockingRect] });
+        const arcScreen = {
+            x: t.x + blockingRect.x * k, y: t.y + blockingRect.y * k,
+            w: blockingRect.w * k, h: blockingRect.h * k,
+        };
+        for (const chip of chips) {
+            expect(rectsOverlap(chip, arcScreen),
+                `chip "${chip.text}" (sticky=${chip.sticky || 'no'}) over the blocking arc`)
+                .toBe(false);
+        }
+    });
+
+    it('never overlaps another chip, sticky or not, on the fixture at any '
+        + 'zoom or pan', () => {
+        for (const k of [0.5, 1, 2, 5, 8]) {
+            for (const y of [0, -60, -400, -1200]) {
+                for (const x of [0, -300, 400]) {
+                    const chips = chipsAt({ x, y, k });
+                    for (let i = 0; i < chips.length; i++) {
+                        for (let j = i + 1; j < chips.length; j++) {
+                            expect(rectsOverlap(chips[i], chips[j]),
+                                `${chips[i].text} (sticky=${chips[i].sticky || 'no'}) vs `
+                                + `${chips[j].text} (sticky=${chips[j].sticky || 'no'}) `
+                                + `at k=${k} x=${x} y=${y}`)
+                                .toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    it('never lets a sticky chip touch a step, requirement or title label, '
+        + 'sweeping the same k/pan range as the natural chips', () => {
+        const content = layout.labels.filter((l) => l.stepId != null);
+        for (const k of [0.2, 0.3, 0.39, 0.5, 0.8, 1, 1.5, 2.5, 5]) {
+            for (const y of [0, -120, -600, -1400]) {
+                const chips = chipsAt({ x: 0, y, k }).filter((c) => c.sticky);
+                for (const chip of chips) {
+                    for (const l of content) {
+                        const screen = {
+                            x: 0 + l.x * k, y: y + l.y * k, w: l.w * k, h: l.h * k,
+                        };
+                        expect(rectsOverlap(chip, screen),
+                            `sticky "${chip.text}" (${chip.sticky}) collides with `
+                            + `${l.kind} label of step ${l.stepId} at k=${k} y=${y}`)
+                            .toBe(false);
+                    }
+                }
+            }
+        }
+    });
+
+    it('is inert with one band or fewer — nothing to be adjacent to', () => {
+        const [chip] = placeEpicChips({
+            bands: [{ key: 1, epicId: 1, epic: 'Solo', color: '#fff',
+                y: 8, height: 400, headerH: 46 }],
+            transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
+        });
+        expect(chip.sticky).toBeUndefined();
     });
 });
 
