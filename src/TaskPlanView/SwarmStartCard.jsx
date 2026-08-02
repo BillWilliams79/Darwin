@@ -24,6 +24,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 
 // Chip statuses shown on this card. Mirrors the requirements page filter chips minus
 // 'deferred' and 'wontfix' — both terminal/historical states outside this card's
@@ -126,8 +127,11 @@ const SwarmStartCard = () => {
     }, []);
 
     // Active-status query — disabled when Met is selected (the done query below
-    // is the row source in that case).
+    // is the row source in that case). started_at/completed_at/deferred_at are
+    // added to the default projection (req #3244) so statusClick's revert-on-failure
+    // path has the row's real prior timestamps to restore, not undefined.
     const { data: serverRequirements } = useRequirementsByStatus(profile?.userName, effectiveStatus, {
+        fields: 'id,title,requirement_status,coordination_type,ai_model,effort,machine_fk,category_fk,started_at,completed_at,deferred_at',
         enabled: !isMet,
     });
 
@@ -189,30 +193,21 @@ const SwarmStartCard = () => {
     //
     // req #3180 — a launch chip's count applies the SAME rule as its list, from
     // the same Set, so the header can never disagree with the rows beneath it.
-    // `hidden` tallies what the exclusion removed per status, so a chip that
-    // drops to zero can SAY why (see the card body) instead of reading as
-    // "there is no work" while the requirements table plainly shows some.
     //
-    // LOAD-BEARING: `hidden[s]` is the count dropped from that chip's LIST only
-    // because both sources are the same population — `useAllRequirements` here
-    // and `useRequirementsByStatus` above both read /requirements with NO
-    // category predicate and NO closed-category guard. RequirementsTableView
-    // does filter through `categoryMap`, and copying that here would look like
-    // an improvement while desynchronizing the count from the list AND
-    // overcounting the note, in one edit. See `tallyRequirementStatuses`.
-    const { statusCountMap, hiddenCountMap } = React.useMemo(() => {
-        const { counts, hidden } = tallyRequirementStatuses(
+    // LOAD-BEARING: the two queries feeding count and list read the SAME
+    // population — `useAllRequirements` here and `useRequirementsByStatus` above
+    // both read /requirements with NO category predicate and NO closed-category
+    // guard. RequirementsTableView does filter through `categoryMap`, and
+    // copying that here would look like an improvement while desynchronizing the
+    // count from the list. See `tallyRequirementStatuses`.
+    const { statusCountMap } = React.useMemo(() => {
+        const { counts } = tallyRequirementStatuses(
             allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds);
         if (Array.isArray(serverMetRequirements)) {
             counts.met = serverMetRequirements.length;
         }
-        return { statusCountMap: counts, hiddenCountMap: hidden };
+        return { statusCountMap: counts };
     }, [allRequirementsForCounts, serverMetRequirements, pipelinedIds]);
-
-    // How many rows the exclusion removed from the chip currently on screen.
-    // Surfaced in the card body — a hidden row the user is never told about is
-    // the defect this requirement is about.
-    const hiddenCount = chipOffersLaunch ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -336,21 +331,34 @@ const SwarmStartCard = () => {
     // Status click — items cycle off the selected status leave the card.
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
     const statusClick = (requirementIndex, requirementId) => {
-        const current = requirementsArray[requirementIndex].requirement_status;
+        const currentRow = requirementsArray[requirementIndex];
+        const current = currentRow.requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return;
         const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        // req #3244 — every requirement_status write re-derives all three status
+        // timestamps, matching darwin-mcp's update_requirement, so this UI path
+        // never leaves a stale started_at/completed_at/deferred_at behind. One `now`
+        // shared between the PUT body and the local-state form so they can't drift.
+        const now = new Date().toISOString();
+        const timestampState = requirementStatusTimestampState(next, now);
+        const timestampFields = requirementStatusTimestampFields(next, now);
+        const previousTimestamps = {
+            started_at: currentRow.started_at,
+            completed_at: currentRow.completed_at,
+            deferred_at: currentRow.deferred_at,
+        };
 
         // Capture cache snapshots BEFORE touching local state (shared refs, see helper comment).
-        const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next });
+        const revert = writeThroughRequirementCaches(requirementId, { requirement_status: next, ...timestampState });
 
         call_rest_api(`${darwinUri}/requirements`, 'PUT',
-            [{ id: requirementId, requirement_status: next }], idToken)
+            [{ id: requirementId, requirement_status: next, ...timestampFields }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
                     revert();
                     setRequirementsArray(prev => prev ? prev.map(r =>
-                        r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
+                        r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r) : prev);
                     showError(result, 'Unable to change requirement status');
                 } else {
                     // Item no longer matches the card's aggregate status — remove it.
@@ -362,14 +370,14 @@ const SwarmStartCard = () => {
             }).catch(error => {
                 revert();
                 setRequirementsArray(prev => prev ? prev.map(r =>
-                    r.id === requirementId ? { ...r, requirement_status: current } : r) : prev);
+                    r.id === requirementId ? { ...r, requirement_status: current, ...previousTimestamps } : r) : prev);
                 showError(error, 'Unable to change requirement status');
             });
 
         // Immutable local update — new object at the target index rather than in-place
         // mutation on a cache-shared object reference.
         setRequirementsArray(prev => prev ? prev.map((r, i) =>
-            i === requirementIndex ? { ...r, requirement_status: next } : r) : prev);
+            i === requirementIndex ? { ...r, requirement_status: next, ...timestampState } : r) : prev);
     };
 
     // Coordination click — mirrors CategoryCard
@@ -542,31 +550,6 @@ const SwarmStartCard = () => {
                         {requirementsArray.filter(r => r.id !== '').length === 0 && (
                             <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
                                 No {requirementStatusLabel(effectiveStatus).toLowerCase()} requirements
-                            </Typography>
-                        )}
-                        {/* req #3180 — a chip that hides work must SAY SO. On the
-                            live plan every swarm-ready requirement is plan-carried,
-                            so without this the card reads "No swarm ready
-                            requirements" while the requirements table plainly shows
-                            fifteen — the same "shrinking pool with no explanation
-                            reads as a bug" failure /swarm-start's STOP message
-                            exists to prevent. Rendered whether or not the list is
-                            empty, because a partly-filtered chip is just as
-                            misleading as an empty one.
-
-                            The wording must READ CORRECTLY AT ZERO. "N more …"
-                            was the first attempt and it presupposes rows above it,
-                            which is exactly wrong in the guaranteed opening state:
-                            the default chip is Swarm-Ready, and today that chip is
-                            15 of 15 hidden. */}
-                        {hiddenCount > 0 && (
-                            <Typography variant="body2"
-                                        sx={{ color: 'text.secondary', px: 1, pb: 1, fontStyle: 'italic' }}
-                                        data-testid="swarm-start-pipelined-note">
-                                {hiddenCount} {requirementStatusLabel(effectiveStatus).toLowerCase()}{' '}
-                                requirement{hiddenCount === 1 ? ' is' : 's are'} carried by a pipeline
-                                step — launched from the plan, not from here. See Pipelines, or launch
-                                one directly by id.
                             </Typography>
                         )}
                         {requirementsArray.map((requirement, requirementIndex) => (

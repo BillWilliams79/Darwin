@@ -426,7 +426,8 @@ export function reqIdStyle({ colorKey, status, machineColor } = {}) {
  *
  * For `state` it lists only the statuses the plan actually contains — the same
  * discipline the machine key already follows, and the reason the key stays
- * compact enough not to steal the top-right corner from the epic chips.
+ * compact enough not to steal the viewport middle-bottom (req #3255; was the
+ * top-right corner) from the epic chips.
  *
  * @param {Object} args
  * @param {('state'|'machine'|'none')} args.colorKey
@@ -842,11 +843,16 @@ export function computeTimeColumns(rows, byId, depsOf, timeAxis) {
 // Three marks, because each answers a different question and none of them is a
 // restatement of another (the ONE FACT, ONE CHANNEL rule above):
 //
-//   · the STRIP says WHICH day a column is. It is world text at the top of the
-//     plan, so it scrolls off when you pan down — which is exactly why it is
-//     not the only mark.
+//   · the STRIP says WHICH day a column is. Sticky to the viewport top since
+//     req #3254 (`stickyRulerY`, below) — it used to be world text that
+//     scrolled off when you panned down, which was the ORIGINAL reason it
+//     could not be the only mark. Now pinned, it still is not the only mark:
+//     a reader scrolled deep into one band has no strip-adjacent reference
+//     for a column that is off past the right or left edge, which the
+//     separators and future tint answer without moving.
 //   · the SEPARATORS say WHERE a day begins. Full-height rules at slot origins,
-//     readable at any vertical pan.
+//     readable at any vertical pan (deliberately NOT sticky — they mark
+//     content, not chrome, so they stay world-space and scroll with it).
 //   · the FUTURE TINT says where the not-yet-begun region starts. That boundary
 //     is the single thing a plan is most often opened to find, and a rule alone
 //     does not say which SIDE of it is the future.
@@ -995,6 +1001,37 @@ export function computeRuler(slots, colX, colW, totalW) {
         slots: out,
         futureX: fut ? fut.x : null,
     };
+}
+
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — baseline, ticks and slot labels
+// all sat at world y ∈ [0, RULER_H], "attached to the top item in the stack"
+// (the requirement's own words) — so panning down scrolled it away with the
+// rest of the plan and left nothing on screen naming which column is which
+// day. `stickyRulerY` is the SAME pin primitive `computeDayHeaders`
+// (`dayHeaderLayout.js`) and the sticky prev/next epic chips above
+// (`placeEpicChips`) both use — draw at the natural screen position until it
+// scrolls past the viewport edge, then clamp flush to it — simplified to the
+// one-strip case: there is exactly one ruler, so nothing pushes it and it
+// never drops behind (it is a standing fact about the whole plan, not a
+// per-row banner that can be superseded). Only the Y anchor decouples from
+// vertical pan; X is untouched, so slot ticks and labels still pan and zoom
+// with the columns beneath them.
+export function stickyRulerY(t) {
+    const ty = (t && typeof t.y === 'number') ? t.y : 0;
+    return Math.max(0, ty);
+}
+
+// The pinned strip's bottom edge in SCREEN space — req #3254's contract with
+// req #3257 (the concurrent epic-name work): "the date header owns the
+// topmost strip and the epic names stop just below it" needs ONE readable
+// number, not a guessed pixel offset. Scales with zoom because the strip's
+// own ticks and text do (deviation 2 — zoom is a pure transform on this
+// surface), so a caller reading the SAME transform gets the exact edge the
+// ruler is drawn at, pinned or not.
+export function rulerScreenBottom(t, rulerH = RULER_H) {
+    const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
+    return stickyRulerY(t) + rulerH * k;
 }
 
 const truncate = (s, n) => {
@@ -2320,6 +2357,24 @@ export const EPIC_CHIP_BG_ALPHA = 0.6;
  * see the `kind === 'epic'` no-op in the component's own world-node loop), so
  * including them would avoid a mark that is not actually there.
  *
+ * `kind: 'slot'` labels (the time ruler, req #3207) are excluded for the SAME
+ * reason, since req #3254: the ruler now draws in a Group anchored at
+ * `stickyRulerY(t)`, not `t.y` (it pins to the viewport top instead of
+ * scrolling with the world) — a DIFFERENT transform than every other label
+ * this function assumes. Reporting `{x: l.x, y: l.y, ...}` here is a world
+ * coordinate `placeEpicChips` then projects with the ORDINARY `t.y + y·k`
+ * formula, which only agrees with where a slot label actually draws while
+ * `t.y >= 0`; the moment the strip pins (`t.y < 0`) the reported rect drifts
+ * from the real one by the exact pin distance, silently clearing a box a
+ * sticky epic chip can then land on. There is no world-space rect this
+ * function could report that `placeEpicChips`' transform would project
+ * correctly at every `t.y` — the sticky strip is screen-anchored, full stop
+ * — so, like the epic label, it is left out rather than reported wrong.
+ * (Which means a sticky/natural epic chip can currently land on a ruler
+ * label — the concurrent req #3257 is what clamps epic names below the
+ * strip via `rulerScreenBottom`; this function only has to stop lying about
+ * where the label is, not solve that placement itself.)
+ *
  * @param {Object} layout `computePlanLayout`'s own return value
  * @param {Object} [args]
  * @param {(kind: string) => boolean} [args.drawsKind]
@@ -2333,7 +2388,7 @@ export function collectWorldObstacles(layout, { drawsKind = () => true, eligible
         out.push({ x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r });
     }
     for (const l of layout?.labels || []) {
-        if (l.kind === 'epic' || !drawsKind(l.kind)) continue;
+        if (l.kind === 'epic' || l.kind === 'slot' || !drawsKind(l.kind)) continue;
         out.push({ x: l.x, y: l.y, w: l.w, h: l.h });
     }
     for (const a of layout?.arcs || []) {

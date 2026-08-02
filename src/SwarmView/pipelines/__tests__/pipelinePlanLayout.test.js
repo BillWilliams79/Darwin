@@ -30,6 +30,7 @@ import {
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
+    stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
 } from '../pipelinePlanLayout';
@@ -1103,6 +1104,34 @@ describe('floating epic chips (req #3168)', () => {
         }
     });
 
+    // THE MOVE (req #3255): the legend is now bottom-center, not top-right —
+    // PipelinePlanVisualizer.jsx computes `keepOut` as
+    // `{ x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h, ... }`.
+    // Same sweep, same fixture, geometry matched to that formula rather than
+    // the old top-right one.
+    it('never overlaps the legend now that it sits at viewport middle-bottom', () => {
+        for (const legendW of [220, 420, 700]) {
+            const legendH = 30;
+            const keepOut = {
+                x: (VIEWPORT.w - legendW) / 2,
+                y: VIEWPORT.h - 12 - legendH,
+                w: legendW, h: legendH,
+            };
+            for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
+                for (const y of [0, -150, -900]) {
+                    for (const x of [0, -400, 600, 1200]) {
+                        for (const chip of chipsAt({ x, y, k }, keepOut)) {
+                            expect(rectsOverlap(chip, keepOut),
+                                `chip "${chip.text}" under the legend `
+                                + `at k=${k} x=${x} y=${y}`)
+                                .toBe(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     // THE DIRECTIVE (user, 2026-08-01): "the epic must not overwrite or ride in
     // the same swim lane as the top most steps — give the epic its own swim lane
     // to eliminate collision."
@@ -1223,6 +1252,22 @@ describe('collectWorldObstacles (req #3210)', () => {
         const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
         expect(epicLabels.length).toBeGreaterThan(0);
         for (const l of epicLabels) {
+            expect(out.some((o) => o.x === l.x && o.y === l.y && o.w === l.w && o.h === l.h))
+                .toBe(false);
+        }
+    });
+
+    it('excludes ruler slot labels (req #3254) — sticky since #3254, not world-projectable', () => {
+        // The strip pins to `stickyRulerY(t)`, a DIFFERENT transform than every
+        // other label here, so a world-space rect for it would be silently
+        // wrong the moment the strip pins — `placeEpicChips` would project it
+        // with the ordinary `t.y + y·k` formula and clear a box the label does
+        // not actually occupy on screen. Same treatment as `kind: 'epic'` above,
+        // and for the identical reason.
+        const out = collectWorldObstacles(layout, { drawsKind: () => true });
+        const slotLabels = layout.labels.filter((l) => l.kind === 'slot');
+        expect(slotLabels.length).toBeGreaterThan(0);
+        for (const l of slotLabels) {
             expect(out.some((o) => o.x === l.x && o.y === l.y && o.w === l.w && o.h === l.h))
                 .toBe(false);
         }
@@ -3472,6 +3517,53 @@ describe('time ruler (req #3207)', () => {
 
     it('renders a tick with no # — the production directive covers generated text', () => {
         for (const l of rulerLabels(timedLayout)) expect(l.text).not.toContain('#');
+    });
+});
+
+// ── The sticky ruler pin (req #3254) ────────────────────────────────────────
+// The ruler used to be plain world content — attached to the top of the
+// timeline, so panning down scrolled it away with the rest of the plan.
+// `stickyRulerY`/`rulerScreenBottom` are the pure pin primitives the canvas
+// now anchors the ruler's Group to instead of `t.y` directly — same shape as
+// `computeDayHeaders`' `Math.max(axisH, screenY)`, simplified to the one-strip
+// case (nothing pushes it, nothing for it to drop behind).
+describe('sticky ruler pin (req #3254)', () => {
+    it('draws at the natural position while the world has not scrolled past the top', () => {
+        expect(stickyRulerY({ x: 0, y: 0, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: 40, k: 1 })).toBe(40);
+        expect(stickyRulerY({ x: 0, y: 200, k: 2.5 })).toBe(200);
+    });
+
+    it('clamps flush to the viewport top once the natural position scrolls past it', () => {
+        expect(stickyRulerY({ x: 0, y: -1, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -600, k: 1 })).toBe(0);
+        expect(stickyRulerY({ x: 0, y: -3000, k: 3 })).toBe(0);
+    });
+
+    it('degrades safely on a missing or malformed transform', () => {
+        expect(stickyRulerY(null)).toBe(0);
+        expect(stickyRulerY(undefined)).toBe(0);
+        expect(stickyRulerY({})).toBe(0);
+    });
+
+    it("rulerScreenBottom is the pinned Y plus the strip's own scaled height", () => {
+        // Scrolled past — pinned to 0, so the bottom edge is exactly RULER_H
+        // scaled by k, the number req #3257 clamps epic names below.
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 2 })).toBe(RULER_H * 2);
+        // Not yet scrolled past — natural position adds to the strip height.
+        expect(rulerScreenBottom({ x: 0, y: 50, k: 1 })).toBe(50 + RULER_H);
+    });
+
+    it('accepts a custom ruler height, defaulting to RULER_H', () => {
+        expect(rulerScreenBottom({ x: 0, y: -400, k: 1 }, 20)).toBe(20);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 1 })).toBe(RULER_H);
+    });
+
+    it('degrades safely on a missing or zero/negative k', () => {
+        expect(rulerScreenBottom(null)).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: 0 })).toBe(RULER_H);
+        expect(rulerScreenBottom({ x: 0, y: 0, k: -1 })).toBe(RULER_H);
     });
 });
 
