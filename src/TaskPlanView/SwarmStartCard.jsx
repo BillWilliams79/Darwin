@@ -7,6 +7,10 @@
 //     the user to the requirement editor in "new" mode — nothing is saved until the
 //     user picks a category in the editor (the aggregator has no default category).
 //   • Other interactions (status cycle, coord cycle, title edit, delete) mirror CategoryCard.
+//   • req #3286 — the card renders NO MESSAGES, in any state. Chips, rows, the sort
+//     menu and the template row are the whole card; an empty chip renders an empty
+//     body. Removing text never removes behaviour: the pipeline exclusion below is
+//     untouched and simply goes unexplained on this surface, by design.
 
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -44,7 +48,6 @@ import AppContext from '../Context/AppContext';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
@@ -208,34 +211,26 @@ const SwarmStartCard = () => {
     // req #3180 — a launch chip's count applies the SAME rule as its list, from
     // the same Set, so the header can never disagree with the rows beneath it.
     //
-    // LOAD-BEARING: `hidden[s]` is the count dropped from that chip's LIST only
-    // because both sources are the same population — `useAllRequirements` here
-    // and `useRequirementsByStatus` above both read /requirements with NO
-    // category predicate and NO closed-category guard. RequirementsTableView
-    // does filter through `categoryMap`, and copying that here would look like
-    // an improvement while desynchronizing the count from the list AND
-    // overcounting the note, in one edit. See `tallyRequirementStatuses`.
+    // LOAD-BEARING: a chip's badge matches the rows beneath it only because both
+    // sources are the same population — `useAllRequirements` here and
+    // `useRequirementsByStatus` above both read /requirements with NO category
+    // predicate and NO closed-category guard. RequirementsTableView does filter
+    // through `categoryMap`, and copying that here would look like an improvement
+    // while desynchronizing the count from the list. See `tallyRequirementStatuses`.
     //
-    // req #3248 removed this notice + hidden-tracking on master (its only
-    // consumer was the explanatory sentence, and the user asked for that
-    // sentence gone after daily use) — kept here instead on the user's
-    // explicit direction during req #3242/#3258's merge, to revisit later
-    // rather than drop it a second time. `hidden` now also covers what the
-    // req #3258 toggle (not just the unconditional launch exclusion) removed.
-    const { statusCountMap, hiddenCountMap } = React.useMemo(() => {
-        const { counts, hidden } = tallyRequirementStatuses(
+    // req #3286 — the card reads `counts` ONLY. `tallyRequirementStatuses` still
+    // returns `hidden` (a pure util with its own tests, and the count arithmetic
+    // depends on it), but the card no longer tracks it: its one consumer was the
+    // explanatory sentence, and this card renders no sentences. Reading `hidden`
+    // again here means a message is being reintroduced.
+    const statusCountMap = React.useMemo(() => {
+        const { counts } = tallyRequirementStatuses(
             allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds, hidePipelined);
         if (Array.isArray(serverMetRequirements)) {
             counts.met = eligibleMetRequirements?.length ?? serverMetRequirements.length;
-            hidden.met = serverMetRequirements.length - counts.met;
         }
-        return { statusCountMap: counts, hiddenCountMap: hidden };
+        return counts;
     }, [allRequirementsForCounts, serverMetRequirements, eligibleMetRequirements, pipelinedIds, hidePipelined]);
-
-    // How many rows the exclusion removed from the chip currently on screen.
-    // Surfaced in the card body — a hidden row the user is never told about is
-    // the defect this requirement is about.
-    const hiddenCount = excludeFromThisChip ? (hiddenCountMap[effectiveStatus] ?? 0) : 0;
 
     // Template rows (id === '') always sort last so they stay anchored at the
     // bottom of the card on every re-sort.
@@ -575,28 +570,21 @@ const SwarmStartCard = () => {
                         categoryColorMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
                     }}>
-                        {requirementsArray.filter(r => r.id !== '').length === 0 && (
-                            <Typography variant="body2" sx={{ color: 'text.disabled', p: 1 }}>
-                                No {requirementStatusLabel(effectiveStatus).toLowerCase()} requirements
-                            </Typography>
-                        )}
-                        {/* req #3180 note, kept per user direction during the req #3242/#3258
-                            merge (req #3248 removed it on master; the user asked to keep it and
-                            revisit later rather than drop it a second time). Rendered whether or
-                            not the list is empty, because a partly-filtered chip is just as
-                            misleading as an empty one — "N more …" would presuppose rows above
-                            it, which is wrong in the guaranteed opening state (Swarm-Ready,
-                            fully hidden). */}
-                        {hiddenCount > 0 && (
-                            <Typography variant="body2"
-                                        sx={{ color: 'text.secondary', px: 1, pb: 1, fontStyle: 'italic' }}
-                                        data-testid="swarm-start-pipelined-note">
-                                {hiddenCount} {requirementStatusLabel(effectiveStatus).toLowerCase()}{' '}
-                                requirement{hiddenCount === 1 ? ' is' : 's are'} carried by a pipeline
-                                step — launched from the plan, not from here. See Pipelines, or launch
-                                one directly by id.
-                            </Typography>
-                        )}
+                        {/* req #3286 — THE CARD RENDERS NO MESSAGES. Two used to sit here:
+                            the "No <status> requirements" empty state and the req #3180
+                            pipelined-exclusion note. Both are gone unconditionally. An empty
+                            chip renders an empty card body — chips, rows, the sort menu and
+                            the template row are the card.
+
+                            THE NOTE HAS BEEN REMOVED ONCE BEFORE AND CAME BACK, which is why
+                            the guard is a test and not a convention: req #3248 deleted it on
+                            master (Darwin PR #911, merge 0623939 — verified), and req
+                            #3242/#3258's merge (e52da54) restored it on the user's explicit
+                            direction, to revisit rather than drop it twice. This is that
+                            revisit, and the answer is no message. The empty state is older
+                            than both and was never in scope until now.
+                            The EXCLUSION ITSELF IS UNCHANGED: see `excludeFromThisChip` above.
+                            Do not reintroduce prose here to explain a filter. */}
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow
                                 key={requirement.id}
