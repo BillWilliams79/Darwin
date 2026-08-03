@@ -373,9 +373,10 @@ export default function PipelinePlanVisualizer({
             statuses: planStatuses,
             machineLegend: machineView.legend,
         }).entries])), [planStatuses, machineView]);
-    // Expanded by default — see the key's own comment below for why this is
+    // Collapsed by default (req #3309 — the key covered too much of the plan
+    // on first view) — see the key's own comment below for why this is
     // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(true);
+    const [keyOpen, setKeyOpen] = useState(false);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -2196,8 +2197,8 @@ export default function PipelinePlanVisualizer({
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
-                    collapsed from another session. Every visit opens with the key
-                    shown.
+                    shown from another session. Every visit opens with the key
+                    collapsed (req #3309).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -2257,7 +2258,15 @@ export default function PipelinePlanVisualizer({
                         hit target grows from 15px to 20px with the glyph's font
                         size scaled to match — still the smallest interactive
                         element on the canvas, just no longer the one you have to
-                        hunt for. */}
+                        hunt for.
+
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
+                        key now collapsed by default, '+' is what a reader sees
+                        first and it is the one glyph that has to say "there is
+                        more here" with no key content around it to draw the eye.
+                        Full resting opacity does that; the hover state (opacity
+                        1, `P.accent`) is unchanged and still the stronger of the
+                        two cues. */}
                     <Box component="button" type="button"
                          onClick={() => setKeyOpen((v) => !v)}
                          data-viz-chrome="legend"
@@ -2272,7 +2281,7 @@ export default function PipelinePlanVisualizer({
                                 fontFamily: MONO, fontSize: 15, lineHeight: 1,
                                 color: P.text, background: 'transparent',
                                 border: 'none', borderRadius: '5px',
-                                opacity: 0.85,
+                                opacity: keyOpen ? 0.85 : 1,
                                 '&:hover': { opacity: 1, color: P.accent } }}>
                         {keyOpen ? '−' : '+'}
                     </Box>
