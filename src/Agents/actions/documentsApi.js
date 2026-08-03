@@ -46,7 +46,7 @@
 //   the 404-tolerant paths catch it explicitly rather than testing the status.
 
 import call_rest_api from '../../RestApi/RestApi';
-import { serializeRoles } from '../agentRegistryUtils';
+import { serializeRoles, isDuplicateLink } from '../agentRegistryUtils';
 
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
@@ -322,6 +322,15 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
      * did) turns the most ordinary failure of all, the database REFUSING the
      * DELETE with the row untouched, into the rollback deleting that row itself.
      *
+     * AND IT IS WITHDRAWN THE MOMENT THE UNKNOWN BECOMES KNOWN (req #3294). The
+     * flag is a standing assumption, not a record of the past: a 1062 on the
+     * composite PRIMARY key answers the question it was standing in for — the row
+     * pre-existed, this INSERT created nothing — so the assumption is cleared
+     * rather than carried into the rollback, where it would delete somebody else's
+     * link. Symmetrical with the 404 rule below, and for the same reason: where
+     * the database states a fact about whether the row is there, that fact governs
+     * — and both of the facts it states here rule an action OUT.
+     *
      * The one thing that is NOT optimistic on the restore side either is a 404 on
      * the leading DELETE. That is a definite answer — the row was already gone —
      * and resurrecting a row that did not exist is its own corruption, so
@@ -374,11 +383,47 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
             // and the response still fail (a flake after the INSERT landed), and
             // the rollback has to assume it might be there.
             record.cleanupNeeded = true;
-            await linkAgentDocument(darwinUri, idToken, {
-                ...step.next,
-                agent_fk: step.agent_fk,
-                document_fk: step.document_fk,
-            });
+            try {
+                await linkAgentDocument(darwinUri, idToken, {
+                    ...step.next,
+                    agent_fk: step.agent_fk,
+                    document_fk: step.document_fk,
+                });
+            } catch (err) {
+                // OPTIMISM IS FOR THE UNKNOWN, AND THIS IS NOT UNKNOWN (req #3294).
+                //
+                // A 1062 on the composite PRIMARY key is the database stating a
+                // FACT: the row was already there, so this INSERT created nothing
+                // and the row belongs to whoever did. NOT another user —
+                // `agent_documents` is in Lambda-Rest's JUNCTION_OWNERSHIP and
+                // every read and write is derived-scoped through
+                // `agents.creator_fk`, so the other writer is always the same
+                // identity: a second browser tab, the MCP daemon, or this tab's
+                // own cache having gone stale under a plan built from it. Leaving
+                // `cleanupNeeded` set would send the rollback's 404-TOLERANT
+                // DELETE at that row, and against a row that is genuinely there
+                // that DELETE SUCCEEDS AND REMOVES IT.
+                //
+                // The loss is then unreportable, which is what made it silent: this
+                // step removed nothing, so it is not `lost`; its cleanup worked, so
+                // it is not `orphaned`. The user is told only that their edit was
+                // rejected while a link they never touched is gone.
+                //
+                // It is the exact write-side mirror of the read-side rule on the
+                // leading DELETE above: a 404 there is a definite answer that rules
+                // a restore OUT, and a 1062 on PRIMARY here is a definite answer
+                // that rules the cleanup out.
+                //
+                // Scoped to `agent_documents` and to `PRIMARY` on purpose. The
+                // other two 1062s this table raises — `uq_agent_documents_owner`
+                // (a second owner for one document) and
+                // `uq_agent_documents_principles` (a second principles doc for one
+                // agent) — must NOT suppress anything: those INSERTs really did
+                // fail to land, so there is nothing of ours behind them and the
+                // cleanup goes ahead.
+                if (isDuplicateLink(err, 'agent_documents')) record.cleanupNeeded = false;
+                throw err;
+            }
         }
     };
 
@@ -397,8 +442,10 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
             let cleanupFailed = false;
             try {
                 // Remove whatever this step may have put here. 404-tolerant, so
-                // issuing it when there is nothing to remove costs one call and
-                // never fails.
+                // issuing it against an EMPTY slot costs one call and never fails
+                // — which is emphatically not the same as issuing it against an
+                // OCCUPIED one, where it succeeds and takes the row with it. That
+                // is why the decision is `cleanupNeeded` and never "just in case".
                 if (step.cleanupNeeded) {
                     await unlinkAgentDocument(darwinUri, idToken,
                         step.agent_fk, step.document_fk);

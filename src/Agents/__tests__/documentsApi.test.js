@@ -25,6 +25,7 @@ import {
     linkAgentDocument, linkAgentDocuments, unlinkAgentDocument,
     applyLinkPlan, setAgentDocumentLink, LinkRollbackError,
 } from '../actions/documentsApi';
+import { parseRoles, isDuplicateLink } from '../agentRegistryUtils';
 
 const URI = 'https://api.test/darwin_dev';
 const TOKEN = 'id-token';
@@ -709,5 +710,448 @@ describe('setAgentDocumentLink', () => {
             prev, next: { ...prev, relationship: 'autoload,referenced' },
         });
         expect(calls()[1].body[0].sort_order).toBe(12);
+    });
+});
+
+// ===========================================================================
+// A STATEFUL agent_documents (req #3294).
+//
+// `scriptCalls` above answers by CALL INDEX, which is enough to ask "what does
+// the rollback do when call 4 fails" and structurally unable to ask "what is in
+// the table afterwards". The defect this section exists for is invisible to it:
+// every call succeeds, the plan is correctly rejected, and a row nobody touched
+// is gone. Only real state can catch that, so the table is real here and the
+// assertions are about ROWS, not about call sequences.
+//
+// It models the three things about this junction that decide the answer, and no
+// more: the composite PRIMARY key, `uq_agent_documents_owner` (one `owned` per
+// DOCUMENT), and `uq_agent_documents_principles` (one `principles` per AGENT).
+// ===========================================================================
+
+const jKey = (agent_fk, document_fk) => `${agent_fk}:${document_fk}`;
+
+/**
+ * A 409 shaped exactly as Lambda-Rest sends one — verified against
+ * `compose_conflict_response` in rest_api_utils.py, not assumed. `error` is
+ * UPPERCASE, and `constraint` arrives UNQUALIFIED because `constraint_name`
+ * rsplits MySQL 8's `for key 'agent_documents.PRIMARY'` on the dot.
+ */
+const conflict = (constraint) => Promise.reject({
+    data: null,
+    httpStatus: {
+        httpMethod: 'POST',
+        httpStatus: 409,
+        httpMessage: `Duplicate entry for key '${constraint}'`,
+        httpDetail: {
+            error: 'CONFLICT', errno: 1062, constraint,
+            table: 'agent_documents',
+            message: `Duplicate entry for key '${constraint}'`,
+        },
+    },
+});
+
+const hasRole = (rel, role) => parseRoles(rel).includes(role);
+
+/**
+ * Install a stateful `agent_documents` behind call_rest_api.
+ *
+ * @param initial rows already in the junction before the test runs
+ * @param fault   (callIndex, method, body) => undefined | 'refuse' | 'lost'
+ *                  'refuse' — the statement never ran; the table is untouched.
+ *                  'lost'   — the statement COMMITTED and the response was lost.
+ *                The two are indistinguishable to the caller and have opposite
+ *                consequences, which is the whole reason the rollback exists.
+ */
+const makeJunction = (initial = [], fault = () => undefined) => {
+    const rows = new Map();
+    for (const r of initial) rows.set(jKey(r.agent_fk, r.document_fk), { ...r });
+    let i = 0;
+
+    call_rest_api.mockImplementation((url, method, body) => {
+        i += 1;
+        const table = url.split('/').pop();
+        // A wrong-table call would otherwise be silently accepted and make every
+        // assertion below meaningless.
+        if (table !== 'agent_documents') {
+            return Promise.reject(new Error(`simulator models agent_documents only, got ${table}`));
+        }
+        const verdict = fault(i, method, body);
+        // A mistyped verdict must not fall through to the SUCCESS path — a test
+        // reading as a failure test while asserting the happy path is worse than
+        // no test.
+        if (verdict !== undefined && verdict !== 'refuse' && verdict !== 'lost') {
+            return Promise.reject(new Error(`unknown fault verdict: ${verdict}`));
+        }
+        if (verdict === 'refuse') return rejectWith(500, 'SQL FAILED');
+
+        if (method === 'DELETE') {
+            const k = jKey(body.agent_fk, body.document_fk);
+            // rest_delete.py: `affected_rows == 0` is 404, otherwise 200 'OK'.
+            // NOT 204 — this table's DELETE has always answered 200.
+            if (!rows.has(k)) return rejectWith(404, 'NOT FOUND');
+            rows.delete(k);
+            if (verdict === 'lost') return rejectWith(500, 'SQL FAILED');
+            return Promise.resolve(ok(200));
+        }
+
+        // POST is ONE multi-value INSERT, and it is modelled the way InnoDB
+        // actually applies one: ROW BY ROW, clustered index (the composite PK)
+        // before the secondaries, against a working set that already carries the
+        // rows earlier in the SAME statement — so a batch that collides with
+        // ITSELF is caught, and a batch where row 1 trips a unique key and row 2
+        // trips the PK reports row 1's constraint, as MySQL would.
+        //
+        // It still applies ATOMICALLY: the working set is discarded on any
+        // violation and `rows` is untouched, matching _rest_post_bulk's
+        // conn.rollback(). Validate-all-then-apply-all would have got the
+        // atomicity right and the ORDER wrong.
+        const incoming = body.map(r => ({ ...r }));
+        const staged = new Map(rows);
+        for (const r of incoming) {
+            const k = jKey(r.agent_fk, r.document_fk);
+            if (staged.has(k)) return conflict('PRIMARY');
+            const seen = [...staged.values()];
+            if (hasRole(r.relationship, 'owned')
+                && seen.some(x => x.document_fk === r.document_fk && hasRole(x.relationship, 'owned'))) {
+                return conflict('uq_agent_documents_owner');
+            }
+            if (hasRole(r.relationship, 'principles')
+                && seen.some(x => x.agent_fk === r.agent_fk && hasRole(x.relationship, 'principles'))) {
+                return conflict('uq_agent_documents_principles');
+            }
+            staged.set(k, r);
+        }
+        rows.clear();
+        for (const [k, r] of staged) rows.set(k, r);
+        if (verdict === 'lost') return rejectWith(500, 'SQL FAILED');
+        return Promise.resolve(ok(201, { inserted: incoming.length }));
+    });
+
+    return {
+        get: (agent_fk, document_fk) => rows.get(jKey(agent_fk, document_fk)) || null,
+        has: (agent_fk, document_fk) => rows.has(jKey(agent_fk, document_fk)),
+        size: () => rows.size,
+        /** A write by SOMEBODY ELSE, bypassing the API — another tab, or the daemon. */
+        insert: (r) => rows.set(jKey(r.agent_fk, r.document_fk), { ...r }),
+        snapshot: () => [...rows.values()]
+            .map(r => ({ ...r }))
+            .sort((a, b) => a.agent_fk - b.agent_fk || a.document_fk - b.document_fk),
+    };
+};
+
+/** A stored row, as the junction holds it (already serialized). */
+const row = (agent_fk, relationship, extra = {}) => ({
+    agent_fk, document_fk: 10, relationship, notes: null, sort_order: 1, ...extra,
+});
+
+describe('the stateful junction models what it claims to', () => {
+    it('409s on the composite PRIMARY key, leaving the incumbent row alone', async () => {
+        const j = makeJunction([row(5, 'referenced', { notes: 'mine' })]);
+        await expect(linkAgentDocument(URI, TOKEN, row(5, 'curated'))).rejects.toMatchObject({
+            httpStatus: { httpStatus: 409, httpDetail: { errno: 1062, constraint: 'PRIMARY' } },
+        });
+        expect(j.get(5, 10).relationship).toBe('referenced');
+        expect(j.get(5, 10).notes).toBe('mine');
+    });
+
+    it('409s on uq_agent_documents_owner for a SECOND owner of one document', async () => {
+        makeJunction([row(2, 'owned')]);
+        await expect(linkAgentDocument(URI, TOKEN, row(5, 'owned'))).rejects.toMatchObject({
+            httpStatus: { httpDetail: { constraint: 'uq_agent_documents_owner' } },
+        });
+    });
+
+    it('409s on uq_agent_documents_principles for a SECOND principles doc of one agent', async () => {
+        makeJunction([row(2, 'principles')]);
+        await expect(
+            linkAgentDocument(URI, TOKEN, { ...row(2, 'principles'), document_fk: 11 }),
+        ).rejects.toMatchObject({
+            httpStatus: { httpDetail: { constraint: 'uq_agent_documents_principles' } },
+        });
+    });
+
+    it('catches a batch that collides with ITSELF, and lands none of it', async () => {
+        // One multi-value INSERT is not a loop of inserts: MySQL sees row 2
+        // against a clustered index that already holds row 1, and the statement
+        // fails as a unit. A simulator that validated only against the
+        // pre-statement rows would accept this and quietly bless a bad batch.
+        const j = makeJunction();
+        await expect(linkAgentDocuments(URI, TOKEN, [
+            row(5, 'owned'),
+            { ...row(6, 'owned'), document_fk: 10 },
+        ])).rejects.toMatchObject({
+            httpStatus: { httpDetail: { constraint: 'uq_agent_documents_owner' } },
+        });
+        expect(j.size()).toBe(0);          // atomic — row 1 did not land either
+    });
+
+    it('404s a DELETE that matched nothing, and removes the row when it did', async () => {
+        const j = makeJunction([row(2, 'referenced')]);
+        await expect(unlinkAgentDocument(URI, TOKEN, 2, 10)).resolves.toBe(true);
+        expect(j.has(2, 10)).toBe(false);
+        await expect(unlinkAgentDocument(URI, TOKEN, 2, 10)).resolves.toBe(false);
+    });
+
+    it("'lost' commits the statement and THEN fails — the shape the rollback exists for", async () => {
+        const j = makeJunction([], () => 'lost');
+        await expect(linkAgentDocument(URI, TOKEN, row(5, 'owned'))).rejects.toBeTruthy();
+        expect(j.has(5, 10)).toBe(true);          // it landed anyway
+    });
+});
+
+describe('applyLinkPlan on real state — the pre-existing link survives (req #3294)', () => {
+    it('does NOT delete a link its INSERT collided with', async () => {
+        // THE ACCEPTANCE TEST. A plan built from a cache that has gone stale: the
+        // UI believed agent 5 had no link to document 10, so it planned a CREATE.
+        // Another writer put one there in the meantime — a second tab or the MCP
+        // daemon, never a different user: `agent_documents` is derived-scoped
+        // through `agents.creator_fk`, so this is a same-identity race, not a
+        // cross-tenant one. The INSERT hits the composite PK and 409s.
+        //
+        // Every call in this test succeeds at what it was asked to do. Before the
+        // fix the rollback then issued its 404-TOLERANT cleanup DELETE against a
+        // row this step did not create, that DELETE SUCCEEDED, and the link was
+        // gone — with no `lost` entry (this step removed nothing) and no
+        // `orphaned` entry (the cleanup worked), so the user was told only that
+        // their edit was rejected.
+        const incumbent = row(5, 'referenced', { notes: 'put here by another tab', sort_order: 7 });
+        const j = makeJunction([incumbent]);
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'curated'),
+        }]).catch(e => e);
+
+        // The link is STILL THERE, and unchanged in every field.
+        expect(j.get(5, 10)).toEqual(incumbent);
+        expect(j.size()).toBe(1);
+
+        // No cleanup DELETE was ever issued for it.
+        expect(calls().filter(c => c.method === 'DELETE')).toHaveLength(0);
+
+        // The user gets the real answer — their edit was rejected — and nothing
+        // claims the database is broken, because it is not.
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+        expect(err.httpStatus.httpStatus).toBe(409);
+    });
+
+    it('does NOT delete the row a THIRD PARTY wrote into the key it just vacated', async () => {
+        // THE POPOVER-SAVE RACE, and the highest-value shape of this defect: it is
+        // reachable from one click on a control the user uses constantly.
+        //
+        // setAgentDocumentLink is a one-step plan, so a role edit is a DELETE and
+        // a fresh INSERT across two non-atomic Lambda invocations. The DELETE
+        // COMMITS — the user's own row is genuinely gone — and in the window
+        // before the re-INSERT another writer (a second tab, or the MCP daemon)
+        // claims that same composite key. Our INSERT then 409s on the PK.
+        //
+        // Before the fix the rollback deleted THAT row: measured, the junction
+        // ended holding the user's original 'referenced' link and the third
+        // party's row was destroyed, while the thrown error said only "that
+        // document is already linked to this agent".
+        const incumbent = row(3, 'referenced', { notes: 'mine' });
+        const j = makeJunction([incumbent], (i, method) => {
+            // Between the DELETE and the POST, somebody else takes the key.
+            if (i === 1 && method === 'DELETE') {
+                queueMicrotask(() => j.insert(row(3, 'owned', { notes: 'THIRD PARTY' })));
+            }
+            return undefined;
+        });
+
+        const err = await setAgentDocumentLink(URI, TOKEN, {
+            prev: incumbent, next: { ...incumbent, relationship: 'curated' },
+        }).catch(e => e);
+
+        // THE THIRD PARTY'S ROW SURVIVES, untouched.
+        expect(j.get(3, 10)).toEqual(row(3, 'owned', { notes: 'THIRD PARTY' }));
+        expect(j.size()).toBe(1);
+
+        // The only DELETE issued was the leading one. No cleanup went near it.
+        expect(calls().filter(c => c.method === 'DELETE')).toHaveLength(1);
+
+        // And the report is honest about the one thing that DID change: the
+        // user's own link was removed and could not be put back, because the
+        // restore collides with the row now sitting in that slot.
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.lost).toHaveLength(1);
+        expect(err.lost[0].cleanupFailed).toBe(false);
+        expect(err.orphaned).toHaveLength(0);
+        expect(err.message).toMatch(/now missing/);
+        expect(err.message).toMatch(/Reload the page/);
+        // Not "still carries the rejected value" — the slot holds neither `prev`
+        // nor `next` but a third value, and that phrasing would be a lie.
+        expect(err.message).not.toMatch(/still carr/);
+    });
+
+    it('rolls the EARLIER steps back correctly around a collision mid-plan', async () => {
+        // The suppression must not cost the rest of the plan its rollback. Step 1
+        // legitimately re-classifies agent 2; step 2 collides with a pre-existing
+        // agent-5 link. Agent 5's row must survive AND agent 2 must be put back.
+        const incumbent = row(5, 'referenced', { notes: 'not ours' });
+        const before = row(2, 'owned,autoload', { notes: 'why 2 owns it', sort_order: 3 });
+        const j = makeJunction([before, incumbent]);
+
+        const err = await applyLinkPlan(URI, TOKEN, [
+            { agent_fk: 2, document_fk: 10, prev: before, next: { ...before, relationship: 'autoload' } },
+            { agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'owned') },
+        ]).catch(e => e);
+
+        expect(j.get(5, 10)).toEqual(incumbent);          // untouched
+        expect(j.get(2, 10)).toEqual(before);             // restored to its ORIGINAL roles
+        expect(j.size()).toBe(2);
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('STILL cleans up when the INSERT committed and only its response was lost', async () => {
+        // The other half of the same decision, and the reason the suppression is
+        // keyed on a definite 1062 rather than on "the INSERT failed". Here the row
+        // really is this step's, so the cleanup must go ahead and remove it.
+        const j = makeJunction([], (i, method) => (method === 'POST' ? 'lost' : undefined));
+
+        await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'owned'),
+        }]).catch(e => e);
+
+        expect(j.size()).toBe(0);                          // the orphan was removed
+        expect(calls().map(c => c.method)).toEqual(['POST', 'DELETE']);
+    });
+
+    it('does NOT suppress the cleanup for uq_agent_documents_owner', async () => {
+        // THE DELIBERATE NON-SUPPRESSION. Same errno, same table, different
+        // situation: a second ownership claim means the INSERT genuinely did not
+        // land, so there is nothing of ours behind it and the cleanup must be
+        // allowed to run. Told apart by CONSTRAINT NAME, never by accident.
+        const owner = row(2, 'owned', { notes: 'incumbent owner' });
+        const j = makeJunction([owner]);
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'owned'),
+        }]).catch(e => e);
+
+        // The cleanup WAS issued (and 404s harmlessly, since nothing landed).
+        const deletes = calls().filter(c => c.method === 'DELETE');
+        expect(deletes).toHaveLength(1);
+        expect(deletes[0].body).toEqual({ agent_fk: 5, document_fk: 10 });
+
+        // The incumbent owner is untouched and the table is exactly as it started.
+        expect(j.snapshot()).toEqual([owner]);
+        expect(err.httpStatus.httpDetail.constraint).toBe('uq_agent_documents_owner');
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('does NOT suppress the cleanup for uq_agent_documents_principles either', async () => {
+        // The same reasoning on the mirror key (one principles doc per AGENT).
+        const held = { ...row(2, 'principles'), document_fk: 11 };
+        const j = makeJunction([held]);
+
+        await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev: null, next: row(2, 'principles'),
+        }]).catch(e => e);
+
+        expect(calls().filter(c => c.method === 'DELETE')).toHaveLength(1);
+        expect(j.snapshot()).toEqual([held]);
+    });
+
+    it('completes an ownership transfer, leaving exactly the two rows it should', async () => {
+        // The happy path, asserted on ROWS rather than on a call sequence: agent 2
+        // hands document 10 to agent 5. The order is forced —
+        // uq_agent_documents_owner rejects the claim while the incumbent still
+        // holds `owned` — and the simulator enforces that, so a plan in the wrong
+        // order would fail here rather than pass silently.
+        const j = makeJunction([row(2, 'owned,autoload', { sort_order: 3 })]);
+
+        await applyLinkPlan(URI, TOKEN, [
+            { agent_fk: 2, document_fk: 10, prev: row(2, 'owned,autoload', { sort_order: 3 }),
+              next: row(2, 'autoload', { sort_order: 3 }) },
+            { agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'owned') },
+        ]);
+
+        expect(j.snapshot()).toEqual([
+            row(2, 'autoload', { sort_order: 3 }),
+            row(5, 'owned'),
+        ]);
+    });
+
+    it('leaves the table byte-for-byte as it started when the transfer is refused', async () => {
+        // The failure the rollback exists for, measured end to end. Agent 2
+        // releases `owned`, agent 5's claim is refused, and the junction must end
+        // where it began — not merely "a POST was issued".
+        const start = [row(2, 'owned,autoload', { notes: 'why 2 owns it', sort_order: 3 })];
+        const j = makeJunction(start, (i, method) => (i === 3 && method === 'POST' ? 'refuse' : undefined));
+
+        const err = await applyLinkPlan(URI, TOKEN, [
+            { agent_fk: 2, document_fk: 10, prev: start[0], next: { ...start[0], relationship: 'autoload' } },
+            { agent_fk: 5, document_fk: 10, prev: null, next: row(5, 'owned') },
+        ]).catch(e => e);
+
+        expect(j.snapshot()).toEqual(start);
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('reports a LOSS, and does not invent one, when the restore truly cannot land', async () => {
+        // The rollback's worst case on real state: the release commits, the claim
+        // is refused, and the restore is refused too. The row really is gone, and
+        // that — not the ownership conflict — is what the user must be told.
+        const start = [row(2, 'owned,autoload', { sort_order: 3 })];
+        const j = makeJunction(start, (i, method) => (method === 'POST' ? 'refuse' : undefined));
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev: start[0], next: { ...start[0], relationship: 'autoload' },
+        }]).catch(e => e);
+
+        expect(j.size()).toBe(0);
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.lost).toHaveLength(1);
+        expect(err.orphaned).toHaveLength(0);
+        expect(err.message).toMatch(/now missing/);
+    });
+});
+
+describe('isDuplicateLink', () => {
+    const err409 = (constraint, table, errno = 1062) => ({
+        httpStatus: { httpStatus: 409, httpDetail: { errno, constraint, table } },
+    });
+
+    it('is true only for 1062 on the composite PRIMARY key of the NAMED table', () => {
+        expect(isDuplicateLink(err409('PRIMARY', 'agent_documents'), 'agent_documents')).toBe(true);
+    });
+
+    it('is FALSE when the table argument is missing — never a wildcard', () => {
+        // The trap this closes: `err.httpDetail.table === undefined` compares
+        // equal to a forgotten argument, so without an explicit guard a caller
+        // that omitted the table would match EVERY table's PRIMARY key — the
+        // exact over-match the argument exists to prevent.
+        const err = { httpStatus: { httpStatus: 409, httpDetail: { errno: 1062, constraint: 'PRIMARY' } } };
+        expect(isDuplicateLink(err, undefined)).toBe(false);
+        expect(isDuplicateLink(err, '')).toBe(false);
+        expect(isDuplicateLink(err409('PRIMARY', 'agent_documents'), undefined)).toBe(false);
+    });
+
+    it('is FALSE for the same key on a different table', () => {
+        // `constraint` arrives unqualified and every table has a PRIMARY, so
+        // ignoring `table` would suppress a cleanup on evidence about another one.
+        expect(isDuplicateLink(err409('PRIMARY', 'agent_instructions'), 'agent_documents')).toBe(false);
+    });
+
+    it('is FALSE for the OTHER 1062s this table raises', () => {
+        // Both mean the INSERT did not land, so both must leave the cleanup on.
+        expect(isDuplicateLink(err409('uq_agent_documents_owner', 'agent_documents'), 'agent_documents')).toBe(false);
+        expect(isDuplicateLink(err409('uq_agent_documents_principles', 'agent_documents'), 'agent_documents')).toBe(false);
+    });
+
+    it('is FALSE for a non-1062 conflict and for any non-409 status', () => {
+        // 1452 is a missing parent — a different problem with a different repair.
+        expect(isDuplicateLink(err409('PRIMARY', 'agent_documents', 1452), 'agent_documents')).toBe(false);
+        expect(isDuplicateLink({ httpStatus: { httpStatus: 500 } }, 'agent_documents')).toBe(false);
+        expect(isDuplicateLink({ httpStatus: { httpStatus: 404 } }, 'agent_documents')).toBe(false);
+    });
+
+    it('is FALSE — never a throw — on a malformed or missing error', () => {
+        // It is read from inside a catch block; throwing there would replace a
+        // recoverable failure with an unhandled one.
+        expect(isDuplicateLink(undefined, 'agent_documents')).toBe(false);
+        expect(isDuplicateLink(null, 'agent_documents')).toBe(false);
+        expect(isDuplicateLink(new Error('boom'), 'agent_documents')).toBe(false);
+        expect(isDuplicateLink({ httpStatus: { httpStatus: 409 } }, 'agent_documents')).toBe(false);
+        expect(isDuplicateLink({ httpStatus: { httpStatus: 409, httpDetail: null } }, 'agent_documents')).toBe(false);
     });
 });
