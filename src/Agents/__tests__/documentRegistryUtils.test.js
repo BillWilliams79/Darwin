@@ -733,6 +733,22 @@ describe('restErrorMessage — the document keys (req #3051)', () => {
         expect(restErrorMessage(err, 'fallback')).toMatch(/already linked to this agent/);
     });
 
+    // req #3294. The mirror of the owner key — one `principles` link per AGENT
+    // where `uq_agent_documents_owner` is one `owned` link per DOCUMENT — and the
+    // last key on this table that fell through to the bare fallback.
+    //
+    // Reachable despite no control in this app ASSIGNING the role: the popover
+    // seeds its chips from the stored set and strips only `owned`, so a link the
+    // MCP daemon marked `principles` carries that member back out through the
+    // re-POST that every role edit performs.
+    it('maps a second guiding-principles document to its own wording', () => {
+        const err = conflict(1062, 'uq_agent_documents_principles', 'agent_documents');
+        expect(restErrorMessage(err, 'fallback')).toMatch(/guiding-principles document/);
+        expect(restErrorMessage(err, 'fallback')).toMatch(/at most one per agent/);
+        // It must NOT be mistaken for the owner key, which is a different repair.
+        expect(restErrorMessage(err, 'fallback')).not.toMatch(/already owns/);
+    });
+
     // THE COLLISION THIS PINS: `constraint` arrives UNQUALIFIED — every table has
     // a `PRIMARY` — so agent_instructions.PRIMARY and agent_documents.PRIMARY are
     // indistinguishable without also reading `table`. Without that check this
