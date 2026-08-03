@@ -3886,6 +3886,119 @@ export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
     return fitTransform(stepFitRect(layout, stepId), size, kBase, null, kFloor);
 }
 
+// ── THE BATCH FIT'S CONTEXT MARGIN (req #3297) ──────────────────────────────
+// The fraction of the batch rect's OWN width and height added on each side
+// before the fit. It is the difference between "the dashed box fills the panel"
+// and the framing the requirement asked for — the launch unit comfortably
+// readable with the plan still visible around it.
+//
+// Proportional, and symmetric, for two reasons that are worth keeping straight:
+//
+//   · SYMMETRIC means it cannot change WHICH POINT ends up at the centre of the
+//     viewport. The inflated rect has the same centre as the bare one, so the
+//     batch stays framed on exactly the same spot whatever this number is. The
+//     only thing it can change is `k` — and then, necessarily, the translation
+//     that carries that centre at the new scale; the claim is about the framing,
+//     not about the two numbers. And it changes `k` only when the fit — rather
+//     than the `FOCUS_MAX_RATIO` ceiling — is what binds. That is the LARGE
+//     batch box: a six-lane run whose tight fit would otherwise crop to its own
+//     dashed edge.
+//   · On the SMALL box — one column, two beads, the reference screenshot's own
+//     case — the ceiling binds and this constant is inert. The generous
+//     whitespace there is `FOCUS_MAX_RATIO`, exactly as it is for a one-step
+//     epic, and NOT this number. Do not tune this expecting the small case to
+//     move; it will not. Requirement item 8 is that ceiling, and it is why a
+//     batch box small enough to want k=8 still lands at 2.6 × the readable
+//     default.
+//
+// A world-space constant would have been wrong on both counts: a fixed number
+// of world px is a different fraction of every box, and on the small box — the
+// one that most wants air — it is the smallest fraction of all.
+export const BATCH_FOCUS_CONTEXT = 0.25;
+
+/**
+ * The world-space rectangle ONE LAUNCH BATCH occupies within ONE BAND
+ * (req #3297) — the union of every `batchBoxes` SEGMENT that batch draws there,
+ * inflated by `BATCH_FOCUS_CONTEXT`.
+ *
+ * The union, not one segment: a batch is one launch unit and `computePlanLayout`
+ * splits its box per (band, column) precisely so a segment never encloses a
+ * non-member. Fitting one segment would put the reader in front of part of the
+ * `/swarm-start` and call it the batch.
+ *
+ * SCOPED BY THE BAND'S OWN STEP IDS, not by `box.bandIndex`. The caller has a
+ * band object (that is what the epic name carries — see `placeEpicChips`), never
+ * its index, and `indexOf` on the bands array is an identity assumption this
+ * module has no reason to make. A segment belongs to the band when it holds a
+ * step the band holds. Since req #3188 an engine batch cannot span bands at all,
+ * so the scoping is a defence rather than a discriminator — the same standing
+ * this module already gives that argument where `batchBoxes` is built.
+ *
+ * THE BATCH LETTER IS DELIBERATELY OUTSIDE THE RECT, and that is not the
+ * omission it looks like. The letter is placed by a de-collision sweep that may
+ * lift it far above its own box (the sweep's own comment records a letter
+ * climbing 300px), and a rect that chased it would zoom the launch unit — the
+ * thing the reader clicked for — down to a smudge at the bottom of a view mostly
+ * full of empty band. The context margin above is what keeps the letter on
+ * screen in the ordinary case, which is the right trade: the letter is a label
+ * for the box, so losing it costs identification, while losing the box costs the
+ * feature.
+ *
+ * @param {Object} layout   computePlanLayout output
+ * @param {Object} band     a `layout.bands` entry (carries `stepIds`)
+ * @param {string} letter   the batch letter, e.g. 'A'
+ * @returns {{x:number,y:number,w:number,h:number}|null} null when that band
+ *   draws no box for that letter — the caller must not fit.
+ */
+export function batchFitRect(layout, band, letter) {
+    if (!layout || !band || !letter || !Array.isArray(layout.batchBoxes)) return null;
+    const ids = new Set(band.stepIds || []);
+    if (!ids.size) return null;
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const box of layout.batchBoxes) {
+        if (box.letter !== letter) continue;
+        if (!(box.stepIds || []).some((id) => ids.has(id))) continue;
+        if (!Number.isFinite(box.x) || !Number.isFinite(box.y)
+            || !Number.isFinite(box.width) || !Number.isFinite(box.height)) continue;
+        if (box.x < left) left = box.x;
+        if (box.x + box.width > right) right = box.x + box.width;
+        if (box.y < top) top = box.y;
+        if (box.y + box.height > bottom) bottom = box.y + box.height;
+    }
+    if (!(right > left) || !(bottom > top)) return null;
+    const w = right - left;
+    const h = bottom - top;
+    const padX = w * BATCH_FOCUS_CONTEXT;
+    const padY = h * BATCH_FOCUS_CONTEXT;
+    return { x: left - padX, y: top - padY, w: w + 2 * padX, h: h + 2 * padY };
+}
+
+/**
+ * The {x, y, k} that frames ONE LAUNCH BATCH of ONE BAND (req #3297) — the
+ * second stop of the epic name's two-state zoom.
+ *
+ * The THIRD geometry function feeding `PipelinePlanVisualizer`'s single
+ * `applyFocus`, and deliberately nothing more than that: same `fitTransform`,
+ * same `FOCUS_MAX_RATIO` ceiling, same REQUIRED `kFloor` contract as the band
+ * and the step (see the FLOOR block above `bandFitRect`). The camera move, its
+ * transition and its four flags live in the component and exist once.
+ *
+ * `neighbours` is null, as it is for the step fit: the reserve exists so a
+ * FOCUSED BAND's neighbours can still print their names beside it, and a batch
+ * sits inside one band with the band's own name already clamped to the viewport
+ * by `placeEpicChips`. Nothing here needs a strip reserved for it.
+ *
+ * @returns {{x:number,y:number,k:number}|null} null when that band draws no box
+ *   for that letter, there is no viewport yet, or no floor was handed in — in
+ *   every one of which the caller must leave the camera exactly where it is.
+ */
+export function batchFocusTransform(layout, band, letter, size, kBase, kFloor) {
+    return fitTransform(batchFitRect(layout, band, letter), size, kBase, null, kFloor);
+}
+
 // The centring itself, shared by both focus targets (extracted req #3253).
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.
 //
