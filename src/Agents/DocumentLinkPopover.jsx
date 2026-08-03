@@ -38,10 +38,11 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import {
-    parseRoles, serializeRoles, relationshipChipProps,
+    parseRoles, serializeRoles, resolveRoleConflicts, relationshipChipProps,
     relationshipSetError, relationshipSetHint,
     documentNotesError, charLength, DOCUMENT_NOTES_MAX,
 } from './agentRegistryUtils';
+import { CommitModeMarker } from './commitModes';
 
 // `owned` is handled by the card's owner row — see the header note.
 const EDITABLE_ROLES = ['curated', 'autoload', 'referenced'];
@@ -71,7 +72,14 @@ const DocumentLinkPopover = ({
     // after an external refetch shows the stored values, not the last draft.
     useEffect(() => {
         if (!open) return;
-        setRoles(parseRoles(link?.relationship).filter(r => r !== 'owned'));
+        // Seeded through `resolveRoleConflicts` (req #3101): a stored set carrying
+        // a superseded member — `owned,referenced`, which this UI cannot produce
+        // but the MCP daemon can — would otherwise seed a `referenced` chip that
+        // is switched ON, disabled, and holding the Save button behind a
+        // validation error the user has no way to clear. Show what the row
+        // actually means.
+        setRoles(resolveRoleConflicts(parseRoles(link?.relationship))
+            .filter(r => r !== 'owned'));
         setNotes(link?.notes || '');
     }, [open, link?.agent_fk, link?.document_fk, link?.relationship, link?.notes]);
 
@@ -124,15 +132,28 @@ const DocumentLinkPopover = ({
         >
             <Stack spacing={1.5}>
                 <Box>
-                    <Link
-                        component="button"
-                        type="button"
-                        underline="hover"
-                        onClick={() => onOpenAgent(agent.id)}
-                        sx={{ fontWeight: 500 }}
-                    >
-                        {agent.name}
-                    </Link>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Link
+                            component="button"
+                            type="button"
+                            underline="hover"
+                            onClick={() => onOpenAgent(agent.id)}
+                            sx={{ fontWeight: 500 }}
+                        >
+                            {agent.name}
+                        </Link>
+                        {/* req #3101 — this popover is the ONE control on the
+                            registry that stages its changes, and the reason is in
+                            this file's header. The marker is what makes that
+                            legible before the user has clicked Save and found out. */}
+                        <CommitModeMarker
+                            mode="staged"
+                            note={'One Save writes the whole set: an id-less junction means '
+                                + 'every role change is a delete and a re-insert, so ticking '
+                                + 'three roles separately would be three of them.'}
+                            testId={`document-link-commit-${doc?.id}-${agent.id}`}
+                        />
+                    </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                         Relationship to {doc?.name}
                     </Typography>
@@ -227,6 +248,28 @@ const DocumentLinkPopover = ({
                         'data-testid': `document-link-notes-${doc?.id}-${agent.id}`,
                     }}
                 />
+
+                {/* THE FIFTH COMMIT MODE, WHICH HAD NO RENDERING AT ALL (req #3101).
+                    `agent_documents.sort_order` is this link's position within that
+                    AGENT's document list. It belongs to AgentDetail, this page
+                    carries it through every write untouched (see `save` below), and
+                    until now the only evidence it existed was a line of code.
+                    Showing it — labelled, and marked read-only — is what makes the
+                    "carried through untouched" contract something a user can see
+                    rather than something they have to take on trust. */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <CommitModeMarker
+                        mode="readOnly"
+                        note={`Set on ${agent.name}'s own page, and carried through unchanged `
+                            + 'by every save made here.'}
+                        testId={`document-link-slot-mode-${doc?.id}-${agent.id}`}
+                    />
+                    <Typography variant="caption" color="text.secondary"
+                                data-testid={`document-link-slot-${doc?.id}-${agent.id}`}>
+                        Load-order slot {Number.isFinite(link.sort_order) ? link.sort_order : '—'}
+                        {' · set on the agent page'}
+                    </Typography>
+                </Box>
 
                 <Stack direction="row" spacing={1} justifyContent="flex-end">
                     <Button size="small" onClick={onClose} disabled={busy}

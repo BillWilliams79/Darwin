@@ -128,7 +128,10 @@ import {
 import {
     SORT_MODES, SORT_STORAGE_KEY, readStoredSort, compareDocumentRows,
 } from './documentSort';
+import { useBusyCounts } from '../hooks/useBusyCounts';
+import { CommitModeMarker, CommitModeLegend } from './commitModes';
 import DocumentAgentChips from './DocumentAgentChips';
+import DocumentTargetChips from './DocumentTargetChips';
 import DocumentLinkPopover from './DocumentLinkPopover';
 import DocumentOwnerDialog from './DocumentOwnerDialog';
 import DocumentUnbindDialog from './DocumentUnbindDialog';
@@ -204,9 +207,12 @@ const DocumentsPage = () => {
     const [menuAnchor, setMenuAnchor] = useState(null);
     const [busy, setBusy] = useState(false);
     // Membership writes are pessimistic and scoped to one card, so the spinner is
-    // too. A SET rather than a single id: two cards can legitimately be mid-write,
-    // and a single id would let the first to finish clear the second's spinner.
-    const [membershipBusyIds, setMembershipBusyIds] = useState(() => new Set());
+    // too. A per-row COUNTER rather than a single id or a set of ids: two cards can
+    // legitimately be mid-write (a single id would let the first to finish clear
+    // the second's spinner), and so can two writes against the SAME card — which a
+    // boolean-via-Set got wrong, releasing the flag when the first of the two
+    // finished (req #3101, closing finding 3c). See useBusyCounts.
+    const { mark: markMembershipBusy, isBusy: isMembershipBusy } = useBusyCounts();
     // `${rowId}:${field}` -> error message, for rows holding a blocked value.
     const [fieldErrors, setFieldErrors] = useState({});
     // Which non-owner link is being edited, and where to anchor its popover.
@@ -429,12 +435,6 @@ const DocumentsPage = () => {
     };
 
     // ---------- membership ----------
-
-    const markMembershipBusy = (rowId, on) => setMembershipBusyIds(prev => {
-        const next = new Set(prev);
-        if (on) next.add(rowId); else next.delete(rowId);
-        return next;
-    });
 
     // The freshest junction rows, for work that runs LATER than the render that
     // scheduled it. Read from the CACHE, not from a ref holding the last rendered
@@ -980,6 +980,19 @@ const DocumentsPage = () => {
                         closedCount > 0 && `${closedCount} closed`,
                     ].filter(Boolean).join(' · ')}
                     . At most one owner per document is enforced by the database.
+                    {/* THE REGISTRATION SENTENCE (req #3101, § 2). Stated once, on
+                        the page, rather than only inside the delete and location
+                        dialogs — which is to say, only to somebody already
+                        mid-destruction. Every card carries the per-row half of this
+                        in its "Points at" row. */}
+                    {' '}These rows are <strong>registrations</strong>: Darwin stores a path or a
+                    URL and never the file, never checks that either resolves, and deleting a row
+                    never deletes a file.
+                    {/* THE COMMIT-MODE KEY (req #3101, § 1). Inline spans only —
+                        ViewerHeader wraps this node in a <p>. */}
+                    <Box component="span" sx={{ display: 'block', mt: 0.5 }}>
+                        <CommitModeLegend testIdPrefix="documents" />
+                    </Box>
                 </>}
             />
 
@@ -998,7 +1011,7 @@ const DocumentsPage = () => {
             >
                 {rows.map(row => {
                     const blocked = rowBlocked(row.id);
-                    const membershipBusy = membershipBusyIds.has(row.id);
+                    const membershipBusy = isMembershipBusy(row.id);
                     const href = documentHref(row);
                     const ownerAgent = row.owner ? agentIndex.get(row.owner.agent_fk) : null;
                     const linkedIds = new Set(row.links.map(l => l.agent_fk));
@@ -1064,6 +1077,16 @@ const DocumentsPage = () => {
                                         },
                                     }}
                                     testId={`document-name-input-${row.id}`}
+                                />
+                                {/* The heading is the ONLY control on the card that
+                                    advertises nothing about itself — it renders as
+                                    plain text and carries no label, by design. So it
+                                    is also the one that most needs the marker. */}
+                                <CommitModeMarker
+                                    mode="blur"
+                                    note="The name is prose: nothing in production resolves a document by it."
+                                    testId={`document-commit-name-${row.id}`}
+                                    sx={{ mt: 0.75 }}
                                 />
                                 {href && (
                                     <Tooltip title="Open the document in a new tab">
@@ -1147,6 +1170,12 @@ const DocumentsPage = () => {
                                 is undone by clicking the previous chip. */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5,
                                        flexWrap: 'wrap', mb: 1 }}>
+                                <CommitModeMarker
+                                    mode="click"
+                                    note="Clicking the previous type is the undo."
+                                    testId={`document-commit-type-${row.id}`}
+                                    sx={{ mr: 0.25 }}
+                                />
                                 {DOC_TYPES.map(t => {
                                     const on = row.doc_type === t;
                                     return (
@@ -1200,6 +1229,25 @@ const DocumentsPage = () => {
                                             sx={{ mr: 0.5 }}>
                                     Owner
                                 </Typography>
+                                {/* THE OWNER ROW GENUINELY HAS TWO COMMIT MODES and
+                                    the marker says which one is live rather than
+                                    averaging them. Claiming an UNOWNED document is
+                                    one additive write and goes straight through;
+                                    transferring or releasing an owned one is a
+                                    two-write plan with an unowned window, so it
+                                    opens DocumentOwnerDialog. Which of the two a
+                                    click will do depends entirely on whether this
+                                    card currently has an owner. */}
+                                <CommitModeMarker
+                                    mode={row.owner ? 'confirm' : 'click'}
+                                    note={row.owner
+                                        ? 'Transfer and release are two writes with a window in '
+                                          + 'which nothing owns the document, so both are confirmed.'
+                                        : 'Claiming an unowned document is one additive write, '
+                                          + 'so it needs no confirmation.'}
+                                    testId={`document-commit-owner-${row.id}`}
+                                    sx={{ mr: 0.5 }}
+                                />
 
                                 {ownerAgent ? (
                                     <Tooltip title={`${ownerAgent.name} owns this document — click to open its page, ✕ to release`}>
@@ -1288,7 +1336,13 @@ const DocumentsPage = () => {
                                 </Alert>
                             )}
 
-                            <Box sx={{ mb: 1 }}>
+                            {/* The two location/url fields are wrapped in a flex row
+                                with their marker so the marker sits on the field's
+                                own line rather than stealing a row from the card.
+                                `alignItems: flex-start` keeps it pinned to the top
+                                of the box while the helper text grows underneath. */}
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start',
+                                       gap: 0.5, mb: 1 }}>
                                 <GhostTextField
                                     value={row.location || ''}
                                     outlined
@@ -1317,9 +1371,25 @@ const DocumentsPage = () => {
                                     sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace', fontSize: '0.8125rem' } }}
                                     testId={`document-location-input-${row.id}`}
                                 />
+                                {/* THE ONE FIELD ON THE PAGE WHOSE COMMIT MODE
+                                    CHANGES ROW BY ROW. A document nothing autoloads
+                                    has no boot to break, so its location commits on
+                                    blur like any other text; one that IS autoloaded
+                                    routes through DocumentLocationDialog. Reading
+                                    `readers`, which the card already computed. */}
+                                <CommitModeMarker
+                                    mode={readers.length ? 'confirm' : 'blur'}
+                                    note={readers.length
+                                        ? `${readers.length} agent${readers.length === 1 ? '' : 's'} `
+                                          + 'read this file at boot, so the change is confirmed first.'
+                                        : 'No agent autoloads this document, so there is no boot to break.'}
+                                    testId={`document-commit-location-${row.id}`}
+                                    sx={{ mt: 1.25 }}
+                                />
                             </Box>
 
-                            <Box sx={{ mb: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start',
+                                       gap: 0.5, mb: 1.5 }}>
                                 <GhostTextField
                                     value={row.url || ''}
                                     outlined
@@ -1335,7 +1405,22 @@ const DocumentsPage = () => {
                                     sx={{ '& .MuiInputBase-input': { fontSize: '0.8125rem' } }}
                                     testId={`document-url-input-${row.id}`}
                                 />
+                                <CommitModeMarker
+                                    mode="blur"
+                                    note="Only http and https values are stored as links."
+                                    testId={`document-commit-url-${row.id}`}
+                                    sx={{ mt: 1.25 }}
+                                />
                             </Box>
+
+                            {/* WHAT THE ROW ACTUALLY POINTS AT (req #3101, § 2).
+                                Directly under the two fields it derives from, so
+                                the reading order is "here is the path, here is the
+                                URL, here is which one is real and which one opens". */}
+                            <DocumentTargetChips
+                                document={row}
+                                testIdPrefix={`document-${row.id}`}
+                            />
 
                             <DocumentAgentChips
                                 links={row.others}
@@ -1349,6 +1434,19 @@ const DocumentsPage = () => {
                                     { docId: row.id, agentId: agent.id, anchorEl })}
                                 busy={membershipBusy}
                                 testIdPrefix={`document-${row.id}`}
+                                commitMarker={(
+                                    // `click` is the mode of the chips themselves —
+                                    // the gesture a user makes here most often, and
+                                    // by a wide margin. The note carries the other
+                                    // two, which belong to controls this row owns
+                                    // but does not visually lead with.
+                                    <CommitModeMarker
+                                        mode="click"
+                                        note={'Removing a link (✕) asks first, and a chip\'s roles '
+                                            + 'and notes are staged behind Save in the popover it opens.'}
+                                        testId={`document-commit-agents-${row.id}`}
+                                    />
+                                )}
                             />
                           </CardContent>
                         </Card>
@@ -1378,6 +1476,19 @@ const DocumentsPage = () => {
                             inputProps={{ maxLength: DOCUMENT_NAME_MAX }}
                             inputRef={templateNameRef}
                             testId="document-name-input-template"
+                        />
+                        {/* The template card's commit model is its own: it is not a
+                            column write but a CREATE, fired on every blur once both
+                            required fields hold a legal value. Marked with the same
+                            vocabulary as everything else so the one control that
+                            behaves differently is not the one control with no
+                            marker. */}
+                        <CommitModeMarker
+                            mode="blur"
+                            note={'This card registers the document as soon as both the name and '
+                                + 'the location hold a legal value — there is no Add button.'}
+                            testId="document-commit-template"
+                            sx={{ mt: 1.5 }}
                         />
                         {creating && <CircularProgress size={14} sx={{ mt: 1.5 }} />}
                     </Box>
@@ -1447,7 +1558,7 @@ const DocumentsPage = () => {
                     : null}
                 onSave={(next) => saveLink(editorRow, next)}
                 onOpenAgent={(agentId) => navigate(`/agents/${agentId}#documents`)}
-                busy={editorRow ? membershipBusyIds.has(editorRow.id) : false}
+                busy={editorRow ? isMembershipBusy(editorRow.id) : false}
             />
 
             <DocumentOwnerDialog

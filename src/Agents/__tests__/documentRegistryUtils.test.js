@@ -18,6 +18,7 @@ import {
     documentUrlError, documentNotesError, docTypeError,
     documentOwnerLink, nextDocumentSortOrder, planOwnerTransfer,
     charLength, restErrorMessage, relationshipLabel, documentHref,
+    resolveRoleConflicts, documentTarget, documentBlobHref,
     DOCUMENT_NAME_MAX, DOCUMENT_LOCATION_MAX, DOCUMENT_URL_MAX, DOCUMENT_NOTES_MAX,
 } from '../agentRegistryUtils';
 
@@ -78,6 +79,59 @@ describe('serializeRoles (req #3051)', () => {
     it('is the exact inverse of parseRoles', () => {
         for (const stored of ['owned', 'referenced', 'owned,autoload', 'curated,referenced']) {
             expect(serializeRoles(parseRoles(stored))).toBe(stored);
+        }
+    });
+
+    // req #3101, finding 3b — the invariant now lives HERE rather than at one
+    // call site. `serializeRoles` is the last thing every junction write crosses
+    // (documentsApi's `linkRow` calls it), so a call site that has not been
+    // written yet cannot reintroduce the combination the way the first version of
+    // `planOwnerTransfer` did.
+    it('drops a role another role in the set already supersedes', () => {
+        expect(serializeRoles(['owned', 'referenced'])).toBe('owned');
+        expect(serializeRoles(['principles', 'autoload', 'referenced']))
+            .toBe('principles,autoload');
+    });
+
+    it('drops the superseded member whichever order it arrives in', () => {
+        expect(serializeRoles(['referenced', 'owned'])).toBe('owned');
+        expect(serializeRoles('referenced,owned')).toBe('owned');
+    });
+
+    it('leaves roles that are merely ORTHOGONAL to ownership alone', () => {
+        // `autoload` and `curated` say nothing about precedence — an owner very
+        // often still reads the file at boot, and dropping that would be a second
+        // change nobody asked for.
+        expect(serializeRoles(['owned', 'autoload', 'curated']))
+            .toBe('owned,curated,autoload');
+    });
+});
+
+describe('resolveRoleConflicts (req #3101)', () => {
+    it('is order-independent', () => {
+        expect(resolveRoleConflicts(['owned', 'referenced']).sort())
+            .toEqual(resolveRoleConflicts(['referenced', 'owned']).sort());
+    });
+
+    it('accepts a stored SET string as well as an array', () => {
+        expect(resolveRoleConflicts('owned,referenced')).toEqual(['owned']);
+    });
+
+    it('leaves a set with no conflict untouched', () => {
+        expect(resolveRoleConflicts(['curated', 'referenced']).sort())
+            .toEqual(['curated', 'referenced']);
+    });
+
+    it('de-duplicates but does NOT drop unknown members — that is serializeRoles\' job', () => {
+        // Two helpers each owning half of one decision is how they drift. Unknown
+        // members are dropped in exactly one place.
+        expect(resolveRoleConflicts(['owned', 'owned', 'nonsense']).sort())
+            .toEqual(['nonsense', 'owned']);
+    });
+
+    it('never empties a set that had any role at all', () => {
+        for (const roles of [['referenced'], ['owned'], ['principles'], ['curated']]) {
+            expect(resolveRoleConflicts(roles).length).toBeGreaterThan(0);
         }
     });
 });
@@ -312,6 +366,85 @@ describe('documentHref refuses a dangerous scheme AT THE RENDER BOUNDARY', () =>
 
     it('constructs the blob URL from location when url is absent', () => {
         expect(documentHref({ location: 'memory/a.md' })).toBe(BLOB);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// documentTarget (req #3101, § 2) — what the row POINTS AT, as opposed to what
+// it contains, which is nothing. This is the derivation behind the card's
+// "Points at" row, and the whole point of it is that a registration is not a
+// file: nothing here checks, fetches or resolves anything.
+// ---------------------------------------------------------------------------
+
+describe('documentTarget distinguishes a path from a URL from nothing', () => {
+    const BLOB = 'https://github.com/BillWilliams79/DarwinAI-Config/blob/main/memory/a.md';
+
+    it('reports a path-only row, and says the path is what opens', () => {
+        const t = documentTarget({ location: 'memory/a.md', url: null });
+        expect(t).toMatchObject({
+            hasLocation: true, hasUrl: false, urlUsable: false, urlRejected: false,
+            opens: 'path', href: BLOB, blobHref: BLOB,
+        });
+    });
+
+    it('reports a url-only row, and says the url is what opens', () => {
+        const t = documentTarget({ location: null, url: 'https://example.test/a' });
+        expect(t).toMatchObject({
+            hasLocation: false, hasUrl: true, urlUsable: true, urlRejected: false,
+            opens: 'url', href: 'https://example.test/a', blobHref: null,
+        });
+    });
+
+    it('reports BOTH when both are present, and url wins — matching documentHref', () => {
+        const doc = { location: 'memory/a.md', url: 'https://example.test/a' };
+        const t = documentTarget(doc);
+        expect(t.hasLocation).toBe(true);
+        expect(t.hasUrl).toBe(true);
+        expect(t.opens).toBe('url');
+        // The two must never disagree: `documentTarget` decides which chip is
+        // drawn as the resolved one and `documentHref` decides where the button
+        // actually goes, so a divergence would mislabel rather than fail.
+        expect(t.href).toBe(documentHref(doc));
+        // The blob URL is still reported, because the path is still registered
+        // and an agent reads THAT, not the url.
+        expect(t.blobHref).toBe(BLOB);
+    });
+
+    it('SURFACES a url the scheme guard rejected, which documentHref swallows', () => {
+        // The one genuinely new fact. `documentHref` falls through to the blob URL
+        // so the row keeps a working link — silently, so a row with an unusable
+        // url column looked identical to a row with no url at all.
+        const doc = { location: 'memory/a.md', url: 'javascript:alert(1)' };
+        const t = documentTarget(doc);
+        expect(t.hasUrl).toBe(true);
+        expect(t.urlUsable).toBe(false);
+        expect(t.urlRejected).toBe(true);
+        expect(t.opens).toBe('path');
+        expect(t.href).toBe(BLOB);
+        expect(t.href).toBe(documentHref(doc));
+    });
+
+    it('reports a row that points at NOTHING rather than pretending it opens', () => {
+        expect(documentTarget({ location: null, url: null })).toMatchObject({
+            hasLocation: false, hasUrl: false, opens: null, href: null, blobHref: null,
+        });
+        expect(documentTarget({ location: null, url: 'javascript:alert(1)' }))
+            .toMatchObject({ urlRejected: true, opens: null, href: null });
+        expect(documentTarget(null)).toMatchObject({ opens: null, href: null });
+    });
+
+    it('treats whitespace-only columns as absent, matching what the fields store', () => {
+        // The card writes NULL rather than '' for a cleared nullable column, but
+        // MCP-written rows have not been past that normalizer.
+        expect(documentTarget({ location: '   ', url: '  ' })).toMatchObject({
+            hasLocation: false, hasUrl: false, opens: null,
+        });
+    });
+
+    it('trims a padded location into the blob URL rather than embedding the padding', () => {
+        expect(documentBlobHref('  memory/a.md  ')).toBe(BLOB);
+        expect(documentBlobHref('')).toBeNull();
+        expect(documentBlobHref(null)).toBeNull();
     });
 });
 

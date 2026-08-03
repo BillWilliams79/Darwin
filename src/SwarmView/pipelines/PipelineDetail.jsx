@@ -763,13 +763,22 @@ export default function PipelineDetail() {
                     data-testid="pipeline-detail-mode-toggle"
                 >
                     {PIPELINE_DETAIL_MODES.map(({ value, label, icon: Icon, disabled }) => (
-                        <ToggleButton key={value} value={value} disabled={disabled}
-                                      className="cal-toggle-btn" sx={{ px: 1.5 }}
-                                      data-testid={`pipeline-mode-${value}`}>
-                            <Tooltip title={`${label} view`}>
+                        <Tooltip key={value} title={`${label} View`}>
+                            {/* Explicit aria-label (req #3281 code review): MUI
+                                never opens a Tooltip on a disabled child
+                                (disabled buttons are `pointer-events: none`),
+                                so a future `disabled` mode (V1) would get the
+                                Tooltip's injected name only when it can least
+                                afford to lose it. Setting it directly makes
+                                the accessible name independent of whether the
+                                Tooltip can ever open. */}
+                            <ToggleButton value={value} disabled={disabled}
+                                          aria-label={`${label} View`}
+                                          className="cal-toggle-btn" sx={{ px: 1.5 }}
+                                          data-testid={`pipeline-mode-${value}`}>
                                 <Icon fontSize="small" />
-                            </Tooltip>
-                        </ToggleButton>
+                            </ToggleButton>
+                        </Tooltip>
                     ))}
                 </ToggleButtonGroup>
 
