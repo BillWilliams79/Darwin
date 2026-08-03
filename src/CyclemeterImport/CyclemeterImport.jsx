@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useContext, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -53,6 +54,7 @@ const EXTRACTORS = {
 
 const CyclemeterImport = () => {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
 
@@ -478,6 +480,16 @@ const CyclemeterImport = () => {
         } finally {
             setSaving(false);
             abortRef.current = null;
+            // req #3166: THE invalidation site for GPS tracks, and the reason
+            // useMapCoordinates can safely cache them with staleTime: Infinity.
+            // Step 2 writes every map_run BEFORE step 3 writes a single
+            // coordinate, so a user who opens /maps mid-import can cache a run
+            // with an empty or half-written track. Under the old 30 s staleTime
+            // that healed itself; under Infinity it would be frozen for the
+            // session with no user-reachable refresh. In `finally` on purpose —
+            // a CANCELLED or FAILED import is precisely when a partial track is
+            // sitting in the cache.
+            queryClient.invalidateQueries({ queryKey: ['map_coordinates'] });
         }
     };
 

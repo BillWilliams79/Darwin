@@ -20,6 +20,8 @@ import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
 import call_rest_api from '../RestApi/RestApi';
+// req #3166 — THE batched GET /map_coordinates, shared with the aggregator hook.
+import { fetchCoordinatesForRuns } from '../services/mapCoordinatesBatch';
 import { generateKml, downloadFile } from '../cyclemeter';
 import { reconstructRun } from '../utils/mapDataUtils';
 import ExportMapPreview from './ExportMapPreview';
@@ -99,18 +101,29 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
             const allCoords = [];
             let totalCoords = 0;
 
+            // req #3166: BATCHED, and no longer one serial request per run. A
+            // KML export of a large filter used to issue `runs.length` requests
+            // one after another — 200 sequential round trips before the first
+            // byte of KML. mapCoordinatesBatch packs many runs per request under
+            // a measured row budget, so the same export is a handful of calls.
+            const tracks = await fetchCoordinatesForRuns({
+                fetchJson: async (uri) => {
+                    try {
+                        const result = await call_rest_api(uri, 'GET', '', idToken);
+                        return result.data || [];
+                    } catch (coordErr) {
+                        // 404 = no coordinates in this batch — an empty result,
+                        // not a failure (matches fetchEntity behavior).
+                        if (coordErr?.httpStatus?.httpStatus === 404) return [];
+                        throw coordErr;
+                    }
+                },
+                darwinUri,
+                runIds: runs.map(run => run.id),
+            });
+
             for (const run of runs) {
-                let coords = [];
-                try {
-                    const coordResult = await call_rest_api(
-                        `${darwinUri}/map_coordinates?map_run_fk=${run.id}&fields=latitude,longitude,altitude&sort=seq:asc`,
-                        'GET', '', idToken
-                    );
-                    coords = coordResult.data || [];
-                } catch (coordErr) {
-                    // 404 = no coordinates for this run — skip gracefully (matches fetchEntity behavior)
-                    if (coordErr?.httpStatus?.httpStatus !== 404) throw coordErr;
-                }
+                const coords = tracks.get(Number(run.id)) || [];
                 totalCoords += coords.length;
                 allCoords.push(coords);
 
