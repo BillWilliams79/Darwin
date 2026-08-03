@@ -3963,11 +3963,12 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     // The complete key (directive 2) is TALLER than the bead legend it replaces
     // — one row per CHANNEL, plus a heading and the size/motion footer — and no
     // wider, because the component caps it at PLAN_KEY_MAX_W. These sizes
-    // bracket what it can actually be at that cap: collapsed (a heading and a
-    // button), the ordinary expanded key, and the worst case (a machine key on a
-    // many-machine plan, wrapped over several rows).
+    // bracket what it can actually be at that cap: collapsed (just the toggle
+    // button — the default state since req #3309, and the panel's own
+    // `minWidth`/`minHeight` floor), the ordinary expanded key, and the worst
+    // case (a machine key on a many-machine plan, wrapped over several rows).
     const KEY_SIZES = [
-        { w: 90, h: 26, label: 'collapsed' },
+        { w: 32, h: 28, label: 'collapsed (default since req #3309)' },
         { w: 300, h: 76, label: 'expanded, state key' },
         { w: PLAN_KEY_MAX_W, h: 96, label: 'expanded, wrapped to the cap' },
         { w: PLAN_KEY_MAX_W, h: 180, label: 'worst case — many machines, at the cap' },
