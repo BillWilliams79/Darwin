@@ -78,7 +78,15 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
                     Normal card width per the #3064 doctrine. Hidden when nothing
                     matches: the "No activities found" message owns that state. */}
                 {showAggregatorCard && runs.length > 0 && (
-                    <MapAggregatorCard runs={runs} dedupedPhotoIndex={dedupedPhotoIndex} />
+                    /* undefined (not null) when this view isn't loading the
+                       index — its gate is resolved at module load, the card's
+                       photo layer re-resolves per render, and on the one path
+                       where they disagree (flag enabled after app load) the
+                       layer must fall back to loading the index itself. */
+                    <MapAggregatorCard
+                        runs={runs}
+                        dedupedPhotoIndex={PHOTO_FEATURE_ENABLED ? dedupedPhotoIndex : undefined}
+                    />
                 )}
                 {paginatedRuns.map(run => (
                     <RouteCard

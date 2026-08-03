@@ -12,7 +12,7 @@ import 'yet-another-react-lightbox/styles.css';
 import './PhotoMarkerLayer.css';
 
 import { loadIndex } from '../photo-browser/handleDB.js';
-import { deduplicateIndex, computeRideTimeRange, filterByTimeRange } from '../photo-browser/filterUtils.js';
+import { deduplicateIndex, collectPhotosForRuns } from '../photo-browser/filterUtils.js';
 import { proxyFileUrl } from '../photo-browser/ThumbnailGrid.jsx';
 
 // ---------------------------------------------------------------------------
@@ -54,15 +54,59 @@ function findBestPlacement(map, coordinates, margin = 16) {
 // ---------------------------------------------------------------------------
 
 const GRID_GAP = 3;
-const GRID_DEFAULT_COLS = 4;
 const GRID_DEFAULT_THUMB = 120;
+const GRID_MIN_THUMB = 40;
+const GRID_MARGIN = 16;
+const GRID_CONTROLS_H = 24;
 
-function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs, coordinates, onOpenLightbox) {
+/**
+ * Fit the photo grid into the map space that is actually available from its
+ * anchor point, so the overlay is fully visible on the 400px aggregator card
+ * as much as on the full-viewport per-ride map. Thumbs shrink from the 120px
+ * default toward the 40px floor, growing columns as they go; when even the
+ * floor cannot hold every item, the grid is CAPPED at what fits and the count
+ * label reads "N of M photos" — cells beyond the map edge would be unreachable
+ * anyway (the map pane clips), and each cell costs a proxy fetch, so an
+ * aggregator-scale cluster must not render thousands of them.
+ * Pure — exported for direct testing.
+ * @param {number} n - item count
+ * @param {{x: number, y: number}} mapSize - map container size (px)
+ * @param {{x: number, y: number}} anchorPt - overlay anchor in container px
+ * @returns {{cols: number, thumb: number, capacity: number}}
+ */
+export function gridFitLayout(n, mapSize, anchorPt) {
+    const availW = Math.max(2 * GRID_MIN_THUMB, mapSize.x - anchorPt.x - GRID_MARGIN);
+    const availH = Math.max(2 * GRID_MIN_THUMB, mapSize.y - anchorPt.y - GRID_MARGIN - GRID_CONTROLS_H);
+    const colsFor = (thumb) => Math.max(1, Math.min(n, Math.floor((availW + GRID_GAP) / (thumb + GRID_GAP))));
+    for (let thumb = GRID_DEFAULT_THUMB; thumb >= GRID_MIN_THUMB; thumb -= 8) {
+        const c = colsFor(thumb);
+        // colsFor floors at 1, so the width needs its own check: a lone
+        // oversized thumb must not overflow a narrow map.
+        if (c * (thumb + GRID_GAP) - GRID_GAP <= availW
+            && Math.ceil(n / c) * (thumb + GRID_GAP) - GRID_GAP <= availH) {
+            return { cols: c, thumb, capacity: n };
+        }
+    }
+    const c = colsFor(GRID_MIN_THUMB);
+    const rows = Math.max(1, Math.floor((availH + GRID_GAP) / (GRID_MIN_THUMB + GRID_GAP)));
+    return { cols: c, thumb: GRID_MIN_THUMB, capacity: c * rows };
+}
+
+function createPhotoGridOverlay(map, latlng, initialItems, blobCache, coordinates, onOpenLightbox) {
     let items = initialItems;
+    let shownItems = initialItems;
     let anchorLatLng = latlng;
+    let cols = 1;
     let thumbSize = GRID_DEFAULT_THUMB;
-    let cols = Math.min(GRID_DEFAULT_COLS, items.length);
     let referenceZoom = map.getZoom();
+
+    // The anchor is resolved (findBestPlacement) before the first render and
+    // updated by drags, so the fit always budgets the real space from anchor
+    // to map edge — a top-left anchor gets most of the map, not the
+    // worst-case quadrant.
+    function fitLayout(n) {
+        return gridFitLayout(n, map.getSize(), map.latLngToContainerPoint(anchorLatLng));
+    }
     let currentScale = 1;
     let innerEl = null;
 
@@ -180,7 +224,15 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
 
     function render() {
         el.innerHTML = '';
-        cols = Math.min(GRID_DEFAULT_COLS, items.length);
+        const fit = fitLayout(items.length);
+        cols = fit.cols;
+        thumbSize = fit.thumb;
+        // Items arrive sorted by dateTaken ascending (the clusterclick handler
+        // sorts), so a capped grid shows the EARLIEST N of the cluster.
+        shownItems = items.slice(0, fit.capacity);
+        const countText = shownItems.length < items.length
+            ? `${shownItems.length} of ${items.length} photos`
+            : `${items.length} photo${items.length !== 1 ? 's' : ''}`;
 
         // Inner wrapper — receives pointer events
         const inner = document.createElement('div');
@@ -193,7 +245,7 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
         controls.className = 'photo-grid-controls';
         controls.innerHTML = `
             <span class="photo-grid-drag-hint">\u2630</span>
-            <span class="photo-grid-count">${items.length} photo${items.length !== 1 ? 's' : ''}</span>
+            <span class="photo-grid-count">${countText}</span>
             <span class="photo-grid-spacer"></span>
             <button class="photo-grid-close" data-action="close">\u00d7</button>
         `;
@@ -209,7 +261,7 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
         grid.style.gridTemplateColumns = `repeat(${cols}, ${thumbSize}px)`;
         grid.style.gap = `${GRID_GAP}px`;
 
-        items.forEach((item, idx) => {
+        shownItems.forEach((item, idx) => {
             const cell = document.createElement('div');
             cell.className = 'photo-grid-cell';
             cell.style.width = `${thumbSize}px`;
@@ -286,7 +338,8 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
         render();
     }
 
-    function getItems() { return items; }
+    // The SHOWN slice — the lightbox indexes against the rendered cells.
+    function getItems() { return shownItems; }
 
     return { el, remove, updatePosition, setItems, getItems };
 }
@@ -295,32 +348,41 @@ function createPhotoGridOverlay(map, latlng, initialItems, blobCache, popupBlobs
 // Component
 // ---------------------------------------------------------------------------
 
-const PhotoMarkerLayer = ({ run, coordinates }) => {
+// Accepts either a single ride (`run` — the per-ride full map) or a ride set
+// (`runs` — the aggregator map, req #3159). Photos are the UNION of every
+// ride's time window, each rendered once even where windows overlap.
+const PhotoMarkerLayer = ({ run, runs, coordinates, dedupedIndex }) => {
     const map = useMap();
-    const rawIndexRef = useRef(null);
+    const internalIndexRef = useRef(null);
     const blobCache = useRef(new Map());
-    const popupBlobs = useRef([]);
     const clusterRef = useRef(null);
     const toggleBtnRef = useRef(null);
     const gridOverlayRef = useRef(null);
-    const indexLoaded = useRef(false);
+    // Survives cluster rebuilds so a filter change cannot silently re-show
+    // markers the user toggled off.
+    const photosHiddenRef = useRef(false);
     const [, forceUpdate] = useState(0);
 
     const [lightboxIndex, setLightboxIndex] = useState(-1);
     const [lightboxSlides, setLightboxSlides] = useState([]);
     const lightboxSlidesRef = useRef([]);
 
+    // A caller that already holds the deduplicated index (RouteCardView loads
+    // and dedupes once for the whole card grid) passes it in; only callers
+    // without one (the per-ride full map) pay for the IndexedDB read + dedup.
+    const hasExternalIndex = dedupedIndex !== undefined;
     useEffect(() => {
+        if (hasExternalIndex) return undefined;
         let cancelled = false;
         loadIndex().then(idx => {
             if (!cancelled && idx) {
-                rawIndexRef.current = idx;
-                indexLoaded.current = true;
+                internalIndexRef.current = deduplicateIndex(idx);
                 forceUpdate(n => n + 1);
             }
         });
         return () => { cancelled = true; };
-    }, []);
+    }, [hasExternalIndex]);
+    const effectiveIndex = hasExternalIndex ? dedupedIndex : internalIndexRef.current;
 
     useEffect(() => () => {
         for (const s of lightboxSlidesRef.current) {
@@ -328,14 +390,20 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
         }
     }, []);
 
+    const runList = runs ?? (run ? [run] : []);
+    const runsKey = runList
+        .map(r => `${r?.id}:${r?.start_time}:${r?.run_time_sec}:${r?.stopped_time_sec}`)
+        .join('|');
     const gpsPhotos = useMemo(() => {
-        if (!rawIndexRef.current || !run) return [];
-        const deduped = deduplicateIndex(rawIndexRef.current);
-        const range = computeRideTimeRange(run);
-        if (!range) return [];
-        return filterByTimeRange(deduped, range.filterStart, range.filterEnd)
+        if (!effectiveIndex || runList.length === 0) return [];
+        return collectPhotosForRuns(effectiveIndex, runList)
             .filter(i => i.lat != null && i.lon != null);
-    }, [indexLoaded.current, run?.id, run?.start_time, run?.run_time_sec, run?.stopped_time_sec]);
+    }, [effectiveIndex, runsKey]);
+
+    // openGrid reads this via ref so a tracks-only refetch neither rebuilds the
+    // cluster group nor leaves a stale point cloud in the closure.
+    const coordinatesRef = useRef(coordinates);
+    useEffect(() => { coordinatesRef.current = coordinates; });
 
     const handleOpenLightbox = useCallback(async (idx) => {
         for (const s of lightboxSlidesRef.current) {
@@ -379,6 +447,7 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
                 stateName: 'photos-on', icon: '&#128247;',
                 title: 'Hide photo markers',
                 onClick: () => {
+                    photosHiddenRef.current = true;
                     if (clusterRef.current && map.hasLayer(clusterRef.current))
                         map.removeLayer(clusterRef.current);
                     if (gridOverlayRef.current) {
@@ -391,6 +460,7 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
                 stateName: 'photos-off', icon: '&#128247;',
                 title: 'Show photo markers',
                 onClick: () => {
+                    photosHiddenRef.current = false;
                     if (clusterRef.current && !map.hasLayer(clusterRef.current))
                         map.addLayer(clusterRef.current);
                     toggle.state('photos-on');
@@ -398,14 +468,17 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
             }],
         });
         toggle.addTo(map);
+        if (photosHiddenRef.current) toggle.state('photos-off');
         toggleBtnRef.current = toggle;
         return () => { toggle.remove(); toggleBtnRef.current = null; };
     }, [map, gpsPhotos.length > 0]);
 
-    // Build cluster group
+    // Build cluster group. Thumbnails are fetched lazily by the grid overlay
+    // when a cluster is opened — an eager per-photo prefetch here scaled as the
+    // whole filtered list on the aggregator map (thousands of simultaneous
+    // proxy requests and retained blobs before any interaction).
     useEffect(() => {
         if (!map || gpsPhotos.length === 0) return;
-        let cancelled = false;
         const markerItemMap = new Map();
 
         const group = L.markerClusterGroup({
@@ -422,20 +495,11 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
         const markers = gpsPhotos.map(item => {
             const marker = L.marker([item.lat, item.lon], { icon: placeholder });
             markerItemMap.set(marker, item);
-            if (!blobCache.current.has(item.path)) {
-                fetch(proxyFileUrl(item.path))
-                    .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
-                    .then(blob => {
-                        if (cancelled) return;
-                        blobCache.current.set(item.path, URL.createObjectURL(blob));
-                    })
-                    .catch(() => {});
-            }
             return marker;
         });
 
         group.addLayers(markers);
-        map.addLayer(group);
+        if (!photosHiddenRef.current) map.addLayer(group);
         clusterRef.current = group;
 
         const openGrid = (latlng, items) => {
@@ -445,14 +509,13 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
                 gridOverlayRef.current.setItems(items);
             } else {
                 gridOverlayRef.current = createPhotoGridOverlay(
-                    map, latlng, items, blobCache, popupBlobs,
-                    coordinates || [], handleOpenLightbox
+                    map, latlng, items, blobCache,
+                    coordinatesRef.current || [], handleOpenLightbox
                 );
             }
         };
 
         group.on('clusterclick', e => {
-            console.log('[PhotoMarkerLayer] clusterclick, children:', e.layer.getChildCount());
             const items = e.layer.getAllChildMarkers()
                 .map(m => markerItemMap.get(m))
                 .filter(Boolean)
@@ -461,26 +524,15 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
                     const db = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
                     return da - db;
                 });
-            console.log('[PhotoMarkerLayer] resolved items:', items.length);
             openGrid(e.layer.getLatLng(), items);
         });
 
         group.on('click', e => {
-            console.log('[PhotoMarkerLayer] marker click');
             const item = markerItemMap.get(e.layer);
             if (item) openGrid(e.layer.getLatLng(), [item]);
         });
 
-        // Telemetry: log when cluster group is re-added or events are rebound after zoom
-        map.on('zoomend', () => {
-            if (cancelled) return;
-            const hasGroup = map.hasLayer(group);
-            const listenerCount = group.listens('clusterclick');
-            console.log('[PhotoMarkerLayer] zoomend — group on map:', hasGroup, 'clusterclick listeners:', listenerCount);
-        });
-
         return () => {
-            cancelled = true;
             if (gridOverlayRef.current) {
                 gridOverlayRef.current.remove();
                 gridOverlayRef.current = null;
@@ -488,16 +540,12 @@ const PhotoMarkerLayer = ({ run, coordinates }) => {
             if (map.hasLayer(group)) map.removeLayer(group);
             group.clearLayers();
             clusterRef.current = null;
-            for (const url of popupBlobs.current) URL.revokeObjectURL(url);
-            popupBlobs.current = [];
         };
     }, [map, gpsPhotos, handleOpenLightbox]);
 
     useEffect(() => () => {
         for (const url of blobCache.current.values()) URL.revokeObjectURL(url);
         blobCache.current.clear();
-        for (const url of popupBlobs.current) URL.revokeObjectURL(url);
-        popupBlobs.current = [];
     }, []);
 
     return (

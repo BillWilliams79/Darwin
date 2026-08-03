@@ -69,6 +69,9 @@ describe('RouteCardView aggregator wiring (req #3158)', () => {
 
         // Full list, not the 25-row pagination slice…
         expect(aggregatorProps.runs).toHaveLength(30);
+        // Gate off at module load → this view is NOT managing the photo index,
+        // signalled as undefined (never null) so the layer can self-load.
+        expect(aggregatorProps.dedupedPhotoIndex).toBeUndefined();
         // …while the grid itself shows only the page.
         expect(container.querySelectorAll('[data-testid="route-card-mock"]')).toHaveLength(25);
     });

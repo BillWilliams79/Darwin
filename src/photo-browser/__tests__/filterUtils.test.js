@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { countPhotosForRun, countPhotosForRuns } from '../filterUtils.js';
+import { countPhotosForRun, countPhotosForRuns, collectPhotosForRuns, computeRideTimeRange, filterByTimeRange } from '../filterUtils.js';
 
 // A run starting 2026-03-21T17:00:00Z, lasting 1h moving + 0 stopped → window [17:00, 18:00] UTC.
 const run = {
@@ -93,5 +93,83 @@ describe('countPhotosForRuns', () => {
         expect(countPhotosForRuns([], [run])).toBe(0);
         expect(countPhotosForRuns(index, [])).toBe(0);
         expect(countPhotosForRuns(index, null)).toBe(0);
+    });
+});
+
+// req #3159 — the union counterpart the aggregator map's photo layer uses.
+// Contract: the items themselves, each at most once across overlapping
+// windows, in index order; a single run reproduces the per-ride map path
+// (filterByTimeRange over computeRideTimeRange) exactly.
+describe('collectPhotosForRuns', () => {
+    const run2 = {
+        id: 2,
+        start_time: '2026-03-22T09:00:00Z',
+        run_time_sec: 1800,
+        stopped_time_sec: 600,
+    };
+
+    const index = [
+        item('2026-03-21T16:30:00Z'), // before run 1
+        item('2026-03-21T17:00:00Z'), // run 1 exact start
+        item('2026-03-21T17:30:00Z'), // run 1 mid
+        item('2026-03-21T18:00:00Z'), // run 1 exact end
+        item('2026-03-22T09:20:00Z'), // run 2 mid
+        item('2026-03-22T09:40:00Z'), // run 2
+        item('2026-03-22T10:00:00Z'), // after run 2
+        { name: 'no-date.jpg', path: '/x/no-date.jpg' }, // never collected
+    ];
+
+    it('returns the union across runs in index order, boundaries included', () => {
+        expect(collectPhotosForRuns(index, [run, run2]))
+            .toEqual([index[1], index[2], index[3], index[4], index[5]]);
+    });
+
+    it('returns each item once when run windows overlap', () => {
+        const overlapping = { ...run, id: 9, start_time: '2026-03-21T17:15:00Z' };
+        const result = collectPhotosForRuns(index, [run, overlapping]);
+        expect(result.filter(i => i === index[2])).toHaveLength(1);
+        expect(result).toEqual([index[1], index[2], index[3]]);
+    });
+
+    it('single run agrees exactly with the per-ride filterByTimeRange path', () => {
+        const range = computeRideTimeRange(run);
+        const perRide = filterByTimeRange(index, range.filterStart, range.filterEnd);
+        expect(collectPhotosForRuns(index, [run])).toEqual(perRide);
+    });
+
+    it('includes unparsable dateTaken items once (they match every window)', () => {
+        const bad = item('not-a-date');
+        const result = collectPhotosForRuns([...index, bad], [run, run2]);
+        expect(result.filter(i => i === bad)).toHaveLength(1);
+        expect(result).toHaveLength(6);
+    });
+
+    it('excludes unparsable items when no run yields a window', () => {
+        expect(collectPhotosForRuns([item('not-a-date')], [{ id: 3, start_time: null }])).toEqual([]);
+    });
+
+    it('skips runs with a malformed start_time instead of throwing', () => {
+        expect(collectPhotosForRuns(index, [run, { id: 3, start_time: null }, { id: 4 }, null]))
+            .toEqual([index[1], index[2], index[3]]);
+    });
+
+    it('skips runs whose start_time string is unparsable (no NaN window)', () => {
+        const garbage = { id: 5, start_time: 'not a date', run_time_sec: 3600 };
+        expect(collectPhotosForRuns(index, [garbage])).toEqual([]);
+        // ...including for unparsable-dateTaken items: no window, no match
+        expect(collectPhotosForRuns([item('not-a-date')], [garbage])).toEqual([]);
+    });
+
+    it('skips runs whose duration makes the window end NaN', () => {
+        const badDuration = { id: 6, start_time: '2026-03-21T17:00:00Z', run_time_sec: 'abc' };
+        expect(collectPhotosForRuns(index, [badDuration])).toEqual([]);
+        expect(collectPhotosForRuns([item('not-a-date')], [badDuration])).toEqual([]);
+    });
+
+    it('returns [] for empty/null inputs', () => {
+        expect(collectPhotosForRuns(null, [run])).toEqual([]);
+        expect(collectPhotosForRuns([], [run])).toEqual([]);
+        expect(collectPhotosForRuns(index, [])).toEqual([]);
+        expect(collectPhotosForRuns(index, null)).toEqual([]);
     });
 });

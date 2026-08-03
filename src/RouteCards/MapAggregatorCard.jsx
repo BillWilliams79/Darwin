@@ -6,7 +6,9 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 import { useMapCoordinatesForRuns } from '../hooks/useDataQueries';
 import { countPhotosForRuns } from '../photo-browser/filterUtils.js';
+import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import ExportMapPreview from '../MapExport/ExportMapPreview';
+import PhotoMarkerLayer from './PhotoMarkerLayer';
 
 const MAP_HEIGHT = 400;
 
@@ -28,9 +30,29 @@ const mapWrapperSx = {
  * headed by ride count, total distance, and photo count. Fed the FULL filtered
  * list, never the paginated slice.
  */
-const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex = null }) => {
+// dedupedPhotoIndex three-state: an array = parent-loaded index, null = parent
+// is loading (or found none), undefined = parent is not managing the index at
+// all and the photo layer self-loads. No default — it would erase the
+// null/undefined distinction the layer's fallback depends on.
+const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
+    // Same gate expression as RouteMapFull's per-ride photo layer.
+    const photoMarkersEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
     const runIds = useMemo(() => runs.map(r => r.id), [runs]);
     const { data: tracks = [], isLoading, isError } = useMapCoordinatesForRuns(runIds);
+
+    // Point cloud for the photo grid overlay's track-avoidance placement,
+    // downsampled: the placement heuristic only needs a quadrant histogram,
+    // and projecting every point of the full filtered list (measured ~1.8M
+    // points at 500 rides) blocks the main thread on first grid open.
+    const flatTrackCoords = useMemo(() => {
+        const flat = tracks.flat();
+        const MAX_PLACEMENT_POINTS = 4000;
+        if (flat.length <= MAX_PLACEMENT_POINTS) return flat;
+        const stride = Math.ceil(flat.length / MAX_PLACEMENT_POINTS);
+        const sampled = [];
+        for (let i = 0; i < flat.length; i += stride) sampled.push(flat[i]);
+        return sampled;
+    }, [tracks]);
 
     const totalDistance = useMemo(() => {
         let total = 0;
@@ -90,7 +112,19 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex = null }) => {
                        controls, double-click, and fullscreen. preferCanvas: one
                        SVG node per ride does not scale to the whole filtered
                        table; canvas rendering does. */
-                    <ExportMapPreview routeCoordinates={tracks} height={MAP_HEIGHT} scrollWheel={false} preferCanvas />
+                    <ExportMapPreview routeCoordinates={tracks} height={MAP_HEIGHT} scrollWheel={false} preferCanvas>
+                        {/* Union of photos across every aggregated ride's time
+                            window (req #3159) — same cluster/grid/lightbox layer
+                            as the per-ride full map, same feature gate. Renders
+                            nothing when the local index/proxy is absent. */}
+                        {photoMarkersEnabled && (
+                            <PhotoMarkerLayer
+                                runs={runs}
+                                coordinates={flatTrackCoords}
+                                dedupedIndex={dedupedPhotoIndex}
+                            />
+                        )}
+                    </ExportMapPreview>
                 ) : (
                     <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover' }}>
                         No map data
