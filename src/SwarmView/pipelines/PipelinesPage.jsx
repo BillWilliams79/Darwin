@@ -38,6 +38,8 @@ import {
     useOrchestrationClaims,
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
+import { useScrollMemory } from '../../hooks/useScrollMemory';
+import { scrollStorageKey } from '../../utils/viewportMemory';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
 import ViewerHeader from '../../Components/ViewerHeader/ViewerHeader';
 import ChipFilter from '../../Components/ChipFilter';
@@ -58,6 +60,22 @@ import {
 } from './pipelineViewModel';
 
 const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines-view';
+
+// req #3311 — "the list viewport ... is remembered". ONE position for this page:
+// both views scroll the document, and a reader who switches Cards↔Table is
+// looking at the same plans in a different shape, not at a second list.
+const LIST_SCROLL_KEY = scrollStorageKey('pipelines-list');
+
+// req #3311 — "remember my last selected pipeline". A PREFERENCE, not a position,
+// so it takes `useViewPreference`'s hybrid (per-tab sessionStorage, localStorage
+// only as the seed a brand-new tab starts from) rather than the strictly per-tab
+// storage `viewportMemory.js` argues for. The distinction is that module's own:
+// a position answers "where was I in THIS artifact a moment ago" and is
+// meaningless to a tab that was never there, while "the plan I am working on" is
+// durable and reads correctly with no context at all — which is also the ask's
+// "in local storage". Seeding is read ONCE at mount, so a second tab still never
+// disturbs a live one.
+const LAST_PIPELINE_STORAGE_KEY = 'darwin-swarm-pipelines-last-opened';
 
 // req #3220 — per-tab only (sessionStorage), matching useViewPreference's own
 // per-tab-first rationale (memory/view-switchable-pages.md). Needed because the
@@ -119,6 +137,15 @@ export default function PipelinesPage() {
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
     const activeView = normalizeView(view, VIEWS);
+    // req #3311 — the plan this reader last opened, marked on return so "my last
+    // selected pipeline" is something they can SEE rather than an invisible
+    // bookmark. `''` is the never-opened default; anything unparseable (a value
+    // from an older build, or one typed into devtools) resolves to null and marks
+    // nothing, because this value indexes a row and a NaN would match none.
+    const [lastOpenedPref, setLastOpened] = useViewPreference(
+        LAST_PIPELINE_STORAGE_KEY, '');
+    const lastOpenedId = Number.isFinite(Number(lastOpenedPref)) && lastOpenedPref !== ''
+        ? Number(lastOpenedPref) : null;
     // req #3225 — the SAME preference the plan detail header's toggle writes.
     // This page carries no control of its own for it (the toggle lives where
     // the requirement puts it, in the header's row of toggle groups); it only
@@ -181,6 +208,16 @@ export default function PipelinesPage() {
     const isLoading = pipelinesLoading || stepsLoading || linksLoading
         || reqsLoading || machinesLoading;
 
+    // req #3311 — GATED ON THE SPINNER, and that gate is the whole subtlety. A
+    // position cannot be restored onto a page that is 40px of CircularProgress:
+    // every scroller clamps on assignment, so an early restore does not fail, it
+    // lands at 0 and reads as the feature not working. A null key parks the hook
+    // until the rows exist; the effect then re-runs with the real key and
+    // restores against a page that has height. Nothing is lost in the meantime —
+    // a spinner emits no scroll events, so there is no position to commit and the
+    // stored one is never overwritten with a 0.
+    useScrollMemory(isLoading ? null : LIST_SCROLL_KEY);
+
     const summaries = useMemo(
         () => pipelineSummaries({ pipelines, steps, stepRequirements, requirements }),
         [pipelines, steps, stepRequirements, requirements]);
@@ -201,7 +238,14 @@ export default function PipelinesPage() {
         () => hiddenPipelineStatusCounts(pipelines, statusFilter),
         [pipelines, statusFilter]);
 
-    const open = (id) => navigate(`/swarm/pipeline/${id}`);
+    const open = (id) => {
+        // Recorded BEFORE the navigation, which is the only ordering that works:
+        // `navigate` unmounts this page, and the write is what the return visit
+        // reads. It is the plan's own id as a string — `useViewPreference` stores
+        // strings, and `lastOpenedId` below is the one place it becomes a number.
+        setLastOpened(String(id));
+        navigate(`/swarm/pipeline/${id}`);
+    };
 
     if (isLoading) {
         return (
@@ -267,6 +311,7 @@ export default function PipelinesPage() {
                         claims={orchestrationClaims}
                         timezone={timezone}
                         onOpen={open}
+                        lastOpenedId={lastOpenedId}
                         hiddenStatusCounts={hiddenStatusCounts}
                     />
                 ) : (
@@ -278,6 +323,7 @@ export default function PipelinesPage() {
                         machines={machines}
                         claims={orchestrationClaims}
                         onOpen={open}
+                        lastOpenedId={lastOpenedId}
                         hiddenStatusCounts={hiddenStatusCounts}
                     />
                 )}
