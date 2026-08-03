@@ -32,7 +32,7 @@ import {
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
     epicFocusTransform, batchFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
-    ZOOM_MIN_RATIO,
+    ZOOM_MIN_RATIO, factoryDefaultScale,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
 // req #3297 — the epic name's second stop. The spec derives WHICH batch the
 // page will pick from the same pure function the page reads, never from a
@@ -197,8 +197,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // longer implies the default view: PIPE-14 pans, wheel-zooms and
             // focuses a band before re-opening the plan, and would then look for
             // an epic chip that its own earlier gesture had carried off screen.
-            // Every `goto` in this suite starts from the readable default, which
-            // is what these tests have always assumed.
+            // Every `goto` in this suite starts from the plan's base view, which
+            // is what these tests have always assumed. Since req #3312 that view
+            // is the FACTORY default (the whole plan's vertical extent), not the
+            // readable one — see `zoomToLegibleMid` for which tests that moved.
             //
             // Cleared by PREFIX rather than by key, because the key carries a
             // pipeline id and the fixture's ids are allocated at seed time.
@@ -239,6 +241,69 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         const canvas = page.getByTestId('pipeline-plan-visualizer').locator('canvas').first();
         await expect(canvas).toBeVisible({ timeout: 15000 });
         return canvas;
+    }
+
+    /**
+     * Put the camera at a scale that is BOTH `'mid'` on the level ladder and
+     * above the absolute legibility floor, from wherever the plan happens to
+     * have landed — and do it without touching the level selector, which is the
+     * control under test in PIPE-16/17.
+     *
+     * ── WHY THIS EXISTS (req #3312) ────────────────────────────────────────
+     * Until #3312 the landing scale WAS `kDefault`, so ratio 1 → `'mid'` and
+     * `kDefault = max(kFit, K_READABLE) >= K_READABLE` → legible, on every plan
+     * at every panel width. The tests below leaned on that structurally and said
+     * so. #3312 replaced the landing with `factoryDefaultScale` — the whole
+     * plan's vertical extent, i.e. `<= kFit` — so on a plan taller than its
+     * panel the page now opens BELOW `K_READABLE`, where `drawsKind` gates all
+     * three of step/req/title off and every level draws the same canvas. That is
+     * the requirement's own intent, and it makes the landing camera useless as a
+     * baseline for asserting what the LEVEL controls.
+     *
+     * ── WHY IT IS DETERMINISTIC ON ANY PLAN ───────────────────────────────
+     * d3-zoom clamps a wheel to `scaleExtent`, whose ceiling is exactly
+     * `kDefault * ZOOM_MAX_RATIO` — so wheeling IN far enough SATURATES at a
+     * known ratio of 8, whatever the plan and whatever the landing scale. Each
+     * `deltaY = +400` click is then a known factor `2^(-400/500) = 0.5743`, and
+     * three of them put the ratio at `8 * 0.5743^3 = 1.5157`:
+     *
+     *   · `1.5157 ∈ [SEMANTIC_OUT_MAX, SEMANTIC_IN_MIN)` = [0.5, 1.9) → `'mid'`,
+     *     with 0.5 of clearance below and 0.38 above, and
+     *   · ratio >= 1 with `kDefault >= K_READABLE` → `k >= K_READABLE` → legible.
+     *
+     * Both hold by arithmetic rather than by measurement, which is what the old
+     * landing gave for free. The margins are wide (the `'in'` boundary is 1.9
+     * and the legibility one is ratio 1.0), so neither depends on the plan's
+     * aspect ratio, the panel height, or the seeded fixture's day-slot width.
+     *
+     * The pointer is parked at the canvas centre first: d3 zooms about the
+     * cursor, so this also leaves the camera in a defined place rather than
+     * wherever the previous action left the mouse.
+     */
+    async function zoomToLegibleMid(page: Page, canvas: Locator): Promise<void> {
+        const container = page.getByTestId('pipeline-plan-visualizer');
+        const box = (await canvas.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        // Six clicks of -800 is a factor of 3.0314^6 = 776×. The span it has to
+        // cover is "landing ratio → the ceiling of 8", and the landing ratio has
+        // NO fixed floor: it is not `ZOOM_MIN_RATIO` (0.25 is the floor's ratio
+        // only while `kFit >= K_READABLE`; below that the floor is `0.3125 *
+        // kFit` and shrinks with the plan's width). Measured on this fixture it
+        // is 0.44 at 1280x720 and 0.59-0.73 at 1800x1000 — spans of 18× and
+        // 14×. 776 covers any landing down to ratio 0.010, which is far past
+        // anything a real plan and panel produce; d3 clamps the excess.
+        for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -800);
+        await expect(container, 'wheeling in saturates at the scaleExtent ceiling')
+            .toHaveAttribute('data-level', 'in');
+        for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 400);
+        await expect(container, 'three clicks back out lands at ratio 1.5157 → mid')
+            .toHaveAttribute('data-level', 'mid');
+        // The OTHER half of the guarantee, asserted rather than assumed: at this
+        // ratio the three gated kinds are legible, so a level really does decide
+        // what is drawn. `data-drawn` is empty at any scale below `K_READABLE`
+        // whatever the level says.
+        await expect(container, 'the camera is above the legibility floor')
+            .toHaveAttribute('data-drawn', 'step,req');
     }
 
     /** Step-row ids in RENDERED order (banner rows carry no step testid). */
@@ -635,11 +700,16 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const box = (await canvas.boundingBox())!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
-            // Fit-to-width is ratio 1 → 'mid' (konvaSwarmModel's semanticLevel,
-            // the same ladder the swarm canvas uses). `data-level` is what the
-            // bottom-right status chip used to say in words before it was
-            // deleted outright (req #3216 D2) — the canvas still publishes the
-            // fact, just not as a permanent caption over the plan.
+            // A KNOWN 'mid' BASELINE, established rather than inherited (req
+            // #3312). This asserted 'mid' on the landing camera, which held
+            // while a plan landed at ratio 1 by construction; the landing is now
+            // the factory default, so the ratio it arrives at is a function of
+            // the plan's aspect ratio against the panel's and is 'mid' only by
+            // luck. `data-level` is what the bottom-right status chip used to
+            // say in words before it was deleted outright (req #3216 D2) — the
+            // canvas still publishes the fact, just not as a permanent caption
+            // over the plan.
+            await zoomToLegibleMid(page, canvas);
             await expect(container).toHaveAttribute('data-level', 'mid');
             const kMid = await scale();
             const atMid = await canvas.screenshot();
@@ -798,11 +868,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
         // The world-to-screen frame is READ from `data-transform`, not derived
         // from the canvas width (req #3168). It used to be `k = width / world`,
-        // which was only true while the default view was fit-to-width; the
-        // default is now `max(fit, K_READABLE)`, so on a narrow panel the
-        // component legitimately starts zoomed in and every derived coordinate
-        // would miss its target by a growing margin. The attribute is the
-        // component's own answer and cannot disagree with what it drew.
+        // which was only true while the default view was fit-to-width — #3168
+        // made it `max(fit, K_READABLE)` and #3312 made it the factory default,
+        // so the plan has legitimately started both zoomed IN and zoomed OUT of
+        // that expression, and either way every derived coordinate would miss
+        // its target by a growing margin. The attribute is the component's own
+        // answer and cannot disagree with what it drew — which is why it has
+        // survived two redefinitions of the opening camera without an edit.
         const frame = async () => {
             const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
             const box = (await canvas.boundingBox())!;
@@ -899,7 +971,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // The component's own viewport, as the ResizeObserver rounds it.
             const box = (await canvas.boundingBox())!;
             const size = { w: Math.round(box.width), h: Math.round(box.height) };
-            // THE OPENING SCALE IS `max(fit, K_READABLE)`, not fit-to-width.
+            // THE FOCUS ANCHOR IS `max(fit, K_READABLE)`, not fit-to-width.
             // This test was written against the fit default and req #3168's
             // "Default size = readable" replaced it: fit is a scale divided by
             // plan size, so the bigger the plan the smaller the type, and the
@@ -907,6 +979,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // the zoom extent does (`kDefault`), so the value below is what
             // `epicFocusTransform` must be handed — passing the fit scale here
             // would test a camera the component never uses.
+            //
+            // IT IS NO LONGER THE OPENING SCALE, and this said it was until req
+            // #3312 moved the landing onto `factoryDefaultScale`. The anchor did
+            // NOT move with it (`epicFocusTransform` is still handed `kDefault`,
+            // see the visualizer's `focusEpic`), so everything below the opening
+            // assertion is unchanged — only that one assertion had to follow the
+            // camera.
             const kFit = size.w / layout.width;
             const kBase = Math.max(kFit, K_READABLE);
             // …AND THE BEHAVIOUR'S OWN FLOOR, handed in the same way the
@@ -917,8 +996,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // does not use, which is the desync the requirement closed.
             const kZoomFloor = Math.min(kFit, kBase) * ZOOM_MIN_RATIO;
 
+            // THE OPENING SCALE IS THE FACTORY DEFAULT (req #3312) — the same
+            // number the header's Reset applies, computed from the SAME inputs
+            // the component computes it from: the canvas's own measured box (the
+            // content box the ResizeObserver reports), the world, `kFit`, and
+            // the behaviour's own floor. That last point is what makes this
+            // assertion worth having rather than a restatement: the component
+            // must land on the SETTLED panel height, and computing the expected
+            // value from the box the browser actually rendered is what catches a
+            // landing taken against the pre-measurement fallback.
             const [, , k0] = await read();
-            expect(k0, 'the plan opens at the readable default').toBeCloseTo(kBase, 2);
+            expect(k0, 'the plan opens at the factory default — the Reset view')
+                .toBeCloseTo(factoryDefaultScale(layout, size, kFit, kZoomFloor), 2);
 
             // The band whose chip is on screen at the opening transform. The
             // floating chip hides itself when its band is off-screen, so this
@@ -1541,14 +1630,20 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
             // 2. The step-width control widens the WORLD, read from `data-world`.
             //
-            //    Deliberately NOT `data-transform`: on this plan the default
-            //    scale is already the readable floor (measured 0.8, i.e.
-            //    fit-to-width is BELOW it), so widening the columns lowers the
-            //    fit scale further and the transform does not move at all. That
-            //    is the readable default behaving correctly, and it makes the
-            //    transform blind to this control. The scroll rail used to be this
-            //    observable; the rails were removed on the user's directive
-            //    (2026-08-01), so the component publishes the world instead.
+            //    Deliberately NOT `data-transform`. The original reason was that
+            //    on this plan the landing scale was pinned at the readable floor
+            //    (measured 0.8, i.e. fit-to-width BELOW it), so widening the
+            //    columns lowered the fit scale further and the transform did not
+            //    move at all — making the transform blind to this control. **Req
+            //    #3312 retired that reason**: the landing is the factory default
+            //    now, which tracks `kFit`, so widening the world DOES move the
+            //    transform. `data-world` is still the right observable — it is
+            //    the thing this control actually changes, where the transform is
+            //    a consequence of it — and it is now the one that isolates the
+            //    control from the camera rather than the other way round. The
+            //    scroll rail used to be this observable; the rails were removed
+            //    on the user's directive (2026-08-01), so the component
+            //    publishes the world instead.
             const container = page.getByTestId('pipeline-plan-visualizer');
             await expect(page.getByTestId('pipeline-viz-rail-h'),
                 'the scroll rails are gone, not hidden').toHaveCount(0);
@@ -1580,11 +1675,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    cannot creep back in.
             await expect(page.getByTestId('pipeline-viz-next-steps')).toHaveCount(0);
 
-            // 4. Reset is the FACTORY DEFAULT (req #3216 D1), not a return to
-            //    the readable landing scale: fully zoomed out, the whole
-            //    plan's vertical extent visible, from any pan OR zoom — "reset
-            //    that lands somewhere the user still has to zoom out from is
-            //    not reset" (the requirement's own words). It also moved into
+            // 4. Reset is the FACTORY DEFAULT (req #3216 D1): fully zoomed out,
+            //    the whole plan's vertical extent visible, from any pan OR zoom
+            //    — "reset that lands somewhere the user still has to zoom out
+            //    from is not reset" (the requirement's own words). Since req
+            //    #3312 it is ALSO the view the plan opened in, asserted below.
+            //    It also moved into
             //    the header's zoom control group, out of the canvas's
             //    bottom-right corner it used to float in — the click below
             //    reaches the same test id in its new home with no locator
@@ -1594,7 +1690,21 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const box = (await canvas.boundingBox())!;
             const worldH = async () => Number(
                 (await container.getAttribute('data-world'))!.split(',')[1]);
-            const atDefault = (await container.getAttribute('data-transform'))!;
+            //    THE BASE VIEW, CAPTURED ONCE IT HAS SETTLED. Step 2's Width
+            //    click re-lands the camera on the new world, and `data-world`
+            //    updates a commit BEFORE `data-transform` does — so reading the
+            //    attribute straight after that step's `expect.poll(worldW)` can
+            //    catch the pre-toggle transform, which 4a would then compare
+            //    against forever. Poll until it stops moving, exactly as PIPE-14
+            //    does around its own focus transition and for the same reason.
+            let prevT = '';
+            await expect.poll(async () => {
+                const cur = (await container.getAttribute('data-transform'))!;
+                const unchanged = cur === prevT;
+                prevT = cur;
+                return unchanged;
+            }, { timeout: 10000, intervals: [100] }).toBe(true);
+            const atDefault = prevT;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
             await page.mouse.move(box.x + box.width / 2 - 200, box.y + box.height / 2 - 150,
@@ -1615,6 +1725,29 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(rk * (await worldH()),
                 "reset shows the plan's whole vertical extent, nothing left to "
                 + 'zoom out for').toBeLessThanOrEqual(box.height + 1);
+            // 4a. REQ #3312'S OWN ACCEPTANCE CRITERION, in one line: "replace
+            //     the default view with the same viewport you derive with the
+            //     reset button". `atDefault` was captured at the top of this
+            //     step, straight off the landing, before any gesture — so this
+            //     is literally "open the plan, move the camera, click Reset,
+            //     and you are back where you opened". Byte-equal, not close-to:
+            //     the two now apply ONE expression, so any divergence at all is
+            //     a defect rather than a rounding difference. It caught one in
+            //     review — the landing was computing its scale from the panel's
+            //     pre-measurement fallback height, which the header's own
+            //     comment records as knowably wrong, so the plan opened ~54px
+            //     taller than the panel and Reset then MOVED the camera.
+            //     Through `toHaveAttribute` rather than a bare `getAttribute`,
+            //     so it POLLS: `data-world` and `data-transform` update on
+            //     different commits (the world on the render where `layout`
+            //     changed, the transform one commit later after the landing
+            //     effect's passive flush), and `atDefault` is captured right
+            //     after step 2's `expect.poll(worldW)` — so an unpolled read
+            //     here could compare against a transform React had not written
+            //     yet and fail byte-equality on a correct build.
+            await expect(container,
+                'the plan opens in exactly the view Reset returns to (req #3312)')
+                .toHaveAttribute('data-transform', atDefault);
 
             // 4b. Reset's neighbour in the same header group must not undo
             //     it (code review finding on req #3216): Width re-centres on
@@ -1622,7 +1755,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //     this was fixed that re-centre was hard-coded to the
             //     readable landing scale — so clicking Width right after
             //     Reset silently snapped the camera back to a view that may
-            //     no longer show the whole plan. The fit-to-height property
+            //     no longer show the whole plan. Req #3312 deleted the choice
+            //     entirely rather than leaving it defaulted, so there is now
+            //     one base view for the recentre to pick; this case is what
+            //     stops a second one growing back. The fit-to-height property
             //     Width does not touch (only column width changes, not band
             //     height) must survive the click.
             await page.getByTestId('pipeline-viz-width-medium').click();
@@ -1961,6 +2097,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
             await expect(page.getByTestId('pipeline-viz-level-auto'))
                 .toHaveAttribute('aria-pressed', 'true');
+            //    THE BASELINE CAMERA IS ESTABLISHED, NOT INHERITED (req #3312).
+            //    This asserted `data-level` = 'mid' on the landing camera, which
+            //    was structurally true while the plan landed on `kDefault`. It
+            //    now lands on the factory default — the whole vertical extent,
+            //    at or below fit-to-width — so on this fixture it arrives at
+            //    'out' with every gated label suppressed, and neither this
+            //    assertion nor step 4's could mean anything from there. See
+            //    `zoomToLegibleMid` for why its landing point is exact on any
+            //    plan. The level selector is deliberately not used to get there:
+            //    it is the control under test.
+            await zoomToLegibleMid(page, canvas);
             await expect(container).toHaveAttribute('data-level', 'mid');
 
             // 2. PINNING CHANGES WHAT IS DRAWN, NOT WHERE THE CAMERA IS. The
@@ -2014,9 +2161,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    LEGIBLE — `k >= K_READABLE` — and these assertions are unmoved
             //    by it for a structural reason rather than a lucky one: pinning
             //    does not move the camera (step 2 asserts exactly that), so the
-            //    scale here is still the default `kDefault = max(kFit,
-            //    K_READABLE)`, which is `>= K_READABLE` on every plan at every
-            //    panel width. The absolute half of the gate is exercised in
+            //    scale here is whatever step 1 established. **That used to be
+            //    the landing scale `kDefault = max(kFit, K_READABLE)`, which is
+            //    `>= K_READABLE` on every plan at every panel width; req #3312
+            //    moved the landing below it, so the guarantee now comes from
+            //    `zoomToLegibleMid` — ratio 1.5157 against a `kDefault` that is
+            //    still floored at `K_READABLE`.** Step 1 asserts the legibility
+            //    directly (`data-drawn` non-empty) rather than leaving it to be
+            //    inferred here. The absolute half of the gate is exercised in
             //    `pipelinePlanLayout.test.js` (`the next-step halo survives the
             //    level CROSSINGS`), which sweeps kind × level × k directly
             //    against `drawsLabelKind` — the same function this canvas calls.
@@ -2049,6 +2201,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
             await expect(page.getByTestId('pipeline-viz-reqlayout-toggle'),
                 'the Reqs control is gone, not hidden').toHaveCount(0);
+
+            // The camera first, for the same reason as PIPE-16 step 1 (req
+            // #3312): the plan now lands on the factory default, below
+            // `K_READABLE` on a plan this tall, and there L2 and L3 draw the
+            // identical empty canvas — so the screenshot comparison below would
+            // fail while the behaviour it tests is perfectly correct.
+            await zoomToLegibleMid(page, canvas);
 
             // L2 — ids under the beads.
             await page.getByTestId('pipeline-viz-level-2').click();

@@ -512,12 +512,22 @@ const BEAD_R = 10;
 //
 // A lane is the unit this layout already uses for "content that may not be drawn
 // over", so the epic takes one: BAND_HEADER is now a full lane's height, and
-// nothing else is ever placed in it. That moves the fit threshold to k ≈ 0.39,
-// well below the 0.8 default and below fit-to-width on every real plan. Under
-// that — deep zoom-out, where the strip is genuinely shorter on screen than the
-// chip — `placeEpicChips` SCALES the chip down to its lane rather than
-// overflowing it or dropping it, so the guarantee holds at every k rather than
-// over a range.
+// nothing else is ever placed in it. That moves the fit threshold to k ≈ 0.39.
+//
+// **THE OPENING VIEW IS NO LONGER ABOVE THAT THRESHOLD** (req #3312, found in
+// review). The margin recorded here — "well below the 0.8 default and below
+// fit-to-width on every real plan" — was measured against a landing pinned at
+// `readableDefaultScale`; the landing is now `factoryDefaultScale`, and on the
+// 34-step fixture at 1280x720 that is k = 0.354-0.373, i.e. BELOW 0.39. What
+// makes the collision unreachable there is a DIFFERENT fact, and it is stated
+// rather than left implied: below `K_READABLE` no step label is drawn at all,
+// so there is nothing for the epic name to overlap. **That makes `K_READABLE`
+// load-bearing for this reservation** — lowering it would put drawn step labels
+// under a chip at the very scale a plan opens in. The scaling below is what
+// keeps the guarantee absolute either way: under the threshold — deep zoom-out,
+// where the strip is genuinely shorter on screen than the chip —
+// `placeEpicChips` SCALES the chip down to its lane rather than overflowing it
+// or dropping it, so it holds at every k rather than over a range.
 // 83, not 62, because THE HEADER IS NOT THE CLEAR STRIP. A lane-0 step label is
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
@@ -801,29 +811,44 @@ export const K_READABLE = READABLE_MIN_PX / PLAN_VIZ_FONT.req;
  * `nextHaloMagnify`, which freezes at exactly this scale and would have to
  * choose one of them).
  *
- * IT IS TRUE AT THE VIEW EVERY PLAN OPENS IN, by construction — see
- * `readableDefaultScale` below, which is the scale `resetView` lands on. A plan
- * that already fits at a legible size never reaches this gate at all, so nothing
- * about a small plan's view changes.
+ * IT IS TRUE AT `readableDefaultScale` BY CONSTRUCTION — that function's own
+ * floor IS this threshold. A plan that already fits at a legible size never
+ * reaches this gate at all, so nothing about a small plan's view changes.
+ *
+ * IT IS NOT TRUE AT THE VIEW A PLAN OPENS IN, and this comment said it was
+ * until req #3312 moved the landing off `readableDefaultScale` and onto
+ * `factoryDefaultScale`. On a plan too tall to fit at the readable scale the
+ * canvas now opens BELOW this threshold and draws no gated labels at all —
+ * which is what the header's Reset has done on those plans since req #3216, and
+ * is the view #3312 asked the page to open in. The gate itself is unchanged;
+ * only the claim about where the reader first meets it was.
  */
 export function labelsLegible(k) {
     return Number.isFinite(k) && k >= K_READABLE;
 }
 
 /**
- * THE SCALE A PLAN OPENS IN (req #3168) — fit-to-width, floored at legible.
+ * THE READABLE SCALE (req #3168) — fit-to-width, floored at legible.
+ *
+ * NO LONGER THE SCALE A PLAN OPENS IN, which is what this was introduced as and
+ * what its name still says. Req #3312 moved the landing onto
+ * `factoryDefaultScale` — the header's Reset — so that opening a plan and
+ * clicking Reset produce the same viewport. What this number still IS, and why
+ * it is not merely dead:
+ *
+ *   · the ANCHOR of the semantic level ladder (`semanticLevel(curK / kDefault)`)
+ *     and of the zoom behavior's `scaleExtent`, both of which req #3168 pinned
+ *     to it deliberately and PIPE-09 asserts;
+ *   · the base scale the epic and step focus transforms clamp against.
  *
  * EXPORTED as a function rather than left as `Math.max(kFit, K_READABLE)` inline
- * in the component (req #3280). The invariant that matters is "the landing view
- * always draws its labels", and while the formula lived in the renderer the test
- * for it could only rebuild the same `Math.max` and assert `max(a,b) >= b` — an
- * identity, green even if the component were changed to land on `kFit` and every
- * plan wider than its panel opened with no labels at all. A test can only reach
- * the number the renderer actually uses.
+ * in the component (req #3280), because a test can only reach the number the
+ * renderer actually uses — an inline formula could only be re-derived in the
+ * test and asserted against itself.
  *
- * `factoryDefaultScale` is the SIBLING, not a duplicate: since req #3216 the
- * header's Reset and the landing view are deliberately two different scales, and
- * `recenterModeRef` picks between them. This one is the landing view.
+ * `factoryDefaultScale` is the SIBLING, not a duplicate. The two were the
+ * landing and Reset respectively between req #3216 and req #3312; they are now
+ * the ladder's anchor and the base view.
  *
  * A non-finite `kFit` resolves to `K_READABLE` rather than propagating NaN —
  * `size.w / layout.width` is a division the caller performs on measured values,
@@ -3249,7 +3274,8 @@ export const NEXT_HALO_DASH = [3, 3];
 // pitch above are all multiplied by k. MEASURED on the live plan (pipeline 2,
 // 136 rows, world width 3620): `kDefault = max(kFit, K_READABLE)` is 0.8 at
 // every realistic panel width, so the 'out' level is by definition k < 0.4, and
-// the plan OPENS there on a 1440px panel (kFit = 0.398). At k = 0.4 this mark
+// since req #3312 the plan OPENS at or below that on a 1440px panel — the
+// landing is `factoryDefaultScale ≤ kFit = 0.398`. At k = 0.4 this mark
 // renders as a 0.8px stroke with 1.2px dashes at 85% opacity, and its inner
 // edge sits 0.1px from the bead's own eligible ring — a sub-pixel dashed
 // outline touching a solid one. It is not that the halo is not drawn at
@@ -3278,18 +3304,21 @@ export const NEXT_HALO_DASH = [3, 3];
 // k = 0.4 and the flat band runs from there up to K_READABLE: on the live plan
 // the request is 2.0× at k = 0.4 (exactly the ceiling), 1.6× at k = 0.5, 1.0× at
 // k = 0.8, and 9.65× at the zoom floor (0.0829, a 1200px panel) against a
-// ceiling of 2.0. Measured at k = 0.398 — fit-to-width on a 1440px panel, one
-// wheel-click OUT from where the plan lands: radius 9.94px, stroke 1.59px, dash
+// ceiling of 2.0. Measured at k = 0.398 — fit-to-width on a 1440px panel, at or
+// just above where the plan now lands: radius 9.94px, stroke 1.59px, dash
 // 2.39px, ten dash cycles, and 4.67px of clear space to the bead — against
 // 4.97 / 0.80 / 1.19 / 0.10 before. The mark is unambiguous at the scale the
 // question is asked at, which is what was actually broken.
 //
-// **NOT the view the plan opens in, and #3271 said it was** (found in review of
-// req #3280). `resetView` lands on `kDefault` — `recenterModeRef` initialises to
-// 'readable' — so a plan OPENS at k = 0.8, ratio 1, level 'mid', ids at 11.0px.
-// The broken band is reached by zooming OUT from the landing view, not in. The
-// arithmetic below never depended on which end the reader arrives from; only
-// this description did.
+// **WHICH IS THE VIEW THE PLAN OPENS IN AGAIN, after two corrections in
+// opposite directions.** #3271 said it was; reviewing req #3280 found that
+// false, because `resetView` then landed on `kDefault` = 0.8 (ratio 1, level
+// 'mid', ids at 11.0px) and the broken band was reached by zooming OUT of the
+// landing view rather than into it. Req #3312 moved the landing onto
+// `factoryDefaultScale`, so on the live plan the reader once again ARRIVES in
+// this band. The arithmetic below never depended on which end the reader comes
+// from — only these descriptions did, three times now, which is the argument
+// for stating the measured scale and letting the landing be named separately.
 //
 // ── AND THE SCALE IT FREEZES AT IS DERIVED, NEVER CHOSEN (req #3280) ────────
 // #3271 aimed the mark at its own world radius, i.e. at the k = 1 appearance,
@@ -4082,16 +4111,27 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
     };
 }
 
-// ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────────
+// ── THE BASE VIEW = FACTORY DEFAULT (req #3216 D1, req #3312) ───────────────
 // "Reset" used to mean "back to `kDefault`", the READABLE landing scale (req
 // #3168, `K_READABLE` above) — fit-to-width floored at a legible text size.
-// The requirement redefines what the control returns to: fully zoomed out so
-// the whole plan's VERTICAL extent is visible, one click, from any pan or
-// zoom. "reset that lands somewhere the user still has to zoom out from is
-// not reset." On a plan with many epic bands the readable floor can sit
-// ABOVE the scale that needs, which is exactly the failure mode this
-// function exists to rule out — it is deliberately NOT `kDefault`, and
-// legibility is not a concern it weighs at all.
+// #3216 redefined what the control returns to: fully zoomed out so the whole
+// plan's VERTICAL extent is visible, one click, from any pan or zoom. "reset
+// that lands somewhere the user still has to zoom out from is not reset." On a
+// plan with many epic bands the readable floor can sit ABOVE the scale that
+// needs, which is exactly the failure mode this function exists to rule out —
+// it is deliberately NOT `kDefault`, and legibility is not a concern it weighs
+// at all.
+//
+// **AND SINCE req #3312 IT IS THE LANDING VIEW TOO.** #3216 left the two apart,
+// so a plan OPENED at `kDefault` — zoomed in past fit-to-width with the world
+// origin at the panel's top-left, i.e. on the top epic's name — and the reader
+// had to click Reset to see the plan they had just opened. There is now ONE
+// base view and this function computes it; the component's `resetView` applies
+// it for the landing and for the header's Reset alike, so the two cannot
+// disagree. THE COST, stated because a reader meets it on open: on a plan too
+// tall to fit at `K_READABLE` the landing is below `labelsLegible` and opens as
+// bare beads — precisely what Reset has shown on those plans since #3216, and
+// what was asked for.
 //
 // PURE and exported for the same reason `epicFocusTransform` is (the comment
 // two functions up): this is a fit computation over `layout`/`size`, testable
