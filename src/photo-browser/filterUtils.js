@@ -162,3 +162,51 @@ export function countPhotosForRuns(dedupedIndex, runs) {
     }
     return total;
 }
+
+/**
+ * The UNION counterpart of countPhotosForRuns: the items themselves, across a
+ * whole run set, each item at most once however many run windows contain it
+ * (the aggregator map renders a marker per photo — overlapping ride windows
+ * must not duplicate it). Output preserves dedupedIndex order, so a sorted
+ * input (deduplicateIndex output) stays sorted. Same complexity budget and
+ * per-window semantics as countPhotosForRuns: items without a dateTaken never
+ * match, items whose dateTaken fails to parse match EVERY window (NaN compares
+ * false both ways in filterByTimeRange), and a run whose start_time is missing
+ * or unparsable contributes nothing instead of throwing. A single well-formed
+ * run therefore yields exactly filterByTimeRange over its window — the
+ * per-ride map path. (A garbage start_time STRING is the one divergence:
+ * filterByTimeRange's NaN window matches every dated item, which is nonsense;
+ * here such a run is skipped.)
+ * @param {Array} dedupedIndex - deduplicated index entries
+ * @param {Array} runs - ride objects with start_time/run_time_sec/stopped_time_sec
+ * @returns {Array} union of items falling in any run's window
+ */
+export function collectPhotosForRuns(dedupedIndex, runs) {
+    if (!dedupedIndex || dedupedIndex.length === 0 || !runs || runs.length === 0) return [];
+
+    const parsed = [];
+    const unparsable = [];
+    dedupedIndex.forEach((item, idx) => {
+        if (!item.dateTaken) return;
+        const t = new Date(item.dateTaken).getTime();
+        if (Number.isNaN(t)) unparsable.push(idx); else parsed.push({ t, idx });
+    });
+    parsed.sort((a, b) => a.t - b.t);
+    const times = parsed.map(p => p.t);
+
+    const selected = new Set();
+    let anyWindow = false;
+    for (const run of runs) {
+        if (!run || typeof run.start_time !== 'string') continue;
+        const range = computeRideTimeRange(run);
+        if (!range || Number.isNaN(range.filterStart.getTime())
+            || Number.isNaN(range.filterEnd.getTime())) continue;
+        anyWindow = true;
+        const hi = upperBound(times, range.filterEnd.getTime());
+        for (let i = lowerBound(times, range.filterStart.getTime()); i < hi; i++) {
+            selected.add(parsed[i].idx);
+        }
+    }
+    if (anyWindow) for (const idx of unparsable) selected.add(idx);
+    return dedupedIndex.filter((_, idx) => selected.has(idx));
+}

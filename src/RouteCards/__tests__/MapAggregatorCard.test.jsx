@@ -16,6 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let hookResult;
 let previewProps;
+let photoLayerProps;
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useMapCoordinatesForRuns: () => hookResult,
@@ -24,12 +25,33 @@ vi.mock('../../hooks/useDataQueries', () => ({
 vi.mock('../../MapExport/ExportMapPreview', () => ({
     default: (props) => {
         previewProps = props;
-        return <div data-testid="export-map-preview" data-track-count={props.routeCoordinates.length} />;
+        return (
+            <div data-testid="export-map-preview" data-track-count={props.routeCoordinates.length}>
+                {props.children}
+            </div>
+        );
     },
 }));
 
 vi.mock('../../photo-browser/filterUtils.js', () => ({
     countPhotosForRuns: (index, runs) => runs.length * 2,
+}));
+
+// The photo layer needs a live Leaflet map (useMap) — jsdom can't provide one,
+// and the aggregator contract here is only that the layer is mounted inside the
+// preview with the FULL run set when the feature gate is on (req #3159).
+vi.mock('../PhotoMarkerLayer', () => ({
+    default: (props) => {
+        photoLayerProps = props;
+        return <div data-testid="photo-marker-layer" data-run-count={props.runs.length} />;
+    },
+}));
+
+// Gate is macOS-only; a mutable getter lets tests exercise both halves.
+const gate = vi.hoisted(() => ({ isMacos: true }));
+vi.mock('../../photo-browser/proxyConfig.js', () => ({
+    get IS_MACOS() { return gate.isMacos; },
+    PHOTOS_PROXY_URL: '',
 }));
 
 import MapAggregatorCard from '../MapAggregatorCard';
@@ -59,6 +81,9 @@ beforeEach(() => {
     root = createRoot(container);
     hookResult = { isLoading: false, isError: false, data: TRACKS };
     previewProps = undefined;
+    photoLayerProps = undefined;
+    localStorage.removeItem('photo-browser-enabled');
+    gate.isMacos = true;
 });
 
 afterEach(() => {
@@ -119,5 +144,49 @@ describe('MapAggregatorCard (req #3158)', () => {
         render(<MapAggregatorCard runs={RUNS} />);
         expect(container.querySelector('[data-testid="export-map-preview"]')).toBeNull();
         expect(container.textContent).toContain('No map data');
+    });
+});
+
+describe('MapAggregatorCard photo layer (req #3159)', () => {
+    it('mounts PhotoMarkerLayer inside the preview with the FULL run set', () => {
+        render(<MapAggregatorCard runs={RUNS} />);
+        const layer = container.querySelector(
+            '[data-testid="export-map-preview"] [data-testid="photo-marker-layer"]'
+        );
+        expect(layer).not.toBeNull();
+        expect(layer.getAttribute('data-run-count')).toBe('3');
+        expect(photoLayerProps.runs).toBe(RUNS);
+    });
+
+    it('hands the layer the flattened track points and the parent-deduped index', () => {
+        const dedupedPhotoIndex = [{ path: '/x/a.jpg' }];
+        render(<MapAggregatorCard runs={RUNS} dedupedPhotoIndex={dedupedPhotoIndex} />);
+        expect(photoLayerProps.coordinates).toEqual(TRACKS.flat());
+        expect(photoLayerProps.dedupedIndex).toBe(dedupedPhotoIndex);
+    });
+
+    it('downsamples the placement point cloud past 4000 points', () => {
+        const bigTrack = Array.from({ length: 6000 }, (_, i) => ({
+            latitude: `${37 + i * 1e-5}`, longitude: '-122.1',
+        }));
+        hookResult = { isLoading: false, isError: false, data: [bigTrack] };
+        render(<MapAggregatorCard runs={[RUNS[0]]} />);
+        const sampled = photoLayerProps.coordinates;
+        expect(sampled.length).toBeLessThanOrEqual(4000);
+        expect(sampled.length).toBeGreaterThan(0);
+        for (const p of sampled) expect(bigTrack).toContain(p);
+    });
+
+    it('does not mount the layer when photo-browser is disabled', () => {
+        localStorage.setItem('photo-browser-enabled', 'false');
+        render(<MapAggregatorCard runs={RUNS} />);
+        expect(container.querySelector('[data-testid="photo-marker-layer"]')).toBeNull();
+    });
+
+    it('does not mount the layer off macOS', () => {
+        gate.isMacos = false;
+        render(<MapAggregatorCard runs={RUNS} />);
+        expect(container.querySelector('[data-testid="photo-marker-layer"]')).toBeNull();
+        expect(container.querySelector('[data-testid="export-map-preview"]')).not.toBeNull();
     });
 });

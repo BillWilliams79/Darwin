@@ -128,7 +128,7 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false, scrollWheel = true, preferCanvas = false }) => {
+const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false, scrollWheel = true, preferCanvas = false, children }) => {
     // Memoized so re-renders with the same data keep the same array identity —
     // FitBounds and ResetViewControl depend on it, and a fresh identity per
     // render would re-fit the map (discarding the user's pan/zoom) every time
@@ -207,6 +207,10 @@ const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', co
                         <CoordinateDisplay />
                     </>
                 )}
+
+                {/* Caller-supplied map layers (need the MapContainer context) —
+                    e.g. the aggregator card's photo marker layer (req #3159). */}
+                {children}
             </MapContainer>
         </Box>
     );
