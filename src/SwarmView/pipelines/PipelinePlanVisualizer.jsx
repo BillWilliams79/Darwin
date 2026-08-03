@@ -112,9 +112,9 @@ import {
     epicFocusTransform, stepFocusTransform, factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
-    K_READABLE, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
+    readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
-    nextHaloMagnify, BEAD_LANE_OFFSET,
+    nextHaloMagnify, labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -565,7 +565,11 @@ export default function PipelinePlanVisualizer({
     // K_READABLE is derived from the smallest required text (the req ids) and an
     // 11px floor; see pipelinePlanLayout. On a plan that already fits at a legible
     // size this is inert — kFit wins and nothing about the old view changes.
-    const kDefault = Math.max(kFit, K_READABLE);
+    // Hoisted into pipelinePlanLayout by req #3280 — see `readableDefaultScale`
+    // for why the formula could not stay inline: the invariant "the landing view
+    // always draws its labels" is only assertable against the number this file
+    // actually lands on.
+    const kDefault = readableDefaultScale(kFit);
     // The zoom behavior's own configured floor, computed ONCE here so this
     // and the `.scaleExtent` call below read the SAME number rather than two
     // copies of a formula that only agree today because `kDefault` happens to
@@ -590,6 +594,27 @@ export default function PipelinePlanVisualizer({
     const pinnedLevel = pinnedLevelOf(levelPref);
     const autoLevelName = semanticLevel(kDefault > 0 ? curK / kDefault : 1);
     const level = pinnedLevel || autoLevelName;
+    // ── …AND WHETHER THE READER COULD USE IT (req #3280) ────────────────────
+    // The ladder above is a RATIO and legibility is ABSOLUTE, so on a large plan
+    // the level that starts drawing per-step text begins at a scale where none
+    // of it can be read: measured on live pipeline 2, L2 starts at k = 0.400 and
+    // renders the requirement ids at 5.5px. The ladder is deliberately NOT moved
+    // (req #3168 anchored it on `kDefault`; PIPE-09 pins its wheel behaviour) —
+    // it keeps saying which kinds this view is FOR, and this says whether they
+    // are worth drawing. `drawsKind` below requires both.
+    //
+    // PINNING IS INCLUDED, not exempted, and that is a deliberate trade with a
+    // visible cost. A reader who pins L2 or L3 while zoomed out past
+    // `K_READABLE` is asking for detail at a scale that cannot carry it — on the
+    // live plan, ids at 5.5px and the L3 title slot at 3.8px one wheel-click out
+    // from where the plan lands — and drawing it is not an answer. THE COST:
+    // below that scale all three chips of the level selector produce the same
+    // canvas, so the control is inert there. Exempting the pin instead would
+    // break the halo's guarantee (`nextHaloMagnify` stops magnifying at exactly
+    // this scale, so an exempt pin would put a 2× mark under drawn labels), and
+    // re-coupling the halo to the pin is the two-predicate arrangement req #3280
+    // exists to delete.
+    const legible = labelsLegible(curK);
 
     // The d3-zoom behavior (KonvaSwarmCanvas pattern).
     useEffect(() => {
@@ -1030,22 +1055,18 @@ export default function PipelinePlanVisualizer({
     //   · The three early returns it replaces were three places to get the ladder
     //     wrong, and the attribute would have been a fourth.
     //
-    // STEP LABELS ARE GATED LIKE REQUIREMENT MARKS (req #3221) — a step name is
-    // per-step detail the same as a requirement id, so it shares that gate
-    // rather than drawing unconditionally. This does not clear Overview down to
-    // bare beads and arcs: the ruler's slot ticks, the batch letters and the
-    // epic band names are drawn elsewhere in this component and are not asked
-    // through `drawsKind` at all, so they keep drawing at every level — the
-    // `return true` fallback below exists for THEM, not as a default nobody
-    // reaches. This gate is draw-only: `computePlanLayout` reserves the step
-    // label's rect at every level regardless (the zero-overlap invariant is
-    // asserted against it unconditionally), so hiding it here never moves
-    // anything else.
-    const drawsKind = useCallback((kind) => {
-        if (kind === 'step' || kind === 'req') return level !== 'out';
-        if (kind === 'title') return level === 'in';
-        return true;
-    }, [level]);
+    // THE RULE ITSELF MOVED TO `pipelinePlanLayout` (req #3280) — see
+    // `drawsLabelKind`, which carries what it decides and why. It went there
+    // because the halo's ceiling depends on this answer and a rule that lives in
+    // a component cannot be asserted against a function that does not: the pair
+    // is now one sweep in the layout tests. What stays here is the binding of
+    // that rule to THIS frame's level and scale, and the attribute.
+    // A PLAIN FUNCTION, not a `useCallback` (review finding). It was one, and
+    // once `curK` joined what it closes over the memo could never hit — the
+    // identity changed on every frame of a zoom. Nothing depends on that
+    // identity: both call sites are in the render body below and it appears in
+    // no dependency array, so the wrapper only read as if it memoised something.
+    const drawsKind = (kind) => drawsLabelKind(kind, level, curK);
     const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
 
     // Report the level actually being rendered so the toolbar's selector can
@@ -1053,7 +1074,15 @@ export default function PipelinePlanVisualizer({
     // handshake. In an EFFECT, not during render: this calls a setState on the
     // PARENT, and doing that in a child's render body is the React warning that
     // ends in a cross-component update loop.
-    useEffect(() => { onEffectiveLevel?.(level); }, [level, onEffectiveLevel]);
+    //
+    // THE LEVEL ACTUALLY RENDERED, not the ladder's answer (req #3280). Below
+    // `K_READABLE` none of the three gated kinds is drawn, so what is on screen
+    // IS Overview whatever the ratio says — and the soft mark exists to tell a
+    // reader on Auto what they are looking at. `data-level` keeps carrying the
+    // ladder's own answer a few hundred lines down, because that is a different
+    // fact and PIPE-09 reads it.
+    const drawnLevel = legible ? level : 'out';
+    useEffect(() => { onEffectiveLevel?.(drawnLevel); }, [drawnLevel, onEffectiveLevel]);
 
     const t = transform || { x: 0, y: 0, k: kDefault };
 
@@ -1516,9 +1545,15 @@ export default function PipelinePlanVisualizer({
 
     // The next-step halo's magnification for THIS frame (req #3271). Computed
     // once per render rather than per row: it depends only on the scale being
-    // drawn at and on whether this level draws labels, and `dash` is an array
-    // prop — a fresh one per bead would hand react-konva a changed reference for
-    // every halo on every frame of a zoom.
+    // drawn at, and `dash` is an array prop — a fresh one per bead would hand
+    // react-konva a changed reference for every halo on every frame of a zoom.
+    //
+    // IT IS NOT ASKED WHETHER THE LABELS ARE DRAWN (req #3280). It used to be,
+    // and passing `drawsKind('step')` — a predicate that is binary on the LEVEL
+    // — is what stepped the mark from 2.0× to 1.0× in one wheel-click at the
+    // L1/L2 boundary. Both sides now turn on the same absolute scale, so the
+    // guarantee the argument encoded (a magnified halo never sits under a drawn
+    // label) holds by arithmetic and cannot be got wrong here.
     //
     // NOT a `useMemo`, and it cannot become one: the `!rows.length` early return
     // above sits between this and the last hook, so a hook here would be
@@ -1526,7 +1561,18 @@ export default function PipelinePlanVisualizer({
     // nothing is allocated at all; above it the array is rebuilt per render,
     // which costs one `setAttr` on a layer the halo animation is already
     // redrawing every frame.
-    const haloM = nextHaloMagnify(t.k, drawsKind('step'));
+    //
+    // THAT BAND IS WIDER SINCE req #3280 — m > 1 used to mean level 'out' and
+    // now means every k below `K_READABLE`, so the rebuild happens through the
+    // whole of the zoomed-out range rather than only at Overview. Same cost per
+    // render on the same already-animating layer; noted because the sentence
+    // above was written when the band was narrower and would otherwise read as
+    // a smaller claim than it is.
+    // `curK`, not `t.k` — the same number, deliberately read from the same
+    // expression the label gate reads. The invariant is "the scale the halo
+    // sizes itself against is the scale the labels are gated on", and two
+    // expressions that agree today are how that quietly stops being true.
+    const haloM = nextHaloMagnify(curK);
     const haloDash = haloM === 1 ? NEXT_HALO_DASH : NEXT_HALO_DASH.map((d) => d * haloM);
 
     rows.forEach((row) => {
@@ -1550,9 +1596,14 @@ export default function PipelinePlanVisualizer({
         // with it, so on the live plan Overview drew a 0.8px stroke with 1.2px
         // dashes: present in the scene graph, absent on the screen. `haloM`
         // magnifies the whole mark — radius, stroke and dash by ONE factor, so
-        // its shape is invariant — into the room the labels vacate at that
-        // level. It is exactly 1 wherever the labels ARE drawn, so 'mid' and
-        // 'in' are untouched. See `nextHaloMagnify`.
+        // its shape is invariant — into the room the labels vacate below the
+        // legibility scale. It is exactly 1 wherever the labels ARE drawn, so
+        // 'in' and the readable half of 'mid' are untouched.
+        //
+        // req #3280 — and it reaches that 1 by ARRIVING at it rather than by
+        // switching to it. The room opens where `labelsLegible` closes the
+        // labels, so the magnification's target is the mark's own size at that
+        // scale and the two branches meet. See `nextHaloMagnify`.
         if (style.next) {
             worldNodes.push(
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
