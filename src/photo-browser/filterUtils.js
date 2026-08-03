@@ -100,3 +100,65 @@ export function countPhotosForRun(dedupedIndex, run) {
     if (!range) return 0;
     return filterByTimeRange(dedupedIndex, range.filterStart, range.filterEnd).length;
 }
+
+/** First index whose value is >= v (arr ascending). */
+const lowerBound = (arr, v) => {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid] < v) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+};
+
+/** First index whose value is > v (arr ascending). */
+const upperBound = (arr, v) => {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid] <= v) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+};
+
+/**
+ * Sum of countPhotosForRun over a whole run set, O(P log P + R log P) instead
+ * of O(R × P). The per-run function is fine for the 25 cards on a page; the
+ * /maps aggregator card (req #3158) counts across the FULL filtered list, and
+ * the linear scan-per-ride was measured at seconds of blocked main thread at
+ * realistic scale (20k photos × 500 rides ≈ 3.2 s). Timestamps are extracted
+ * once, sorted, and each run's inclusive [start, end] window is resolved with
+ * two binary searches.
+ *
+ * Semantics match countPhotosForRun exactly, including its edges: items
+ * without a dateTaken never count, items whose dateTaken fails to parse
+ * (NaN compares false both ways in filterByTimeRange) count toward EVERY
+ * window, and runs with a malformed (non-string) start_time contribute 0
+ * instead of throwing.
+ * @param {Array} dedupedIndex - deduplicated index entries
+ * @param {Array} runs - ride objects with start_time/run_time_sec/stopped_time_sec
+ * @returns {number} total count across all runs
+ */
+export function countPhotosForRuns(dedupedIndex, runs) {
+    if (!dedupedIndex || dedupedIndex.length === 0 || !runs || runs.length === 0) return 0;
+
+    const times = [];
+    let unparsable = 0;
+    for (const item of dedupedIndex) {
+        if (!item.dateTaken) continue;
+        const t = new Date(item.dateTaken).getTime();
+        if (Number.isNaN(t)) unparsable += 1; else times.push(t);
+    }
+    times.sort((a, b) => a - b);
+
+    let total = 0;
+    for (const run of runs) {
+        if (!run || typeof run.start_time !== 'string') continue;
+        const range = computeRideTimeRange(run);
+        if (!range) continue;
+        total += upperBound(times, range.filterEnd.getTime())
+            - lowerBound(times, range.filterStart.getTime())
+            + unparsable;
+    }
+    return total;
+}
