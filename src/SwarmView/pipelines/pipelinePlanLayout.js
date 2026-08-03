@@ -764,6 +764,11 @@ export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
 // PINNING CHANGES WHAT IS DRAWN, NOT WHERE THE CAMERA IS — no transform is
 // touched, exactly as `KonvaBuildCanvas` does it
 // (`pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`).
+//
+// ONE EXCEPTION, AND ONLY ONE (req #3310): a pin that names a level the current
+// SCALE cannot draw moves the camera far enough that it can. See
+// `levelPinTransform` below for why that exception has to exist and why it is
+// this narrow — at every scale where the chips already worked, nothing moves.
 export const PLAN_LEVEL_BY_PREF = { auto: null, 1: 'out', 2: 'mid', 3: 'in' };
 export const PLAN_LEVEL_NUMBER = { out: 1, mid: 2, in: 3 };
 export const DEFAULT_PLAN_LEVEL_PREF = 'auto';
@@ -895,6 +900,104 @@ export function drawsLabelKind(kind, level, k) {
     if (kind === 'step' || kind === 'req') return level !== 'out' && labelsLegible(k);
     if (kind === 'title') return level === 'in' && labelsLegible(k);
     return true;
+}
+
+/**
+ * THE CAMERA MOVE A PIN NEEDS, OR `null` (req #3310).
+ *
+ * ── WHAT BROKE ──────────────────────────────────────────────────────────────
+ * The two predicates above are ANDed, one relative and one absolute, and only
+ * the relative one is under the selector's control. So below `K_READABLE` the
+ * pinned level decides nothing: `drawsLabelKind` is false for all three gated
+ * kinds at 'out', 'mid' and 'in' alike, and Auto/L1/L2/L3 produce one identical
+ * canvas. Req #3280 wrote that cost down and accepted it; the user filed #3310
+ * against it — *"it always gets stuck at L1 unless you zoom in and out"*.
+ *
+ * It reads as ALWAYS rather than sometimes because both halves persist: the
+ * camera is saved per plan and restored at landing (`viewport.read()`), and the
+ * level pref is a `useViewPreference`. One Reset click reaches the dead band on
+ * the live plan — `factoryDefaultScale` fits the whole vertical extent, far
+ * below `K_READABLE` — and every visit after that re-lands there.
+ *
+ * ── WHY THIS FIX AND NOT THE OTHER ONE ──────────────────────────────────────
+ * The obvious alternative is to exempt an explicit pin from `labelsLegible`.
+ * Rejected on two counts, and the second is the disqualifying one:
+ *
+ *   · It breaks the halo's guarantee. `nextHaloMagnify` is a function of `k`
+ *     ALONE and "labels drawn ⇒ m === 1" is true by ARITHMETIC precisely
+ *     because both sides turn on `K_READABLE`. A pin that draws labels below it
+ *     would put a 2× mark under drawn text, and re-coupling the halo to the pin
+ *     restores the two-predicate arrangement req #3280 exists to delete.
+ *   · IT DOES NOT ANSWER THE ASK. On the live plan a pin at the Reset scale
+ *     draws the requirement ids at about a pixel. A canvas that changed but
+ *     still cannot be read is not "the default characteristics of the L2
+ *     visualizer"; it is the same complaint with different pixels.
+ *
+ * So the SCALE moves to meet the level, rather than the level's rule bending to
+ * meet the scale. Both predicates stay exactly as they are.
+ *
+ * ── AND IT IS AS NARROW AS IT CAN BE ────────────────────────────────────────
+ * `null` — no move at all — in every case the chips already worked:
+ *
+ *   · Auto pins nothing.
+ *   · 'out' draws none of the gated kinds, so it is legible at every scale by
+ *     construction. L1 NEVER moves the camera.
+ *   · Already legible: 'mid' and 'in' are fully drawn at any `k >= K_READABLE`,
+ *     which includes the scale every plan lands on (`readableDefaultScale`).
+ *
+ * That is what keeps PIPE-16's and PIPE-17's "pinning must not move the camera"
+ * assertions true as written — they operate at the landing scale — while the
+ * dead band this requirement is about stops existing.
+ *
+ * The target is `K_READABLE` itself, the SMALLEST scale that draws the level,
+ * so the reader keeps as much of the plan in view as legibility allows and the
+ * jump out of the dead band is the shortest one available. Clamped into the
+ * zoom behaviour's own extent, which is also the guard for the one plan shape
+ * where the floor sits ABOVE `K_READABLE` (a plan small enough that `kFit` is
+ * large): there every legal scale is legible already, `kFloor <= curK` makes
+ * the target non-advancing, and this returns `null`.
+ *
+ * @param {?{x:number,y:number,k:number}} t   the transform being drawn
+ * @param {{w:number,h:number}} size          the viewport, in screen px
+ * @param {{width:number,height:number}} layout  the world
+ * @param {?('out'|'mid'|'in')} level         the PINNED level; null for auto
+ * @param {number} kFloor  the zoom behaviour's `scaleExtent` floor
+ * @param {number} kMax    the zoom behaviour's `scaleExtent` ceiling
+ * @returns {?{x:number,y:number,k:number}} the transform to apply, or null
+ */
+export function levelPinTransform(t, size, layout, level, kFloor, kMax) {
+    if (!t || !Number.isFinite(t.k) || t.k <= 0) return null;
+    // `x`/`y` are validated too, not just `k` (review finding): `clampPlanTransform`
+    // propagates a non-finite translation rather than rejecting it, and the caller
+    // hands the result to the zoom behaviour, where a NaN blanks the canvas with
+    // no error to see.
+    if (!Number.isFinite(t.x) || !Number.isFinite(t.y)) return null;
+    if (level == null || level === 'out') return null;
+    if (labelsLegible(t.k)) return null;
+    if (!Number.isFinite(kFloor) || !Number.isFinite(kMax)) return null;
+    const k = Math.min(Math.max(K_READABLE, kFloor), kMax);
+    // Never zoom OUT to reach legibility. Unreachable while `K_READABLE` is the
+    // gate `labelsLegible` reads (we are here only because `t.k < K_READABLE`),
+    // and asserted rather than assumed because the clamp above can lower `k`.
+    if (!(k > t.k)) return null;
+    // AND NEVER MOVE FOR NOTHING. A ceiling below `K_READABLE` would otherwise
+    // return a jump to a scale that still cannot draw the pinned level — the
+    // camera moves, the canvas is unchanged, and the caller has spent its one
+    // correction. Unreachable today (`kMax` is `kDefault * 8` and `kDefault >=
+    // K_READABLE`), and asserted here so the docstring's contract is a property
+    // of the function rather than of its callers.
+    if (!labelsLegible(k)) return null;
+    // THE VIEWPORT CENTRE IS THE FIXED POINT — the same anchor `zoom.scaleTo`
+    // uses for a programmatic scale. The world point under the middle of the
+    // panel is what the reader is looking at, so holding it is what makes this
+    // read as a zoom rather than a jump to somewhere else in the plan.
+    const cx = (size?.w || 0) / 2;
+    const cy = (size?.h || 0) / 2;
+    return clampPlanTransform({
+        x: cx - (cx - t.x) * (k / t.k),
+        y: cy - (cy - t.y) * (k / t.k),
+        k,
+    }, size, layout, kFloor, kMax);
 }
 
 // ── The time axis (req #3201) ───────────────────────────────────────────────

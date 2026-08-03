@@ -348,7 +348,6 @@ export default function PipelineDetail() {
     // effect inside the visualizer. 0 is the initial render, deliberately
     // never fired at.
     const [resetViewNonce, setResetViewNonce] = useState(0);
-    const handleResetView = useCallback(() => setResetViewNonce((n) => n + 1), []);
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -486,6 +485,23 @@ export default function PipelineDetail() {
         setLevelOverride(null);
         setLevelPref(v);
     }, [setLevelPref]);
+    // ── RESET IS THE FACTORY DEFAULT VIEW, AND THE LEVEL IS PART OF IT (#3310) ──
+    // Reset lands on `factoryDefaultScale` — the whole plan's vertical extent —
+    // which is BELOW `K_READABLE` on any plan large enough to need it (0.225 on
+    // the live plan). A pin that survived it would leave the reader looking at
+    // the overview with L3 still pressed: the exact "stuck at L1 with a chip
+    // lit" state this requirement is about, one click away, in the chip group's
+    // own left-hand neighbour. Clearing it is not a second behaviour bolted on —
+    // `auto` IS the factory default (`DEFAULT_PLAN_LEVEL_PREF`), so a control
+    // that promises the factory view and returns everything about it except the
+    // level is the inconsistent version.
+    //
+    // It goes through `handleLevelPrefChange`, so a `?level=` link is cleared by
+    // the same act and cannot snap the level back on the next render.
+    const handleResetView = useCallback(() => {
+        handleLevelPrefChange(DEFAULT_PLAN_LEVEL_PREF);
+        setResetViewNonce((n) => n + 1);
+    }, [handleLevelPrefChange]);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
@@ -1059,6 +1075,14 @@ export default function PipelineDetail() {
                              // no longer changes the preference, it only reports
                              // the level it settled on via `onEffectiveLevel`.
                              levelPref={activeLevelPref}
+                             // …and WHOSE level it is (req #3310). `activeLevelPref`
+                             // deliberately collapses the link's pin and the reader's
+                             // stored one into a single value, which is right for
+                             // drawing and wrong for the camera correction that pin
+                             // now performs: only the reader's own pick may persist a
+                             // camera or outrank a `?step=` focus arriving in the very
+                             // same link.
+                             levelPrefFromLink={levelOverride != null}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />

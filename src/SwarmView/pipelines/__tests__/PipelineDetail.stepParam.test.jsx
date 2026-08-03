@@ -25,13 +25,19 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, levelPref }) {
+    const Panel = (name) => function ModeStub({ focusStepId, levelPref,
+        levelPrefFromLink }) {
         return <div data-testid={`mode-${name}`}
                     data-focus={focusStepId == null ? '' : String(focusStepId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
                     // observable half of the `?level=` contract is the prop.
-                    data-level={levelPref == null ? '' : String(levelPref)} />;
+                    data-level={levelPref == null ? '' : String(levelPref)}
+                    // Req #3310 — and WHOSE level it is. `levelPref` collapses
+                    // the link's pin and the reader's stored one into one value
+                    // by design; this is the only thing that tells them apart,
+                    // and the canvas's camera correction turns on it.
+                    data-level-link={levelPrefFromLink ? '1' : '0'} />;
     };
     const MODES = [
         { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
@@ -106,6 +112,7 @@ function mount(url) {
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const focusOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus');
 const levelOf = (name) => node(`mode-${name}`)?.getAttribute('data-level');
+const levelFromLinkOf = (name) => node(`mode-${name}`)?.getAttribute('data-level-link');
 const click = (el) => act(() => { el.click(); });
 
 // `useViewPreference` stores a RAW string and reads sessionStorage FIRST, falling
@@ -276,5 +283,67 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
         click(node('pipeline-mode-plan'));
         expect(levelOf('plan')).toBe('auto');
         expect(focusOf('plan')).toBe('');
+    });
+});
+
+// ── Req #3310 — WHOSE level, and Reset ──────────────────────────────────────
+// Since #3310 a pinned level the current scale cannot draw MOVES THE CAMERA, and
+// every flag on that move splits on whether the reader chose the level in the
+// moment. `levelPref` deliberately cannot answer that — it is one value for both
+// sources — so the page passes the answer separately. Both facts below are
+// invisible in the rendered canvas (react-konva does not mount here) and
+// invisible in `levelPref`, which is exactly why they are asserted at the prop.
+describe('PipelineDetail — whose level is it, and Reset (req #3310)', () => {
+    it('marks a ?level= pin as the LINK\'s, not the reader\'s', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+        // THE REGRESSION THIS GUARDS: read as a reader's own pick, the canvas
+        // treats the link's pin as an in-the-moment camera instruction, raises
+        // `userMovedCameraRef` — and the `?step=` focus arriving in the SAME
+        // link is then skipped by its own guard. A silently dead link.
+        expect(levelFromLinkOf('plan')).toBe('1');
+    });
+
+    it('marks the reader\'s stored pin as their own', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(levelOf('plan')).toBe('3');
+        expect(levelFromLinkOf('plan')).toBe('0');
+    });
+
+    it('a manual pick after a link is the reader\'s again', () => {
+        storeLevel('auto');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelFromLinkOf('plan')).toBe('1');
+        click(node('pipeline-viz-level-3'));
+        expect(levelOf('plan')).toBe('3');
+        expect(levelFromLinkOf('plan')).toBe('0');
+    });
+
+    // Reset lands on `factoryDefaultScale` — the whole plan's vertical extent,
+    // which is BELOW `K_READABLE` on any plan large enough to need it. A pin that
+    // survived it would leave a lit chip over an overview: the "stuck at L1"
+    // state #3310 is about, one click away, in the level control's own left-hand
+    // neighbour. `auto` IS the factory default, so Reset returns it.
+    it('Reset returns the level to the factory default', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(levelOf('plan')).toBe('3');
+        click(node('pipeline-viz-reset'));
+        expect(levelOf('plan')).toBe('auto');
+        expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('auto');
+        // Re-render via an unrelated state change — the pin must not come back.
+        click(node('pipeline-description-btn'));
+        expect(levelOf('plan')).toBe('auto');
+    });
+
+    it('Reset clears a LINK\'s pin too, so it cannot snap back', () => {
+        storeLevel('auto');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(levelOf('plan')).toBe('2');
+        click(node('pipeline-viz-reset'));
+        expect(levelOf('plan')).toBe('auto');
+        expect(levelFromLinkOf('plan')).toBe('0');
     });
 });
