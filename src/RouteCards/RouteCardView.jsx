@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import TablePagination from '@mui/material/TablePagination';
 
 import RouteCard from './RouteCard';
+import MapAggregatorCard from './MapAggregatorCard';
 import { TABLE_WIDTH } from '../MapRuns/MapRunsView';
 import { loadIndex } from '../photo-browser/handleDB.js';
 import { deduplicateIndex } from '../photo-browser/filterUtils.js';
@@ -15,7 +16,7 @@ import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 // photo-browser feature is available. Resolved once at module load.
 const PHOTO_FEATURE_ENABLED = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
 
-const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false }) => {
+const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], runPartners = [], isLoading = false, showAggregatorCard = false }) => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
 
@@ -72,6 +73,13 @@ const RouteCardView = ({ runs = [], allRuns = [], routes = [], partners = [], ru
 
             {/* Card grid — same className as TaskPlanView */}
             <Box className="card" sx={{ pb: 2 }}>
+                {/* Aggregator card (req #3158) — always the first cell, on every
+                    pagination page, fed the FULL filtered list (never the slice).
+                    Normal card width per the #3064 doctrine. Hidden when nothing
+                    matches: the "No activities found" message owns that state. */}
+                {showAggregatorCard && runs.length > 0 && (
+                    <MapAggregatorCard runs={runs} dedupedPhotoIndex={dedupedPhotoIndex} />
+                )}
                 {paginatedRuns.map(run => (
                     <RouteCard
                         key={run.id}

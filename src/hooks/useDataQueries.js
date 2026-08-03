@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -420,6 +420,64 @@ export function useMapCoordinates(runId, { fields = 'latitude,longitude,altitude
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!runId && !!idToken,
+    });
+}
+
+// Same cap exportService.BATCH_SIZE applies to this exact endpoint — the only
+// other place that fetches coordinates for a whole run set.
+const COORD_FETCH_BATCH_SIZE = 15;
+
+// Combined tracks for a set of runs (req #3158 — the /maps aggregator card).
+// ONE aggregate query per distinct run-id set; inside it the per-run
+// GET /map_coordinates calls run in batches of 15, never as an unbounded
+// burst across the whole filtered table. Each per-run fetch goes through
+// queryClient.fetchQuery against useMapCoordinates' own cache entry
+// (mapCoordinateKeys.byRun, identical fields), so the card and the per-ride
+// thumbnails share one cached track per run, in both directions. A finished
+// ride's GPS track never changes (no invalidation site exists for
+// mapCoordinateKeys anywhere), hence staleTime: Infinity — no N-request
+// refetch burst on tab refocus or remount. Any failed per-run fetch fails the
+// whole aggregate loudly (isError) instead of quietly dropping tracks.
+// Deliberately takes no `fields` option: the cache sharing is only correct
+// while every writer of these entries requests the same row shape.
+export function useMapCoordinatesForRuns(runIds = [], { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const queryClient = useQueryClient();
+
+    const sortedIds = [...runIds].sort((a, b) => a - b);
+    return useQuery({
+        queryKey: ['map_coordinates', 'aggregate', sortedIds],
+        queryFn: async () => {
+            const tracks = [];
+            for (let i = 0; i < sortedIds.length; i += COORD_FETCH_BATCH_SIZE) {
+                const batch = sortedIds.slice(i, i + COORD_FETCH_BATCH_SIZE);
+                const batchTracks = await Promise.all(batch.map(runId =>
+                    queryClient.fetchQuery({
+                        queryKey: mapCoordinateKeys.byRun(runId),
+                        queryFn: () => fetchEntity(`${darwinUri}/map_coordinates?map_run_fk=${runId}&fields=latitude,longitude,altitude&sort=seq:asc`, idToken),
+                        staleTime: Infinity,
+                        // The client-wide retry: 2 would apply INSIDE each run's
+                        // fetch too, multiplying with the aggregate query's own
+                        // retries (3 × 3 = 9 requests, ~12 s of spinner, for one
+                        // persistently failing run). The outer query already
+                        // retries, and its re-run only refetches the runs that
+                        // failed — everything else is served from cache.
+                        retry: false,
+                    })
+                ));
+                tracks.push(...batchTracks);
+            }
+            return tracks;
+        },
+        enabled: enabled && runIds.length > 0 && !!idToken,
+        staleTime: Infinity,
+        refetchOnWindowFocus: false,
+        // A filter change mints a new aggregate key; without this the map
+        // blanks to a spinner even though every per-run track is already
+        // cached. Callers gate on runs.length so the placeholder can never
+        // outlive the run set that produced it.
+        placeholderData: keepPreviousData,
     });
 }
 

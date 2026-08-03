@@ -21,6 +21,7 @@ import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import MapIcon from '@mui/icons-material/Map';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import CloudDownloadRoundedIcon from '@mui/icons-material/CloudDownloadRounded';
@@ -52,6 +53,7 @@ import ExportDialog from '../MapExport/ExportDialog';
 import TrendsFilterChips from './TrendsFilterChips';
 import PickerDialog from './PickerDialog';
 import { useActiveMapViewStore } from '../stores/useActiveMapViewStore';
+import { useMapAggregatorCardStore } from '../stores/useMapAggregatorCardStore';
 import { useTrendsStore } from '../stores/useTrendsStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { applyViewFilter } from '../utils/mapViewFilter';
@@ -89,6 +91,10 @@ const MapsPage = () => {
 
     // Savable view filter state
     const { activeViewId, setActiveViewId } = useActiveMapViewStore();
+
+    // Aggregator card visibility (req #3158) — persisted, toggled from the header
+    const showAggregatorCard = useMapAggregatorCardStore(s => s.show);
+    const toggleAggregatorCard = useMapAggregatorCardStore(s => s.toggle);
 
     // ── Restore scroll position when returning from photo browser ────────────
     useEffect(() => {
@@ -370,6 +376,20 @@ const MapsPage = () => {
                     creatorFk={creatorFk}
                 />
 
+                {view === 'cards' && (
+                    <Tooltip title={showAggregatorCard ? 'Hide Combined Map Card' : 'Show Combined Map Card'}>
+                        <IconButton
+                            size="small"
+                            onClick={toggleAggregatorCard}
+                            color={showAggregatorCard ? 'primary' : 'default'}
+                            data-testid="map-aggregator-card-toggle"
+                            sx={{ flexShrink: 0 }}
+                        >
+                            <MapIcon />
+                        </IconButton>
+                    </Tooltip>
+                )}
+
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
                     {filteredRuns.length} activities
                     {filteredRouteCount > 0 ? ` / ${filteredRouteCount} routes` : ''}
@@ -547,7 +567,7 @@ const MapsPage = () => {
                 ? <TrendsView runs={viewFilteredRuns} runPartnerMap={runPartnerMap} isLoading={isLoading} onBucketClick={handleBucketClick} />
                 : view === 'table'
                     ? <MapRunsView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
-                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} />
+                    : <RouteCardView runs={filteredRuns} allRuns={allRuns} routes={routes} partners={partners} runPartners={runPartners} isLoading={isLoading} showAggregatorCard={showAggregatorCard} />
             }
 
             <PickerDialog

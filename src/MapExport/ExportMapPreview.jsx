@@ -128,12 +128,17 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false }) => {
-    if (!routeCoordinates || routeCoordinates.length === 0) return null;
-
-    const allPositions = routeCoordinates.map(coords =>
-        coords.map(c => [Number(c.latitude), Number(c.longitude)])
-    ).filter(positions => positions.length > 0);
+const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', compact = false, scrollWheel = true, preferCanvas = false }) => {
+    // Memoized so re-renders with the same data keep the same array identity —
+    // FitBounds and ResetViewControl depend on it, and a fresh identity per
+    // render would re-fit the map (discarding the user's pan/zoom) every time
+    // a parent re-renders.
+    const allPositions = React.useMemo(() =>
+        (routeCoordinates || []).map(coords =>
+            coords.map(c => [Number(c.latitude), Number(c.longitude)])
+        ).filter(positions => positions.length > 0),
+        [routeCoordinates]
+    );
 
     if (allPositions.length === 0) return null;
 
@@ -144,9 +149,10 @@ const ExportMapPreview = ({ routeCoordinates, height = 'calc(100vh - 200px)', co
             <MapContainer
                 center={firstPoint}
                 zoom={10}
+                preferCanvas={preferCanvas}
                 style={{ height: '100%', width: '100%', borderRadius: 4 }}
                 zoomControl={false}
-                scrollWheelZoom={!compact}
+                scrollWheelZoom={!compact && scrollWheel}
                 doubleClickZoom={!compact}
                 dragging={!compact}
                 touchZoom={!compact}
