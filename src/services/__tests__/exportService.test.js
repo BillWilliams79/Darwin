@@ -177,13 +177,23 @@ describe('fetchExportData', () => {
             expect(coordCalls).toHaveLength(0);
         });
 
-        it('fetches coordinates per-run when mapsGps is true', async () => {
+        // req #3166: coordinates come back BATCHED — one grouped-count probe
+        // sizes the reads, then many runs per read via the `?col=(1,2,3)` IN
+        // filter. The export's own row shape (which carries `seq`, unlike the
+        // aggregator's) is what these assertions protect.
+        it('fetches coordinates in ONE batched read when mapsGps is true', async () => {
+            const RUNS = [10, 11].map(id => ({ id, run_id: id, map_route_fk: null, activity_id: 4, activity_name: 'Ride', start_time: '2026-01-01', run_time_sec: 3600, stopped_time_sec: 0, distance_mi: 10, ascent_ft: 100, descent_ft: 100, calories: 300, max_speed_mph: 20, avg_speed_mph: 10, notes: null, source: 'cyclemeter', create_ts: 't', update_ts: null }));
             mockApi({
                 '/map_routes': [],
-                '/map_runs': [{ id: 10, run_id: 1, map_route_fk: null, activity_id: 4, activity_name: 'Ride', start_time: '2026-01-01', run_time_sec: 3600, stopped_time_sec: 0, distance_mi: 10, ascent_ft: 100, descent_ft: 100, calories: 300, max_speed_mph: 20, avg_speed_mph: 10, notes: null, source: 'cyclemeter', create_ts: 't', update_ts: null }],
-                'map_coordinates?map_run_fk=10': [
+                '/map_runs': RUNS,
+                'fields=count(*),map_run_fk': [
+                    { 'count(*)': 2, map_run_fk: 10 },
+                    { 'count(*)': 1, map_run_fk: 11 },
+                ],
+                'map_coordinates?map_run_fk=(10,11)': [
                     { map_run_fk: 10, seq: 1, latitude: 37.123, longitude: -122.456, altitude: 100 },
                     { map_run_fk: 10, seq: 2, latitude: 37.124, longitude: -122.457, altitude: 101 },
+                    { map_run_fk: 11, seq: 1, latitude: 38.1, longitude: -121.4, altitude: 50 },
                 ],
                 '/map_views': [],
                 '/map_partners': [],
@@ -194,10 +204,44 @@ describe('fetchExportData', () => {
                 ...SELECTED, mapsGps: true,
             });
 
-            expect(result.unassignedRuns[0].coordinates).toHaveLength(2);
-            expect(result.unassignedRuns[0].coordinates[0]).toEqual({
+            const byId = new Map(result.unassignedRuns.map(r => [r.id, r]));
+            expect(byId.get(10).coordinates).toHaveLength(2);
+            expect(byId.get(10).coordinates[0]).toEqual({
                 seq: 1, latitude: 37.123, longitude: -122.456, altitude: 100,
             });
+            expect(byId.get(11).coordinates).toHaveLength(1);
+
+            // Two runs, two coordinate requests total (probe + read) — not one
+            // per run, and never a whole-table fetch.
+            const coordCalls = call_rest_api.mock.calls
+                .map(c => c[0])
+                .filter(url => url.includes('map_coordinates'));
+            expect(coordCalls).toHaveLength(2);
+            expect(coordCalls[0]).toContain('fields=count(*),map_run_fk');
+            expect(coordCalls[1]).toContain('&fields=map_run_fk,seq,latitude,longitude,altitude');
+            expect(coordCalls[1]).toContain('&sort=map_run_fk:asc,seq:asc');
+        });
+
+        it('omits a run the batch reported no coordinates for', async () => {
+            mockApi({
+                '/map_routes': [],
+                '/map_runs': [{ id: 10, run_id: 1, map_route_fk: null, activity_id: 4, activity_name: 'Ride', start_time: '2026-01-01', run_time_sec: 3600, stopped_time_sec: 0, distance_mi: 10, ascent_ft: 100, descent_ft: 100, calories: 300, max_speed_mph: 20, avg_speed_mph: 10, notes: null, source: 'cyclemeter', create_ts: 't', update_ts: null }],
+                '/map_views': [],
+                '/map_partners': [],
+                '/map_run_partners': [],
+            });   // the count probe 404s -> no coordinates anywhere
+
+            const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, {
+                ...SELECTED, mapsGps: true,
+            });
+
+            expect(result.unassignedRuns[0].coordinates).toBeUndefined();
+            // The probe answered "nothing here", so no track read was issued.
+            const coordCalls = call_rest_api.mock.calls
+                .map(c => c[0])
+                .filter(url => url.includes('map_coordinates'));
+            expect(coordCalls).toHaveLength(1);
+            expect(coordCalls[0]).toContain('fields=count(*),map_run_fk');
         });
 
         it('exports map views, partners, and run_partners', async () => {

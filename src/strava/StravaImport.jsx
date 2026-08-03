@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -95,6 +96,7 @@ const columns = [
 ];
 
 const StravaImport = () => {
+    const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const navigate = useNavigate();
@@ -426,6 +428,12 @@ const StravaImport = () => {
         } finally {
             setImporting(false);
             abortRef.current = null;
+            // req #3166: see CyclemeterImport for the full reasoning. A run row
+            // is POSTed before its coordinates, so an interrupted import can
+            // leave a half-written track in a cache that useMapCoordinates now
+            // holds with staleTime: Infinity. In `finally` so a cancel and a
+            // failure clear it too.
+            queryClient.invalidateQueries({ queryKey: ['map_coordinates'] });
         }
     };
 

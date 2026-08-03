@@ -1,4 +1,6 @@
 import call_rest_api from '../RestApi/RestApi';
+// req #3166 — THE batched GET /map_coordinates, shared with the aggregator hook.
+import { fetchCoordinatesForRuns } from './mapCoordinatesBatch';
 
 /**
  * Fetch all user data for selected apps and assemble into nested hierarchy.
@@ -117,29 +119,36 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
             safeGet(`${darwinUri}/map_run_partners`),
         ]);
 
-        // GPS coordinates: fetched per-run when mapsGps is selected.
-        // Bulk fetch of all coordinates exceeds Lambda timeout (100k+ rows).
+        // GPS coordinates when mapsGps is selected. Fetching the whole table in
+        // one request exceeds the Lambda timeout AND its 6 MB response ceiling
+        // (1.5M rows in production), so the read is BATCHED — many runs per
+        // request, packed under a measured row budget by
+        // services/mapCoordinatesBatch.js (req #3166). That replaced a 15-wide
+        // per-run fan-out: at production scale (2,547 runs, ~1.53M rows) an
+        // export of every ride goes from ~2,547 requests to ~104 — 87 batched
+        // reads plus 17 count probes.
+        //
+        // `seq` is in the projection here and not in the aggregator's, because
+        // the export FILE carries it; the batch helper takes the field list so
+        // both callers keep their own row shape, and the shared row budget still
+        // covers the extra column (~2.3 MB per request against a 6 MB ceiling).
         const coordsByRun = {};
         if (selectedApps.mapsGps && runs.length > 0) {
-            const BATCH_SIZE = 15;
-            for (let i = 0; i < runs.length; i += BATCH_SIZE) {
-                const batch = runs.slice(i, i + BATCH_SIZE);
-                const results = await Promise.all(
-                    batch.map(run =>
-                        safeGet(`${darwinUri}/map_coordinates?map_run_fk=${run.id}&sort=seq:asc`)
-                    )
-                );
-                batch.forEach((run, idx) => {
-                    const coords = results[idx];
-                    if (coords.length > 0) {
-                        coordsByRun[run.id] = coords.map(c => ({
-                            seq: c.seq,
-                            latitude: c.latitude,
-                            longitude: c.longitude,
-                            altitude: c.altitude,
-                        }));
-                    }
-                });
+            const tracks = await fetchCoordinatesForRuns({
+                fetchJson: safeGet,
+                darwinUri,
+                runIds: runs.map(run => run.id),
+                fields: 'seq,latitude,longitude,altitude',
+            });
+            for (const [runId, coords] of tracks) {
+                if (coords.length > 0) {
+                    coordsByRun[runId] = coords.map(c => ({
+                        seq: c.seq,
+                        latitude: c.latitude,
+                        longitude: c.longitude,
+                        altitude: c.altitude,
+                    }));
+                }
             }
         }
 

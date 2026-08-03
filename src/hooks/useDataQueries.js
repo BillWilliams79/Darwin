@@ -7,6 +7,8 @@ import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swar
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
+// req #3166 — THE batched GET /map_coordinates, shared with the export paths.
+import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '../services/mapCoordinatesBatch';
 // req #3180 — THE browser's one derivation of pipeline-step membership.
 import { pipelinedRequirementIds } from '../utils/pipelineMembership';
 
@@ -409,66 +411,112 @@ export function useMapRoutes(creatorFk, { fields = 'id,route_id,name', enabled =
     });
 }
 
-export function useMapCoordinates(runId, { fields = 'latitude,longitude,altitude', enabled = true } = {}) {
+// A finished ride's GPS track NEVER changes — the importer writes coordinates
+// once and nothing in Darwin edits them, which is why no invalidation site for
+// mapCoordinateKeys exists anywhere in src/. So the client-wide staleTime of 30 s
+// and refetchOnWindowFocus: true buy nothing here and cost a great deal: the
+// RouteCardView "All" page size mounts up to 300 RouteMapThumbnails, and every
+// one of them re-requested its whole track on each tab refocus and each remount
+// past the 30 s mark (req #3166 item 3). Infinity + no refocus refetch makes a
+// track load exactly once per cache lifetime, and matches what
+// useMapCoordinatesForRuns already did for the same rows.
+export function useMapCoordinates(runId, { fields = COORD_TRACK_FIELDS, enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
-    const uri = `${darwinUri}/map_coordinates?map_run_fk=${runId}&fields=${fields}&sort=seq:asc`;
+    const uri = buildRunTrackUri(darwinUri, runId, fields);
     const queryKey = mapCoordinateKeys.byRun(runId);
 
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!runId && !!idToken,
+        staleTime: Infinity,
+        refetchOnWindowFocus: false,
     });
 }
 
-// Same cap exportService.BATCH_SIZE applies to this exact endpoint — the only
-// other place that fetches coordinates for a whole run set.
-const COORD_FETCH_BATCH_SIZE = 15;
-
-// Combined tracks for a set of runs (req #3158 — the /maps aggregator card).
-// ONE aggregate query per distinct run-id set; inside it the per-run
-// GET /map_coordinates calls run in batches of 15, never as an unbounded
-// burst across the whole filtered table. Each per-run fetch goes through
-// queryClient.fetchQuery against useMapCoordinates' own cache entry
-// (mapCoordinateKeys.byRun, identical fields), so the card and the per-ride
-// thumbnails share one cached track per run, in both directions. A finished
-// ride's GPS track never changes (no invalidation site exists for
-// mapCoordinateKeys anywhere), hence staleTime: Infinity — no N-request
-// refetch burst on tab refocus or remount. Any failed per-run fetch fails the
-// whole aggregate loudly (isError) instead of quietly dropping tracks.
-// Deliberately takes no `fields` option: the cache sharing is only correct
-// while every writer of these entries requests the same row shape.
+// Combined tracks for a set of runs (req #3158 — the /maps aggregator card;
+// batched by req #3166).
+//
+// ONE aggregate query per distinct run-id set, and inside it a BATCHED read:
+// services/mapCoordinatesBatch.js asks Lambda-Rest for many runs per request via
+// the `?map_run_fk=(1,2,3)` IN filter, packed against a measured row budget. At
+// 200 runs that is ~3 requests where the per-run fan-out made 200 — the point of
+// req #3166 item 2.
+//
+// Cache sharing with the per-ride thumbnails survives the change and is the
+// reason for the shape here. Every run the batch fetches is written back into
+// mapCoordinateKeys.byRun, in the same row shape useMapCoordinates would have
+// stored (same `buildRunTrackUri` field list, `map_run_fk` stripped), so the card
+// and RouteMapThumbnail still share one cached track per run in both directions.
+// Deliberately takes no `fields` option: that sharing is only correct while every
+// writer of these entries requests the same row shape.
+//
+// THE SHARING HAS THREE CASES, NOT TWO, AND THE THIRD IS THE EXPENSIVE ONE TO
+// MISS. RouteCardView renders MapAggregatorCard and the RouteCards in the SAME
+// commit, so on a cold cache this hook runs while N RouteMapThumbnails are
+// already fetching those very runs. `getQueryData` returns undefined for a query
+// that is fetching for the first time — indistinguishable from an absent one — so
+// treating "no data" as "must batch" fetches every visible run's rows TWICE. At
+// the "All" page size (up to 300 runs, the case req #3166 item 3 names) that is
+// 100% duplication: fewer requests than the old fan-out, but more bytes and more
+// Lambda invocations than before the change. So an in-flight per-run query is
+// JOINED via ensureQueryData — no new request, and it settles into the same entry.
+//
+// staleTime: Infinity for the same immutability reason as useMapCoordinates
+// above. Any failed batch fails the whole aggregate loudly (isError) instead of
+// quietly rendering fewer tracks than rides.
 export function useMapCoordinatesForRuns(runIds = [], { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const queryClient = useQueryClient();
 
-    const sortedIds = [...runIds].sort((a, b) => a - b);
+    const sortedIds = [...runIds].map(Number).sort((a, b) => a - b);
     return useQuery({
         queryKey: ['map_coordinates', 'aggregate', sortedIds],
         queryFn: async () => {
-            const tracks = [];
-            for (let i = 0; i < sortedIds.length; i += COORD_FETCH_BATCH_SIZE) {
-                const batch = sortedIds.slice(i, i + COORD_FETCH_BATCH_SIZE);
-                const batchTracks = await Promise.all(batch.map(runId =>
-                    queryClient.fetchQuery({
-                        queryKey: mapCoordinateKeys.byRun(runId),
-                        queryFn: () => fetchEntity(`${darwinUri}/map_coordinates?map_run_fk=${runId}&fields=latitude,longitude,altitude&sort=seq:asc`, idToken),
-                        staleTime: Infinity,
-                        // The client-wide retry: 2 would apply INSIDE each run's
-                        // fetch too, multiplying with the aggregate query's own
-                        // retries (3 × 3 = 9 requests, ~12 s of spinner, for one
-                        // persistently failing run). The outer query already
-                        // retries, and its re-run only refetches the runs that
-                        // failed — everything else is served from cache.
-                        retry: false,
-                    })
-                ));
-                tracks.push(...batchTracks);
+            const byRun = new Map();
+            const missing = [];
+            const inFlight = [];
+            for (const runId of sortedIds) {
+                const state = queryClient.getQueryState(mapCoordinateKeys.byRun(runId));
+                if (state?.data) byRun.set(runId, state.data);
+                else if (state?.fetchStatus === 'fetching') inFlight.push(runId);
+                else missing.push(runId);
             }
-            return tracks;
+
+            // Joins the thumbnail's own in-flight promise; issues a request only
+            // if that query has since settled without data.
+            await Promise.all(inFlight.map(async (runId) => {
+                byRun.set(runId, await queryClient.ensureQueryData({
+                    queryKey: mapCoordinateKeys.byRun(runId),
+                    queryFn: () => fetchEntity(buildRunTrackUri(darwinUri, runId), idToken),
+                    staleTime: Infinity,
+                }));
+            }));
+
+            if (missing.length > 0) {
+                // fetchEntity directly rather than queryClient.fetchQuery: a
+                // batch response spans many runs, so it maps to no single per-run
+                // cache key. `onTracks` seeds each batch AS IT LANDS, so the
+                // client-wide retry: 2 re-reads only what never arrived — without
+                // it, one failed batch would discard every successful one and
+                // triple the whole transfer.
+                await fetchCoordinatesForRuns({
+                    fetchJson: uri => fetchEntity(uri, idToken),
+                    darwinUri,
+                    runIds: missing,
+                    onTracks: (tracks) => {
+                        for (const [runId, track] of tracks) {
+                            queryClient.setQueryData(mapCoordinateKeys.byRun(runId), track);
+                            byRun.set(runId, track);
+                        }
+                    },
+                });
+            }
+
+            return sortedIds.map(runId => byRun.get(runId) || []);
         },
         enabled: enabled && runIds.length > 0 && !!idToken,
         staleTime: Infinity,
