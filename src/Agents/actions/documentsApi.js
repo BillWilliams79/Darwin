@@ -186,28 +186,81 @@ export async function unlinkAgentDocument(darwinUri, idToken, agent_fk, document
  *
  * Its own type because the caller must treat it differently from an ordinary
  * failure: an ordinary failure means "nothing changed, try again", while this
- * means "a link you did not ask to remove is now missing". The UI has to say so
- * out loud and force a refetch rather than reporting the original conflict and
- * leaving a stale, wrong screen up.
+ * means "the database is not in either of the two states you asked for". The UI
+ * has to say so out loud and force a refetch rather than reporting the original
+ * conflict and leaving a stale, wrong screen up.
  *
- * This is the one place this module deliberately DIVERGES from the MCP daemon.
- * `darwin-mcp/services/agents.py::link_agent_document` catches a failed restore,
- * logs "the link is now MISSING", and then re-raises the ORIGINAL owner conflict
- * — so the user is told "someone else owns this" while a link has silently
- * vanished. That is a real defect on that path; reproducing it here would just
- * give it a second home.
+ * TWO KINDS OF DAMAGE, AND THEY ARE NOT THE SAME REPORT (req #3101, closing
+ * finding 3a from req #3051's review).
+ *
+ *   `lost`     — steps whose `prev` row was genuinely deleted and could not be
+ *                put back. The user has LESS than they started with: a link they
+ *                did not touch is missing.
+ *   `orphaned` — steps that had NO incumbent (a create-only claim on a
+ *                previously-unowned document) whose INSERT may have committed
+ *                while its response was lost, and whose cleanup DELETE then also
+ *                failed. The user has MORE than they asked for: a link nobody
+ *                authorized may be sitting in the junction.
+ *
+ * Until #3101 only `lost` was tracked, so the second case threw NOTHING — the
+ * user saw the original, by-then-stale error and no mention of the orphan. It is
+ * a double fault and the page's own resync repaints the truth a moment later,
+ * which is exactly why it went unreported: the screen self-corrects while the
+ * MESSAGE stays wrong about what happened.
+ *
+ * This is also the one place this module deliberately DIVERGES from the MCP
+ * daemon. `darwin-mcp/services/agents.py::link_agent_document` catches a failed
+ * restore, logs "the link is now MISSING", and then re-raises the ORIGINAL owner
+ * conflict — so the user is told "someone else owns this" while a link has
+ * silently vanished. That is a real defect on that path; reproducing it here
+ * would just give it a second home.
  */
 export class LinkRollbackError extends Error {
-    constructor(message, { cause, lost } = {}) {
+    constructor(message, { cause, lost, orphaned } = {}) {
         super(message);
         this.name = 'LinkRollbackError';
         this.cause = cause;
         // The links that could not be restored, so the caller can name them.
         this.lost = lost || [];
+        // The links that may have been created and could not be removed.
+        this.orphaned = orphaned || [];
         // Carried through so restErrorMessage / showError still work on it.
         this.httpStatus = cause?.httpStatus;
     }
 }
+
+/**
+ * Compose the headline for a failed rollback.
+ *
+ * LOST OUTRANKS ORPHANED when both happened, because they are different sizes of
+ * problem: a missing link silently changes what an agent loads at boot, while a
+ * stray one is visible on the very card the user is looking at and is removable
+ * with one click. Both are named when both occurred — reporting only the worse
+ * one would leave the user repairing half the damage.
+ */
+const rollbackMessage = (lost, orphaned) => {
+    // A `lost` step splits by whether its CLEANUP succeeded. If it did, the row is
+    // genuinely gone. If it did not, the row is still there — carrying the value
+    // the rejected edit asked for, which is the most misleading state of the three
+    // and the one a message saying "missing" would send the user hunting for.
+    const missing = lost.filter(s => !s.cleanupFailed);
+    const stale = lost.filter(s => s.cleanupFailed);
+
+    const parts = [];
+    if (missing.length) {
+        parts.push(`${missing.length} agent link${missing.length === 1 ? ' is' : 's are'} now missing`);
+    }
+    if (stale.length) {
+        parts.push(`${stale.length} agent link${stale.length === 1 ? '' : 's'} `
+            + `still carr${stale.length === 1 ? 'ies' : 'y'} the rejected value`);
+    }
+    if (orphaned.length) {
+        parts.push(`${orphaned.length} link${orphaned.length === 1 ? '' : 's'} `
+            + 'may have been created and could not be removed');
+    }
+    return `The change was rejected AND the database could not be put back — ${parts.join(', and ')}. `
+        + 'Reload the page to see the real state.';
+};
 
 /**
  * Apply an ordered plan of junction writes, rolling back on failure.
@@ -228,42 +281,99 @@ export class LinkRollbackError extends Error {
  * recoverable are in our control. Nothing here is atomic (each call is a separate
  * Lambda invocation under autocommit), so recoverability is the whole job.
  *
- * On failure every applied step is undone in REVERSE order, restoring exactly
- * what was there. Steps that were never reached are left alone. If the rollback
+ * On failure every applied step is undone in REVERSE order, restoring what was
+ * there — CANONICALISED, not byte-identical: the restore goes back out through
+ * `linkRow`, so `serializeRoles` drops any superseded member the stored value
+ * happened to carry (req #3101). A `prev` of `owned,referenced` comes back as
+ * `owned`. Nothing in the live registry stores such a set, and the normalisation
+ * is the desirable direction, but a rollback is a place where "exactly what was
+ * there" has to be said accurately.
+ *
+ * Steps that were never reached are left alone. If the rollback
  * itself fails, a LinkRollbackError is thrown naming what could not be put back —
  * the original error is attached as `cause`, but it is no longer the headline,
- * because "your edit was rejected" and "a link is now missing" are different
- * things to tell a user and the second one outranks the first.
+ * because "your edit was rejected" and "the database is not in either state you
+ * asked for" are different things to tell a user and the second one outranks the
+ * first. That covers BOTH directions of damage: a `prev` that could not be
+ * restored (`lost`) and a create-only step whose write could not be removed
+ * (`orphaned`) — see LinkRollbackError.
  */
 export async function applyLinkPlan(darwinUri, idToken, steps) {
     if (!steps.length) return null;
 
     const applied = [];   // steps that completed, newest last
 
+    /**
+     * A step's record says WHAT THE ROLLBACK MUST DO, not what happened to it.
+     *
+     * The two are not the same question and conflating them is how this function
+     * has gone wrong twice. `cleanupNeeded` means "a row may exist here that this
+     * step put there"; `restoreNeeded` means "a row that existed before this step
+     * may be gone". Both are set OPTIMISTICALLY — before the await that would tell
+     * us, and true whenever the outcome is UNKNOWN — because every call here is a
+     * separate Lambda invocation under autocommit, so a lost response after a
+     * committed statement is the normal shape of the failure, not an exotic one.
+     *
+     * A CLEANUP DELETE IS NOT A NO-OP, AND OPTIMISM ABOUT IT IS DESTRUCTIVE. It is
+     * 404-TOLERANT, which is a different thing: against a row that is genuinely
+     * there it succeeds and REMOVES it. So `cleanupNeeded` is set only where this
+     * step actually issued a write of its own — never merely because the state is
+     * unknown. Setting it on the leading-DELETE-threw path (a first pass at this
+     * did) turns the most ordinary failure of all, the database REFUSING the
+     * DELETE with the row untouched, into the rollback deleting that row itself.
+     *
+     * The one thing that is NOT optimistic on the restore side either is a 404 on
+     * the leading DELETE. That is a definite answer — the row was already gone —
+     * and resurrecting a row that did not exist is its own corruption, so
+     * `restoreNeeded` stays false.
+     *
+     * `restoreUncertain` is the third state, and it exists so that REPAIRING and
+     * REPORTING can be decided separately. A leading DELETE that THREW may or may
+     * not have committed, and its rollback is exactly ONE POST — safe in both
+     * directions: if the DELETE committed, the POST restores the row; if it did
+     * not, the POST collides on the composite PK and is caught. A failed repair is
+     * NOT reported as a missing link, because nothing ever established that a link
+     * went missing; claiming one on every failed unlink would be a false alarm on
+     * the common path, bought to cover a rare one.
+     */
     const runStep = async (step) => {
-        const deleted = step.prev
-            ? await unlinkAgentDocument(darwinUri, idToken, step.agent_fk, step.document_fk)
-            : false;
-
-        // RECORDED BEFORE THE INSERT IS ATTEMPTED, and that ordering is the whole
-        // point. A relink is DELETE-then-INSERT; if the INSERT fails, the DELETE
-        // has ALREADY committed (autocommit, separate Lambda invocation) and is
-        // precisely what has to be undone. Pushing after the insert — the obvious
-        // way to write this — means the one step that most needs a rollback is the
-        // only step the rollback never sees, and the link is silently gone.
-        //
-        // `deleted` records what ACTUALLY happened rather than what was intended:
-        // a `prev` that turned out to be already absent (404) must never be
-        // resurrected, because recreating a row that did not exist is its own
-        // corruption.
-        const record = { ...step, deleted, attemptedWrite: false };
+        // PUSHED BEFORE ANY CALL IS ATTEMPTED. Recording after an await means the
+        // one step that most needs a rollback is the only step the rollback never
+        // sees. That was true of the INSERT (fixed by req #3051) and it was still
+        // true of the leading DELETE until req #3101: a DELETE that committed and
+        // then lost its response left `applied` empty, so nothing was ever put
+        // back and a link vanished with no report at all.
+        const record = {
+            ...step, cleanupNeeded: false, restoreNeeded: false, restoreUncertain: false,
+        };
         applied.push(record);
+
+        if (step.prev) {
+            try {
+                // A 404 is the desired end state, not a failure — and it is the
+                // one outcome that rules a restore OUT rather than in.
+                record.restoreNeeded = await unlinkAgentDocument(
+                    darwinUri, idToken, step.agent_fk, step.document_fk);
+            } catch (err) {
+                // Outcome unknown, so REPAIR but do not report — see
+                // `restoreUncertain` above.
+                //
+                // Deliberately NOT `cleanupNeeded`. This step has written nothing,
+                // so there is nothing of its own to clean up, and a cleanup DELETE
+                // here would be issued against a row this step may well have failed
+                // to touch — destroying the very link the rollback exists to save.
+                // The lone POST below is the whole repair and it needs no DELETE in
+                // front of it: it either restores the row or collides with it.
+                record.restoreUncertain = true;
+                throw err;
+            }
+        }
 
         if (step.next) {
             // Flagged BEFORE the await for the same reason: the write may commit
             // and the response still fail (a flake after the INSERT landed), and
             // the rollback has to assume it might be there.
-            record.attemptedWrite = true;
+            record.cleanupNeeded = true;
             await linkAgentDocument(darwinUri, idToken, {
                 ...step.next,
                 agent_fk: step.agent_fk,
@@ -274,47 +384,83 @@ export async function applyLinkPlan(darwinUri, idToken, steps) {
 
     const rollback = async () => {
         const lost = [];
+        const orphaned = [];
         for (const step of [...applied].reverse()) {
+            // TWO INDEPENDENT try BLOCKS, not one around both halves.
+            //
+            // They were one until req #3101, and that coupling had its own defect:
+            // a step whose cleanup DELETE threw skipped its own RESTORE entirely,
+            // so a failure on the half that costs the user nothing prevented the
+            // half that repairs real damage from even being attempted. The two
+            // undo different things and fail for different reasons; neither is
+            // allowed to cancel the other.
+            let cleanupFailed = false;
             try {
-                // Remove whatever this step may have written. Unconditionally
-                // attempted whenever a write was STARTED, not only when it was
-                // observed to succeed — `unlinkAgentDocument` tolerates a 404, so
-                // trying costs nothing, while skipping it would leave a committed
-                // row behind whenever a response was lost after the INSERT landed.
-                if (step.attemptedWrite) {
+                // Remove whatever this step may have put here. 404-tolerant, so
+                // issuing it when there is nothing to remove costs one call and
+                // never fails.
+                if (step.cleanupNeeded) {
                     await unlinkAgentDocument(darwinUri, idToken,
                         step.agent_fk, step.document_fk);
                 }
-                // Then put back whatever it genuinely removed.
-                if (step.deleted && step.prev) {
+            } catch {
+                cleanupFailed = true;
+            }
+
+            // REPAIR on either signal; REPORT only on the confirmed one.
+            const restoring = (step.restoreNeeded || step.restoreUncertain) && step.prev;
+            if (restoring) {
+                try {
                     await linkAgentDocument(darwinUri, idToken, {
                         ...step.prev,
                         agent_fk: step.agent_fk,
                         document_fk: step.document_fk,
                     });
+                } catch {
+                    // Keep unwinding the rest — a second failure must not strand
+                    // steps that could still be undone.
+                    //
+                    // `cleanupFailed` rides along because it changes what to TELL
+                    // the user: with a successful cleanup the row is genuinely
+                    // gone, while with a failed one the row is still there holding
+                    // the value the rejected edit asked for. "Missing" and "not
+                    // what you left" are different repairs.
+                    if (step.restoreNeeded) {
+                        lost.push({ ...step, cleanupFailed });
+                        continue;
+                    }
+                    // Uncertain: we never established that anything was removed, so
+                    // there is nothing we can honestly say went missing. The
+                    // original error stays the headline.
                 }
-            } catch {
-                // Keep unwinding the rest — a second failure must not strand steps
-                // that could still be undone. Only a step that had a row to
-                // restore counts as LOST; one that merely failed to have its own
-                // write cleaned up has not cost the user anything they had.
-                if (step.deleted && step.prev) lost.push(step);
             }
+
+            // NO RESTORE WAS ATTEMPTED and the cleanup failed, so a row this step
+            // may have created is still out there, scoped to nobody's intent —
+            // the orphan req #3051's review flagged as unreported.
+            //
+            // The predicate is "no restore ran", NOT "no `prev`". They look
+            // equivalent and are not: a step whose `prev` turned out to be already
+            // absent (404) carries a non-null `prev` and still skips its restore,
+            // and its INSERT created a row that did not exist a moment earlier.
+            // Keying on `prev` alone left exactly that shape silent — reachable
+            // from a single popover Save whenever another writer removed the link
+            // between the plan being built and the write running.
+            //
+            // It cannot double-count: the `lost` branch above `continue`s.
+            if (cleanupFailed && !restoring) orphaned.push(step);
         }
-        return lost;
+        return { lost, orphaned };
     };
 
     try {
         for (const step of steps) await runStep(step);
         return { applied: applied.length };
     } catch (err) {
-        const lost = await rollback();
-        if (lost.length) {
-            throw new LinkRollbackError(
-                'The change was rejected AND the previous links could not be restored — '
-                + `${lost.length} agent link${lost.length === 1 ? ' is' : 's are'} now missing. `
-                + 'Reload the page to see the real state.',
-                { cause: err, lost });
+        const { lost, orphaned } = await rollback();
+        if (lost.length || orphaned.length) {
+            throw new LinkRollbackError(rollbackMessage(lost, orphaned),
+                { cause: err, lost, orphaned });
         }
         throw err;
     }

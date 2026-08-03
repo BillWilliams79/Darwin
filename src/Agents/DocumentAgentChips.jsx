@@ -67,6 +67,10 @@ const DocumentAgentChips = ({
     onOpenLink,
     busy = false,
     testIdPrefix,
+    // The commit-mode marker for this row (req #3101). Supplied by the page rather
+    // than built here so the card's seven markers all come from one place and
+    // cannot drift into seven slightly different sentences.
+    commitMarker,
 }) => {
     const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -80,6 +84,8 @@ const DocumentAgentChips = ({
 
     return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', rowGap: 0.75 }}>
+            {commitMarker}
+
             {bound.length === 0 && !paletteOpen && (
                 <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
                     No other agent references this —

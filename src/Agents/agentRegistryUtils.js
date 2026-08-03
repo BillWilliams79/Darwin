@@ -33,6 +33,53 @@ export const isAutoload = (rel) => hasRole(rel, 'autoload');
 export const isPrinciples = (rel) => hasRole(rel, 'principles');
 
 /**
+ * SUPERSEDED ROLES, dropped: the precedence rules of instruction #83, as data.
+ *
+ * `referenced` means "may consult on demand". `owned` and `principles` both mean
+ * the agent reads the document as a matter of course, so either of them already
+ * OUTRANKS a reference — a link carrying both ends of that comparison makes the
+ * precedence rule refer to itself, which is why `relationshipSetError` blocks the
+ * combination outright.
+ *
+ * WHY THIS IS A TABLE AND NOT AN `if` AT A CALL SITE (req #3101, closing finding
+ * 3b from req #3051's review). The invariant used to be enforced in exactly one
+ * place — `planOwnerTransfer` filtered `referenced` out before adding `owned` —
+ * and it got there only because the FIRST version of that function shipped the
+ * invalid combination and had to be corrected. One call site is one chance to
+ * forget, and there was nothing stopping the second call site from making the
+ * same mistake the first one already made once.
+ */
+const SUPERSEDES = {
+    owned: ['referenced'],
+    principles: ['referenced'],
+};
+
+/**
+ * Drop every role that another role in the same set already outranks.
+ *
+ * PURE and ORDER-INDEPENDENT: the result depends only on which roles are present,
+ * never on the order they arrive in.
+ *
+ * This function does not drop unknown members — that is `serializeRoles`' job, and
+ * doing it in two places would make neither the authority. **But that is only
+ * observable on the ARRAY form.** A string argument goes through `parseRoles`
+ * first, which keeps only members in `RELATIONSHIP_ORDER`, so `'owned,nonsense'`
+ * arrives here already filtered while `['owned', 'nonsense']` does not. The
+ * asymmetry is inherited from the parse, not decided here, and it does not reach
+ * the database either way.
+ */
+export const resolveRoleConflicts = (roles = []) => {
+    const list = Array.isArray(roles) ? roles : parseRoles(roles);
+    const present = new Set(list.map(r => (r || '').trim()).filter(Boolean));
+    const dropped = new Set();
+    for (const [winner, losers] of Object.entries(SUPERSEDES)) {
+        if (!present.has(winner)) continue;
+        for (const loser of losers) dropped.add(loser);
+    }
+    return [...present].filter(r => !dropped.has(r));
+};
+
+/**
  * The INVERSE of `parseRoles`: roles -> the exact string the database stores.
  *
  * Deliberately named as `parseRoles`' pair and defined next to it, because the
@@ -46,10 +93,20 @@ export const isPrinciples = (rel) => hasRole(rel, 'principles');
  *
  * So: bare comma, no space, unknown members dropped, output in precedence order
  * so two links with the same roles always store byte-identical strings.
+ *
+ * AND SUPERSEDED MEMBERS DROPPED (req #3101). This is the same job as dropping an
+ * unknown member, not a new one: both answer "what does the database actually
+ * store for this set?", and both have to be settled at the ONE boundary every
+ * junction write crosses — `linkRow` in documentsApi.js serializes here, so no
+ * caller can route around it. It does not make `relationshipSetError` redundant
+ * and does not weaken it: the validator still refuses the combination on the raw
+ * set the USER composed, out loud, in the popover. The serializer is the last
+ * line, for sets nobody typed — a transfer plan, an MCP-written row read back,
+ * a future call site that has not been written yet.
  */
 export const serializeRoles = (roles = []) => {
     const list = Array.isArray(roles) ? roles : parseRoles(roles);
-    const present = new Set(list.map(r => (r || '').trim()));
+    const present = new Set(resolveRoleConflicts(list));
     return RELATIONSHIP_ORDER.filter(r => present.has(r)).join(',');
 };
 
@@ -148,10 +205,76 @@ const isSafeHref = (url) => {
     return SAFE_HREF_SCHEME.test(trimmed) || /^https?:$/i.test(scheme[1] + ':');
 };
 
-export const documentHref = (doc) => {
-    if (doc?.url && isSafeHref(doc.url)) return doc.url;
-    if (!doc?.location) return null;
-    return `https://github.com/BillWilliams79/DarwinAI-Config/blob/main/${doc.location}`;
+export const documentBlobHref = (location) => (
+    (location || '').trim()
+        ? `https://github.com/BillWilliams79/DarwinAI-Config/blob/main/${location.trim()}`
+        : null);
+
+/**
+ * DELEGATES to `documentTarget` (req #3101) rather than restating its precedence.
+ *
+ * The two used to be independent implementations of one rule, which is a standing
+ * invitation to drift — and drift here does not fail, it MISLABELS: `documentTarget`
+ * decides which chip the card draws as "the one that opens" while this decides
+ * where the button actually goes. One derivation, one answer.
+ */
+export const documentHref = (doc) => documentTarget(doc).href;
+
+/**
+ * WHAT THIS ROW POINTS AT — the whole answer, in one pure function (req #3101, § 2).
+ *
+ * An `architecture_documents` row is a REGISTRATION, not a file. It records a
+ * repo-relative `location` on disk and/or an external `url`, and Darwin never
+ * touches either: nothing opens the path, nothing fetches the URL, and deleting
+ * the row deletes neither. A typo in `location` is discovered when an agent fails
+ * to read it at boot — which it does silently, because the executor is an LLM.
+ *
+ * Until #3101 that distinction lived only in the DELETE and LOCATION dialogs'
+ * copy: invisible on the resting card, and therefore invisible to everybody who
+ * was not already in the middle of a destructive action. The card now renders it
+ * (DocumentTargetChips) and this is the derivation behind it.
+ *
+ * THIS IS ALSO THE ONE PLACE THE OPEN-LINK PRECEDENCE IS DECIDED. `documentHref`
+ * is `documentTarget(doc).href` — it used to be a second implementation of the same
+ * rule, which is a standing invitation to drift, and drift here would not fail, it
+ * would MISLABEL: this decides which chip the card draws as "the one that opens"
+ * while `documentHref` decides where the button actually goes.
+ *
+ * `urlRejected` is what the card gained beyond a bare href. The precedence
+ * deliberately FALLS THROUGH to the constructed blob URL when a stored `url` fails
+ * the scheme guard, so the row keeps a working link — but that fallback is
+ * completely silent, and a row whose `url` column is unusable looked identical to
+ * a row that never had one. Somebody has to be told, and the card is where they
+ * are looking.
+ *
+ * @returns {{
+ *   hasLocation: boolean, hasUrl: boolean,
+ *   urlUsable: boolean, urlRejected: boolean,
+ *   opens: 'url'|'path'|null, href: string|null, blobHref: string|null,
+ * }}
+ */
+export const documentTarget = (doc) => {
+    const location = (doc?.location || '').trim();
+    const url = (doc?.url || '').trim();
+    const hasLocation = !!location;
+    const hasUrl = !!url;
+    const urlUsable = hasUrl && isSafeHref(url);
+    const blobHref = documentBlobHref(location);
+
+    // THE precedence rule — a stored, usable `url` wins; otherwise the path, as a
+    // constructed blob URL. `documentHref` delegates here rather than restating it,
+    // so the chip labelled "opens" and the button's destination cannot disagree.
+    const opens = urlUsable ? 'url' : (blobHref ? 'path' : null);
+
+    return {
+        hasLocation,
+        hasUrl,
+        urlUsable,
+        urlRejected: hasUrl && !urlUsable,
+        opens,
+        href: opens === 'url' ? url : blobHref,
+        blobHref,
+    };
 };
 
 /**
@@ -720,17 +843,22 @@ export const planOwnerTransfer = ({
     }
 
     if (toAgentId != null) {
-        // `owned` SUPERSEDES `referenced`; it does not stack with it. Instruction
-        // #83 makes an owned document outrank a referenced one, so a link carrying
-        // both makes that precedence rule refer to itself — which is exactly why
-        // `relationshipSetError` blocks the combination. A blind union would
-        // therefore have produced a set this codebase itself rejects: claiming
-        // ownership of a document you currently merely reference (the single
-        // commonest transfer target, since all 32 non-owner links are plain
-        // `referenced`) would build an invalid plan. Drop `referenced` on the way
-        // in. `autoload` and `curated` are orthogonal to ownership and are kept.
+        // `owned` SUPERSEDES `referenced`; it does not stack with it. A blind
+        // union would therefore produce a set this codebase itself rejects:
+        // claiming ownership of a document you currently merely reference (the
+        // single commonest transfer target, since all 32 non-owner links are plain
+        // `referenced`) would build an invalid plan. `autoload` and `curated` are
+        // orthogonal to ownership and are kept.
+        //
+        // THAT RULE IS NO LONGER APPLIED HERE (req #3101). It lives in
+        // `resolveRoleConflicts`, which `serializeRoles` runs on every set on its
+        // way to the wire — so this call site gets it for free and, more to the
+        // point, so does every call site written after this one. This function was
+        // where the invariant was enforced and where the first version of it was
+        // got WRONG; a rule holding in exactly one place is a rule waiting to be
+        // forgotten in the second.
         const merged = serializeRoles([
-            ...parseRoles(toLink?.relationship).filter(r => r !== 'referenced'),
+            ...parseRoles(toLink?.relationship),
             'owned',
         ]);
         steps.push({

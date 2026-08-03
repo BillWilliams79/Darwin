@@ -71,7 +71,12 @@ const InstructionsTableView = ({
     agentIndex,
     openAgents,
     slotOf,
-    membershipBusyIds,
+    // (rowId) => boolean. A FUNCTION rather than the Set it used to be (req #3101):
+    // the page now counts in-flight writes per row instead of holding one boolean
+    // per busy row, so "is this row busy?" is a question rather than a membership
+    // test. `useBusyCounts` re-creates the function whenever any count moves, which
+    // is exactly what `gridRows` below needs to re-run on.
+    isMembershipBusy,
     timezone,
     sortMode,
     sortDesc,
@@ -148,8 +153,8 @@ const InstructionsTableView = ({
         blockedMessages: Object.entries(fieldErrors)
             .filter(([key]) => key.startsWith(`${row.id}:`))
             .map(([, message]) => message),
-        membershipBusy: membershipBusyIds.has(row.id),
-    })), [rows, fieldErrors, membershipBusyIds]);
+        membershipBusy: isMembershipBusy(row.id),
+    })), [rows, fieldErrors, isMembershipBusy]);
 
     const columns = useMemo(() => [
         {
