@@ -402,13 +402,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // directive, kept in the product).
             await expect(page.getByTestId('pipeline-batch-legend')).toBeVisible();
 
-            // Design rule 2: co-gated steps are PROPOSED for condensation into one
-            // multi-requirement step — a suggestion the page surfaces, never an
-            // automatic edit (plan mutations belong to the Primary AI).
-            expect(batchPlan.proposals).toHaveLength(1);
-            const proposal = page.getByTestId('pipeline-condensation-proposals');
-            await expect(proposal).toBeVisible();
-            await expect(proposal).toContainText('condensed');
+            // NO CONDENSATION ADVISORY (req #3303). This is the case that used to
+            // raise it — co-gated steps sharing a launch key — so the negative is
+            // asserted HERE, where the banner would appear if it came back, rather
+            // than on a plan that could never have shown one.
+            await expect(page.getByTestId('pipeline-condensation-proposals'))
+                .toHaveCount(0);
+            // The banner rendered as a SIBLING above the table, so the text check
+            // is on the page, not on the table element.
+            await expect(page.getByText(/could be condensed/)).toHaveCount(0);
         });
 
     test('PIPE-04b: no banner and NO legend key on a plan without a launch batch',

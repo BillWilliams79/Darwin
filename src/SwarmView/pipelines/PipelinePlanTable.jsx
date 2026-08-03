@@ -25,7 +25,7 @@
 // Design rule 9: every mark here derives from requirements and the plan
 // hierarchy. Session/phase detail belongs to the Swarm visualizer.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -152,35 +152,11 @@ export function OrderViolationsAlert({ plan }) {
     );
 }
 
-// ── Condensation proposals (design rule 2) ──────────────────────────────────
-// A SUGGESTION, never a block and never an automatic edit: merging steps is a
-// plan mutation and the Primary AI owns plan mutations.
-//
-// The caller keys this on the proposal set so dismissing today's suggestion
-// cannot swallow tomorrow's: React remounts the component when the key changes,
-// resetting `dismissed`. Dismiss is "I've seen THIS", not "never show me any".
-function CondensationAlert({ proposals }) {
-    const [dismissed, setDismissed] = useState(false);
-    if (!proposals.length || dismissed) return null;
-    return (
-        <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
-               onClose={() => setDismissed(true)}
-               data-testid="pipeline-condensation-proposals">
-            <AlertTitle>
-                {proposals.length === 1
-                    ? 'One group of steps could be condensed'
-                    : `${proposals.length} groups of steps could be condensed`}
-            </AlertTitle>
-            <Box component="ul" sx={{ pl: 3, m: 0 }}>
-                {proposals.map((p) => (
-                    <li key={p.stepIds.join('-')}>
-                        <Typography variant="body2">{p.reason}</Typography>
-                    </li>
-                ))}
-            </Box>
-        </Alert>
-    );
-}
+// The condensation advisory that used to render here was DELETED, not hidden
+// (req #3303): it proposed a merge that batching already performs, and it could
+// not see the file contention rule 2's concurrency condition turns on. The
+// batch banner below is what the plan table says about steps that launch
+// together, and it is the whole of it.
 
 // ── Launch-batch banner row (design rule 8) ─────────────────────────────────
 // Carries the batch letter, its member steps, its gate, and the EXACT one-line
@@ -372,9 +348,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
     return (
         <Box ref={rootRef}>
             <OrderViolationsAlert plan={plan} />
-            <CondensationAlert
-                key={(plan.proposals || []).map((p) => p.stepIds.join('-')).join('|')}
-                proposals={plan.proposals || []} />
 
             {/* The Time / Tokens control moved to the page header row (req
                 #3119). What stays here is the pair of things that describe THIS

@@ -20,7 +20,6 @@ import {
     displayOrder,
     verifyOrder,
     launchBatches,
-    condensationProposals,
     eligibility,
     requirementCounts,
     pauseState,
@@ -243,7 +242,7 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 
 /**
  * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
- * propose → mark eligibility → attach cost → derive the time axis.
+ * mark eligibility → attach cost → derive the time axis.
  *
  * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
  * point: the renderer checks its own output and the caller renders any violation
@@ -266,7 +265,6 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
     const violations = verifyOrder(rows);
     const batches = launchBatches(rows);
-    const proposals = condensationProposals(rows);
 
     const batchLetterByStepId = new Map();
     for (const b of batches) {
@@ -316,7 +314,6 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         timeAxis,
         batches,
         batchLetterByStepId,
-        proposals,
         eligibleStepIds,
         cycleDetected,
         cycleStepIds,

@@ -3,7 +3,7 @@ import varDump from '../classifier/classifier';
 
 import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useCookies } from 'react-cookie';
-import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/authService';
+import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/tokenService';
 import call_rest_api, { setAuthToken } from '../RestApi/RestApi';
 
 const AuthContext = createContext({});

@@ -178,8 +178,8 @@ test.describe('Working Domain Persistence', () => {
     const storedBefore = await page.evaluate(() => localStorage.getItem('darwin_working_domain'));
     expect(storedBefore).not.toBeNull();
 
-    // Simulate what LogoutLink does: remove the localStorage item
-    // (actual logout redirects to Cognito which would lose the page context)
+    // Simulate what AuthContext.logout() does: remove the localStorage item
+    // (driving the real /logout route would tear down the auth state this test still needs)
     await page.evaluate(() => {
       localStorage.removeItem('darwin_working_domain');
     });

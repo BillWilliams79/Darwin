@@ -378,7 +378,7 @@ the browser half; the two share a database and nothing else.
 | PIPE-01 | Cards\|Table switch on `/swarm/pipelines` | Both views render, the choice persists via `useViewPreference`, a row click opens the plan |
 | PIPE-02 | Rendered step order vs `displayOrder` | The full 34-row sequence matches element for element, and the engine's own `violations` are empty first |
 | PIPE-03 | State chips, epic/feature groups, machine column | Every chip reads the DERIVED state; labels render once per contiguous group (compared by id, not title); machine cells match `rowMachineLabel`, em-dash on the req-less step |
-| PIPE-04 | Launch-batch banner | `LAUNCH BATCH A`, the exact `/swarm-start <ids>` command, the wall-clock gate, the banner immediately above its first member, the legend key, and the rule-2 condensation proposal |
+| PIPE-04 | Launch-batch banner | `LAUNCH BATCH A`, the exact `/swarm-start <ids>` command, the wall-clock gate, the banner immediately above its first member, the legend key, and — since req #3303 — the ABSENCE of any condensation advisory, asserted here because this is the plan shape that used to raise one |
 | PIPE-04b | No batch | No banner and NO legend key on the Substrate plan, with `batches === []` asserted as a precondition |
 | PIPE-05 | Time / Tokens toggle | Cost hidden by default; one cell per row when revealed; a dash or a real figure; no cost-error notice |
 | PIPE-06 | Requirement link | Renders the bare id and navigates to `/swarm/requirement/:id` |

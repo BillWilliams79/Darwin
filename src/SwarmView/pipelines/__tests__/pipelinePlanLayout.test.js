@@ -20,6 +20,8 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
+    NEXT_MARK_MIN_STROKE_PX, NEXT_MARK_FLOOR_K, NEXT_MARK_SCREEN_RADIUS,
+    nextMarkIsDot, nextMarkDotRadius,
     readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
@@ -3056,6 +3058,16 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // two ceilings by doing exactly this by hand: "never reaches another bead"
     // cleared beads and crossed the epic chip's strip and its own launch-unit
     // box on all four sides, through the whole of Overview.
+    //
+    // THIS COVERS THE RING ONLY (req #3299). Below `NEXT_MARK_FLOOR_K` the
+    // component draws the deep-zoom-out DOT instead — deliberately NOT bound
+    // by this clearance list, since it is sized in screen space rather than
+    // world space (see the "different MARK" block in pipelinePlanLayout.js).
+    // It is k-INDEPENDENT BY CONSTRUCTION — it bounds the ring's worst-case
+    // WORLD envelope (`outerAt(NEXT_HALO_MAX_MAGNIFY)`), which is why it can
+    // claim "at any k" with no `k` sweep anywhere in it. The dot has no world
+    // envelope, so it is out of this case's reach by design, not by where a
+    // sweep happens to fall.
     it('crosses no world furniture, at any k the zoom can reach', () => {
         const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
         // The substrate fixture in all four label/layout combinations, PLUS the
@@ -3575,6 +3587,121 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
             expect(strokePx(k)).toBeCloseTo(
                 NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY * k, 10);
         }
+    });
+
+    // ── The follow-on: a different MARK below the band above (req #3299) ────
+    // The case above proved WHERE the ring stops reading; this proves the
+    // fix — a fixed-screen-size dot below that same floor, on the SAME
+    // REACHABLE sweep and the SAME live-plan zoom floor, so both halves of the
+    // story are measured against one sweep rather than two.
+    describe('the deep-zoom-out DOT covers what the ring cannot (req #3299)', () => {
+        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k) * k;
+
+        it('the dot band IS the band the ring cannot reach — found by '
+            + 'SEARCHING the swept range, not by restating the closed form '
+            + '(same discipline as the sibling case above)', () => {
+            const unreadable = new Set(
+                REACHABLE.filter((k) => strokePx(k) < NEXT_MARK_MIN_STROKE_PX));
+            const dotted = new Set(REACHABLE.filter((k) => nextMarkIsDot(k)));
+            expect(unreadable.size, 'ring-unreadable samples').toBeGreaterThan(10);
+            expect(dotted.size, 'dot-drawn samples').toBe(unreadable.size);
+            for (const k of unreadable) expect(dotted.has(k), `k=${k}`).toBe(true);
+        });
+
+        it('is derived from the ring\'s own acceptance floor, not chosen', () => {
+            expect(NEXT_MARK_FLOOR_K).toBeCloseTo(
+                NEXT_MARK_MIN_STROKE_PX / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY), 10);
+            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.29);
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.31);
+            // The formula only means what it claims to on the CAPPED branch
+            // (`strokePx(k) = STROKE × MAX_MAGNIFY × k` there) — true only
+            // while the floor itself sits below where the magnification caps
+            // (`K_READABLE / NEXT_HALO_MAX_MAGNIFY`). If a future change moved
+            // `K_READABLE` low enough to violate this, the floor would stop
+            // meaning "where the ring drops under the acceptance stroke".
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(K_READABLE / NEXT_HALO_MAX_MAGNIFY);
+        });
+
+        it('draws the ring at and above the floor, the dot only below it — '
+            + 'the k >= 0.3 band this requirement must not move', () => {
+            const atOrAbove = REACHABLE.filter((k) => k >= NEXT_MARK_FLOOR_K);
+            const below = REACHABLE.filter((k) => k < NEXT_MARK_FLOOR_K);
+            expect(atOrAbove.length).toBeGreaterThan(0);
+            expect(below.length).toBeGreaterThan(0);
+            for (const k of atOrAbove) expect(nextMarkIsDot(k), `k=${k}`).toBe(false);
+            for (const k of below) expect(nextMarkIsDot(k), `k=${k}`).toBe(true);
+            // The exact boundary itself stays on the ring — `nextMarkIsDot` is
+            // a strict `<`, so a camera parked exactly at the floor is not a
+            // special case needing its own branch.
+            expect(nextMarkIsDot(NEXT_MARK_FLOOR_K)).toBe(false);
+        });
+
+        it('holds the dot at a FIXED screen radius across the whole '
+            + 'reachable deep-zoom-out range, including the live zoom floor', () => {
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            expect(below.length, 'reachable samples below the floor')
+                .toBeGreaterThan(10);
+            for (const k of [...below, LIVE_ZOOM_FLOOR]) {
+                expect(nextMarkDotRadius(k) * k, `dot screen radius at k=${k}`)
+                    .toBeCloseTo(NEXT_MARK_SCREEN_RADIUS, 10);
+            }
+        });
+
+        it('meets the ring\'s own outer edge AT the floor — no size jump '
+            + 'crossing it, the same join `NEXT_HALO_SCREEN_RADIUS` makes at '
+            + '`K_READABLE`', () => {
+            const ringOuterAt = (k) => NEXT_HALO_MAX_OUTER * k; // capped branch
+            expect(NEXT_MARK_SCREEN_RADIUS)
+                .toBeCloseTo(ringOuterAt(NEXT_MARK_FLOOR_K), 10);
+            // And therefore continuous across a fine sweep straddling it, not
+            // just at the one named point — the gap shrinks WITH eps rather
+            // than sitting under one fixed tolerance regardless of it, which
+            // is what actually distinguishes "continuous" from "close enough
+            // at the scale I happened to check".
+            for (const eps of [0.01, 0.001, 0.0001]) {
+                const above = ringOuterAt(NEXT_MARK_FLOOR_K + eps);
+                const below = nextMarkDotRadius(NEXT_MARK_FLOOR_K - eps)
+                    * (NEXT_MARK_FLOOR_K - eps);
+                expect(Math.abs(above - below), `eps=${eps}`)
+                    .toBeLessThan(NEXT_HALO_MAX_OUTER * eps * 1.01);
+            }
+        });
+
+        it('never merges with the bead\'s own ring — clears it by at least '
+            + 'the acceptance stroke at every k it draws at, including the '
+            + 'top of its own band where the bead is largest', () => {
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            expect(below.length).toBeGreaterThan(10);
+            // The true worst case is the supremum of the dot's domain
+            // (k -> NEXT_MARK_FLOOR_K from below, where the bead is largest)
+            // — added explicitly rather than trusting a sample grid to land
+            // on it, since `REACHABLE`'s nearest sample (k ~= 0.2934) is not
+            // actually the tightest point.
+            for (const k of [...below, LIVE_ZOOM_FLOOR, NEXT_MARK_FLOOR_K - 1e-9]) {
+                const fringe = nextMarkDotRadius(k) * k - BEAD_OUTER_RADIUS * k;
+                expect(fringe, `clearance to the bead at k=${k}`)
+                    .toBeGreaterThanOrEqual(NEXT_MARK_MIN_STROKE_PX);
+            }
+        });
+
+        it('is comfortably readable at the live zoom floor, where the ring '
+            + 'was proved unreadable', () => {
+            // The ring's entire outer edge was under 3 screen px there (the
+            // sibling case above). The dot clears the ring's own acceptance
+            // floor by a wide margin at the SAME k.
+            expect(NEXT_MARK_SCREEN_RADIUS).toBeGreaterThan(NEXT_MARK_MIN_STROKE_PX);
+            expect(nextMarkDotRadius(LIVE_ZOOM_FLOOR) * LIVE_ZOOM_FLOOR)
+                .toBeCloseTo(NEXT_MARK_SCREEN_RADIUS, 10);
+        });
+
+        it('nextMarkDotRadius does not divide by zero on a bad k', () => {
+            for (const bad of [NaN, 0, -1, Infinity]) {
+                expect(Number.isFinite(nextMarkDotRadius(bad)), `k=${bad}`).toBe(true);
+            }
+            expect(nextMarkIsDot(NaN)).toBe(false);
+            expect(nextMarkIsDot(0)).toBe(false);
+            expect(nextMarkIsDot(-1)).toBe(false);
+        });
     });
 });
 

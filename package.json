@@ -24,7 +24,6 @@
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-query-devtools": "^5.91.3",
     "amazon-cognito-identity-js": "^6.3.16",
-    "crypto-random-string": "^5.0.0",
     "d3-hierarchy": "^3.1.2",
     "d3-selection": "^3.0.0",
     "d3-transition": "^3.0.1",
