@@ -109,16 +109,23 @@ import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, stepFocusTransform, factoryDefaultScale, clampPlanTransform,
+    epicFocusTransform, stepFocusTransform, batchFocusTransform,
+    factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
-    nextHaloMagnify, labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
+    nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
+    labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
 } from './pipelinePlanLayout';
+import {
+    epicCycleKey, epicZoomStateKey, nextBatchLetter, nextEpicZoom,
+    epicZoomHint, epicZoomHintSuffix, gestureMovedCamera, EPIC_ZOOM_CLICK_SLOP,
+    EPIC_ZOOM_BAND, EPIC_ZOOM_BATCH,
+} from './pipelineEpicZoom';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -372,9 +379,10 @@ export default function PipelinePlanVisualizer({
             statuses: planStatuses,
             machineLegend: machineView.legend,
         }).entries])), [planStatuses, machineView]);
-    // Expanded by default — see the key's own comment below for why this is
+    // Collapsed by default (req #3309 — the key covered too much of the plan
+    // on first view) — see the key's own comment below for why this is
     // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(true);
+    const [keyOpen, setKeyOpen] = useState(false);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -474,6 +482,24 @@ export default function PipelinePlanVisualizer({
     // straight back onto the linked epic. `persist` is the same predicate in
     // both places for the same reason: it means "the reader asked for this".
     const userMovedCameraRef = useRef(false);
+
+    // ── THE EPIC NAME'S CYCLE POSITION (req #3297) ──────────────────────────
+    // `{ key, level }` — WHERE the epic name's two-state zoom last put the
+    // camera, per epic AND per plan (`epicZoomStateKey`). Declared up here, next
+    // to the flag whose gesture also clears it, rather than beside
+    // `activateEpicName` where it is read: the zoom handler below is the only
+    // place that can see a real drag or wheel, and it is defined earlier in the
+    // body, so a callback declared later could not appear in its dependency
+    // array without a TDZ error. A ref needs none.
+    //
+    // See `activateEpicName` for the cycle itself, and the handler below for
+    // why a reader's own gesture ends it.
+    const epicZoomRef = useRef(null);
+    // The camera at the start of the gesture in progress — the baseline
+    // `gestureMovedCamera` measures against, so the jitter inside a click on
+    // the chip is not mistaken for a pan. Written only for a gesture that
+    // carries a `sourceEvent`; see the zoom behaviour's 'start' handler.
+    const gestureStartRef = useRef(null);
 
     useLayoutEffect(() => {
         if (!containerEl) return undefined;
@@ -686,7 +712,14 @@ export default function PipelinePlanVisualizer({
             // frozen (review finding).
             .filter((ev) => (ev.type === 'wheel' ? true
                 : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR))))
-            .clickDistance(5)
+            // ONE number for "how far may a click move" (req #3297). d3 uses it
+            // to decide whether to suppress the click; the epic name's cycle
+            // uses it to decide whether that same gesture was the reader taking
+            // the camera. Two copies would drift into disagreeing about what a
+            // click is, on the same gesture, in the same file. The constant's
+            // own comment states the two ways "one number" is not "one
+            // measurement" — read it before changing either side.
+            .clickDistance(EPIC_ZOOM_CLICK_SLOP)
             .on('zoom', (ev) => {
                 const tr = ev.transform;
                 setTransform({ x: tr.x, y: tr.y, k: tr.k });
@@ -700,11 +733,45 @@ export default function PipelinePlanVisualizer({
                 // has been answered and must never move it again (req #3252
                 // review). See that effect for what this stops.
                 if (ev.sourceEvent) userMovedCameraRef.current = true;
+                // ── AND A REAL ONE ENDS THE EPIC NAME'S CYCLE (req #3297) ───
+                // Level 2 ("show me the next batch") is only the right answer
+                // to the next click while the reader is still looking at the
+                // band this control put them on. A drag or a wheel breaks that
+                // premise, and the cycle ref cannot see either.
+                //
+                // Left unhooked: land on `?epic=11` (which counts as click 1),
+                // pan to the far side of the plan, click epic 11's name meaning
+                // "take me back" — and drop straight inside batch A at 2.6× the
+                // readable default, having never seen the band.
+                //
+                // BUT NOT ON `sourceEvent` ALONE, which is where the flag above
+                // and this part deliberately: the chip is a descendant of the
+                // element this behaviour is bound to, so a mousedown on the
+                // NAME starts a pan and every pixel of hand-jitter inside the
+                // click emits a real zoom event. Clearing on those would break
+                // the band → batch step for anyone whose hand moves — i.e.
+                // intermittently. `gestureMovedCamera` asks d3's own
+                // click-vs-drag question with d3's own number.
+                if (ev.sourceEvent
+                    && gestureMovedCamera(gestureStartRef.current, tr)) {
+                    epicZoomRef.current = null;
+                }
                 // The world slides under a stationary datacard, which would
                 // then caption whatever bead ends up beneath it — dismiss.
                 setCard(null);
             })
             .on('start', (ev) => {
+                // WHERE THE CAMERA WAS WHEN THIS GESTURE BEGAN (req #3297) —
+                // recorded before the wheel early-return below, because a wheel
+                // is exactly the gesture whose scale change must end the epic
+                // name's cycle. Programmatic transforms carry no `sourceEvent`
+                // and must not re-baseline it, or a focus transition landing
+                // mid-drag would make the rest of that drag look stationary.
+                if (ev.sourceEvent) {
+                    gestureStartRef.current = {
+                        x: ev.transform.x, y: ev.transform.y, k: ev.transform.k,
+                    };
+                }
                 if (!ev.sourceEvent || ev.sourceEvent.type === 'wheel') return;
                 draggingRef.current = true;
                 const c = stageRef.current?.container();
@@ -840,6 +907,21 @@ export default function PipelinePlanVisualizer({
         if (landedKeyRef.current !== landKey) {
             landedKeyRef.current = landKey;
             committedFingerprintRef.current = viewportFingerprint;
+            // ── A NEW WORLD ENDS THE EPIC NAME'S CYCLE (req #3297, review) ──
+            // Both branches below relocate the camera, and they run because the
+            // GEOMETRY moved — a Step Width or requirement-layout toggle
+            // rescales the world, so the saved camera is refused and the base
+            // view is applied. Neither path carries a `sourceEvent`, so the
+            // zoom handler cannot see it, and without this the level survives:
+            // click an epic name, click Width, click the same name — and you
+            // land inside its batch at 2.6× the readable default, having never
+            // seen the band. Exactly the failure the deep-link comment below
+            // says the design rules out, reached by a different road.
+            //
+            // At the TOP of the block, so it covers the restore and the reset
+            // alike: what invalidates the level is the world changing under it,
+            // not which of the two answers the camera got.
+            epicZoomRef.current = null;
             const saved = viewport.read();
             // Clamp rather than refuse: a clamped camera is still near where the
             // reader was, which is the whole ask. Refusing is reserved for one
@@ -898,6 +980,13 @@ export default function PipelinePlanVisualizer({
         // An explicit, in-the-moment instruction about where to look — so it
         // ends any `?epic=` re-fit, exactly as a drag does (req #3252 review).
         userMovedCameraRef.current = true;
+        // …and ends the epic name's cycle for the same reason (req #3297): the
+        // reader is no longer looking at the band this control put them on, so
+        // the next click on that name owes them the band, not its next batch.
+        // Reset reaches the camera through `zoom.transform`, which carries no
+        // `sourceEvent`, so the zoom handler above cannot see it — this is the
+        // same explicit-instruction case the line above exists for.
+        epicZoomRef.current = null;
         resetView();
     }, [resetView]);
     // `resetViewNonce` only ever increments (the header's click handler), so
@@ -1192,6 +1281,92 @@ export default function PipelinePlanVisualizer({
         epicFocusTransform(layout, band, size, kDefault, kZoomFloor), opts),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
+    // ── THE SECOND STOP: ONE LAUNCH BATCH (req #3297) ───────────────────────
+    // The THIRD geometry function through the SAME `applyFocus`, and the third
+    // caller written to look identical to the other two on purpose — the flag
+    // discipline above took two review findings to get right and must never
+    // exist in a second copy. Only `batchFocusTransform` differs, and `opts` is
+    // not even offered: a batch focus is only ever reached by the reader
+    // clicking, so it always persists (item 5), and a parameter whose one legal
+    // value is the default is a way to get it wrong later.
+    const focusBatch = useCallback((band, letter) => applyFocus(
+        batchFocusTransform(layout, band, letter, size, kDefault, kZoomFloor)),
+    [applyFocus, layout, size, kDefault, kZoomFloor]);
+
+    // Which batch each band's SECOND click goes to — computed once per layout
+    // rather than per click, because the epic chips also need it to say what
+    // they do (the `title`/`aria-label` below) and a control that named one
+    // batch and zoomed to another would be worse than one that named none.
+    // `null` for a band with no next batch, which is what keeps that band's
+    // clicks on the level-1 fit instead of reaching for a transform that would
+    // come back null.
+    const nextBatchByEpic = useMemo(() => {
+        const m = new Map();
+        for (const band of layout.bands) {
+            m.set(epicCycleKey(band),
+                nextBatchLetter(plan.batches || [], layout, band, rowById));
+        }
+        return m;
+    }, [layout, plan.batches, rowById]);
+
+    // WHERE THE CYCLE LIVES: a ref, not state. Nothing on screen is a function
+    // of it — the camera is moved by d3, the chip's label is a function of the
+    // LAYOUT (which batch is next), not of where the reader currently is — so
+    // holding it in state would re-render the whole canvas on every click for
+    // no visible difference. It is also why the cycle is a pure function in
+    // `pipelineEpicZoom.js`: a ref is invisible to a test, and the rules are the
+    // part of this feature most worth pinning.
+    //
+    // `{ key, level }` — per EPIC AND per PLAN (`epicZoomStateKey`), never
+    // global (item 2). Only ever advanced by a move that actually happened:
+    // `applyFocus` returns false when there is no container or no transform yet,
+    // and recording a level for a camera that did not move would make the
+    // reader's next click the reverse of a move they never saw. Declared beside
+    // `userMovedCameraRef` above; cleared by the same gesture it is.
+    //
+    // The epic name's activation — one function behind both the click and the
+    // Enter/Space handler, so keyboard parity is structural rather than a second
+    // copy that has to be kept in step.
+    const activateEpicName = useCallback((band) => {
+        const key = epicZoomStateKey(pipeline?.id, band);
+        const letter = nextBatchByEpic.get(epicCycleKey(band)) || null;
+        const next = nextEpicZoom(epicZoomRef.current, key, letter != null);
+        // THE BATCH MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
+        // If the batch fit comes back null — the two halves disagreeing, or a
+        // container not ready — the level would never advance and every further
+        // click would retry the same failing batch, with the band fit
+        // unreachable. Falling through to the band makes the control
+        // self-healing: something always happens, and the cycle is never stuck
+        // at a level the camera is not actually on.
+        let level = next;
+        let moved = next === EPIC_ZOOM_BATCH && focusBatch(band, letter);
+        if (!moved) {
+            level = EPIC_ZOOM_BAND;
+            moved = focusEpic(band);
+        }
+        if (moved) epicZoomRef.current = { key, level };
+    }, [nextBatchByEpic, focusBatch, focusEpic, pipeline?.id]);
+
+    // ── WHERE THE CYCLE IS CLEARED, AND WHY IT IS THREE PLACES ──────────────
+    // Level 2 is only the right answer to the NEXT click while the premise
+    // behind it holds: the reader is looking at the band this control put them
+    // on. Every camera move that is not this control's own breaks that premise,
+    // and they arrive by three different roads — so the clear sits on each:
+    //
+    //   · a DRAG or a WHEEL — the zoom behaviour's own handler, gated on
+    //     `gestureMovedCamera` so the jitter inside a click is not mistaken for
+    //     a pan;
+    //   · RESET — `factoryReset`, which reaches the camera through
+    //     `zoom.transform` and so carries no `sourceEvent` at all;
+    //   · A NEW WORLD — the landing effect, when a toolbar toggle rescales the
+    //     plan and the camera is re-based.
+    //
+    // A shared callback was written here first and used by none of them: two of
+    // the three are effects defined EARLIER in this body, where a callback
+    // declared at this point cannot appear in a dependency array. A ref write
+    // needs no dependency, so each site does its own — three assignments,
+    // documented at each, rather than one binding nothing could reach.
+
     // Req #3235 — the mount-time end of the `?epic=` deep link: land on the
     // SAME centered/zoomed view a band-header click produces, through the
     // SAME zoom behaviour (`focusEpic`, never a direct transform write — the
@@ -1259,7 +1434,19 @@ export default function PipelinePlanVisualizer({
         if (epicFocusAppliedRef.current === key) return;
         const band = layout.bands.find((b) => b.epicId === focusEpicId);
         if (!band) return;
-        if (focusEpic(band, { persist: false })) epicFocusAppliedRef.current = key;
+        if (focusEpic(band, { persist: false })) {
+            epicFocusAppliedRef.current = key;
+            // A LANDING COUNTS AS CLICK 1 (req #3297 item 4). The reader is
+            // already looking at this band, so their first manual click on its
+            // name must go one level DEEPER, not repeat the fit they arrived
+            // at. Seeded here rather than inferred from `focusEpicId` in the
+            // cycle itself: this is the only place that knows the fit actually
+            // landed, and the re-fit this effect performs as the panel settles
+            // is idempotent on the level for the same reason.
+            epicZoomRef.current = {
+                key: epicZoomStateKey(pipeline?.id, band), level: EPIC_ZOOM_BAND,
+            };
+        }
     }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic]);
 
     // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
@@ -1572,8 +1759,20 @@ export default function PipelinePlanVisualizer({
     // expression the label gate reads. The invariant is "the scale the halo
     // sizes itself against is the scale the labels are gated on", and two
     // expressions that agree today are how that quietly stops being true.
-    const haloM = nextHaloMagnify(curK);
-    const haloDash = haloM === 1 ? NEXT_HALO_DASH : NEXT_HALO_DASH.map((d) => d * haloM);
+    // req #3299 — below the ring's reach (`nextHaloMagnify`'s ceiling is
+    // already maxed out, so the ring's ON-SCREEN size resumes shrinking with
+    // `curK`), a DIFFERENT MARK takes over: a filled dot, counter-scaled so
+    // its screen size is fixed rather than a world size the camera shrinks.
+    // See `nextMarkIsDot`/`nextMarkDotRadius` in pipelinePlanLayout.js for the
+    // derivation. Decided BEFORE `haloM`/`haloDash` so those — unused on the
+    // dot branch, and `NEXT_HALO_DASH.map` allocates a fresh array every frame
+    // on the capped branch this replaces — are only computed for the branch
+    // that needs them.
+    const haloIsDot = nextMarkIsDot(curK);
+    const haloM = haloIsDot ? 1 : nextHaloMagnify(curK);
+    const haloDash = haloIsDot || haloM === 1 ? NEXT_HALO_DASH
+        : NEXT_HALO_DASH.map((d) => d * haloM);
+    const dotRadius = haloIsDot ? nextMarkDotRadius(curK) : 0;
 
     rows.forEach((row) => {
         const n = layout.nodes.get(row.id);
@@ -1605,11 +1804,21 @@ export default function PipelinePlanVisualizer({
         // labels, so the magnification's target is the mark's own size at that
         // scale and the two branches meet. See `nextHaloMagnify`.
         if (style.next) {
-            worldNodes.push(
+            // req #3299 — the dot does NOT recolour the bead: it is its own
+            // node, in the halo's own colour, replacing only the RING's
+            // geometry below the floor the ring itself cannot reach. The
+            // bead's fill (state) and ring (run mode) below still draw at
+            // their own — now sub-pixel — world size, untouched.
+            worldNodes.push(haloIsDot ? (
+                <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
+                        radius={dotRadius} fill={style.haloColor}
+                        opacity={NEXT_HALO_OPACITY} listening={false} />
+            ) : (
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
                         radius={NEXT_HALO_RADIUS * haloM} stroke={style.haloColor}
                         strokeWidth={NEXT_HALO_STROKE * haloM} opacity={NEXT_HALO_OPACITY}
-                        dash={haloDash} listening={false} />);
+                        dash={haloDash} listening={false} />
+            ));
         }
         worldNodes.push(
             <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
@@ -1968,18 +2177,24 @@ export default function PipelinePlanVisualizer({
                     {floatingEpics.map((e) => (
                         <Box
                             key={e.key}
-                            onClick={() => focusEpic(e.band)}
+                            onClick={() => activateEpicName(e.band)}
                             // Reachable without a mouse. The chip has been a
                             // click target since req #3119 and was never
                             // focusable; now that it is the ONLY way to reach
                             // the focus feature, leaving it mouse-only would
                             // make the feature mouse-only.
+                            //
+                            // Req #3297 made this a CYCLE, and both inputs call
+                            // the SAME `activateEpicName` — so Enter/Space walk
+                            // band → batch → band exactly as the mouse does,
+                            // rather than a keyboard path that re-fits the band
+                            // forever while the mouse gets the new level.
                             role="button"
                             tabIndex={0}
                             onKeyDown={(ev) => {
                                 if (ev.key !== 'Enter' && ev.key !== ' ') return;
                                 ev.preventDefault();     // Space must not scroll
-                                focusEpic(e.band);
+                                activateEpicName(e.band);
                             }}
                             // NAMES WHAT THE CLICK DOES (req #3213 D6). The
                             // chip body has focused the band since req #3204 —
@@ -1989,7 +2204,20 @@ export default function PipelinePlanVisualizer({
                             // worse than either. The chip's two controls each
                             // name themselves: the body zooms, the ↗ below
                             // opens the features view, and both say so.
-                            title="Zoom pipeline epic"
+                            //
+                            // AND SINCE REQ #3297 IT NAMES BOTH STOPS — but
+                            // only where the second one exists. A band with no
+                            // next batch has no second stop to go to — its
+                            // clicks keep fitting the band — and a label
+                            // promising a zoom that cannot happen is the same
+                            // "silently does one of two
+                            // plausible things" defect this tooltip was written
+                            // to close, arrived at from the other direction. So
+                            // the batch clause is a function of
+                            // `nextBatchByEpic` — the SAME lookup the click
+                            // itself reads, so the promise and the behaviour
+                            // cannot drift, down to naming the same letter.
+                            title={epicZoomHint(nextBatchByEpic.get(e.key))}
                             // req #3226 — the pause bubble is colour-only
                             // (green/red), the least discriminable pair for
                             // the most common colour-vision deficiency and
@@ -1998,7 +2226,13 @@ export default function PipelinePlanVisualizer({
                             // second announced element, so pause reads as one
                             // more fact about the epic being named, not a
                             // separate control.
+                            // Req #3297's clause goes BEFORE the pause clause
+                            // and inside this one label, keeping req #3226's
+                            // ruling intact: still ONE announced element, and
+                            // pause still reads as the last fact about the epic
+                            // being named rather than a control of its own.
                             aria-label={`Zoom pipeline epic ${e.text}`
+                                + epicZoomHintSuffix(nextBatchByEpic.get(e.key))
                                 + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
@@ -2173,8 +2407,8 @@ export default function PipelinePlanVisualizer({
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
-                    collapsed from another session. Every visit opens with the key
-                    shown.
+                    shown from another session. Every visit opens with the key
+                    collapsed (req #3309).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -2234,7 +2468,15 @@ export default function PipelinePlanVisualizer({
                         hit target grows from 15px to 20px with the glyph's font
                         size scaled to match — still the smallest interactive
                         element on the canvas, just no longer the one you have to
-                        hunt for. */}
+                        hunt for.
+
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
+                        key now collapsed by default, '+' is what a reader sees
+                        first and it is the one glyph that has to say "there is
+                        more here" with no key content around it to draw the eye.
+                        Full resting opacity does that; the hover state (opacity
+                        1, `P.accent`) is unchanged and still the stronger of the
+                        two cues. */}
                     <Box component="button" type="button"
                          onClick={() => setKeyOpen((v) => !v)}
                          data-viz-chrome="legend"
@@ -2249,7 +2491,7 @@ export default function PipelinePlanVisualizer({
                                 fontFamily: MONO, fontSize: 15, lineHeight: 1,
                                 color: P.text, background: 'transparent',
                                 border: 'none', borderRadius: '5px',
-                                opacity: 0.85,
+                                opacity: keyOpen ? 0.85 : 1,
                                 '&:hover': { opacity: 1, color: P.accent } }}>
                         {keyOpen ? '−' : '+'}
                     </Box>
@@ -2303,7 +2545,15 @@ export default function PipelinePlanVisualizer({
                                 <LegendDot ring={P.manualRing} label="Manual" />
                                 {/* "next up" and not "eligible now" because the
                                     mark answers the question in the plan's own
-                                    words: these are the steps that run next. */}
+                                    words: these are the steps that run next.
+                                    Below k ≈ 0.3 the canvas swaps this dashed
+                                    ring for a filled dot of the same on-screen
+                                    size, in the SAME colour (req #3299,
+                                    `nextMarkIsDot` in pipelinePlanLayout.js) —
+                                    the ring cannot survive that deep a
+                                    zoom-out, the fact it marks does not
+                                    change, so the key does not grow a second
+                                    swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="next up"
                                            dashed animated="pipeKeyBreathe" />
                             </KeyGroup>

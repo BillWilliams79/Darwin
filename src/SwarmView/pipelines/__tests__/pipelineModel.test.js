@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
     STEP_DONE, STEP_RUNNING, STEP_PENDING,
     deriveStepState, buildPlanRows, displayOrder, verifyOrder,
-    eligibility, launchBatches, condensationProposals,
+    eligibility, launchBatches,
     dominantLabels, machineLabels, fmtCost, aggregateStepCost,
     aggregateRowCost, sumReqCost, requirementCounts, isTrackingRequirement,
     pauseState, PAUSED_STATUS,
@@ -332,7 +332,6 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
         const [batch] = launchBatches(displayOrder(rows).rows);
         expect(batch.swarmStartArgs).toEqual([100, 300]);
         expect(batch.swarmStartCommand).toBe('/swarm-start 100 300');
-        expect(condensationProposals(rows)[0].requirementIds).toEqual([100, 300]);
     });
 
     it('rule 8: a batch whose ONLY requirements are containers emits no command, '
@@ -569,10 +568,6 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
         expect(batches[0].stepIds.slice().sort()).toEqual([10, 11]);
         expect(batches[0].gateStepIds).toEqual([]);
         expect(batches[0].swarmStartArgs.slice().sort()).toEqual([7, 8]);
-        // …and the merged step keeps the RECORD of what gated each member.
-        const [proposal] = condensationProposals(stored);
-        expect(proposal.depStepIds).toEqual([1]);
-        expect(proposal.remainingDepStepIds).toEqual([]);
     });
 
     it('still splits when the remaining gates differ (req #3188)', () => {
@@ -586,7 +581,6 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
             row(11, STEP_PENDING, [2], { reqIds: [8], epicId: 1 }),
         ];
         expect(launchBatches(displayOrder(stored).rows)).toEqual([]);
-        expect(condensationProposals(stored)).toEqual([]);
     });
 
     it('run mode, machine set, and time gates all split batches', () => {
@@ -623,7 +617,7 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
     it('partitions a shared key into one batch PER epic, keeping the same-epic '
        + 'subsets (req #3188)', () => {
         // The fix PARTITIONS; it does not suppress. On the live nine-step
-        // proposal that means two good proposals, not zero.
+        // group that means two good batches, not zero.
         const stored = [
             row(1, STEP_DONE),
             row(10, STEP_PENDING, [1], { epicId: 1, epic: 'Substrate', reqIds: [7] }),
@@ -679,40 +673,43 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
     });
 });
 
-describe('condensationProposals — rule 2 proposals, UI decides', () => {
-    it('proposes merging same-(gate, run, machine) pending steps', () => {
+// These four cases were written against the condensation advisory req #3303
+// DELETED. Every one of them was really testing the pendingGroups/launchKey
+// PARTITION the advisory only read, so they are RE-POINTED at `launchBatches`
+// rather than deleted with it — the partition is what the advisory shared with
+// the launch machinery, and it is still the thing that must not regress.
+describe('launch-unit partition — the shared pendingGroups/launchKey machinery', () => {
+    it('groups same-(gate, run, machine) pending steps into one batch', () => {
         const rows = [
             row(1, STEP_DONE),
             row(10, STEP_PENDING, [1], { reqIds: [7], machines: ['Mac mini'] }),
             row(11, STEP_PENDING, [1], { reqIds: [8], machines: ['Mac mini'] }),
             row(12, STEP_PENDING, [1], { reqIds: [9], run: 'manual' }),
         ];
-        const proposals = condensationProposals(rows);
-        expect(proposals).toHaveLength(1);
-        expect(proposals[0]).toMatchObject({
+        const batches = launchBatches(displayOrder(rows).rows);
+        expect(batches).toHaveLength(1);
+        expect(batches[0]).toMatchObject({
             stepIds: [10, 11],
-            requirementIds: [7, 8],
-            depStepIds: [1],
-            remainingDepStepIds: [],
+            swarmStartArgs: [7, 8],
+            gateStepIds: [],
             run: 'auto',
             machineLabels: ['Mac mini'],
         });
-        expect(proposals[0].reason).toContain('design rule 2');
     });
 
-    it('proposes nothing when every pending step has a distinct launch key', () => {
-        expect(condensationProposals([
+    it('groups nothing when every pending step has a distinct launch key', () => {
+        expect(launchBatches(displayOrder([
             row(10, STEP_PENDING, [1], { reqIds: [7] }),
             row(11, STEP_PENDING, [2], { reqIds: [8] }),
-        ])).toEqual([]);
+        ]).rows)).toEqual([]);
     });
 
-    it('NEVER proposes a merge spanning more than one dominant epic, and offers '
-       + 'the same-epic subsets instead (req #3188)', () => {
-        // The live defect, reduced: one proposal held four epic-6 steps and six
-        // epic-7 steps. Acting on it would have handed one epic's requirements
+    it('NEVER groups across more than one dominant epic, and keeps the '
+       + 'same-epic subsets instead (req #3188)', () => {
+        // The live defect, reduced: one group held four epic-6 steps and six
+        // epic-7 steps. Launching it would have handed one epic's requirements
         // to the other epic's Primary. The required behaviour is to PARTITION,
-        // not to suppress — the bad proposal becomes two good ones.
+        // not to suppress — the bad group becomes two good ones.
         const rows = [
             row(1, STEP_DONE),
             row(55, STEP_PENDING, [1], { epicId: 6, epic: 'Mapping', reqIds: [3201] }),
@@ -720,24 +717,24 @@ describe('condensationProposals — rule 2 proposals, UI decides', () => {
             row(70, STEP_PENDING, [1], { epicId: 7, epic: 'Backlog', reqIds: [3203] }),
             row(71, STEP_PENDING, [1], { epicId: 7, epic: 'Backlog', reqIds: [3204] }),
         ];
-        const proposals = condensationProposals(rows);
-        expect(proposals).toHaveLength(2);
-        expect(proposals.map((p) => p.stepIds)).toEqual([[55, 57], [70, 71]]);
-        expect(proposals.map((p) => p.epicId)).toEqual([6, 7]);
-        expect(proposals.map((p) => p.requirementIds))
+        const batches = launchBatches(displayOrder(rows).rows);
+        expect(batches).toHaveLength(2);
+        expect(batches.map((b) => b.stepIds)).toEqual([[55, 57], [70, 71]]);
+        expect(batches.map((b) => b.epicId)).toEqual([6, 7]);
+        expect(batches.map((b) => b.swarmStartArgs))
             .toEqual([[3201, 3202], [3203, 3204]]);
     });
 
-    it('no proposal over the Substrate Rebuild fixture resolves more than one '
+    it('no batch over the Substrate Rebuild fixture resolves more than one '
        + 'dominant epic — the invariant, over real plan data (req #3188)', () => {
         // Pinned rather than observed once. The fixture's own shape is not the
-        // point: the assertion is a PROPERTY of every proposal the engine can
-        // emit from it, and it is stated over the full model rather than over a
+        // point: the assertion is a PROPERTY of every batch the engine can emit
+        // from it, and it is stated over the full model rather than over a
         // constructed pair, so a future change to the fixture cannot quietly
         // stop exercising it.
         //
         // Two model variants, because the stock fixture's nearest pair differs
-        // in run mode and yields no proposal at all: flipping step 43 to auto
+        // in run mode and yields no batch at all: flipping step 43 to auto
         // produces the first genuine batch in the Substrate data.
         const variants = [
             SUBSTRATE_REBUILD_MODEL,
@@ -751,21 +748,14 @@ describe('condensationProposals — rule 2 proposals, UI decides', () => {
         for (const model of variants) {
             const rows = buildPlanRows(model);
             const byId = new Map(rows.map((r) => [r.id, r]));
-            for (const proposal of condensationProposals(rows)) {
-                seen += 1;
-                const epics = new Set(
-                    proposal.stepIds.map((id) => byId.get(id).epicId));
-                expect(epics.size, `proposal ${proposal.stepIds}`).toBe(1);
-                expect([...epics][0]).toBe(proposal.epicId);
-            }
-            // Same invariant on the launch batches, from the same rows.
             for (const batch of launchBatches(displayOrder(rows).rows)) {
+                seen += 1;
                 const epics = new Set(batch.stepIds.map((id) => byId.get(id).epicId));
                 expect(epics.size, `batch ${batch.letter}`).toBe(1);
                 expect([...epics][0]).toBe(batch.epicId);
             }
         }
-        // A vacuous pass is not a pass: at least one proposal must have existed.
+        // A vacuous pass is not a pass: at least one batch must have existed.
         expect(seen).toBeGreaterThan(0);
     });
 });
@@ -1019,7 +1009,6 @@ describe('code-review hardenings (2026-07-26)', () => {
         });
         const posn = new Map(ids(result.rows).map((id, i) => [id, i]));
         expect(Math.abs(posn.get(41) - posn.get(43))).toBe(1);
-        expect(condensationProposals(rows)).toHaveLength(1);
     });
 });
 
