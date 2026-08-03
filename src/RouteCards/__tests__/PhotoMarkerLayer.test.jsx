@@ -6,13 +6,15 @@
 // jsdom, so Leaflet and its plugins are stubbed just far enough to observe
 // which markers land in the cluster group and whether the group is put on the
 // map — the derivation itself (dedup + window union) runs the REAL filterUtils.
+//
+// Req #3174 criterion 6 — the two-surface prop contract is part of feature
+// #23's automated coverage, so it is pinned here alongside the union's
+// deduplication. Rendering is @testing-library/react; `render()` keeps its
+// original re-render-in-place meaning by delegating to RTL's rerender.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { act } from 'react';
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+import { render as rtlRender, act, cleanup } from '@testing-library/react';
 
 const harness = vi.hoisted(() => ({
     clusterGroups: [],
@@ -101,16 +103,20 @@ const P_OUTSIDE = photo('c3.jpg', '2026-03-21T20:00:00Z', [37.2, -122.2]);
 const P_RUN2_GPS = photo('d4.jpg', '2026-03-22T09:20:00Z', [38.1, -121.1]);
 const INDEX = [P_RUN1_GPS, P_RUN1_NOGPS, P_OUTSIDE, P_RUN2_GPS];
 
-let container;
-let root;
+// A second render(...) in one test means "same tree, new props" — several
+// cases below depend on the component NOT remounting (a remount would rebuild
+// the cluster group and reset the hidden-photos ref, which is exactly what
+// they are pinning). RTL's rerender preserves that; a fresh render would not.
+let rerender = null;
 
-const render = (element) => { act(() => root.render(element)); };
+const render = (element) => {
+    if (rerender) rerender(element);
+    else ({ rerender } = rtlRender(element));
+};
 const flush = async () => { await act(async () => {}); };
 
 beforeEach(() => {
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
+    rerender = null;
     fakeMap = makeFakeMap();
     harness.clusterGroups.length = 0;
     harness.easyButtons.length = 0;
@@ -119,8 +125,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    act(() => root.unmount());
-    container.remove();
+    cleanup();
 });
 
 const markerNames = (group) => group.layers.map(m => {
@@ -145,6 +150,17 @@ describe('PhotoMarkerLayer prop contract (req #3159)', () => {
         expect(harness.loadIndexCalls).toBe(0);
         expect(harness.clusterGroups).toHaveLength(1);
         expect(markerNames(harness.clusterGroups[0])).toEqual(['a1.jpg', 'd4.jpg']);
+    });
+
+    it('a photo inside two OVERLAPPING ride windows is clustered once, not twice', async () => {
+        // The aggregator regularly holds rides recorded back-to-back or by two
+        // people on the same outing; a per-run concat would double every photo
+        // in the overlap, and each duplicate is a marker AND a proxy fetch.
+        const OVERLAPS_RUN_1 = { id: 3, start_time: '2026-03-21T17:20:00', run_time_sec: 3600, stopped_time_sec: 0 };
+        render(<PhotoMarkerLayer runs={[RUN_1, OVERLAPS_RUN_1]} coordinates={[]} dedupedIndex={INDEX} />);
+        await flush();
+        expect(harness.clusterGroups).toHaveLength(1);
+        expect(markerNames(harness.clusterGroups[0])).toEqual(['a1.jpg']);
     });
 
     it('an explicit empty `runs` wins over a `run` also passed', async () => {
