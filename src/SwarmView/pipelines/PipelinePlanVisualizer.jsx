@@ -114,7 +114,7 @@ import {
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
-    nextHaloMagnify, labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
+    nextHaloMagnify, labelsLegible, drawsLabelKind, levelPinTransform, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -259,6 +259,14 @@ export default function PipelinePlanVisualizer({
     // pattern, req #2407), so the panel is the canvas and nothing else.
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
+    // Req #3310 — is `levelPref` the READER's stored pin, or the one a `?level=`
+    // link asked for? The value cannot say: `PipelineDetail` resolves both into
+    // one prop (`activeLevelPref`), which is right for drawing and wrong for the
+    // pin's camera correction, whose whole flag split turns on whether the
+    // reader chose this level in the moment. A link-driven pin that took the
+    // reader-click path would set `userMovedCameraRef` and silently kill the
+    // `?step=` focus arriving in the very same link (review finding).
+    levelPrefFromLink = false,
     // `levelPref` IN, the level actually drawn OUT. The SETTER is gone (req
     // #3241): the Auto/L1/L2/L3 control that called it moved to the page header,
     // so this panel no longer writes the preference — it reads it, draws at that
@@ -588,8 +596,9 @@ export default function PipelinePlanVisualizer({
     // ── Auto, or PINNED (req #3168) ─────────────────────────────────────────
     // `KonvaBuildCanvas`'s own line, in this canvas's vocabulary:
     // `pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`. Pinning changes
-    // what is DRAWN and never where the camera is — no transform is touched, so
-    // a pinned reader can still pan and zoom freely and PIPE-09's wheel ladder is
+    // what is DRAWN and — with the one exception req #3310 added, a pin the
+    // current scale cannot draw at all — never where the camera is, so a pinned
+    // reader can still pan and zoom freely and PIPE-09's wheel ladder is
     // untouched while the selector sits on Auto.
     const pinnedLevel = pinnedLevelOf(levelPref);
     const autoLevelName = semanticLevel(kDefault > 0 ? curK / kDefault : 1);
@@ -603,17 +612,23 @@ export default function PipelinePlanVisualizer({
     // it keeps saying which kinds this view is FOR, and this says whether they
     // are worth drawing. `drawsKind` below requires both.
     //
-    // PINNING IS INCLUDED, not exempted, and that is a deliberate trade with a
-    // visible cost. A reader who pins L2 or L3 while zoomed out past
-    // `K_READABLE` is asking for detail at a scale that cannot carry it — on the
-    // live plan, ids at 5.5px and the L3 title slot at 3.8px one wheel-click out
-    // from where the plan lands — and drawing it is not an answer. THE COST:
-    // below that scale all three chips of the level selector produce the same
-    // canvas, so the control is inert there. Exempting the pin instead would
-    // break the halo's guarantee (`nextHaloMagnify` stops magnifying at exactly
-    // this scale, so an exempt pin would put a 2× mark under drawn labels), and
-    // re-coupling the halo to the pin is the two-predicate arrangement req #3280
-    // exists to delete.
+    // PINNING IS INCLUDED, not exempted. A reader who pins L2 or L3 while zoomed
+    // out past `K_READABLE` is asking for detail at a scale that cannot carry it
+    // — on the live plan, ids at 5.5px and the L3 title slot at 3.8px one
+    // wheel-click out from where the plan lands — and drawing it is not an
+    // answer. Exempting the pin instead would break the halo's guarantee
+    // (`nextHaloMagnify` stops magnifying at exactly this scale, so an exempt pin
+    // would put a 2× mark under drawn labels), and re-coupling the halo to the
+    // pin is the two-predicate arrangement req #3280 exists to delete.
+    //
+    // ITS COST WAS A DEAD BAND, AND THE COST IS NOW PAID ELSEWHERE (req #3310).
+    // Below this scale all three chips produced the same canvas, so the level
+    // selector was inert there — reported as "it always gets stuck at L1 unless
+    // you zoom in and out". The gate is UNCHANGED; what changed is that a pin
+    // naming a level this scale cannot draw now moves the scale to meet it (see
+    // `levelPinTransform` and the effect that applies it below). So the reader
+    // never sits below `K_READABLE` with a pin they cannot see, and the pin is
+    // still never drawn illegibly.
     const legible = labelsLegible(curK);
 
     // The d3-zoom behavior (KonvaSwarmCanvas pattern).
@@ -1131,13 +1146,44 @@ export default function PipelinePlanVisualizer({
     // step. Only the GEOMETRY differs between the two callers, and the flag
     // discipline below — which took two review findings to get right — must never
     // exist in two copies.
-    const applyFocus = useCallback((tr, { persist = true } = {}) => {
+    //
+    // `animate: false` IS NOT A PREFERENCE (req #3310). A transition is only a
+    // transition once a frame arrives, and the panel is sized TWICE at mount —
+    // so an effect that starts one during the FIRST sizing has it cancelled by
+    // the zoom effect's own `sel.interrupt()` cleanup when the second sizing
+    // re-creates the behaviour, one frame in and before it has moved anything.
+    // For a camera the reader has not seen yet there is nothing to animate FROM,
+    // and `zoom.transform` on a plain selection dispatches start/zoom/end
+    // SYNCHRONOUSLY — so an instant apply cannot be pre-empted, needs no seq
+    // stamp (the flags cannot outlive the call), and lands before the interrupt
+    // that would have killed it. The animated path is unchanged, and is still
+    // what every reader-initiated move uses.
+    const applyFocus = useCallback((tr, { persist = true, animate = true } = {}) => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || !tr) return false;
         // The world is about to slide out from under any open datacard, exactly
         // as it does on a pan.
         setCard(null);
+        if (!animate) {
+            // INTERRUPT FIRST, THEN RAISE THE FLAG (review finding). `zoom.transform`
+            // runs `selection.interrupt()` of its own before dispatching, so an
+            // animated focus still in flight has its `interrupt.focus` handler fire
+            // BETWEEN the assignment below and the `zoom` event that reads it —
+            // lowering `suppressSaveRef` to false and persisting a camera this call
+            // asked not to persist. Doing the interrupt here means that handler has
+            // already run and cannot come back: d3's own call is then a no-op.
+            select(el).interrupt();
+            suppressSaveRef.current = !persist;
+            if (persist) userMovedCameraRef.current = true;
+            select(el).call(zb.transform,
+                zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
+            // Lowered to the same resting value the transition's own handler
+            // leaves behind. Safe as an unconditional assignment because every
+            // listener that could read it has now run, inline, above.
+            suppressSaveRef.current = false;
+            return true;
+        }
         focusingRef.current = true;
         // ASSIGNED, not raised (req #3252 review). A `persist: true` focus that
         // begins while a deep link's suppression is still up must LOWER it —
@@ -1191,6 +1237,95 @@ export default function PipelinePlanVisualizer({
     const focusEpic = useCallback((band, opts) => applyFocus(
         epicFocusTransform(layout, band, size, kDefault, kZoomFloor), opts),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
+
+    // ── A PIN THE SCALE CANNOT DRAW MOVES THE SCALE (req #3310) ─────────────
+    // The level chips went inert below `K_READABLE` — see `levelPinTransform`
+    // in pipelinePlanLayout.js, which carries the whole decision and returns
+    // `null` for every case where they already worked. This is the binding of
+    // that geometry to this canvas's live camera, and nothing more: the entire
+    // rule is over there, where a test can reach it.
+    //
+    // THROUGH `applyFocus`, never a transform write of its own. That is the one
+    // path in this file that drives the zoom BEHAVIOUR and carries the
+    // `focusingRef`/`suppressSaveRef` discipline that took two review findings to
+    // get right — and a reader-initiated level pin is exactly the kind of camera
+    // move that wants its animation, so it takes the same route the epic and step
+    // fits do rather than a second one beside it.
+    //
+    // ── IT FIRES ON A LANDING AS WELL AS ON A CLICK, and that is the half that
+    // makes the reported symptom go away rather than merely become avoidable.
+    // Both of the states that produce it PERSIST — the camera in the viewport
+    // record, the level in localStorage — so a reader who left the page pinned
+    // and zoomed out RE-ENTERS the dead band on arrival with the chip already
+    // pressed. Clicking it there UNPINS (the shared control's escape hatch), so
+    // the level they can see is dead would take two clicks to fix and the first
+    // one would look like nothing happened.
+    //
+    // ── TWO KINDS OF CALLER, AND EVERY FLAG SPLITS ON WHICH ────────────────
+    // A LANDING is any camera this canvas established rather than the reader:
+    // the mount pass, a re-land after a rescale, and a `?level=` link — which is
+    // a landing wearing a pref change, since `PipelineDetail` hands the link's
+    // level through the SAME prop as the stored one (`levelPrefFromLink` is how
+    // the two are told apart, because nothing in the value can be).
+    //
+    //   · `persist` — a CLICK is the reader saying where to look, saved like a
+    //     drag, and it ends any pending `?epic=` re-fit exactly as `factoryReset`
+    //     does. A landing is none of those things: `persist: false` keeps
+    //     `userMovedCameraRef` down and writes nothing back, which is the same
+    //     doctrine `levelOverride` itself is held under — a link asks to see one
+    //     thing once and must never rewrite what the reader chose.
+    //   · `animate` — see `applyFocus`. A landing correction runs INSTANTLY
+    //     because the panel is sized twice at mount and the second sizing
+    //     interrupts any transition the first one started; a click is animated,
+    //     because the reader is watching a camera they already had.
+    //   · A DEEP LINK OUTRANKS A STORED PIN. `?epic=` fits a band and `?step=`
+    //     fits one bead — an explicit instruction about WHERE to look, against a
+    //     stored preference about how MUCH to draw. Those effects run after this
+    //     one and guard on `userMovedCameraRef`, so a landing correction that
+    //     fired here would at best be pre-empted a frame later and at worst (on
+    //     the `persist` path) kill the link outright. It stands aside instead,
+    //     and the key is consumed deliberately: this landing belongs to the link.
+    //     A CLICK is never stood aside for — a reader who arrived by link and
+    //     then picks a level is no longer following it.
+    //
+    //     ON THE LINK ACTUALLY TAKING THE CAMERA, not on the parameter being
+    //     present (review finding). Both of those effects legitimately decline —
+    //     an epic with no band on this plan, a step dropped from it, a reader who
+    //     has already taken the wheel — and each has a rendered "not on this
+    //     plan" notice precisely because it is a real outcome rather than a typo.
+    //     Yielding to a link that then declines forfeits the correction for the
+    //     whole visit and lands the reader back in the dead band with a lit chip:
+    //     the symptom this requirement is about, reached from a fourth direction.
+    //     The predicates below are the SAME expressions those two effects gate on
+    //     — including step-beats-epic — so the three cannot disagree about who
+    //     owns this landing.
+    //
+    // The readiness guard does NOT consume the key (`focusEpic`'s contract, and
+    // the landing effect's): with no live camera yet there is nothing to correct
+    // and marking it applied would strand a pinned reader in the dead band for
+    // the rest of the visit.
+    const pinAppliedRef = useRef({ key: null, pref: null, link: false });
+    useEffect(() => {
+        const applied = pinAppliedRef.current;
+        if (applied.key === landKey && applied.pref === levelPref
+            && applied.link === levelPrefFromLink) return;
+        // A landing is any run where the WORLD changed under us, including the
+        // first: `key` starts null, so the mount pass is a landing.
+        const landing = applied.key !== landKey || levelPrefFromLink;
+        const live = liveTransformRef.current;
+        if (!live || size.w === 0) return;
+        const linkTakesCamera = !userMovedCameraRef.current && (focusStepId != null
+            ? stepFocusTransform(layout, focusStepId, size, kDefault, kZoomFloor) != null
+            : (focusEpicId != null
+                && layout.bands.some((b) => b.epicId === focusEpicId)));
+        const tr = (landing && linkTakesCamera)
+            ? null
+            : levelPinTransform(live, size, layout, pinnedLevelOf(levelPref),
+                kZoomFloor, kDefault * ZOOM_MAX_RATIO);
+        if (tr && !applyFocus(tr, { persist: !landing, animate: !landing })) return;
+        pinAppliedRef.current = { key: landKey, pref: levelPref, link: levelPrefFromLink };
+    }, [levelPref, levelPrefFromLink, landKey, size, layout, kZoomFloor, kDefault,
+        focusEpicId, focusStepId, applyFocus]);
 
     // Req #3235 — the mount-time end of the `?epic=` deep link: land on the
     // SAME centered/zoomed view a band-header click produces, through the

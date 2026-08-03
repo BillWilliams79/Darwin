@@ -31,6 +31,7 @@ import {
     LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
+    levelPinTransform,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
@@ -4571,6 +4572,115 @@ describe('the semantic-level selector (req #3168, directive C)', () => {
             expect(normalizePlanLevelPref(bogus)).toBe(DEFAULT_PLAN_LEVEL_PREF);
             expect(pinnedLevelOf(bogus)).toBeNull();
         }
+    });
+});
+
+// ── The pin's camera move (req #3310) ───────────────────────────────────────
+// The live plan's numbers, because the defect was reported against it: world
+// width 3620.2 in a 1600px panel gives `kFit = 0.442`, so `kDefault = max(kFit,
+// K_READABLE) = K_READABLE` and the whole band below it is reachable — one Reset
+// click lands there.
+describe('a pin the scale cannot draw moves the scale (req #3310)', () => {
+    const SIZE = { w: 1600, h: 900 };
+    const LAYOUT = { width: 3620.2, height: 2000 };
+    const kFit = SIZE.w / LAYOUT.width;
+    const kDefault = Math.max(kFit, K_READABLE);
+    const kFloor = Math.min(kFit, kDefault) * ZOOM_MIN_RATIO;
+    const kMax = kDefault * ZOOM_MAX_RATIO;
+    const pin = (t, level) => levelPinTransform(t, SIZE, LAYOUT, level, kFloor, kMax);
+    // Deep in the dead band, and reachable: `factoryDefaultScale` fits the whole
+    // vertical extent, which on this world is well below the floor of legibility.
+    const DEAD = { x: 600, y: 300, k: 0.2 };
+
+    it('IS the regression: below K_READABLE every level draws the same canvas', () => {
+        // The defect, stated as the arithmetic that produces it rather than as a
+        // description of it — if this ever stops holding, the fix below is
+        // answering a question nobody is asking any more.
+        expect(labelsLegible(DEAD.k)).toBe(false);
+        for (const level of ['out', 'mid', 'in']) {
+            for (const kind of ['step', 'req', 'title']) {
+                expect(drawsLabelKind(kind, level, DEAD.k),
+                    `${kind} at ${level}, k=${DEAD.k}`).toBe(false);
+            }
+        }
+        // …and the move restores the difference the chips are FOR.
+        const moved = pin(DEAD, 'mid');
+        expect(moved, 'L2 in the dead band must move the camera').not.toBeNull();
+        expect(drawsLabelKind('step', 'mid', moved.k)).toBe(true);
+        expect(drawsLabelKind('req', 'mid', moved.k)).toBe(true);
+        expect(drawsLabelKind('title', 'mid', moved.k),
+            'L2 still stops short of the title slot — the LEVEL half is untouched')
+            .toBe(false);
+        expect(drawsLabelKind('title', 'in', pin(DEAD, 'in').k)).toBe(true);
+    });
+
+    it('lands on the SMALLEST legible scale, not on the landing view', () => {
+        // The shortest jump out of the dead band keeps as much of the plan in
+        // view as legibility allows.
+        const moved = pin(DEAD, 'mid');
+        expect(moved.k).toBe(K_READABLE);
+        expect(labelsLegible(moved.k)).toBe(true);
+        expect(pin(DEAD, 'in').k).toBe(K_READABLE);
+    });
+
+    it('holds the world point under the viewport centre', () => {
+        // What makes it read as a zoom rather than a jump somewhere else in the
+        // plan. Chosen so the pan clamp does not bind — that is asserted below.
+        const moved = pin(DEAD, 'mid');
+        const worldAt = (t) => ({
+            x: (SIZE.w / 2 - t.x) / t.k,
+            y: (SIZE.h / 2 - t.y) / t.k,
+        });
+        expect(worldAt(moved).x).toBeCloseTo(worldAt(DEAD).x, 6);
+        expect(worldAt(moved).y).toBeCloseTo(worldAt(DEAD).y, 6);
+    });
+
+    it('returns the result CLAMPED, so the pan bound still holds', () => {
+        // A camera parked at the far right of the dead band: holding the centre
+        // exactly would carry the world off the panel, and the bound wins.
+        const far = { x: -1500, y: -900, k: 0.2 };
+        const moved = pin(far, 'in');
+        expect(moved).not.toBeNull();
+        const loX = Math.min(0, SIZE.w / 2 - moved.k * LAYOUT.width);
+        expect(moved.x).toBeGreaterThanOrEqual(loX);
+        expect(moved.x).toBeLessThanOrEqual(SIZE.w / 2);
+        expect(moved.k).toBe(K_READABLE);
+    });
+
+    it('MOVES NOTHING wherever the chips already worked', () => {
+        // This is PIPE-16 §2 and PIPE-17's invariant, in the units the rule is
+        // written in. Every one of these is a case a reader can already reach,
+        // and a move in any of them would be a regression of its own.
+        expect(pin(DEAD, null), 'Auto pins nothing').toBeNull();
+        expect(pin(DEAD, 'out'),
+            'L1 draws none of the gated kinds — legible at every scale').toBeNull();
+        for (const level of ['out', 'mid', 'in']) {
+            for (const k of [K_READABLE, kDefault, 1, 1.6, kMax]) {
+                expect(pin({ x: 0, y: 0, k }, level),
+                    `${level} at k=${k} is already drawn`).toBeNull();
+            }
+        }
+    });
+
+    it('never zooms OUT to reach legibility, and refuses garbage', () => {
+        // The clamp can only lower the target, so the "is it an advance?" guard
+        // is asserted rather than assumed. A ceiling below `K_READABLE` is the
+        // degenerate shape that reaches it.
+        expect(levelPinTransform({ x: 0, y: 0, k: 0.6 }, SIZE, LAYOUT, 'mid',
+            0.1, 0.5)).toBeNull();
+        // A floor ABOVE `K_READABLE` — a plan small enough that `kFit` is large.
+        // Every legal scale there is legible, so the only way in is an
+        // out-of-extent camera, and the answer is the floor rather than a scale
+        // the behaviour would refuse.
+        const tight = levelPinTransform({ x: 0, y: 0, k: 0.5 }, SIZE, LAYOUT, 'mid',
+            1.2, 9.6);
+        expect(tight.k).toBe(1.2);
+        for (const bad of [null, undefined, {}, { x: 0, y: 0, k: 0 },
+            { x: 0, y: 0, k: -1 }, { x: 0, y: 0, k: NaN }]) {
+            expect(pin(bad, 'mid'), `transform ${JSON.stringify(bad)}`).toBeNull();
+        }
+        expect(levelPinTransform(DEAD, SIZE, LAYOUT, 'mid', NaN, kMax)).toBeNull();
+        expect(levelPinTransform(DEAD, SIZE, LAYOUT, 'mid', kFloor, NaN)).toBeNull();
     });
 });
 

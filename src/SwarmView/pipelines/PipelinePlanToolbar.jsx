@@ -40,6 +40,12 @@ import { TOOLBAR_CAPTION_SX } from '../../Components/toolbarStyles';
 import { PLAN_LEVEL_NUMBER } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 
+// Reset's wording, in ONE place: it is both the tooltip and the accessible name
+// (see the chip below for why the two may not drift), and since req #3310 it has
+// to say that the level goes back too.
+export const RESET_LABEL = 'Reset — fully zoomed out, the whole plan\'s vertical '
+    + 'extent visible, and the level back to Auto';
+
 // Req #3168 — column width, the one piece of the plan's geometry a reader could
 // not influence. It only ever WIDENS (see STEP_WIDTH_FACTORS): a narrower column
 // than the content needs would push requirement marks out of their own slab,
@@ -162,8 +168,14 @@ export default function PipelinePlanToolbar({
                     // req #3242 user directive — "Detail:" -> "View"
                     label="View"
                     leadingChildren={(
-                        <Tooltip title={'Reset — fully zoomed out, the whole '
-                            + "plan's vertical extent visible"}>
+                        // THE LEVEL IS NAMED IN THE LABEL because Reset clears it
+                        // (req #3310), and a control that silently un-pins a chip
+                        // sitting immediately to its right is a surprise however
+                        // right the behaviour is. Reset lands below `K_READABLE`,
+                        // where a pinned level cannot be honoured at all — which
+                        // is why the level is reset and Width and Colour, which
+                        // stay valid at every scale, are not.
+                        <Tooltip title={RESET_LABEL}>
                             <Chip
                                 label="Reset"
                                 size="small"
@@ -174,9 +186,10 @@ export default function PipelinePlanToolbar({
                                 // WCAG 2.5.3 with nothing saying so: rewrite it
                                 // as "Zoom out to the whole plan" and this chip
                                 // silently displays "Reset" while announcing a
-                                // sentence that never says it.
-                                aria-label={'Reset — fully zoomed out, the whole '
-                                    + "plan's vertical extent visible"}
+                                // sentence that never says it. ONE constant now,
+                                // so the visible and announced wordings cannot
+                                // drift apart the next time either is edited.
+                                aria-label={RESET_LABEL}
                                 onClick={onResetView}
                                 sx={{
                                     borderColor: 'secondary.main',
