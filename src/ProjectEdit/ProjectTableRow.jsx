@@ -81,11 +81,11 @@ const ProjectTableRow = ({
             </Box>
             <Box>
                 { project.id === '' ?
-                    <IconButton>
+                    <IconButton aria-label="Save project">
                         <SavingsIcon />
                     </IconButton>
                     :
-                    <IconButton onClick={(event) => clickProjectDelete(event, project.id, project.project_name)}>
+                    <IconButton aria-label="Delete project" onClick={(event) => clickProjectDelete(event, project.id, project.project_name)}>
                         <DeleteIcon />
                     </IconButton>
                 }

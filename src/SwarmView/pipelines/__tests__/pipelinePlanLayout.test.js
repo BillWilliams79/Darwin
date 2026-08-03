@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
+import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
@@ -37,6 +38,7 @@ import {
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
     stepFitRect, stepFocusTransform,
+    batchFitRect, batchFocusTransform, BATCH_FOCUS_CONTEXT,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
@@ -5784,6 +5786,151 @@ describe('step focus geometry (req #3253)', () => {
         expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
+    });
+});
+
+// ── The THIRD focus target (req #3297) ──────────────────────────────────────
+// The epic name's second stop: one launch batch of one band. The SELECTION
+// half — which batch that is, and which level a click lands on — is pinned in
+// `pipelineEpicZoom.test.js` against this same fixture.
+describe('batch focus geometry (req #3297)', () => {
+    const batchPlan = orderedPlan(
+        buildPipelineModel({ pipeline: EPIC_ZOOM_PIPELINE, ...EPIC_ZOOM_READS }),
+        { now: EPIC_ZOOM_NOW },
+    );
+    const lay = computePlanLayout(batchPlan.rows, batchPlan.batches);
+    const bandOf = (key) => lay.bands.find((b) => (b.key == null ? 'none' : b.key) === key);
+    const batchBand = bandOf(11);       // holds A (two segments) and B (one)
+    const plainBand = bandOf(12);       // one step, no batch at all
+    const size = { w: 900, h: 640 };
+    const kBase = 0.6;
+    const kFloor = kBase * FOCUS_MIN_RATIO;
+    const segmentsOf = (letter) => lay.batchBoxes.filter((b) => b.letter === letter);
+
+    it('is set up on a plan that actually derives batches', () => {
+        expect(batchPlan.batches.map((b) => b.letter)).toEqual(['A', 'B']);
+        expect(segmentsOf('A')).toHaveLength(2);
+        expect(segmentsOf('B')).toHaveLength(1);
+    });
+
+    // A batch is ONE launch unit; `computePlanLayout` splits its box per
+    // (band, column) only so a segment never encloses a non-member. Fitting one
+    // segment would frame part of the /swarm-start and call it the batch.
+    it('unions every segment the batch draws in that band', () => {
+        const rect = batchFitRect(lay, batchBand, 'A');
+        expect(rect).toBeTruthy();
+        for (const seg of segmentsOf('A')) {
+            expect(rect.x).toBeLessThanOrEqual(seg.x);
+            expect(rect.y).toBeLessThanOrEqual(seg.y);
+            expect(rect.x + rect.w).toBeGreaterThanOrEqual(seg.x + seg.width);
+            expect(rect.y + rect.h).toBeGreaterThanOrEqual(seg.y + seg.height);
+        }
+        // …and it is genuinely wider than either segment alone, so the union is
+        // doing work rather than the two happening to coincide.
+        const widest = Math.max(...segmentsOf('A').map((s) => s.width));
+        expect(rect.w).toBeGreaterThan(widest);
+    });
+
+    // The context margin (`BATCH_FOCUS_CONTEXT`): proportional, symmetric, and
+    // therefore incapable of moving the camera — only of changing k, and only
+    // where the fit rather than the ceiling binds.
+    it('inflates by BATCH_FOCUS_CONTEXT on all four sides, symmetrically', () => {
+        const segs = segmentsOf('B');
+        const box = segs[0];
+        const rect = batchFitRect(lay, batchBand, 'B');
+        expect(rect.w).toBeCloseTo(box.width * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
+        expect(rect.h).toBeCloseTo(box.height * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
+        // Same centre as the bare box — this is what makes the constant unable
+        // to shift the framing.
+        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
+        expect(rect.y + rect.h / 2).toBeCloseTo(box.y + box.height / 2, 6);
+    });
+
+    it('centres the batch in the viewport', () => {
+        const rect = batchFitRect(lay, batchBand, 'A');
+        const tr = batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor);
+        expect(tr).toBeTruthy();
+        expect(tr.x + (rect.x + rect.w / 2) * tr.k).toBeCloseTo(size.w / 2, 6);
+        expect(tr.y + (rect.y + rect.h / 2) * tr.k).toBeCloseTo(size.h / 2, 6);
+    });
+
+    // Requirement item 8. A batch box is small, so the tight fit wants a scale
+    // far past anything the surface allows; the ceiling is what turns that into
+    // the reference framing — the box comfortably readable with the plan still
+    // around it — and what stops the next wheel event snapping the camera back.
+    it('clamps at the same ceiling every other focus uses', () => {
+        for (const letter of ['A', 'B']) {
+            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
+            expect(tr.k).toBeLessThanOrEqual(kBase * FOCUS_MAX_RATIO + 1e-9);
+            expect(tr.k).toBeGreaterThanOrEqual(kFloor - 1e-9);
+        }
+        // And on this fixture the ceiling really is what binds — otherwise the
+        // assertion above would pass on a fit that never approached it.
+        const tr = batchFocusTransform(lay, batchBand, 'B', size, kBase, kFloor);
+        expect(tr.k).toBeCloseTo(kBase * FOCUS_MAX_RATIO, 9);
+    });
+
+    it('leaves every segment of the batch on screen', () => {
+        for (const letter of ['A', 'B']) {
+            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
+            for (const seg of segmentsOf(letter)) {
+                expect(tr.x + seg.x * tr.k).toBeGreaterThanOrEqual(0);
+                expect(tr.y + seg.y * tr.k).toBeGreaterThanOrEqual(0);
+                expect(tr.x + (seg.x + seg.width) * tr.k).toBeLessThanOrEqual(size.w);
+                expect(tr.y + (seg.y + seg.height) * tr.k).toBeLessThanOrEqual(size.h);
+            }
+        }
+    });
+
+    // Requirement item 6, the geometry end: a band with no box for that letter
+    // has nothing to fit, and must return null so the caller can leave the
+    // camera exactly where it is rather than apply a transform built from
+    // Infinity.
+    it('refuses a band that draws no box for the letter', () => {
+        expect(batchFitRect(lay, plainBand, 'A')).toBeNull();
+        expect(batchFocusTransform(lay, plainBand, 'A', size, kBase, kFloor)).toBeNull();
+        expect(batchFitRect(lay, batchBand, 'Z')).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'Z', size, kBase, kFloor)).toBeNull();
+    });
+
+    it('returns null rather than NaN geometry on degenerate input', () => {
+        expect(batchFitRect(null, batchBand, 'A')).toBeNull();
+        expect(batchFitRect(lay, null, 'A')).toBeNull();
+        expect(batchFitRect(lay, batchBand, null)).toBeNull();
+        expect(batchFitRect(lay, { stepIds: [] }, 'A')).toBeNull();
+        expect(batchFitRect(computePlanLayout([], []), batchBand, 'A')).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', { w: 0, h: 0 }, kBase, kFloor)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', undefined, kBase, kFloor)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, 0, kFloor)).toBeNull();
+    });
+
+    // The floor is the CALLER'S OWN (req #3274) and this function inherits that
+    // contract unchanged — a missing one refuses the fit rather than
+    // re-deriving a copy that silently disagrees with `scaleExtent`.
+    it('requires the caller to hand in its own scale floor', () => {
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, 0)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, -1)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, NaN)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor)).toBeTruthy();
+    });
+
+    // The band scoping is a DEFENCE on an argument this module does not derive
+    // (since req #3188 an engine batch cannot span bands). Asserted against a
+    // hand-built layout, because the engine cannot produce the input it guards.
+    it('ignores a same-letter segment belonging to another band', () => {
+        const foreign = {
+            ...lay,
+            batchBoxes: [
+                ...segmentsOf('B'),
+                { letter: 'B', stepIds: [8], x: 4000, y: 4000, width: 60, height: 60,
+                    bandIndex: 1, depth: 0 },
+            ],
+        };
+        const rect = batchFitRect(foreign, batchBand, 'B');
+        const box = segmentsOf('B')[0];
+        expect(rect.x + rect.w).toBeLessThan(4000);
+        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
     });
 });
 

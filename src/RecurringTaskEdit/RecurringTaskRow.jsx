@@ -456,6 +456,7 @@ const RecurringTaskRow = ({
                         <IconButton
                             size="small"
                             disabled={!hasText}
+                            aria-label="Save"
                             onClick={() => { if (hasText) { descRef.current?.blur(); } }}
                             sx={{ maxWidth: 32, maxHeight: 32, p: 0 }}
                         >

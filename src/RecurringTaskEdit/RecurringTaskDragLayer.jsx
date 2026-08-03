@@ -102,7 +102,9 @@ const RecurringTaskDragLayer = () => {
                 />
 
                 {/* 2. Accumulate */}
-                <IconButton size="small" sx={{ maxWidth: 25, maxHeight: 25, mr: '2px', p: 0 }}>
+                <IconButton size="small"
+                            aria-label={item?.accumulate ? 'Stacks tasks' : 'Replaces unfinished'}
+                            sx={{ maxWidth: 25, maxHeight: 25, mr: '2px', p: 0 }}>
                     {item?.accumulate
                         ? <LayersIcon sx={{ fontSize: 16 }} />
                         : <SwapHorizIcon sx={{ fontSize: 16 }} />}
@@ -159,7 +161,7 @@ const RecurringTaskDragLayer = () => {
                 </Box>
 
                 {/* 7. Delete */}
-                <IconButton size="small" sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
+                <IconButton size="small" aria-label="Delete recurring task" sx={{ maxWidth: 28, maxHeight: 28, p: 0 }}>
                     <DeleteIcon sx={{ fontSize: 16 }} />
                 </IconButton>
             </Box>

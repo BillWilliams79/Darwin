@@ -1,4 +1,7 @@
-// viewportMemory.js — "the canvas I come back to is the canvas I left" (req #3252).
+// viewportMemory.js — "the canvas I come back to is the canvas I left" (req #3252),
+// and, since req #3311, the LIST I come back to is the list I left. The camera
+// half is everything down to `clearViewport`; the scroll half is the section
+// after it, and the doctrine below governs both.
 //
 // THE DEFECT THIS EXISTS FOR. A pan/zoom canvas holds its camera in component
 // state. Every way of leaving the page unmounts that component, so the camera is
@@ -183,3 +186,112 @@ export function clearViewport(key) {
         // See writeViewport.
     }
 }
+
+// ── SCROLL POSITIONS — the same doctrine, a different surface (req #3311) ────
+//
+// A pan/zoom camera and a scroll offset are the SAME FACT about two kinds of
+// surface: where in this artifact was I, a moment ago. Req #3252 answered it for
+// the one Darwin surface that has a camera; req #3311 asks it of the two that
+// have scrollbars — the pipelines LIST and the plan detail's Table mode — and
+// the ask names both with one word ("the list viewport ... the viewport in a
+// visualizer"). So this lives here rather than in a second module: everything
+// above about per-tab storage, about validating a value that came out of web
+// storage, and about a position being a convenience that must never fail loudly,
+// applies verbatim and would otherwise be restated.
+//
+// ── NO FINGERPRINT, AND THAT IS THE DIFFERENCE ─────────────────────────────
+// A camera is `{x, y, k}` over a WORLD, and a stale one lands somewhere
+// unrelated with nothing to see but a wrong-looking drawing — hence the
+// fingerprint above. A scroll offset is bounded by the scroller itself: every
+// browser clamps `scrollTop` to `scrollHeight - clientHeight` on assignment, so
+// the worst a stale offset can do is land at the end of a shorter list. That is
+// a benign miss, and a fingerprint over "the content" would have to be recomputed
+// from data this module cannot see. Validate the SHAPE and let the browser bound
+// the value.
+export const SCROLL_STORAGE_PREFIX = 'darwin-scroll-';
+
+// Bumped only if the record's SHAPE changes; a mismatch drops the record. See
+// VIEWPORT_SCHEMA_VERSION for why dropping beats migrating here.
+export const SCROLL_SCHEMA_VERSION = 1;
+
+/**
+ * The storage key for one scrolling surface.
+ *
+ * `recordId` is optional: a page-level list (`/swarm/pipelines`) has exactly one
+ * scroll position, while a per-artifact surface (one plan's table) needs one per
+ * record, for the same reason the camera is keyed on the plan — two plans open in
+ * one tab must not inherit each other's position.
+ *
+ * @param {string} surface e.g. `pipelines-list`
+ * @param {string|number} [recordId]
+ */
+export const scrollStorageKey = (surface, recordId) => (recordId == null
+    ? `${SCROLL_STORAGE_PREFIX}${surface}`
+    : `${SCROLL_STORAGE_PREFIX}${surface}-${recordId}`);
+
+/**
+ * The scroll offset stored under `key`, or null.
+ *
+ * VALIDATED, NEVER TRUSTED, for the reason readViewport gives: this is JSON out
+ * of web storage and it is handed to `scrollTo`. A NaN there is not an error —
+ * `window.scrollTo(0, NaN)` is specified to normalize the value to 0, so a
+ * corrupt record would silently scroll the reader to the top and read as the
+ * feature simply not working.
+ *
+ * @param {?string} key
+ * @returns {?{x: number, y: number}}
+ */
+export function readScroll(key) {
+    if (!key) return null;
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (raw == null) return null;
+        const rec = JSON.parse(raw);
+        if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+        if (rec.v !== SCROLL_SCHEMA_VERSION) return null;
+        const { x, y } = rec;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        // A negative offset is not a position any scroller can be in. Browsers
+        // clamp it to 0 rather than rejecting it, so it would restore silently
+        // and wrongly.
+        if (x < 0 || y < 0) return null;
+        return { x, y };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Store `pos` under `key`.
+ *
+ * NEGATIVES ARE CLAMPED, NOT REFUSED, and the asymmetry with `readScroll` is
+ * deliberate. Safari reports a NEGATIVE offset during rubber-band overscroll, so
+ * a fling to the top followed straight away by a click is an ordinary gesture
+ * that produces `y = -30` — and refusing the record would throw away a perfectly
+ * good `x` with it, because a record is read whole. 0 is what that gesture
+ * actually means. On the READ side a negative is still refused, because by then
+ * it can only have come from corruption: nothing here can write one.
+ *
+ * @param {?string} key
+ * @param {{x: number, y: number}} pos
+ */
+export function writeScroll(key, pos) {
+    if (!key || !pos) return;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return;
+    try {
+        sessionStorage.setItem(key, JSON.stringify({
+            v: SCROLL_SCHEMA_VERSION,
+            x: Math.max(0, pos.x),
+            y: Math.max(0, pos.y),
+        }));
+    } catch {
+        // See writeViewport: a position that cannot be stored is never worth
+        // breaking the page over.
+    }
+}
+
+// There is deliberately NO `clearScroll`. `clearViewport` exists because a
+// camera has a "go back to the default view" affordance that must forget where
+// the reader was; a scroll position has no such control and needs none —
+// scrolling to the top IS the reset, and it is recorded like any other move. An
+// exported function with no caller is an API somebody has to keep working.

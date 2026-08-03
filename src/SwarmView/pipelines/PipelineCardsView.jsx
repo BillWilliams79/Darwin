@@ -23,7 +23,8 @@ import { claimForPipeline, holderView } from './orchestrationHolder';
 const EMPTY_SUMMARY = { total: 0, done: 0, running: 0, pending: 0 };
 
 export default function PipelineCardsView({ pipelines, summaries, reqCounts,
-    showReqCounts = false, machines, claims = [], onOpen, hiddenStatusCounts = [] }) {
+    showReqCounts = false, machines, claims = [], onOpen, lastOpenedId = null,
+    hiddenStatusCounts = [] }) {
     if (!pipelines.length) {
         // "No pipelines yet" is a claim about the DATA, and it is false whenever
         // a status filter is what emptied the view — the page's own accounting
@@ -54,17 +55,46 @@ export default function PipelineCardsView({ pipelines, summaries, reqCounts,
                 // shows "0/0" rather than the name alone: at the plan level, "no
                 // counted requirements" IS an answer, not a missing one.
                 const counts = showReqCounts ? reqCounts?.get(p.id) : null;
+                // req #3311 — "remember my last selected pipeline". The mark is
+                // the visible half of that memory: a reader who comes back to
+                // this list should be able to SEE which plan they were working
+                // on, not merely have it recorded somewhere. It is deliberately
+                // an ACCENT and not a selection state — the card is still a plain
+                // link, nothing is pre-selected, and the browser's Back is
+                // untouched.
+                const lastViewed = p.id === lastOpenedId;
                 return (
-                    <Card key={p.id} variant="outlined" data-testid={`pipeline-card-${p.id}`}>
+                    <Card key={p.id} variant="outlined" data-testid={`pipeline-card-${p.id}`}
+                          sx={lastViewed ? {
+                              borderColor: 'primary.main',
+                              // The border is what carries the mark on a card
+                              // whose chips are already carrying status, machine
+                              // and holder. A second colour fill would compete
+                              // with the status chip, which is the one thing on a
+                              // card that MUST read first.
+                              boxShadow: (theme) => `0 0 0 1px ${theme.palette.primary.main}`,
+                          } : undefined}>
                         <CardActionArea onClick={() => onOpen(p.id)}>
                             <CardContent>
                                 <Box sx={{ display: 'flex', alignItems: 'flex-start',
                                             gap: 1, mb: 1 }}>
-                                    <Typography variant="subtitle1" sx={{ flex: 1,
+                                    {/* `minWidth: 0` so the title ABSORBS the
+                                        mark's width instead of being pushed
+                                        into an extra wrapped line by it. A flex
+                                        item defaults to `min-width: auto` —
+                                        "never below your content" — and cards
+                                        share a grid row, so one card growing
+                                        taller grows the whole row. */}
+                                    <Typography variant="subtitle1" sx={{ flex: 1, minWidth: 0,
                                                                           fontWeight: 600 }}>
                                         {p.title}
                                         {counts ? ` ${counts.met}/${counts.total}` : ''}
                                     </Typography>
+                                    {lastViewed && (
+                                        <Chip size="small" color="primary" variant="outlined"
+                                              label="Last viewed" sx={{ flexShrink: 0 }}
+                                              data-testid={`pipeline-card-lastviewed-${p.id}`} />
+                                    )}
                                     <Chip size="small" label={p.pipeline_status}
                                           {...pipelineStatusChipProps(p.pipeline_status)} />
                                 </Box>

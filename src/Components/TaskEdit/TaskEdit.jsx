@@ -209,6 +209,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
              />
             { task.id === '' ?
                 <IconButton key={`savings-${task.id}`}
+                            aria-label="Save task"
                             disabled = {areaId !== '' ? false : areaName === '' ? true : false}
                             sx = {{maxWidth: "25px",
                                    maxHeight: "25px",
@@ -218,6 +219,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
                 </IconButton>
                 :
                 <IconButton  onClick={(event) => deleteClick(event, task.id)}
+                             aria-label="Delete task"
                              key={`delete-${task.id}`}
                              sx = {{maxWidth: "25px",
                                     maxHeight: "25px",

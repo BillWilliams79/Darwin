@@ -441,11 +441,11 @@ function FeaturesCardsView({ features, coverage, categoryById, onEdit, onDelete 
                                             </Typography>
                                             <Chip label={f.feature_status} size="small"
                                                   sx={{ ...chipProps.sx, textTransform: 'capitalize' }} />
-                                            <IconButton size="small" onClick={() => onEdit(f)}
+                                            <IconButton size="small" onClick={() => onEdit(f)} aria-label="Edit feature"
                                                         data-testid={`edit-feature-${f.id}`}>
                                                 <EditIcon fontSize="small" />
                                             </IconButton>
-                                            <IconButton size="small" onClick={() => onDelete(f)}
+                                            <IconButton size="small" onClick={() => onDelete(f)} aria-label="Delete feature"
                                                         data-testid={`delete-feature-${f.id}`}>
                                                 <DeleteIcon fontSize="small" />
                                             </IconButton>
@@ -500,10 +500,10 @@ function FeaturesTableView({ features, coverage, categoryById, onEdit, onDelete,
             field: '_actions', headerName: '', width: 80, sortable: false, filterable: false,
             renderCell: (p) => (
                 <Box sx={{ display: 'flex', height: '100%', alignItems: 'center' }}>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
+                    <IconButton size="small" aria-label="Edit feature" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
                         <EditIcon fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
+                    <IconButton size="small" aria-label="Delete feature" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
                         <DeleteIcon fontSize="small" />
                     </IconButton>
                 </Box>

@@ -794,6 +794,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         <>
                             <IconButton
                                 onClick={handleMenuOpen}
+                                aria-label="Category card menu"
                                 data-testid={`card-menu-${category.id}`}
                                 size="small"
                                 sx={{ maxWidth: "25px", maxHeight: "25px" }}

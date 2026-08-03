@@ -81,11 +81,11 @@ const DomainTableRow = ({
             </Box>
             <Box>
                 { domain.id === '' ?
-                    <IconButton>
+                    <IconButton aria-label="Save domain">
                         <SavingsIcon />
                     </IconButton>
                     :
-                    <IconButton onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)}>
+                    <IconButton aria-label="Delete domain" onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)}>
                         <DeleteIcon />
                     </IconButton>
                 }

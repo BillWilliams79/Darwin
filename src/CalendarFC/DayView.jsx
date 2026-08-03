@@ -28,7 +28,7 @@ const formatHM = (s) => {
 
 // Lightweight accordion chevron
 const Chevron = ({ expanded, onClick }) => (
-    <IconButton size="small" onClick={onClick} sx={{ ml: 0.25, p: 0.25 }}>
+    <IconButton size="small" onClick={onClick} aria-label={expanded ? 'Collapse' : 'Expand'} sx={{ ml: 0.25, p: 0.25 }}>
         <ExpandMoreIcon fontSize="small" sx={{
             transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s',

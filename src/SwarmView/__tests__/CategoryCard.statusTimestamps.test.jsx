@@ -22,6 +22,12 @@ const EMPTY_SESSIONS = [];
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
+    // CategoryCard.jsx:212 calls this; a factory that omits it makes the whole
+    // file throw at import. Not this suite's subject — no requirement here is
+    // pipelined — so an empty set is the neutral value. (Added by req #3298:
+    // the export arrived with commit e2dfc8c and only the sibling
+    // CategoryCard.pipelinedFilter suite was updated, leaving this one red.)
+    usePipelinedRequirementIds: () => new Set(),
 }));
 
 const putBodies = [];

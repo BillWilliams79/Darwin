@@ -49,6 +49,7 @@ const RequirementJumpInput = () => {
                             <IconButton
                                 size="small"
                                 onClick={submit}
+                                aria-label="Go to requirement"
                                 data-testid="req-jump-submit"
                                 sx={{ p: 0.25 }}
                             >
