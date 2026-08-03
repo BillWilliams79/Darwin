@@ -45,7 +45,7 @@ function PipelinesNoRowsOverlay({ hiddenStatusCounts = [] }) {
 
 export default function PipelinesTableView({ pipelines, summaries, reqCounts,
     showReqCounts = false, machines, claims = [], timezone, onOpen,
-    hiddenStatusCounts = [] }) {
+    lastOpenedId = null, hiddenStatusCounts = [] }) {
     const rows = useMemo(() => pipelines.map((p) => {
         const s = summaries.get(p.id) || EMPTY_SUMMARY;
         // req #3224 — the WHOLE-PLAN reservation only. An epic-scoped one is the
@@ -197,7 +197,38 @@ export default function PipelinesTableView({ pipelines, summaries, reqCounts,
                 pageSizeOptions={[25, 50, 100]}
                 disableRowSelectionOnClick
                 onRowClick={(params) => onOpen(params.row.id)}
-                sx={{ cursor: 'pointer' }}
+                // req #3311 — the Cards view's "Last viewed" accent, in the
+                // idiom a DataGrid has for it: a row class, exactly as
+                // InstructionsTableView marks a closed instruction. A chip
+                // column would cost the widest table on the page 120px to say
+                // one thing about one row.
+                getRowClassName={(params) => (params.row.id === lastOpenedId
+                    ? 'pipelines-row--lastviewed' : '')}
+                sx={{
+                    cursor: 'pointer',
+                    // The tint goes on the CELLS, not the row, and it is
+                    // TRANSLUCENT (`action.selected` is an alpha colour). Both
+                    // matter: v8 paints `:hover` on `.MuiDataGrid-row` and
+                    // `.Mui-selected` on the cell, so a cell rule sits above
+                    // hover — an OPAQUE tint here would kill hover feedback on
+                    // the one row this feature has made most clickable, while a
+                    // translucent one lets it blend through. The cell rule also
+                    // catches the trailing filler cell DataGrid renders, so the
+                    // tint runs the full width rather than stopping at the last
+                    // column.
+                    '& .pipelines-row--lastviewed .MuiDataGrid-cell': {
+                        backgroundColor: 'action.selected',
+                    },
+                    // The left accent, on the ID cell BY FIELD and not by
+                    // position. `:first-of-type` looks right and matches
+                    // nothing: `GridRow` renders a `cellOffsetLeft`
+                    // presentation div ahead of the cells, so it — not a cell —
+                    // is the first div among the row's children, and the rule
+                    // would be silently dead. `data-field` is on every cell.
+                    '& .pipelines-row--lastviewed .MuiDataGrid-cell[data-field="id"]': {
+                        boxShadow: (theme) => `inset 3px 0 0 ${theme.palette.primary.main}`,
+                    },
+                }}
             />
         </Box>
     );

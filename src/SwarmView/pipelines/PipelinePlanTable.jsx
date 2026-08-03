@@ -46,6 +46,8 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CheckIcon from '@mui/icons-material/Check';
 
+import { useScrollMemory } from '../../hooks/useScrollMemory';
+import { scrollStorageKey } from '../../utils/viewportMemory';
 import { fmtCost, STEP_DONE, STEP_RUNNING } from './pipelineModel';
 import {
     planRenderRows,
@@ -350,6 +352,49 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, [focusStepId, renderRows]);
 
+    // ── THIS TABLE'S OWN VIEWPORT SURVIVES LEAVING IT (req #3311) ───────────
+    // The Plan mode's camera has been remembered since req #3252; the Table
+    // mode's scroll position was not, and on the live 64-step plan that is the
+    // same defect wearing a scrollbar — open a step's requirement, come back,
+    // and you are at row 1. Every return path is covered without being listed,
+    // because a return is just this component mounting: a link out and Back, the
+    // header's Table|Plan toggle (which unmounts this with no navigation at all),
+    // a bead click, a reload.
+    //
+    // KEYED ON THE PLAN, exactly as the camera is: two plans open in one tab keep
+    // their own positions, and an unidentified plan persists nothing rather than
+    // inheriting another's.
+    const planScrollKey = pipeline?.id != null
+        ? scrollStorageKey('pipeline-plan-table', pipeline.id) : null;
+    // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
+    // its row to centre in the effect above, and a restore racing that would put
+    // the reader somewhere neither of them asked for. So the RESTORE is suppressed
+    // and the RECORD is not — where the link left them IS where they are, and a
+    // null key here (the tempting one-liner) would drop their position instead of
+    // deferring to the link. Same doctrine PipelinePlanVisualizer applies to
+    // `?epic=`: a link asks to see one thing once and must never overwrite what
+    // the reader chose.
+    const linkOwnsScroll = focusStepId != null;
+    useScrollMemory(planScrollKey, window, { restore: !linkOwnsScroll });
+    // ── AND SO DOES THE HORIZONTAL ONE ─────────────────────────────────────
+    // A separate key because it is a separate scroller: eleven NOWRAP columns run
+    // ~1640px, so the TableContainer scrolls sideways under a page that scrolls
+    // down, and a reader who moved right to read `Depends on` has moved their
+    // viewport just as much as one who scrolled down. Its element arrives through
+    // STATE rather than a ref — see useScrollMemory's own note: a ref's `.current`
+    // cannot appear in a dependency list, so the effect would never re-run when
+    // the node lands.
+    //
+    // DEEP-LINK SUPPRESSED ON THE SAME TERMS as the vertical one, and it is not
+    // symmetry for its own sake: `scrollIntoView` above defaults to
+    // `inline: 'nearest'`, and a table ROW is wider than this scrollport, so the
+    // focus scroll moves this axis too. Restoring against it would fight it
+    // exactly as on the other axis.
+    const [tableEl, setTableEl] = useState(null);
+    useScrollMemory(pipeline?.id != null
+        ? scrollStorageKey('pipeline-plan-table-x', pipeline.id) : null,
+    tableEl, { restore: !linkOwnsScroll });
+
     // Column count for the banner colSpan — must track the Cost column's
     // visibility or the banner under-spans and leaves a ragged edge.
     // 10 fixed columns since the Name column landed (req #3119).
@@ -403,7 +448,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                 )}
             </Box>
 
-            <TableContainer component={Paper} variant="outlined">
+            <TableContainer component={Paper} variant="outlined" ref={setTableEl}>
                 <Table size="small" data-testid="pipeline-plan-table">
                     <TableHead>
                         <TableRow>
