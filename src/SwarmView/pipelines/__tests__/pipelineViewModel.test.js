@@ -284,12 +284,6 @@ describe('launch batches (design rule 8)', () => {
         expect(plan.batchLetterByStepId.has(4)).toBe(false);
     });
 
-    it('proposes the same group for condensation (design rule 2)', () => {
-        expect(plan.proposals).toHaveLength(1);
-        expect(plan.proposals[0].stepIds).toEqual([2, 3]);
-        expect(plan.proposals[0].requirementIds).toEqual([900, 901]);
-    });
-
     it('renders exactly one banner, immediately above the first member', () => {
         const rendered = planRenderRows(plan);
         const banners = rendered.filter((e) => e.kind === 'batch');

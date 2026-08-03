@@ -208,7 +208,7 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 | req #3080 rule | Covered by |
 |----------------|------------|
 | 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (`completed_at` only on a req-less step), MUT-07 (all three derivations) |
-| 2 — a step is a swarm-start (launch unit) | PIPE-04 (condensation proposal rendered), MUT-07 (multi-requirement step) |
+| 2 — a step is a swarm-start (launch unit) | PIPE-04 (batch banner + the exact `/swarm-start` command; also asserts no condensation advisory — req #3303 deleted it, so the rule is covered by what the batch LAUNCHES, never by a proposal to merge), MUT-07 (multi-requirement step) |
 | 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
 | 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |
 | 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `step_count` against the steps returned |
