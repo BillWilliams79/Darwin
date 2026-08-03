@@ -25,7 +25,7 @@
 // Design rule 9: every mark here derives from requirements and the plan
 // hierarchy. Session/phase detail belongs to the Swarm visualizer.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -46,6 +46,8 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CheckIcon from '@mui/icons-material/Check';
 
+import { useScrollMemory } from '../../hooks/useScrollMemory';
+import { scrollStorageKey } from '../../utils/viewportMemory';
 import { fmtCost, STEP_DONE, STEP_RUNNING } from './pipelineModel';
 import {
     planRenderRows,
@@ -152,35 +154,11 @@ export function OrderViolationsAlert({ plan }) {
     );
 }
 
-// ── Condensation proposals (design rule 2) ──────────────────────────────────
-// A SUGGESTION, never a block and never an automatic edit: merging steps is a
-// plan mutation and the Primary AI owns plan mutations.
-//
-// The caller keys this on the proposal set so dismissing today's suggestion
-// cannot swallow tomorrow's: React remounts the component when the key changes,
-// resetting `dismissed`. Dismiss is "I've seen THIS", not "never show me any".
-function CondensationAlert({ proposals }) {
-    const [dismissed, setDismissed] = useState(false);
-    if (!proposals.length || dismissed) return null;
-    return (
-        <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
-               onClose={() => setDismissed(true)}
-               data-testid="pipeline-condensation-proposals">
-            <AlertTitle>
-                {proposals.length === 1
-                    ? 'One group of steps could be condensed'
-                    : `${proposals.length} groups of steps could be condensed`}
-            </AlertTitle>
-            <Box component="ul" sx={{ pl: 3, m: 0 }}>
-                {proposals.map((p) => (
-                    <li key={p.stepIds.join('-')}>
-                        <Typography variant="body2">{p.reason}</Typography>
-                    </li>
-                ))}
-            </Box>
-        </Alert>
-    );
-}
+// The condensation advisory that used to render here was DELETED, not hidden
+// (req #3303): it proposed a merge that batching already performs, and it could
+// not see the file contention rule 2's concurrency condition turns on. The
+// batch banner below is what the plan table says about steps that launch
+// together, and it is the whole of it.
 
 // ── Launch-batch banner row (design rule 8) ─────────────────────────────────
 // Carries the batch letter, its member steps, its gate, and the EXACT one-line
@@ -350,6 +328,49 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, [focusStepId, renderRows]);
 
+    // ── THIS TABLE'S OWN VIEWPORT SURVIVES LEAVING IT (req #3311) ───────────
+    // The Plan mode's camera has been remembered since req #3252; the Table
+    // mode's scroll position was not, and on the live 64-step plan that is the
+    // same defect wearing a scrollbar — open a step's requirement, come back,
+    // and you are at row 1. Every return path is covered without being listed,
+    // because a return is just this component mounting: a link out and Back, the
+    // header's Table|Plan toggle (which unmounts this with no navigation at all),
+    // a bead click, a reload.
+    //
+    // KEYED ON THE PLAN, exactly as the camera is: two plans open in one tab keep
+    // their own positions, and an unidentified plan persists nothing rather than
+    // inheriting another's.
+    const planScrollKey = pipeline?.id != null
+        ? scrollStorageKey('pipeline-plan-table', pipeline.id) : null;
+    // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
+    // its row to centre in the effect above, and a restore racing that would put
+    // the reader somewhere neither of them asked for. So the RESTORE is suppressed
+    // and the RECORD is not — where the link left them IS where they are, and a
+    // null key here (the tempting one-liner) would drop their position instead of
+    // deferring to the link. Same doctrine PipelinePlanVisualizer applies to
+    // `?epic=`: a link asks to see one thing once and must never overwrite what
+    // the reader chose.
+    const linkOwnsScroll = focusStepId != null;
+    useScrollMemory(planScrollKey, window, { restore: !linkOwnsScroll });
+    // ── AND SO DOES THE HORIZONTAL ONE ─────────────────────────────────────
+    // A separate key because it is a separate scroller: eleven NOWRAP columns run
+    // ~1640px, so the TableContainer scrolls sideways under a page that scrolls
+    // down, and a reader who moved right to read `Depends on` has moved their
+    // viewport just as much as one who scrolled down. Its element arrives through
+    // STATE rather than a ref — see useScrollMemory's own note: a ref's `.current`
+    // cannot appear in a dependency list, so the effect would never re-run when
+    // the node lands.
+    //
+    // DEEP-LINK SUPPRESSED ON THE SAME TERMS as the vertical one, and it is not
+    // symmetry for its own sake: `scrollIntoView` above defaults to
+    // `inline: 'nearest'`, and a table ROW is wider than this scrollport, so the
+    // focus scroll moves this axis too. Restoring against it would fight it
+    // exactly as on the other axis.
+    const [tableEl, setTableEl] = useState(null);
+    useScrollMemory(pipeline?.id != null
+        ? scrollStorageKey('pipeline-plan-table-x', pipeline.id) : null,
+    tableEl, { restore: !linkOwnsScroll });
+
     // Column count for the banner colSpan — must track the Cost column's
     // visibility or the banner under-spans and leaves a ragged edge.
     // 10 fixed columns since the Name column landed (req #3119).
@@ -372,9 +393,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
     return (
         <Box ref={rootRef}>
             <OrderViolationsAlert plan={plan} />
-            <CondensationAlert
-                key={(plan.proposals || []).map((p) => p.stepIds.join('-')).join('|')}
-                proposals={plan.proposals || []} />
 
             {/* The Time / Tokens control moved to the page header row (req
                 #3119). What stays here is the pair of things that describe THIS
@@ -403,7 +421,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                 )}
             </Box>
 
-            <TableContainer component={Paper} variant="outlined">
+            <TableContainer component={Paper} variant="outlined" ref={setTableEl}>
                 <Table size="small" data-testid="pipeline-plan-table">
                     <TableHead>
                         <TableRow>

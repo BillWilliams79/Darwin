@@ -364,6 +364,7 @@ const NavBarSidebar = () => {
                                 <IconButton
                                     onClick={handleBikeClick}
                                     size="small"
+                                    aria-label="Profile"
                                     data-testid="bike-menu-button"
                                     sx={{
                                         p: 0.25,
@@ -532,6 +533,7 @@ const NavBarSidebar = () => {
                     <IconButton
                         edge="start"
                         onClick={handleBikeClick}
+                        aria-label="Profile"
                         data-testid="bike-menu-button"
                         sx={{ color: ACCENT }}
                     >

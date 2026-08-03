@@ -529,6 +529,7 @@ const SwarmStartCard = () => {
                     </Stack>
                     <IconButton
                         onClick={handleMenuOpen}
+                        aria-label="Swarm start card menu"
                         data-testid="swarm-start-card-menu"
                         size="small"
                         sx={{ maxWidth: '25px', maxHeight: '25px' }}

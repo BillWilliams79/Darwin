@@ -61,7 +61,7 @@ const RequirementDragLayer = () => {
                     size="small"
                     sx={{ height: 28, '& .MuiToggleButton-root': { px: 0.5, py: 0, minWidth: 28 } }}
                 >
-                    <ToggleButton value="idle" disabled><RocketIcon sx={{ fontSize: 18 }} /></ToggleButton>
+                    <ToggleButton value="idle" disabled aria-label="Requirement status"><RocketIcon sx={{ fontSize: 18 }} /></ToggleButton>
                 </ToggleButtonGroup>
                 <TextField
                     variant="outlined"
@@ -71,10 +71,10 @@ const RequirementDragLayer = () => {
                     sx={{...(item?.requirement_status === 'met' && { textDecoration: 'line-through' }), ...((item?.requirement_status === 'deferred' || item?.requirement_status === 'wontfix') && { opacity: 0.5 })}}
                 />
                 <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
-                    <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
+                    <IconButton aria-label="Open requirement" sx={{ maxWidth: "25px", maxHeight: "25px" }}>
                         <OpenInNewIcon />
                     </IconButton>
-                    <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
+                    <IconButton aria-label="Delete requirement" sx={{ maxWidth: "25px", maxHeight: "25px" }}>
                         <DeleteIcon />
                     </IconButton>
                 </Box>

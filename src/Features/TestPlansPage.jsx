@@ -344,10 +344,10 @@ function TestPlansTableView({ plans, categoryById, onEdit, onDelete, onOpenDetai
             field: '_actions', headerName: '', width: 100, sortable: false, filterable: false,
             renderCell: (p) => (
                 <Box sx={{ display: 'flex', height: '100%', alignItems: 'center' }}>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
+                    <IconButton size="small" aria-label="Edit test plan" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
                         <EditIcon fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
+                    <IconButton size="small" aria-label="Delete test plan" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
                         <DeleteIcon fontSize="small" />
                     </IconButton>
                 </Box>
@@ -419,11 +419,11 @@ function TestPlansCardsView({ plans, categoryById, onEdit, onDelete, onOpenDetai
                                                             whiteSpace: 'nowrap' }}>
                                             {p.title}
                                         </Typography>
-                                        <IconButton size="small"
+                                        <IconButton size="small" aria-label="Edit test plan"
                                                     onClick={(e) => { e.stopPropagation(); onEdit(p); }}>
                                             <EditIcon fontSize="small" />
                                         </IconButton>
-                                        <IconButton size="small"
+                                        <IconButton size="small" aria-label="Delete test plan"
                                                     onClick={(e) => { e.stopPropagation(); onDelete(p); }}>
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
@@ -605,7 +605,7 @@ function TestPlanDetail({ plan, onClose }) {
                                                         </Typography>
                                                         {tc?.test_type &&
                                                             <Chip label={tc.test_type} size="small" />}
-                                                        <IconButton size="small"
+                                                        <IconButton size="small" aria-label="Remove test case from plan"
                                                                     onClick={() => handleRemoveCase(caseId)}
                                                                     data-testid={`remove-case-${caseId}`}>
                                                             <DeleteIcon fontSize="small" />

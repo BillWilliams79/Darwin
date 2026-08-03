@@ -103,11 +103,11 @@ const CategoryTableRow = React.memo(({category, categoryIndex, changeCategoryNam
             </Box>
             <Box>
                 { category.id === '' ?
-                        <IconButton>
+                        <IconButton aria-label="Save category">
                             <SavingsIcon />
                         </IconButton>
                     :
-                        <IconButton onClick={(event) => clickCategoryDelete(event, category.id, category.category_name)} >
+                        <IconButton aria-label="Delete category" onClick={(event) => clickCategoryDelete(event, category.id, category.category_name)} >
                             <DeleteIcon />
                         </IconButton>
                 }

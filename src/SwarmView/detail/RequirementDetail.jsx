@@ -726,6 +726,7 @@ const RequirementDetail = () => {
                         <IconButton
                             onClick={() => navigate(`/swarm/requirement/${prevId}`, { state: location.state })}
                             disabled={!prevId}
+                            aria-label="Previous requirement"
                             data-testid="btn-prev-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
                         >
@@ -738,6 +739,7 @@ const RequirementDetail = () => {
                         <IconButton
                             onClick={() => navigate(`/swarm/requirement/${nextId}`, { state: location.state })}
                             disabled={!nextId}
+                            aria-label="Next requirement"
                             data-testid="btn-next-requirement"
                             sx={{ maxWidth: 25, maxHeight: 25 }}
                         >

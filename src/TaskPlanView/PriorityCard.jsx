@@ -312,6 +312,7 @@ const PriorityCard = ({ domainId, areaIds }) => {
                     </Typography>
                     <IconButton
                         onClick={handleMenuOpen}
+                        aria-label="Priorities card menu"
                         data-testid={`priority-card-menu-${domainId}`}
                         size="small"
                         sx={{ maxWidth: "25px", maxHeight: "25px" }}

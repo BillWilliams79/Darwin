@@ -400,6 +400,7 @@ const MapsPage = () => {
                 <IconButton
                     onClick={(e) => setSettingsAnchorEl(e.currentTarget)}
                     size="small"
+                    aria-label="Maps settings"
                     data-testid="maps-settings-button"
                 >
                     <SettingsIcon fontSize="small" />
@@ -505,12 +506,16 @@ const MapsPage = () => {
                     </Button>
 
                     <ToggleButtonGroup value={chartType} exclusive onChange={handleChartType} size="small" disabled={view !== 'trends'}>
-                        <ToggleButton value="bar" data-testid="chart-type-toggle-bar">
-                            <BarChartIcon fontSize="small" />
-                        </ToggleButton>
-                        <ToggleButton value="line" data-testid="chart-type-toggle-line">
-                            <ShowChartIcon fontSize="small" />
-                        </ToggleButton>
+                        <Tooltip title="Bar chart">
+                            <ToggleButton value="bar" aria-label="Bar chart" data-testid="chart-type-toggle-bar">
+                                <BarChartIcon fontSize="small" />
+                            </ToggleButton>
+                        </Tooltip>
+                        <Tooltip title="Line chart">
+                            <ToggleButton value="line" aria-label="Line chart" data-testid="chart-type-toggle-line">
+                                <ShowChartIcon fontSize="small" />
+                            </ToggleButton>
+                        </Tooltip>
                     </ToggleButtonGroup>
 
                     <Button

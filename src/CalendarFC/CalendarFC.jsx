@@ -840,7 +840,7 @@ const CalendarFC = () => {
                             </Box>
                             {/* Center: ← Title → */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <IconButton onClick={handlePrev} size="small" data-testid="cal-prev">
+                                <IconButton onClick={handlePrev} size="small" aria-label="Previous period" data-testid="cal-prev">
                                     <ChevronLeftIcon />
                                 </IconButton>
                                 <Typography sx={{
@@ -849,7 +849,7 @@ const CalendarFC = () => {
                                 }}>
                                     {displayTitle}
                                 </Typography>
-                                <IconButton onClick={handleNext} size="small" data-testid="cal-next">
+                                <IconButton onClick={handleNext} size="small" aria-label="Next period" data-testid="cal-next">
                                     <ChevronRightIcon />
                                 </IconButton>
                             </Box>

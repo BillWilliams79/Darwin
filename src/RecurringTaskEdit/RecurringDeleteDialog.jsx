@@ -87,6 +87,7 @@ const RecurringDeleteDialog = ({ open, setOpen, def, setConfirmed }) => {
                             sx={{ maxWidth: 25, maxHeight: 25, mr: '2px', p: 0 }}
                         />
                         <IconButton size="small" disabled
+                            aria-label={def.accumulate ? 'Stacks tasks' : 'Replaces unfinished'}
                             color={def.accumulate ? 'default' : 'warning'}
                             sx={{ maxWidth: 25, maxHeight: 25, mr: '2px', p: 0 }}
                         >
