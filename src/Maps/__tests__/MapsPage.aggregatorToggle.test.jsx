@@ -5,14 +5,17 @@
 // the store wiring: present in cards view, absent in trends/table, click flips
 // the persisted store, and RouteCardView receives the visibility prop. All
 // child views are mocked — their behavior is covered elsewhere.
+//
+// Req #3174 criterion 7 — the toggle's persistence semantics as the USER meets
+// them: the click writes through to localStorage, and a page mounting with an
+// already-persisted state comes up showing the card. The store's own contract
+// is unit-tested in stores/__tests__/useMapAggregatorCardStore.test.js.
+// Rendering is @testing-library/react.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { act } from 'react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let routeCardViewProps;
 
@@ -48,45 +51,32 @@ import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { useMapAggregatorCardStore } from '../../stores/useMapAggregatorCardStore';
 
-let container;
-let root;
-
 const renderPage = () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    act(() => {
-        root.render(
-            <QueryClientProvider client={client}>
-                <AppContext.Provider value={{ darwinUri: 'https://api.test' }}>
-                    <AuthContext.Provider value={{ idToken: 'token-1', profile: { id: 'user-1' } }}>
-                        <MapsPage />
-                    </AuthContext.Provider>
-                </AppContext.Provider>
-            </QueryClientProvider>
-        );
-    });
+    return render(
+        <QueryClientProvider client={client}>
+            <AppContext.Provider value={{ darwinUri: 'https://api.test' }}>
+                <AuthContext.Provider value={{ idToken: 'token-1', profile: { id: 'user-1' } }}>
+                    <MapsPage />
+                </AuthContext.Provider>
+            </AppContext.Provider>
+        </QueryClientProvider>
+    );
 };
 
-const click = (el) => {
-    act(() => {
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-};
+const click = (el) => fireEvent.click(el);
 
-const toggleBtn = () => container.querySelector('[data-testid="map-aggregator-card-toggle"]');
+const toggleBtn = () => screen.queryByTestId('map-aggregator-card-toggle');
 
 beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
     useMapAggregatorCardStore.setState({ show: false });
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
     routeCardViewProps = undefined;
 });
 
 afterEach(() => {
-    act(() => root.unmount());
-    container.remove();
+    cleanup();
 });
 
 describe('MapsPage aggregator toggle (req #3158)', () => {
@@ -108,13 +98,61 @@ describe('MapsPage aggregator toggle (req #3158)', () => {
         renderPage();
         expect(toggleBtn()).not.toBeNull();
 
-        click(container.querySelector('[data-testid="view-toggle-trends"]'));
+        click(screen.getByTestId('view-toggle-trends'));
         expect(toggleBtn()).toBeNull();
 
-        click(container.querySelector('[data-testid="view-toggle-table"]'));
+        click(screen.getByTestId('view-toggle-table'));
         expect(toggleBtn()).toBeNull();
 
-        click(container.querySelector('[data-testid="view-toggle-cards"]'));
+        click(screen.getByTestId('view-toggle-cards'));
         expect(toggleBtn()).not.toBeNull();
+    });
+});
+
+// Req #3174 criterion 7, at the surface the user actually meets: the toggle is
+// the only writer, and what it writes is what a later mount reads.
+describe('MapsPage aggregator toggle persistence (req #3174)', () => {
+    it('writes the toggle through to localStorage on click', () => {
+        renderPage();
+        // beforeEach's setState is itself a persisted write, so the key exists
+        // and reads false — the click is what has to move it.
+        const before = JSON.parse(localStorage.getItem('darwin_map_aggregator_card'));
+        expect(before.state.show).toBe(false);
+
+        click(toggleBtn());
+
+        const persisted = JSON.parse(localStorage.getItem('darwin_map_aggregator_card'));
+        expect(persisted.state.show).toBe(true);
+    });
+
+    it('comes up showing the card when the store was left on — the reload case', () => {
+        // What rehydration leaves behind before MapsPage ever mounts.
+        useMapAggregatorCardStore.setState({ show: true });
+
+        renderPage();
+
+        expect(routeCardViewProps.showAggregatorCard).toBe(true);
+        // Off is likewise restored, not merely defaulted to.
+        click(toggleBtn());
+        expect(routeCardViewProps.showAggregatorCard).toBe(false);
+        expect(JSON.parse(localStorage.getItem('darwin_map_aggregator_card')).state.show).toBe(false);
+    });
+
+    it('leaves the persisted state alone while the user is in another view', () => {
+        useMapAggregatorCardStore.setState({ show: true });
+        renderPage();
+
+        click(screen.getByTestId('view-toggle-trends'));
+
+        // Discard the capture from the initial cards render. Without this the
+        // assertion below is satisfied by the value taken at mount, so a
+        // regression that stopped rendering RouteCardView on the way back would
+        // still pass.
+        routeCardViewProps = undefined;
+        click(screen.getByTestId('view-toggle-cards'));
+
+        expect(routeCardViewProps).toBeDefined();
+        expect(useMapAggregatorCardStore.getState().show).toBe(true);
+        expect(routeCardViewProps.showAggregatorCard).toBe(true);
     });
 });
