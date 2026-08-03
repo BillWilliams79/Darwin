@@ -115,7 +115,8 @@ import {
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
-    nextHaloMagnify, labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
+    nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
+    labelsLegible, drawsLabelKind, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -378,9 +379,10 @@ export default function PipelinePlanVisualizer({
             statuses: planStatuses,
             machineLegend: machineView.legend,
         }).entries])), [planStatuses, machineView]);
-    // Expanded by default — see the key's own comment below for why this is
+    // Collapsed by default (req #3309 — the key covered too much of the plan
+    // on first view) — see the key's own comment below for why this is
     // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(true);
+    const [keyOpen, setKeyOpen] = useState(false);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -1757,8 +1759,20 @@ export default function PipelinePlanVisualizer({
     // expression the label gate reads. The invariant is "the scale the halo
     // sizes itself against is the scale the labels are gated on", and two
     // expressions that agree today are how that quietly stops being true.
-    const haloM = nextHaloMagnify(curK);
-    const haloDash = haloM === 1 ? NEXT_HALO_DASH : NEXT_HALO_DASH.map((d) => d * haloM);
+    // req #3299 — below the ring's reach (`nextHaloMagnify`'s ceiling is
+    // already maxed out, so the ring's ON-SCREEN size resumes shrinking with
+    // `curK`), a DIFFERENT MARK takes over: a filled dot, counter-scaled so
+    // its screen size is fixed rather than a world size the camera shrinks.
+    // See `nextMarkIsDot`/`nextMarkDotRadius` in pipelinePlanLayout.js for the
+    // derivation. Decided BEFORE `haloM`/`haloDash` so those — unused on the
+    // dot branch, and `NEXT_HALO_DASH.map` allocates a fresh array every frame
+    // on the capped branch this replaces — are only computed for the branch
+    // that needs them.
+    const haloIsDot = nextMarkIsDot(curK);
+    const haloM = haloIsDot ? 1 : nextHaloMagnify(curK);
+    const haloDash = haloIsDot || haloM === 1 ? NEXT_HALO_DASH
+        : NEXT_HALO_DASH.map((d) => d * haloM);
+    const dotRadius = haloIsDot ? nextMarkDotRadius(curK) : 0;
 
     rows.forEach((row) => {
         const n = layout.nodes.get(row.id);
@@ -1790,11 +1804,21 @@ export default function PipelinePlanVisualizer({
         // labels, so the magnification's target is the mark's own size at that
         // scale and the two branches meet. See `nextHaloMagnify`.
         if (style.next) {
-            worldNodes.push(
+            // req #3299 — the dot does NOT recolour the bead: it is its own
+            // node, in the halo's own colour, replacing only the RING's
+            // geometry below the floor the ring itself cannot reach. The
+            // bead's fill (state) and ring (run mode) below still draw at
+            // their own — now sub-pixel — world size, untouched.
+            worldNodes.push(haloIsDot ? (
+                <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
+                        radius={dotRadius} fill={style.haloColor}
+                        opacity={NEXT_HALO_OPACITY} listening={false} />
+            ) : (
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
                         radius={NEXT_HALO_RADIUS * haloM} stroke={style.haloColor}
                         strokeWidth={NEXT_HALO_STROKE * haloM} opacity={NEXT_HALO_OPACITY}
-                        dash={haloDash} listening={false} />);
+                        dash={haloDash} listening={false} />
+            ));
         }
         worldNodes.push(
             <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
@@ -2383,8 +2407,8 @@ export default function PipelinePlanVisualizer({
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
-                    collapsed from another session. Every visit opens with the key
-                    shown.
+                    shown from another session. Every visit opens with the key
+                    collapsed (req #3309).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -2444,7 +2468,15 @@ export default function PipelinePlanVisualizer({
                         hit target grows from 15px to 20px with the glyph's font
                         size scaled to match — still the smallest interactive
                         element on the canvas, just no longer the one you have to
-                        hunt for. */}
+                        hunt for.
+
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
+                        key now collapsed by default, '+' is what a reader sees
+                        first and it is the one glyph that has to say "there is
+                        more here" with no key content around it to draw the eye.
+                        Full resting opacity does that; the hover state (opacity
+                        1, `P.accent`) is unchanged and still the stronger of the
+                        two cues. */}
                     <Box component="button" type="button"
                          onClick={() => setKeyOpen((v) => !v)}
                          data-viz-chrome="legend"
@@ -2459,7 +2491,7 @@ export default function PipelinePlanVisualizer({
                                 fontFamily: MONO, fontSize: 15, lineHeight: 1,
                                 color: P.text, background: 'transparent',
                                 border: 'none', borderRadius: '5px',
-                                opacity: 0.85,
+                                opacity: keyOpen ? 0.85 : 1,
                                 '&:hover': { opacity: 1, color: P.accent } }}>
                         {keyOpen ? '−' : '+'}
                     </Box>
@@ -2513,7 +2545,15 @@ export default function PipelinePlanVisualizer({
                                 <LegendDot ring={P.manualRing} label="Manual" />
                                 {/* "next up" and not "eligible now" because the
                                     mark answers the question in the plan's own
-                                    words: these are the steps that run next. */}
+                                    words: these are the steps that run next.
+                                    Below k ≈ 0.3 the canvas swaps this dashed
+                                    ring for a filled dot of the same on-screen
+                                    size, in the SAME colour (req #3299,
+                                    `nextMarkIsDot` in pipelinePlanLayout.js) —
+                                    the ring cannot survive that deep a
+                                    zoom-out, the fact it marks does not
+                                    change, so the key does not grow a second
+                                    swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="next up"
                                            dashed animated="pipeKeyBreathe" />
                             </KeyGroup>

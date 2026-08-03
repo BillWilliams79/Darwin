@@ -19,8 +19,8 @@ const AuthenticatedRoute = ({children}) => {
 
     if ((profile?.userName === undefined) || (!idToken)) {
 
-        // user is not logged in, process login via LoginLink component
-        // while saving the current URL for redirect
+        // user is not logged in — send them to the custom /login form (LoginPage),
+        // saving the current URL in route state so LoginPage can return them here
         return <Navigate to="/login" replace={true} state={{ from: location }} />;
 
     } else {

@@ -409,13 +409,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // directive, kept in the product).
             await expect(page.getByTestId('pipeline-batch-legend')).toBeVisible();
 
-            // Design rule 2: co-gated steps are PROPOSED for condensation into one
-            // multi-requirement step — a suggestion the page surfaces, never an
-            // automatic edit (plan mutations belong to the Primary AI).
-            expect(batchPlan.proposals).toHaveLength(1);
-            const proposal = page.getByTestId('pipeline-condensation-proposals');
-            await expect(proposal).toBeVisible();
-            await expect(proposal).toContainText('condensed');
+            // NO CONDENSATION ADVISORY (req #3303). This is the case that used to
+            // raise it — co-gated steps sharing a launch key — so the negative is
+            // asserted HERE, where the banner would appear if it came back, rather
+            // than on a plan that could never have shown one.
+            await expect(page.getByTestId('pipeline-condensation-proposals'))
+                .toHaveCount(0);
+            // The banner rendered as a SIBLING above the table, so the text check
+            // is on the page, not on the table element.
+            await expect(page.getByText(/could be condensed/)).toHaveCount(0);
         });
 
     test('PIPE-04b: no banner and NO legend key on a plan without a launch batch',
@@ -1796,6 +1798,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             const scaleOf = (name: string) =>
                 page.getByTestId(`pipeline-viz-legend-scale-${name}`);
 
+            // The key opens COLLAPSED by default (req #3309); this test's own
+            // subject is its OPEN content, so open it before asserting anything
+            // below. The closed-by-default state itself is covered separately.
+            await page.getByTestId('pipeline-viz-legend-toggle').click();
+
             // 1. THE KEY IS THE TWO CHANNELS A READER DECODES, and nothing else.
             //    The user's second pass removed the heading, the small-print
             //    footer and the plan-level rows; what remains must still cover
@@ -2362,12 +2369,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // click that lands on the floating key or an epic chip is swallowed
             // by the visualizer's own CHROME_SELECTOR guard and resolves against
             // no bead at all, so the navigation simply never happens and the
-            // wait below times out with nothing to explain it. The key is up to
-            // PLAN_KEY_MAX_W (470px) wide in the TOP-RIGHT corner and is open by
-            // default; the epic chips clamp to the top of the viewport.
+            // wait below times out with nothing to explain it. The key is
+            // BOTTOM-CENTER (req #3255), not a corner, and collapsed by default
+            // (req #3309) — this test never touches the toggle, so the ONLY
+            // live chrome in that band is the 32×28 collapsed panel, but the
+            // keep-out below stays sized to PLAN_KEY_MAX_W (470px) and a
+            // generous height regardless, in case a future occasion opens it;
+            // the epic chips clamp to the top of the viewport.
             const [tx, ty, k] = panned;
             const M = 24;             // panel edges
-            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, top-right
+            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, bottom-center
+            const KEY_H = 260;        // generous — taller than the key gets
             const CHIP_H = 100;       // the clamped epic-chip strip along the top
             const reqLabel = (layout.labels as Array<
                 { kind: string; x: number; y: number; reqId: number }>).find((l) => {
@@ -2376,8 +2388,9 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     const sy = ty + (l.y + 3) * k;
                     if (sx <= M || sx >= box.width - M) return false;
                     if (sy <= CHIP_H || sy >= box.height - M) return false;
-                    // Anything in the top-right rectangle belongs to the key.
-                    return !(sx > box.width - KEY_W && sy < 260);
+                    // Anything in the bottom-center rectangle belongs to the key.
+                    return !(sy > box.height - KEY_H
+                        && Math.abs(sx - box.width / 2) < KEY_W / 2);
                 })!;
             expect(reqLabel,
                 'a requirement label is on screen at the panned camera').toBeTruthy();
@@ -2422,5 +2435,51 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(Math.hypot(rx - panned[0], ry - panned[1]),
                 'and it is the reset view, not the pan that preceded it')
                 .toBeGreaterThan(1);
+        });
+
+    // ── PIPE-22: the key opens collapsed, and its '+' reads brighter (req #3309) ──
+
+    test('PIPE-22: the key opens COLLAPSED by default, with a full-opacity "+" to invite it open',
+        async ({ page }) => {
+            await openPlanVisualizer(page, fixture.mainPipelineId);
+
+            const key = page.getByTestId('pipeline-viz-legend');
+            const toggle = page.getByTestId('pipeline-viz-legend-toggle');
+            const reqScale = page.getByTestId('pipeline-viz-legend-reqscale');
+
+            // The panel itself still renders (it is the toggle's own frame),
+            // but its content — the colour/requirement channels — does not,
+            // and the control reports itself collapsed.
+            await expect(key).toBeVisible();
+            await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+            await expect(toggle).toHaveAttribute('aria-label', 'Expand the key');
+            await expect(toggle).toHaveText('+');
+            await expect(reqScale).toHaveCount(0);
+
+            // The '+' is the only invitation to open the key now that the key
+            // no longer opens itself, so it rests at full opacity — brighter
+            // than the '−' shown once the key is open, which still has the
+            // key's own content around it to draw the eye. The hover rule
+            // (`opacity: 1` on both glyphs) would make either read a vacuous
+            // 1 if the cursor were still parked over the button from the click
+            // below — `mouse.move` away from it before each read so RESTING
+            // opacity is what actually gets measured, not hover.
+            await page.mouse.move(0, 0);
+            const plusOpacity = Number(
+                await toggle.evaluate((el) => getComputedStyle(el).opacity));
+            expect(plusOpacity, 'the collapsed "+" rests at full opacity').toBeCloseTo(1, 2);
+
+            await toggle.click();
+            await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+            await expect(toggle).toHaveAttribute('aria-label', 'Collapse the key');
+            await expect(toggle).toHaveText('−');
+            await expect(reqScale).toBeVisible();
+            await page.mouse.move(0, 0);
+            const minusOpacity = Number(
+                await toggle.evaluate((el) => getComputedStyle(el).opacity));
+            expect(minusOpacity, 'the open "−" rests dimmer than the collapsed "+"')
+                .toBeCloseTo(0.85, 2);
+            expect(minusOpacity, 'the open "−" is dimmer than the collapsed "+"')
+                .toBeLessThan(plusOpacity);
         });
 });
