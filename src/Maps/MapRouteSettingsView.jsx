@@ -126,6 +126,7 @@ const MapRouteSettingsView = () => {
             renderCell: (params) => (
                 <IconButton
                     size="small"
+                    aria-label="Delete route"
                     onClick={() => setDeleteConfirm({ open: true, id: params.row.id, name: params.row.name })}
                     data-testid={`delete-route-${params.row.id}`}
                 >

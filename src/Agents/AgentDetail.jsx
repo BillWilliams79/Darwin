@@ -389,6 +389,7 @@ const AgentDetail = () => {
                                             <Tooltip title="Load earlier">
                                                 <span>
                                                     <IconButton size="small" disabled={idx === 0 || instrBusy}
+                                                                aria-label="Load earlier"
                                                                 onClick={() => moveInstruction(idx, idx - 1)}
                                                                 data-testid={`agent-instruction-up-${row.id}`}>
                                                         <ArrowUpwardIcon fontSize="small" />
@@ -399,6 +400,7 @@ const AgentDetail = () => {
                                                 <span>
                                                     <IconButton size="small"
                                                                 disabled={idx === myInstructions.length - 1 || instrBusy}
+                                                                aria-label="Load later"
                                                                 onClick={() => moveInstruction(idx, idx + 1)}
                                                                 data-testid={`agent-instruction-down-${row.id}`}>
                                                         <ArrowDownwardIcon fontSize="small" />
@@ -426,6 +428,7 @@ const AgentDetail = () => {
                                                         cannot show: a rebind appends at max+1
                                                         rather than restoring #{link.sort_order}. */}
                                                     <IconButton size="small" disabled={instrBusy}
+                                                                aria-label="Unbind instruction from this agent"
                                                                 onClick={() => unbindConfirm.openDialog(
                                                                     { row, agent: { ...agent, slot: link.sort_order } })}
                                                                 data-testid={`agent-instruction-unlink-${row.id}`}>

@@ -364,6 +364,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     <IconButton
                         onClick={() => coordinationClick(requirementIndex, requirement.id)}
                         disabled={!isCoordEditable}
+                        aria-label={tooltip}
                         data-testid={testId}
                         sx={{ maxWidth: 28, maxHeight: 28, '&.Mui-disabled': { opacity: 1 } }}
                     >
@@ -552,6 +553,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', pl: 1, pr: 1.25 }}>
             { requirement.id === '' ?
                     <IconButton key={`savings-${requirement.id}`}
+                                aria-label="Save requirement"
                                 disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                                 sx = {{maxWidth: "25px",
                                        maxHeight: "25px",

@@ -130,7 +130,7 @@ const TaskDragLayer = () => {
                         slotProps={{ input: { readOnly: true } }}
                         sx={{...(item?.done === 1 && { textDecoration: 'line-through' })}}
                     />
-                    <IconButton sx={{ maxWidth: "25px", maxHeight: "25px" }}>
+                    <IconButton aria-label="Delete task" sx={{ maxWidth: "25px", maxHeight: "25px" }}>
                         <DeleteIcon />
                     </IconButton>
                 </Box>

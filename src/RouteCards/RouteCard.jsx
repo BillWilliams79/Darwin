@@ -367,7 +367,7 @@ const RouteCard = ({ run, routeName, routes, allRuns, partners = [], runPartners
                             )}
                             data-testid="route-card-partners"
                         />
-                        <IconButton size="small" color="error" onClick={() => setDeleteOpen(true)}
+                        <IconButton size="small" color="error" onClick={() => setDeleteOpen(true)} aria-label="Delete activity"
                                     sx={{ p: 0.25, mb: 0.25 }} data-testid="route-card-delete-btn">
                             <DeleteOutlineIcon sx={{ fontSize: 22 }} />
                         </IconButton>

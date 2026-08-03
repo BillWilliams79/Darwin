@@ -581,6 +581,7 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
                         <>
                             <IconButton
                                 onClick={handleMenuOpen}
+                                aria-label="Area card menu"
                                 data-testid={`card-menu-${area.id}`}
                                 size="small"
                                 sx={{ maxWidth: "25px", maxHeight: "25px" }}
