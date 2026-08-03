@@ -31,8 +31,15 @@ import {
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
-    epicFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO, ZOOM_MIN_RATIO,
+    epicFocusTransform, batchFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
+    ZOOM_MIN_RATIO,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
+// req #3297 — the epic name's second stop. The spec derives WHICH batch the
+// page will pick from the same pure function the page reads, never from a
+// hard-coded letter: the fixture's batch letters move whenever its steps do.
+import {
+    nextBatchLetter, epicZoomHint, epicZoomHintSuffix,
+} from '../../src/SwarmView/pipelines/pipelineEpicZoom.js';
 // PIPE-19 asserts the Autonomy row against the label table the card renders
 // through, not against a hand-copied string — the point of D5 is that the card
 // shows the UI's word for a coordination type and never the raw column.
@@ -990,16 +997,83 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .toBeCloseTo(-90, -1);
             expect(dy - fy).toBeCloseTo(-50, -1);
 
-            // Clicking the SAME epic again re-fits to the SAME transform. A
-            // toggle would have un-zoomed here, and a stored "focused epic"
-            // would have branched. There is nothing to un-zoom.
-            await page.getByTestId(`pipeline-viz-epic-${band.key}`)
-                .locator('.pipeline-viz-epic-name').click();
-            await settle();
+            // ── THE SECOND CLICK, AFTER THE DRAG (req #3204, re-ruled #3297) ─
+            // Two outcomes, and WHICH one is a property of the plan, not of the
+            // test's mood — so it is derived from the same pure function the
+            // page reads (`nextBatchLetter`) rather than assumed.
+            //
+            //   · no next batch  → the click re-fits the band, exactly as it
+            //     always has. #3297's second level does not exist here, and a
+            //     level that does not exist takes nothing away from the one
+            //     below it: this is the assertion that the epic name did NOT
+            //     become a one-shot control on a batch-less plan.
+            //   · a next batch   → the click lands on THAT BATCH, and a third
+            //     click comes back to the band. The cycle, end to end, through
+            //     the real component.
+            //
+            // Note the drag above ALSO clears the cycle level (a gesture means
+            // the reader is no longer looking at the band this control put them
+            // on), so the click below is click 1 again either way — which is
+            // itself the behaviour being pinned.
+            const clickName = async () => {
+                await page.getByTestId(`pipeline-viz-epic-${band.key}`)
+                    .locator('.pipeline-viz-epic-name').click();
+                await settle();
+            };
+            await clickName();
             const [ax, ay, ak] = await read();
-            expect(ax, 'the second click lands on the same fit').toBeCloseTo(fx, -1);
+            expect(ax, 'the click after a drag re-fits the band').toBeCloseTo(fx, -1);
             expect(ay).toBeCloseTo(fy, -1);
             expect(ak).toBeCloseTo(fk, 3);
+
+            const letter = nextBatchLetter(plan.batches, layout, band,
+                new Map(plan.rows.map((r: { id: number }) => [r.id, r])));
+            if (letter) {
+                const wantBatch = batchFocusTransform(
+                    layout, band, letter, size, kBase, kZoomFloor)!;
+                expect(wantBatch, 'the batch has a fit transform').toBeTruthy();
+                await clickName();
+                const [bx, by, bk] = await read();
+                expect(bx, `the next click lands on batch ${letter}`)
+                    .toBeCloseTo(wantBatch.x, -1);
+                expect(by).toBeCloseTo(wantBatch.y, -1);
+                expect(bk).toBeCloseTo(wantBatch.k, 3);
+                // …and the same input reverses the move (item 1, "no dead-end
+                // state"). This is the whole reason the second level is a CYCLE
+                // and not a one-way door.
+                await clickName();
+                const [cx, cy, ck] = await read();
+                expect(cx, 'and the click after that returns to the band')
+                    .toBeCloseTo(fx, -1);
+                expect(cy).toBeCloseTo(fy, -1);
+                expect(ck).toBeCloseTo(fk, 3);
+            } else {
+                // The batch-less plan's own guarantee: repeating the click
+                // keeps re-fitting rather than going dead.
+                await clickName();
+                const [rx, ry, rk] = await read();
+                expect(rx, 'a batch-less epic name keeps working, click after click')
+                    .toBeCloseTo(fx, -1);
+                expect(ry).toBeCloseTo(fy, -1);
+                expect(rk).toBeCloseTo(fk, 3);
+            }
+
+            // ── KEYBOARD PARITY (req #3204's chip, req #3297's cycle) ────────
+            // The camera is on the BAND fit at this point in both branches
+            // above, so Enter is the cycle's next step — the batch where there
+            // is one, the band again where there is not. Both inputs run one
+            // handler in the component, and this is what asserts that they did
+            // not drift into a mouse-only feature.
+            await page.getByTestId(`pipeline-viz-epic-${band.key}`).press('Enter');
+            await settle();
+            const [kx, ky, kk] = await read();
+            const wantKeyed = letter
+                ? batchFocusTransform(layout, band, letter, size, kBase, kZoomFloor)!
+                : want;
+            expect(kx, 'Enter drives the same cycle step the mouse does')
+                .toBeCloseTo(wantKeyed.x, -1);
+            expect(ky).toBeCloseTo(wantKeyed.y, -1);
+            expect(kk).toBeCloseTo(wantKeyed.k, 3);
 
             // A wheel zoom likewise continues from the focused scale rather than
             // from the fit-to-width one the page opened at.
@@ -2189,14 +2263,28 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(epicCountsOf(batchPlan).size,
                 'the fixture exercises the counted band label').toBeGreaterThan(0);
             const chip = page.getByTestId(`pipeline-viz-epic-${epicBand.epicId}`);
-            await expect(chip).toHaveAttribute('title', 'Zoom pipeline epic');
+            // req #3297 — the chip now names BOTH stops, and only where the
+            // second one exists. Derived from the same pure function the page
+            // reads, so this asserts the AGREEMENT (promise == behaviour) and
+            // not a copy of today's letter: on this fixture the band hosts a
+            // batch, so the clause is present, and the derivation would drop it
+            // by itself if the fixture ever stopped deriving one.
+            const d6Letter = nextBatchLetter(batchPlan.batches, layout, epicBand,
+                new Map(batchPlan.rows.map((r: { id: number }) => [r.id, r])));
+            expect(d6Letter,
+                'the D6 fixture band hosts a launch batch, so the chip names it')
+                .toBeTruthy();
+            await expect(chip).toHaveAttribute('title', epicZoomHint(d6Letter));
             // The accessible name still carries WHICH epic — a tooltip that
             // named only the gesture would be a regression for a screen reader.
             // req #3226 — and now the pause fact too, folded onto the SAME
             // label rather than a second announced element (the bubble beside
             // the name is colour-only, and colour alone is not accessible).
+            // req #3297's clause sits BEFORE the pause clause and inside this
+            // one label, so it is still ONE announced element.
             await expect(chip).toHaveAttribute(
                 'aria-label', `Zoom pipeline epic ${epicText}`
+                    + epicZoomHintSuffix(d6Letter)
                     + (epicBand.paused ? ' — paused' : ' — active'));
             // …and the ↗ beside it still names itself distinctly, which is what
             // makes the chip two controls rather than one ambiguous one.
