@@ -476,16 +476,64 @@ export default function PipelinePlanVisualizer({
     // both places for the same reason: it means "the reader asked for this".
     const userMovedCameraRef = useRef(false);
 
+    // THE LAST MEASUREMENT TAKEN, beside the state it is written into (req
+    // #3312). The landing effect has to know whether `size` has caught up with
+    // the panel yet — the DOM is resized twice at mount and the second sizing
+    // decides the opening view — and this is the only formulation of that
+    // question with NO geometric assumptions in it. The obvious alternatives
+    // both encode one silently: comparing against `availH` assumes the box
+    // model (this Box has a 1px border, so `clientHeight` is never the height
+    // it was asked for, and `minHeight: 480` can override it outright), and
+    // comparing against a fresh `clientHeight` read assumes zero padding and no
+    // scrollbar. Either would be CORRECT TODAY and would turn a later `p: 1` on
+    // the panel into a permanent, silent refusal to land. Written on both
+    // writers below so the pair cannot drift; the guard then reads exactly what
+    // was measured, whatever box that was measured in.
+    const observedSizeRef = useRef({ w: 0, h: 0 });
     useLayoutEffect(() => {
         if (!containerEl) return undefined;
         const ro = new ResizeObserver((entries) => {
             const cr = entries[0]?.contentRect;
-            if (cr) setSize({ w: Math.round(cr.width), h: Math.round(cr.height) });
+            if (cr) {
+                const next = { w: Math.round(cr.width), h: Math.round(cr.height) };
+                observedSizeRef.current = next;
+                setSize(next);
+            }
         });
         ro.observe(containerEl);
-        setSize({ w: containerEl.clientWidth, h: containerEl.clientHeight });
+        const first = { w: containerEl.clientWidth, h: containerEl.clientHeight };
+        observedSizeRef.current = first;
+        setSize(first);
         return () => ro.disconnect();
     }, [containerEl]);
+    // "Has `size` caught up with the panel?" — ONE definition, read by the three
+    // effects that move the camera (req #3312). Each of them computes a fit from
+    // `size`, and the panel is sized twice at mount with two different heights,
+    // so each would otherwise aim at a panel the reader never sees for one
+    // delivery. A FUNCTION called inside effects, deliberately not a value
+    // derived in the render body: a ref read during render is not guaranteed to
+    // see the write that a concurrent render is about to make, while an effect
+    // runs after the commit that wrote it.
+    //
+    // ONE-DIRECTIONAL FRESHNESS is what makes it safe, and it is worth stating
+    // as the invariant rather than as "the two converge": each `setSize(x)`
+    // above is immediately preceded by `observedSizeRef.current = x` with no
+    // yield between, so the ref is always at least as fresh as the state and
+    // `size` can never be AHEAD of it. The predicate can therefore be wrong
+    // only in the safe direction — a spurious defer, resolved by the very
+    // `size` change every caller already depends on — never in the direction
+    // that lands on a panel the reader will not see.
+    //
+    // IT IS VACUOUSLY TRUE BEFORE THE FIRST MEASUREMENT (both sides start at
+    // `{0, 0}`), so it is a readiness guard and NOT an emptiness check, and
+    // each caller still needs its own: the landing effect tests `size.w === 0`
+    // directly, and the two focus effects lean on `applyFocus` returning false
+    // while `zoomRef.current` is null — which it is for exactly as long as
+    // `size.w` is 0 — so they record nothing and retry.
+    const sizeSettled = useCallback(() => {
+        const o = observedSizeRef.current;
+        return o.w === size.w && o.h === size.h;
+    }, [size.w, size.h]);
 
     useLayoutEffect(() => {
         if (!legendEl) { setLegendSize(null); return undefined; }
@@ -556,20 +604,28 @@ export default function PipelinePlanVisualizer({
     // panel; kFit is that view.
     const kFit = size.w > 0 ? size.w / layout.width : 0.7;
 
-    // ── The DEFAULT view is the readable one, not the whole one (req #3168) ──
-    // Fit-to-width is the right OVERVIEW and the wrong DEFAULT. It is a scale
-    // divided by plan size, so the bigger the plan the smaller the type — and the
-    // live 64-step plan opens at a k where the requirement ids are a few pixels
-    // tall. The page's whole job is reading a plan, and it was arriving unreadable
-    // on exactly the plans that need it.
+    // ── The READABLE scale (req #3168) — WAS the default view, req #3312 ────
+    // Introduced as the opening view: fit-to-width is the right OVERVIEW and
+    // was the wrong DEFAULT, because it is a scale divided by plan size, so the
+    // bigger the plan the smaller the type — the live 64-step plan opened at a
+    // k where the requirement ids were a few pixels tall.
+    //
+    // **REQ #3312 TOOK THE OPENING VIEW BACK OFF IT** and gave it to
+    // `kFactoryDefault` (below), on the user's own instruction: the page must
+    // open in the same viewport the header's Reset produces. So it does now
+    // arrive at a scale where a large plan's labels are not drawn — the exact
+    // condition #3168 describes above as the defect — and that is the ask, not
+    // a regression of it. Read the paragraph above as history.
+    //
+    // WHAT THIS NUMBER STILL IS, and it is not vestigial: the ANCHOR of the
+    // semantic level ladder and of the zoom behavior's `scaleExtent`, and the
+    // base scale both focus clamps measure against. Every ratio on this surface
+    // is still measured from it.
     //
     // K_READABLE is derived from the smallest required text (the req ids) and an
-    // 11px floor; see pipelinePlanLayout. On a plan that already fits at a legible
-    // size this is inert — kFit wins and nothing about the old view changes.
-    // Hoisted into pipelinePlanLayout by req #3280 — see `readableDefaultScale`
-    // for why the formula could not stay inline: the invariant "the landing view
-    // always draws its labels" is only assertable against the number this file
-    // actually lands on.
+    // 11px floor; see pipelinePlanLayout. Hoisted there by req #3280 — see
+    // `readableDefaultScale` for why the formula could not stay inline: a test
+    // can only reach the number the renderer actually uses.
     const kDefault = readableDefaultScale(kFit);
     // The zoom behavior's own configured floor, computed ONCE here so this
     // and the `.scaleExtent` call below read the SAME number rather than two
@@ -578,14 +634,41 @@ export default function PipelinePlanVisualizer({
     // finding — a future `kDefault` that could fall below `kFit` would
     // silently desync a duplicated expression; a shared variable cannot).
     const kZoomFloor = Math.min(kFit, kDefault) * ZOOM_MIN_RATIO;
-    const curK = transform ? transform.k : kDefault;
+    // ── THE SCALE THE PLAN OPENS AT (req #3312) ─────────────────────────────
+    // The whole plan's vertical extent, floored at the zoom behavior's own
+    // configured minimum — `factoryDefaultScale`'s own comment has the fit
+    // maths and why the floor is handed IN rather than re-derived. It is the
+    // number `resetView` applies, and since #3312 that is the ONLY recenter
+    // target: the landing view and the header's Reset are one expression, not
+    // two numbers a test has to prove agree. See `resetView` below.
+    //
+    // COMPUTED HERE, above `curK`, rather than beside `resetView` where it
+    // used to sit: the two fallbacks below are "the view the page opens in"
+    // for the frames before the zoom behavior has emitted anything, and they
+    // can only be that if the number exists by then.
+    const kFactoryDefault = factoryDefaultScale(layout, size, kFit, kZoomFloor);
+    // The camera's live scale, or — before the first transform — the one the
+    // landing effect is about to apply. Reading `kDefault` here made the very
+    // first frame report `mid` on a plan that opens at Overview, a level the
+    // reader never saw (req #3312).
+    const curK = transform ? transform.k : kFactoryDefault;
     // THE LEVEL LADDER RE-ANCHORS ON THE DEFAULT, not on the fit (req #3168).
     // semanticLevel() takes a RATIO, and the ratio means "how far in from where
     // you started". Leaving the denominator at kFit while the default moved would
     // open a large plan at 'Detail' and a small one at 'Plan' — the same gesture
     // reporting a different level for no reason the reader can see. Anchoring on
-    // kDefault keeps "the view you land on" = 'Plan' at every plan size, which is
-    // the contract PIPE-09 asserts.
+    // kDefault keeps ratio 1 = 'Plan' at every plan size, which is the contract
+    // PIPE-09 asserts.
+    //
+    // RATIO 1 IS NO LONGER THE VIEW A PLAN LANDS IN, and the anchor deliberately
+    // does NOT follow it (req #3312). The landing moved to `kFactoryDefault`, so
+    // a plan too tall to fit at the readable scale now opens BELOW ratio 1 and
+    // reports 'Overview' — which is an honest description of what is on screen
+    // there, bare beads and no labels, exactly what the header's Reset has
+    // produced on those plans since req #3216. Re-anchoring the ladder on the
+    // new landing scale instead would change what is DRAWN at every k and undo
+    // req #3280's legibility gate, for a requirement that asked about the
+    // CAMERA. The denominator stays where #3168 put it.
     // ── Auto, or PINNED (req #3168) ─────────────────────────────────────────
     // `KonvaBuildCanvas`'s own line, in this canvas's vocabulary:
     // `pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`. Pinning changes
@@ -663,12 +746,19 @@ export default function PipelinePlanVisualizer({
             // and does not constrain it, so an out-of-extent k would sit there
             // looking fine until the user's first wheel event snapped it back.
             //
-            // Anchored on `kDefault`, not the fit scale (req #3168): the default
-            // view is `max(fit, K_READABLE)` and every ratio on this surface —
-            // the level ladder, this extent, and the focus clamp — is measured
-            // from the view the reader actually lands in. The lower bound keeps
-            // the fit scale in reach so `Overview` can still show the whole plan
-            // on a plan that opens zoomed in.
+            // Anchored on `kDefault`, not the fit scale (req #3168): every ratio
+            // on this surface — the level ladder, this extent, and the focus
+            // clamp — is measured from the same `max(fit, K_READABLE)`, so they
+            // cannot disagree about what "twice as far in" means.
+            //
+            // IT IS NO LONGER "THE VIEW THE READER LANDS IN", and this comment
+            // said so until req #3312 moved the landing onto `kFactoryDefault`
+            // (see `resetView` below). The anchor deliberately did not follow:
+            // moving it would rescale the level ladder and this extent for a
+            // requirement about the CAMERA. The lower bound keeps the fit scale
+            // in reach, which now matters in the other direction — a plan opens
+            // AT or below fit-to-width, so the room this bound protects is the
+            // room to zoom out from an already-wide view rather than into one.
             .scaleExtent([kZoomFloor, kDefault * ZOOM_MAX_RATIO])
             .constrain(bound)
             // A DRAG that starts on the key belongs to that control (req
@@ -741,55 +831,53 @@ export default function PipelinePlanVisualizer({
     }, [containerEl, size.w, size.h, kFit, kDefault, kZoomFloor, layout.width, layout.height,
         viewport]);
 
-    // ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────
-    // Deliberately NOT `kDefault` above — see `factoryDefaultScale`'s own
-    // comment in pipelinePlanLayout.js for why the readable landing scale and
-    // "reset" are two different numbers now. The fit math is pure and lives
-    // there, same as `epicFocusTransform`'s; this file only draws what it
-    // returns. `kZoomFloor` (computed above, alongside `kDefault`) is the
-    // SAME number the zoom behavior's own `scaleExtent` floor uses — passed
-    // in rather than re-derived, so the two can never desync (review finding:
-    // a duplicated `kFit * ZOOM_MIN_RATIO` only agreed with the behavior's
-    // real floor by algebraic coincidence).
-    const kFactoryDefault = factoryDefaultScale(layout, size, kFit, kZoomFloor);
-
-    // WHICH base a toggle-driven recenter targets (review finding): Width
-    // rescales every column and re-centres to keep the view sane on the new
-    // geometry (the effect below), and until this ref existed that recentre
-    // was hard-coded to `kDefault` — so clicking Width right after clicking
-    // Reset, its own neighbour in the same header group, silently undid the
-    // factory reset the user had just asked for. Flipping this to 'factory'
-    // on a Reset click and reading it back here means a toggle instead
-    // preserves whichever view the reader is IN, exactly as it always
-    // preserved `kDefault` when the two scales happened to be the same
-    // number. A drag or a wheel zoom never touches this ref: those don't run
-    // through this effect at all, so which gesture last moved the camera is
-    // still irrelevant to it, same as before this fix.
-    const recenterModeRef = useRef('readable');
-
-    // Reset to the current base view on first size and whenever a layout
-    // toggle changes the world dimensions wholesale (the POC re-rendered from
-    // scratch on those toggles). `stepWidth` joins that list for the same
-    // reason the other two are on it: it rescales every column, so the
-    // previous pan lands somewhere unrelated on the new geometry.
+    // ── THE BASE VIEW = FACTORY DEFAULT, LANDING AND RESET ALIKE ────────────
+    // Req #3216 D1 redefined Reset as the factory default — the whole plan's
+    // vertical extent, one click, from any pan or zoom — while the LANDING
+    // stayed on req #3168's readable scale `kDefault`. On live pipeline 2 that
+    // is 0.8 against a fit of ~0.4, so a plan opened zoomed in past
+    // fit-to-width with the world origin at the panel's top-left: "the default
+    // view is zoomed into the top epic's name", which is the defect req #3312
+    // was filed on. The two scales are now ONE — this recenters to
+    // `kFactoryDefault` for every caller.
+    //
+    // THE OLD CHOICE IS DELETED, NOT DEFAULTED. It was a `recenterModeRef`
+    // ('readable' | 'factory') written once, by the header's Reset click, so
+    // that a Width toggle recentering right after a Reset preserved the view
+    // the reader was in instead of snapping back to the readable scale. With
+    // one base view there is nothing left for it to choose between, and
+    // leaving it initialised to 'factory' would leave a live branch on a value
+    // nothing can produce. Landing === Reset is then STRUCTURAL — one
+    // expression, one function, both callers — rather than two numbers a test
+    // has to prove agree, which is the property this requirement asked for.
+    //
+    // `kDefault` is untouched and still earns its keep: it anchors the zoom
+    // behavior's `scaleExtent`, the semantic level ladder's ratio, and the
+    // epic/step focus clamps. Only the RECENTER TARGET moved.
+    //
+    // Applied on first size and whenever a layout toggle changes the world
+    // dimensions wholesale (the POC re-rendered from scratch on those
+    // toggles). `stepWidth` is on that list for the same reason the other two
+    // are: it rescales every column, so the previous pan lands somewhere
+    // unrelated on the new geometry.
     const resetView = useCallback(() => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
-        const k = recenterModeRef.current === 'factory' ? kFactoryDefault : kDefault;
-        select(el).call(zb.transform, zoomIdentity.scale(k));
-    }, [containerEl, size.w, kDefault, kFactoryDefault]);
+        select(el).call(zb.transform, zoomIdentity.scale(kFactoryDefault));
+    }, [containerEl, size.w, kFactoryDefault]);
     // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
     // What this canvas shows when it arrives at a given world. Two answers, in
     // order: the camera the reader left on this plan under THIS geometry, or —
     // failing that, and it is the first visit or the geometry moved — the base
-    // view `resetView` computes, byte-identical to what this effect did before.
+    // view `resetView` computes, which since req #3312 is the factory default
+    // the header's Reset lands on.
     //
     // THE RESTORE SUBSTITUTES FOR resetView, IT DOES NOT RACE IT. Same code
-    // path, same `zb.transform`, one of them runs. `resetView` itself is left
-    // alone and still means "the base view", which is what keeps the header's
-    // Reset honest: if the read lived inside `resetView`, a Reset click would
-    // read back the pan it was asked to discard and do nothing.
+    // path, same `zb.transform`, one of them runs. The stored-camera read stays
+    // OUT of `resetView`, which is what keeps the header's Reset honest: if it
+    // lived inside, a Reset click would read back the pan it was asked to
+    // discard and do nothing.
     //
     // ── WHEN IT LANDS: on a RESCALE, never on a mere resize or growth ───────
     // `landKey` is the plan plus the world's WIDTH, because width is what
@@ -817,6 +905,32 @@ export default function PipelinePlanVisualizer({
     // behaviour or no measured width there is nothing to apply a transform to,
     // and marking that as "landed" would strand the canvas at the identity
     // transform forever. `focusEpic`'s own retry contract, for the same reason.
+    //
+    // ── …AND SINCE req #3312 IT WAITS FOR THE PANEL'S REAL HEIGHT ───────────
+    // The landing scale is now `kFactoryDefault`, which reads `size.h`. Before
+    // #3312 it read `size.w` alone (through `kFit` → `kDefault`), and the panel
+    // is sized TWICE at mount with the SAME WIDTH and two different HEIGHTS —
+    // the `calc(100vh - 260px)` fallback in the JSX below, then `measureAvailH`
+    // — so a mount-time double measure that used to be invisible here now
+    // decides the view. `landKey` deliberately excludes the height (a resize
+    // must not re-land, req #3252), so the first land was final and it was made
+    // against a height the reader never sees: measured on this fixture at
+    // 1440x900, the fallback gave k = 0.4720 into a panel only 586px tall, i.e.
+    // ~54px of the plan below the fold on open AND a Reset click that then
+    // moved the camera — the exact divergence #3312 exists to delete. The 260
+    // is not merely approximate, it is KNOWN wrong: the comment on
+    // `measureAvailH` above says this page's header is not fixed.
+    //
+    // A READINESS GUARD, not a second landing trigger — the distinction matters
+    // and is why it asks "has `size` caught up with the last MEASUREMENT?"
+    // rather than "is `availH` set?" (which is already true on the bad render)
+    // or "does `size` match a fresh `clientHeight`?" (correct only while the
+    // panel has no padding — see `observedSizeRef` above). It cannot deadlock:
+    // `observedSizeRef` is written by the same two statements that call
+    // `setSize`, so state converges on it by construction, and the observer's
+    // next delivery re-runs this effect (`size` is on its dependency list).
+    // Exact equality, no tolerance: both sides are the identical value, one
+    // through a ref and one through state, never two measurements compared.
     const landKey = `${viewportKey}|${Math.round(layout.width)}`;
     const landedKeyRef = useRef(null);
     const committedFingerprintRef = useRef(null);
@@ -824,6 +938,7 @@ export default function PipelinePlanVisualizer({
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || zb == null || size.w === 0) return;
+        if (!sizeSettled()) return;
         const kMax = kDefault * ZOOM_MAX_RATIO;
         // CLAMPED BEFORE IT IS APPLIED, k first and then the translation — the
         // pan bound is computed FROM k, so clamping position first would
@@ -891,13 +1006,16 @@ export default function PipelinePlanVisualizer({
     // list any more. They were here as a hand-maintained enumeration of "things
     // that rescale the world", and `landKey` is that same fact DERIVED — it
     // cannot go stale when a ninth layout option is added, and a list can.
-    }, [resetView, containerEl, size, layout, kZoomFloor, kDefault,
+    }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
         landKey, viewportFingerprint, viewport]);
 
+    // Reset targets the same view the plan lands on (req #3312), so all this
+    // adds over `resetView` is the INTENT: an explicit, in-the-moment
+    // instruction about where to look, which ends any `?epic=` re-fit exactly
+    // as a drag does (req #3252 review). Still a separate callback for that
+    // reason — the landing must NOT set the flag, or a `?epic=` deep link
+    // would be answered by the very effect that is supposed to precede it.
     const factoryReset = useCallback(() => {
-        recenterModeRef.current = 'factory';
-        // An explicit, in-the-moment instruction about where to look — so it
-        // ends any `?epic=` re-fit, exactly as a drag does (req #3252 review).
         userMovedCameraRef.current = true;
         resetView();
     }, [resetView]);
@@ -907,7 +1025,9 @@ export default function PipelinePlanVisualizer({
     // and every layout toggle, and depending on it directly would fire this on
     // those too — which is the mount/toggle effect above's job, not a factory
     // reset the user never asked for. 0 is the initial render — skip it, the
-    // mount effect above already puts the canvas at the readable default.
+    // landing effect above has already put the canvas at that same view, and
+    // firing here would additionally set `userMovedCameraRef` and cancel a
+    // `?epic=` deep link nobody dismissed.
     const factoryResetRef = useRef(factoryReset);
     factoryResetRef.current = factoryReset;
     useEffect(() => {
@@ -1085,7 +1205,12 @@ export default function PipelinePlanVisualizer({
     const drawnLevel = legible ? level : 'out';
     useEffect(() => { onEffectiveLevel?.(drawnLevel); }, [drawnLevel, onEffectiveLevel]);
 
-    const t = transform || { x: 0, y: 0, k: kDefault };
+    // The frames before the zoom behavior has emitted anything draw the view
+    // the landing effect is about to apply, not the readable scale it used to
+    // name — otherwise the plan paints once zoomed in and then jumps out to
+    // where it actually opens (req #3312). `x`/`y` stay at the origin because
+    // that is what `resetView` applies.
+    const t = transform || { x: 0, y: 0, k: kFactoryDefault };
 
     const cursorPointer = useCallback((e, on) => {
         const stage = e?.target?.getStage?.();
@@ -1256,12 +1381,20 @@ export default function PipelinePlanVisualizer({
         // commit, and the loser would be pre-empted mid-flight.
         if (focusStepId != null) return;
         if (userMovedCameraRef.current) return;
+        // The SAME readiness guard the landing effect takes (req #3312). Without
+        // it the two desynchronise at mount: this would start its 420ms ease
+        // against the provisional panel while the landing waited, and the
+        // landing's own `zoom.transform` would then interrupt that transition a
+        // render later. The `size` in the key below means the fit was already
+        // repeated on the settled panel, so this only removes the wasted first
+        // pass — not a behaviour the final camera depended on.
+        if (!sizeSettled()) return;
         const key = `${pipeline?.id}:${focusEpicId}:${size.w}x${size.h}`;
         if (epicFocusAppliedRef.current === key) return;
         const band = layout.bands.find((b) => b.epicId === focusEpicId);
         if (!band) return;
         if (focusEpic(band, { persist: false })) epicFocusAppliedRef.current = key;
-    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic]);
+    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic, sizeSettled]);
 
     // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
     //
@@ -1283,12 +1416,14 @@ export default function PipelinePlanVisualizer({
     useEffect(() => {
         if (focusStepId == null) return;
         if (userMovedCameraRef.current) return;
+        if (!sizeSettled()) return;                      // the twin's guard, req #3312
         const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
         if (stepFocusAppliedRef.current === key) return;
         const tr = stepFocusTransform(layout, focusStepId, size, kDefault, kZoomFloor);
         if (!tr) return;
         if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
-    }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus]);
+    }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus,
+        sizeSettled]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this epic: the resolver answers "which pipeline hosts any of

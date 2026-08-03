@@ -3251,12 +3251,13 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // 1200px and a 1440px panel (both level 'out'), and the ceiling of
         // 'out' itself.
         //
-        // NOT "where the plan OPENS", which is what this said and what #3271's
-        // source comments said (corrected in review of req #3280). `resetView`
-        // lands on `kDefault` = 0.8 — `recenterModeRef` initialises to
-        // 'readable' — so the landing view is ratio 1, level 'mid'. These are
-        // the scales one wheel-click OUT of it, which is where the defect was;
-        // nothing about the assertions below depended on the difference.
+        // WHERE THE PLAN OPENS, again — after two corrections in opposite
+        // directions. This originally said so; reviewing req #3280 found it
+        // false, because `resetView` then landed on `kDefault` = 0.8 (ratio 1,
+        // level 'mid') and these were the scales one wheel-click OUT of it. Req
+        // #3312 moved the landing onto `factoryDefaultScale`, which is `<= kFit`
+        // — the first two cases below. Nothing about the assertions ever
+        // depended on the difference, which is why they survived both.
         const LIVE_WORLD_W = 3620.2;
         const kOutCeiling = K_READABLE * 0.5;            // 0.4, 'out' by definition
         const cases = [1200 / LIVE_WORLD_W, 1440 / LIVE_WORLD_W, kOutCeiling];
@@ -3501,40 +3502,51 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         }
     });
 
-    // THE LANDING VIEW IS ALWAYS LEGIBLE, at every plan size — so this gate can
-    // never make a plan OPEN without its labels, and the E2E's level assertions
-    // (which all read the default camera) are unmoved by it.
+    // THE READABLE SCALE IS ALWAYS LEGIBLE, at every plan size — which is the
+    // whole of what `readableDefaultScale` promises, and what keeps this gate
+    // and that floor one number rather than two that have to agree.
+    //
+    // **THIS IS NO LONGER A CLAIM ABOUT THE VIEW A PLAN OPENS IN**, and it was
+    // titled as one until req #3312. The landing moved onto
+    // `factoryDefaultScale` so that opening a plan and clicking Reset produce
+    // the same viewport, and on a plan too tall to fit at `K_READABLE` that
+    // landing IS below this gate — bare beads, no labels, exactly what Reset
+    // has produced on those plans since req #3216. Every assertion below is
+    // kept verbatim, because each one is a real property of
+    // `readableDefaultScale` (still the ladder's anchor and the focus clamps'
+    // base) — only the sentence they were sold under was retired. Re-titled
+    // rather than deleted: the arithmetic is what a future reader needs, and
+    // the retired claim is what stops them re-deriving it.
     //
     // ASKED OF `readableDefaultScale`, the function the renderer calls (req
     // #3280 review). The first draft rebuilt `Math.max(kFit, K_READABLE)` here
     // and asserted the result was `>= K_READABLE` — which is `max(a,b) >= b`,
-    // an identity that stays green if the component is changed to land on
-    // `kFit` and every plan wider than its panel opens with no labels at all.
-    // That is exactly the claim in this case's title, so the identity version
-    // asserted nothing. Hoisting the formula is what made it reachable.
-    it('never withholds the labels at the view a plan opens in', () => {
+    // an identity that asserted nothing. Hoisting the formula is what made it
+    // reachable.
+    it('never withholds the labels at the readable scale', () => {
         let bindingCases = 0;
         for (const worldW of [200, 800, 3620.2, 12000]) {
             for (const panelW of [800, 1200, 1440, 1800, 2560]) {
                 const kFit = panelW / worldW;
                 const where = `world ${worldW} panel ${panelW}`;
                 expect(labelsLegible(readableDefaultScale(kFit)), where).toBe(true);
-                // The plans where the floor is what saves it — i.e. where a
-                // renderer landing on `kFit` WOULD open illegibly. Counted, so
-                // the sweep cannot pass by containing only plans that are
-                // legible at fit-to-width anyway.
+                // The plans where the floor is what raises it — i.e. where
+                // `kFit` itself is NOT legible. Counted, so the sweep cannot
+                // pass by containing only plans that are legible at
+                // fit-to-width anyway.
                 if (!labelsLegible(kFit)) bindingCases += 1;
             }
         }
         expect(bindingCases, 'plans whose fit-to-width is NOT legible')
             .toBeGreaterThan(4);
-        // Ratio 1 at the landing scale, on every plan — the ladder's own
-        // definition of the view a reader lands on.
+        // Ratio 1 is this scale, and the ladder is anchored on it — req #3168's
+        // choice, kept by req #3312 even though the landing moved off it (see
+        // the `curK / kDefault` comment in PipelinePlanVisualizer.jsx).
         expect(semanticLevel(1)).toBe('mid');
         // The guard, which is the other half of "always": a non-finite kFit
         // resolves to the floor instead of propagating NaN into every downstream
-        // scale (`labelsLegible(NaN)` is false, so a NaN default would open a
-        // plan with no labels and no error anywhere).
+        // scale — and `kDefault` feeds `scaleExtent` and both focus clamps, so a
+        // NaN here blanks the canvas with no error anywhere.
         for (const bad of [NaN, Infinity, undefined, null, '1.2']) {
             expect(readableDefaultScale(bad), `kFit=${bad}`).toBe(K_READABLE);
             expect(labelsLegible(readableDefaultScale(bad))).toBe(true);
@@ -5786,7 +5798,7 @@ describe('step focus geometry (req #3253)', () => {
     });
 });
 
-describe('reset = factory default scale (req #3216 D1)', () => {
+describe('the base view = factory default scale (req #3216 D1, req #3312)', () => {
     const kFit = 0.8;
     // The caller's own configured floor, passed in rather than re-derived
     // (review finding) — see the function's own comment for why. Computed
@@ -5846,6 +5858,96 @@ describe('reset = factory default scale (req #3216 D1)', () => {
         expect(factoryDefaultScale({ height: 500 }, undefined, kFit, kFloor)).toBe(kFit);
         expect(factoryDefaultScale({ height: 0 }, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
         expect(factoryDefaultScale(null, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
+    });
+
+    // ── THE LANDING VIEW IS THIS SCALE (req #3312) ──────────────────────────
+    // The ask, as arithmetic: "replace the default view with the same viewport
+    // you derive with the reset button". In the renderer that is structural —
+    // `resetView` applies ONE expression and both the landing effect and the
+    // header's Reset nonce call it, so there is no second number for a test to
+    // catch drifting. What IS reachable from here, and worth pinning, is what
+    // the reader consequently sees: on the plan this was filed against, a view
+    // the readable default could not give them.
+    //
+    // MEASURED GEOMETRY, not synthetic: the module's own Substrate Rebuild
+    // fixture through `computePlanLayout`, which is a real 34-step plan laying
+    // out to 2540.88 × 1356. The panel sizes are the real ones the page can
+    // present (the panel's own `minHeight: 480` up to a tall display). Every
+    // number below is READ from the layout rather than restated, so a change to
+    // the row pitch moves the fixture and the cases with it.
+    describe('is the view a plan opens in (req #3312)', () => {
+        const world = computePlanLayout(plan.rows, plan.batches);
+        // Exactly as PipelinePlanVisualizer derives them, so these cases
+        // exercise the real contract between the three numbers rather than a
+        // convenient floor.
+        const scales = (size) => {
+            const kFitHere = size.w / world.width;
+            const kDefaultHere = readableDefaultScale(kFitHere);
+            const floorHere = Math.min(kFitHere, kDefaultHere) * ZOOM_MIN_RATIO;
+            return {
+                kFitHere,
+                kDefaultHere,
+                floorHere,
+                kLand: factoryDefaultScale(world, size, kFitHere, floorHere),
+            };
+        };
+
+        for (const [panelW, panelH] of [[1200, 480], [1440, 720], [1800, 900]]) {
+            it(`shows the whole plan on open — ${panelW}x${panelH}`, () => {
+                const size = { w: panelW, h: panelH };
+                const { kFitHere, kDefaultHere, floorHere, kLand } = scales(size);
+
+                // THE ACCEPTANCE BAR: the whole vertical extent is on screen at
+                // the scale the plan opens at. The floor is not binding on any
+                // of these panels — asserted, so a case cannot pass by clamping
+                // instead of fitting.
+                expect(kLand, 'floor is not what produced this').toBeGreaterThan(floorHere);
+                expect(kLand * world.height).toBeLessThanOrEqual(size.h + 1e-9);
+
+                // AND IT IS STRICTLY FURTHER OUT THAN THE VIEW IT REPLACED.
+                // `kDefault` is 0.8 on all three panels; at that scale this world
+                // is 1084.8px tall with its origin in the panel's top-left
+                // corner, which is where "zoomed into the top epic's name" came
+                // from. Asserted rather than described, so the case still means
+                // something if the fixture grows.
+                expect(kLand).toBeLessThan(kDefaultHere);
+                expect(kDefaultHere * world.height,
+                    'the replaced view did NOT fit vertically').toBeGreaterThan(size.h);
+                // Width was never the binding axis here — the plan fits across
+                // at `kFit` on every one of these panels and still did not fit
+                // DOWN, which is the whole shape of the defect.
+                expect(kLand).toBeLessThanOrEqual(kFitHere);
+            });
+        }
+
+        // THE COST, asserted rather than described — a reader meets it on open
+        // and the memory doc claims it. On a plan this tall the landing is below
+        // the legibility gate, so the page opens as bare beads: precisely what
+        // the header's Reset has produced on plans this size since req #3216,
+        // and what was asked for. Stated here so a future change that quietly
+        // re-raises the landing has to come through this case.
+        it('opens below the label gate on a plan too tall to fit legibly', () => {
+            const { kDefaultHere, kLand } = scales({ w: 1440, h: 900 });
+            expect(labelsLegible(kLand)).toBe(false);
+            // The scale it replaced was legible — the trade, in one line.
+            expect(labelsLegible(kDefaultHere)).toBe(true);
+        });
+
+        // A SMALL PLAN IS UNTOUCHED. Where the world already fits both axes at
+        // fit-to-width, the landing is `kFit` — the same view #3168 gave it,
+        // labels and all — so this requirement costs nothing on plans that were
+        // never the problem.
+        it('is unchanged on a plan that already fits at a legible scale', () => {
+            const layout = { width: 900, height: 400 };
+            const size = { w: 1440, h: 900 };
+            const kFitHere = size.w / layout.width;          // 1.6
+            const kDefaultHere = readableDefaultScale(kFitHere);
+            const floorHere = Math.min(kFitHere, kDefaultHere) * ZOOM_MIN_RATIO;
+            const kLand = factoryDefaultScale(layout, size, kFitHere, floorHere);
+            expect(kLand).toBe(kFitHere);
+            expect(kLand).toBe(kDefaultHere);
+            expect(labelsLegible(kLand)).toBe(true);
+        });
     });
 });
 
