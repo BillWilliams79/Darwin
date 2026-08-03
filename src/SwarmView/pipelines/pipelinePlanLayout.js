@@ -3438,6 +3438,134 @@ export function nextHaloMagnify(k) {
     return Math.min(want, NEXT_HALO_MAX_MAGNIFY);
 }
 
+// ── Below the ring's reach: a different MARK (req #3299) ───────────────────
+// #3271/#3280 made the halo hold a flat 10px screen radius from `K_READABLE`
+// down to `K_READABLE / NEXT_HALO_MAX_MAGNIFY` (k = 0.4 on the live plan) by
+// magnifying it. Below that the magnification is already AT its ceiling —
+// `NEXT_HALO_CLEARANCES` forbids growing the ring's WORLD radius any further,
+// on pain of running into the launch-unit box — so the mark's ON-SCREEN size
+// resumes shrinking with `k`: `stroke(k) = NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY * k`,
+// linear in `k` with nothing left to counteract it.
+//
+// THE ACCEPTANCE FLOOR: a stroke needs to read as an outline rather than as a
+// blur, and 1.2 world/screen px is that floor (half the weight of the flat
+// band's own 1.6px stroke — the flattest a form this thin can go and still be
+// legible, measured against the flat band already shipping). Solving
+// `stroke(k) >= NEXT_MARK_MIN_STROKE_PX` for `k` gives the derived floor below
+// — DERIVED, not chosen, so a future change to the stroke width or the
+// magnification ceiling moves this floor with it rather than silently
+// disagreeing (the same discipline `NEXT_HALO_MAX_OUTER` and
+// `NEXT_HALO_SCREEN_RADIUS` already follow). On the live plan this floor is
+// k = 0.3 — matching the measured split in
+// `pipelinePlanLayout.test.js` ("cannot reach the deep zoom-out band, and
+// says where it stops").
+//
+// BELOW IT NO RING CAN WORK, at any ceiling: `NEXT_HALO_CLEARANCES` bounds the
+// ring's WORLD size, and world size buys nothing once the ENTIRE mark is under
+// a handful of screen px — the ring is already smaller than the stroke it
+// would need (`NEXT_HALO_MAX_OUTER * k` is under 3 screen px at the live
+// zoom floor, asserted alongside the split above). So the fix is not a bigger
+// or thicker ring; it is a DIFFERENT MARK, built the opposite way round:
+//
+//   - THE RING is sized in WORLD units and scaled by the camera, which is
+//     exactly why it disappears — it was always going to, past some k.
+//   - THE DOT below is sized in SCREEN units and counter-scaled against the
+//     camera (`NEXT_MARK_SCREEN_RADIUS / k` as a world radius, so the camera's
+//     own `× k` cancels it back to a fixed on-screen size) — a FLAT mark that
+//     cannot vanish because nothing about it depends on how far zoomed out the
+//     camera is. This is the "screen-space marker anchored at the bead" the
+//     requirement asked to be investigated, not a tuning of the ring.
+//
+// IT DOES NOT RECOLOUR THE BEAD, and the colour language is untouched: the
+// dot is drawn as its OWN node, in the halo's existing colour
+// (`style.haloColor` — eligible green, or suppressed red), replacing only the
+// RING's geometry below this floor. The bead's own fill (state) and ring (run
+// mode) keep drawing at their own — now sub-pixel — world size beneath it,
+// exactly as they always have; nothing here adds a fourth channel or repaints
+// an existing one. What changes is FORM, the same axis the ring-vs-bead
+// separation already spends: a filled dot needs no minimum stroke width to
+// read, so it has no floor at all, whereas a stroked ring fundamentally does.
+//
+// OVERLAP WITH NEIGHBOURS IS ACCEPTED, not solved here. Beads sit ~26 world px
+// apart, i.e. a handful of screen px at the zoom floor, so any mark that reads
+// at that scale necessarily spans several columns — the clearance list above
+// cannot bound it because the clearances are stated in world units and this
+// mark deliberately is not. Concretely, at the live zoom floor (k = 0.0829)
+// the dot's WORLD radius is `NEXT_MARK_SCREEN_RADIUS / k` ≈ 97.7 world px
+// against that ~26px pitch — several columns each side, wider than the ring
+// it replaces ever reached even at its own ceiling. That trade only matters
+// when many neighbouring steps are eligible at once, which is not the common
+// case this deep in Overview; a plan where it is stays legible as "a lot is
+// eligible here", which is still true.
+//
+// `ZOOM_MIN_RATIO` is left AT 0.25 (not tightened, not loosened): the
+// requirement asked whether it is the right floor "measured against what a
+// reader can actually do at the scales it admits", and what a reader can now
+// do at the floor is see which steps are eligible, which they could not
+// before. Raising the floor would remove scales this fix just made useful;
+// lowering it is a separate, unmeasured question this fix does not answer.
+export const NEXT_MARK_MIN_STROKE_PX = 1.2;
+export const NEXT_MARK_FLOOR_K = NEXT_MARK_MIN_STROKE_PX
+    / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY);
+// The dot's fixed on-screen radius — DERIVED, not chosen, for the same reason
+// `NEXT_HALO_SCREEN_RADIUS` is (line ~3320 above): a chosen number here makes
+// the two branches disagree at the crossing, exactly the "mark HALVES in one
+// wheel-click" defect req #3280 was filed to remove, reintroduced at a new
+// threshold. Below the floor the ring's magnification is already capped, so
+// its WORLD outer edge is pinned at `NEXT_HALO_MAX_OUTER` and its SCREEN outer
+// edge is `NEXT_HALO_MAX_OUTER * k` — shrinking, which is the whole defect,
+// but CONTINUOUS, so matching the dot's fixed screen size to that edge AT the
+// floor makes the two branches meet with no step:
+//
+//     NEXT_MARK_SCREEN_RADIUS === NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K
+//
+// (mirrors `NEXT_HALO_SCREEN_RADIUS === NEXT_HALO_RADIUS * K_READABLE` at the
+// OTHER join). This also fixes a second defect found in review: the dot is
+// drawn UNDER the bead's own Group (same draw order the ring always used), so
+// it is only visible as the annulus outside the bead's own outer edge —
+// `NEXT_MARK_SCREEN_RADIUS - BEAD_OUTER_RADIUS * k`. A CHOSEN 4px radius put
+// that annulus under the 1.2px acceptance floor for k in (0.249, 0.300) —
+// solid, same eligible green as the bead's own ring, reading as "the ring got
+// thicker" rather than as a second mark, exactly what the ring's own dashing
+// exists to prevent (see the comment above `NEXT_HALO_RADIUS`). The derived
+// value clears the bead by >= 4.7px at every k this mark draws at (worst case
+// is the top of the band, k -> NEXT_MARK_FLOOR_K, where the bead is largest);
+// asserted in pipelinePlanLayout.test.js rather than left as an accident of
+// the chosen number.
+export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
+
+/**
+ * Is `k` below the ring's reach, i.e. must the deep-zoom-out DOT be drawn
+ * instead of the halo ring (req #3299)?
+ *
+ * `false` everywhere the ring already reads (`k >= NEXT_MARK_FLOOR_K`,
+ * `NEXT_MARK_FLOOR_K` itself included) — the whole of the k >= 0.3 band this
+ * requirement is forbidden from moving stays on the ring, byte-identical.
+ *
+ * @param {number} k  the world→screen scale actually being drawn at
+ * @returns {boolean}
+ */
+export function nextMarkIsDot(k) {
+    return Number.isFinite(k) && k > 0 && k < NEXT_MARK_FLOOR_K;
+}
+
+/**
+ * The deep-zoom-out dot's WORLD radius for this frame — the value that,
+ * multiplied by the camera's own `k`, always renders at
+ * `NEXT_MARK_SCREEN_RADIUS` screen px regardless of how small `k` gets.
+ *
+ * Only meaningful where `nextMarkIsDot(k)` is true; the caller picks the
+ * branch, this only sizes it.
+ *
+ * @param {number} k  the world→screen scale actually being drawn at
+ * @returns {number} a world radius, or `NEXT_MARK_SCREEN_RADIUS` unscaled if
+ *   `k` is non-finite or non-positive (never reached under a real camera, but
+ *   never a division by zero either)
+ */
+export function nextMarkDotRadius(k) {
+    return Number.isFinite(k) && k > 0 ? NEXT_MARK_SCREEN_RADIUS / k : NEXT_MARK_SCREEN_RADIUS;
+}
+
 // ── Epic focus geometry (req #3204) ─────────────────────────────────────────
 // Clicking an epic's name fits that epic's steps to the viewport. This is pure
 // geometry over a layout that is already computed, so it lives beside the
