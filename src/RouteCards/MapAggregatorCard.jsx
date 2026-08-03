@@ -12,6 +12,15 @@ import PhotoMarkerLayer from './PhotoMarkerLayer';
 
 const MAP_HEIGHT = 400;
 
+// Ceiling on how many rides one aggregate draws (req #3174, restoring the cap
+// lost in the #3181 revert). Every aggregated ride costs one map_coordinates
+// query and one polyline, so an unfiltered table is an unbounded fan-out at the
+// gateway and an unbounded point cloud in the browser — measured ~1.8M points
+// at 500 rides. 200 keeps both bounded while covering every realistic filter.
+// Exported so the component test can drive the boundary without stubbing 200
+// rides' worth of tracks by hand.
+export const MAX_AGGREGATE_RUNS = 200;
+
 // Same frame as RouteMapThumbnail so the aggregator map reads as part of the
 // card grid rather than a different surface.
 const mapWrapperSx = {
@@ -28,7 +37,8 @@ const mapWrapperSx = {
  * Always the first cell of the RouteCardView grid: one polyline per currently
  * filtered ride on a single fitted-bounds map (ExportMapPreview presentation),
  * headed by ride count, total distance, and photo count. Fed the FULL filtered
- * list, never the paginated slice.
+ * list, never the paginated slice — then capped at MAX_AGGREGATE_RUNS for the
+ * draw, with the shortfall reported in the header (req #3174).
  */
 // dedupedPhotoIndex three-state: an array = parent-loaded index, null = parent
 // is loading (or found none), undefined = parent is not managing the index at
@@ -37,7 +47,18 @@ const mapWrapperSx = {
 const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
     // Same gate expression as RouteMapFull's per-ride photo layer.
     const photoMarkersEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
-    const runIds = useMemo(() => runs.map(r => r.id), [runs]);
+
+    // The cap applies to the FULL filtered list handed down by RouteCardView —
+    // never to a pagination slice, which is a different (and wrong) reduction.
+    // `runs` inherits map_runs sort=start_time:desc and every filter stage is an
+    // order-preserving .filter(), so the retained head really is the most recent.
+    const truncated = runs.length > MAX_AGGREGATE_RUNS;
+    const aggregateRuns = useMemo(
+        () => (truncated ? runs.slice(0, MAX_AGGREGATE_RUNS) : runs),
+        [runs, truncated]
+    );
+
+    const runIds = useMemo(() => aggregateRuns.map(r => r.id), [aggregateRuns]);
     const { data: tracks = [], isLoading, isError } = useMapCoordinatesForRuns(runIds);
 
     // Point cloud for the photo grid overlay's track-avoidance placement,
@@ -54,19 +75,24 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
         return sampled;
     }, [tracks]);
 
+    // Over the CAPPED set, like every other figure in the header: the stats
+    // describe the rides actually on the map, so header and map agree. The
+    // truncation caption is what reports the rides left out.
+    // distance_mi arrives as a string DECIMAL from Lambda-Rest; `|| 0` absorbs
+    // both NULL columns and any unparseable value without poisoning the sum.
     const totalDistance = useMemo(() => {
         let total = 0;
-        for (const run of runs) total += Number(run.distance_mi) || 0;
+        for (const run of aggregateRuns) total += Number(run.distance_mi) || 0;
         return Math.round(total * 10) / 10;
-    }, [runs]);
+    }, [aggregateRuns]);
 
     // Photo count only renders once the (parent-loaded) index is available —
     // same gating as the per-ride cards (req #2855). The batched util, not a
     // countPhotosForRun loop: this card spans the FULL filtered list, where
     // the per-ride linear scan measurably blocks the main thread for seconds.
     const photoCount = useMemo(
-        () => (dedupedPhotoIndex ? countPhotosForRuns(dedupedPhotoIndex, runs) : null),
-        [dedupedPhotoIndex, runs]
+        () => (dedupedPhotoIndex ? countPhotosForRuns(dedupedPhotoIndex, aggregateRuns) : null),
+        [dedupedPhotoIndex, aggregateRuns]
     );
 
     const hasTrack = tracks.some(t => t.length > 0);
@@ -81,7 +107,7 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
                 data-testid="map-aggregator-card-stats"
             >
                 <Typography sx={{ fontSize: 24 }}>
-                    {runs.length} {runs.length === 1 ? 'ride' : 'rides'}
+                    {aggregateRuns.length} {aggregateRuns.length === 1 ? 'ride' : 'rides'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" component="span" sx={{ mx: 0.75 }}>·</Typography>
                 <Typography variant="body2" color="text.secondary">{totalDistance} mi</Typography>
@@ -94,6 +120,24 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
                     </>
                 )}
             </Box>
+
+            {/* The rides left out. Without this the header silently reads 200
+                while the filter selected far more, and nothing on screen says
+                why the two disagree. Deliberately a SIBLING of the stats row,
+                not a child: `map-aggregator-card-stats` is read as the stats
+                text (here and in test case 1), and the true total inside this
+                sentence would contaminate it. */}
+            {truncated && (
+                <Typography
+                    variant="caption"
+                    color="warning.main"
+                    component="div"
+                    sx={{ px: 2, pb: 0.5 }}
+                    data-testid="map-aggregator-card-truncation"
+                >
+                    showing the {MAX_AGGREGATE_RUNS} most recent of {runs.length} rides
+                </Typography>
+            )}
 
             <Box sx={mapWrapperSx}>
                 {isLoading ? (
@@ -119,7 +163,7 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
                             nothing when the local index/proxy is absent. */}
                         {photoMarkersEnabled && (
                             <PhotoMarkerLayer
-                                runs={runs}
+                                runs={aggregateRuns}
                                 coordinates={flatTrackCoords}
                                 dedupedIndex={dedupedPhotoIndex}
                             />
