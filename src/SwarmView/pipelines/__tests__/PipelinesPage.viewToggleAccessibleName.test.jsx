@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 //
 // Req #3281 — the same icon-inside-Tooltip-inside-ToggleButton shape found in
-// PipelineDetail.jsx (fixed alongside this test) was copied into this sibling
-// page's Cards/Table view toggle. MUI's Tooltip wrapping the icon rather than
-// the ToggleButton left the icon aria-hidden and the button unnamed. This
-// pins the fix: the Tooltip now wraps the button, so MUI injects the title as
-// the button's own aria-label.
+// PipelineDetail.jsx was copied into this sibling page's Cards/Table view
+// toggle. MUI's Tooltip wrapping the icon rather than the ToggleButton left
+// the icon aria-hidden and the button unnamed. Req #3282 (landed concurrently
+// — converged this page's header onto the canonical `ViewerHeader`) fixed it
+// here as a side effect: `ViewerHeader` wraps the Tooltip AROUND the button
+// and sets an explicit `aria-label`. This pins that behavior at the
+// PipelinesPage integration level rather than trusting it stayed fixed.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -67,8 +69,8 @@ describe('PipelinesPage — view toggle accessible name (req #3281)', () => {
     it('gives every icon-only view button a non-empty accessible name', () => {
         mount();
         const cases = [
-            { testId: 'view-toggle-cards', name: 'Cards View' },
-            { testId: 'view-toggle-table', name: 'Table View' },
+            { testId: 'view-toggle-cards', name: 'Cards view' },
+            { testId: 'view-toggle-table', name: 'Table view' },
         ];
         for (const { testId, name } of cases) {
             const btn = node(testId);
