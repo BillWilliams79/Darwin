@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
+import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
@@ -20,6 +21,8 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
+    NEXT_MARK_MIN_STROKE_PX, NEXT_MARK_FLOOR_K, NEXT_MARK_SCREEN_RADIUS,
+    nextMarkIsDot, nextMarkDotRadius,
     readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
@@ -36,6 +39,7 @@ import {
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
     stepFitRect, stepFocusTransform,
+    batchFitRect, batchFocusTransform, BATCH_FOCUS_CONTEXT,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
@@ -3057,6 +3061,16 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // two ceilings by doing exactly this by hand: "never reaches another bead"
     // cleared beads and crossed the epic chip's strip and its own launch-unit
     // box on all four sides, through the whole of Overview.
+    //
+    // THIS COVERS THE RING ONLY (req #3299). Below `NEXT_MARK_FLOOR_K` the
+    // component draws the deep-zoom-out DOT instead — deliberately NOT bound
+    // by this clearance list, since it is sized in screen space rather than
+    // world space (see the "different MARK" block in pipelinePlanLayout.js).
+    // It is k-INDEPENDENT BY CONSTRUCTION — it bounds the ring's worst-case
+    // WORLD envelope (`outerAt(NEXT_HALO_MAX_MAGNIFY)`), which is why it can
+    // claim "at any k" with no `k` sweep anywhere in it. The dot has no world
+    // envelope, so it is out of this case's reach by design, not by where a
+    // sweep happens to fall.
     it('crosses no world furniture, at any k the zoom can reach', () => {
         const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
         // The substrate fixture in all four label/layout combinations, PLUS the
@@ -3240,12 +3254,13 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // 1200px and a 1440px panel (both level 'out'), and the ceiling of
         // 'out' itself.
         //
-        // NOT "where the plan OPENS", which is what this said and what #3271's
-        // source comments said (corrected in review of req #3280). `resetView`
-        // lands on `kDefault` = 0.8 — `recenterModeRef` initialises to
-        // 'readable' — so the landing view is ratio 1, level 'mid'. These are
-        // the scales one wheel-click OUT of it, which is where the defect was;
-        // nothing about the assertions below depended on the difference.
+        // WHERE THE PLAN OPENS, again — after two corrections in opposite
+        // directions. This originally said so; reviewing req #3280 found it
+        // false, because `resetView` then landed on `kDefault` = 0.8 (ratio 1,
+        // level 'mid') and these were the scales one wheel-click OUT of it. Req
+        // #3312 moved the landing onto `factoryDefaultScale`, which is `<= kFit`
+        // — the first two cases below. Nothing about the assertions ever
+        // depended on the difference, which is why they survived both.
         const LIVE_WORLD_W = 3620.2;
         const kOutCeiling = K_READABLE * 0.5;            // 0.4, 'out' by definition
         const cases = [1200 / LIVE_WORLD_W, 1440 / LIVE_WORLD_W, kOutCeiling];
@@ -3490,40 +3505,51 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         }
     });
 
-    // THE LANDING VIEW IS ALWAYS LEGIBLE, at every plan size — so this gate can
-    // never make a plan OPEN without its labels, and the E2E's level assertions
-    // (which all read the default camera) are unmoved by it.
+    // THE READABLE SCALE IS ALWAYS LEGIBLE, at every plan size — which is the
+    // whole of what `readableDefaultScale` promises, and what keeps this gate
+    // and that floor one number rather than two that have to agree.
+    //
+    // **THIS IS NO LONGER A CLAIM ABOUT THE VIEW A PLAN OPENS IN**, and it was
+    // titled as one until req #3312. The landing moved onto
+    // `factoryDefaultScale` so that opening a plan and clicking Reset produce
+    // the same viewport, and on a plan too tall to fit at `K_READABLE` that
+    // landing IS below this gate — bare beads, no labels, exactly what Reset
+    // has produced on those plans since req #3216. Every assertion below is
+    // kept verbatim, because each one is a real property of
+    // `readableDefaultScale` (still the ladder's anchor and the focus clamps'
+    // base) — only the sentence they were sold under was retired. Re-titled
+    // rather than deleted: the arithmetic is what a future reader needs, and
+    // the retired claim is what stops them re-deriving it.
     //
     // ASKED OF `readableDefaultScale`, the function the renderer calls (req
     // #3280 review). The first draft rebuilt `Math.max(kFit, K_READABLE)` here
     // and asserted the result was `>= K_READABLE` — which is `max(a,b) >= b`,
-    // an identity that stays green if the component is changed to land on
-    // `kFit` and every plan wider than its panel opens with no labels at all.
-    // That is exactly the claim in this case's title, so the identity version
-    // asserted nothing. Hoisting the formula is what made it reachable.
-    it('never withholds the labels at the view a plan opens in', () => {
+    // an identity that asserted nothing. Hoisting the formula is what made it
+    // reachable.
+    it('never withholds the labels at the readable scale', () => {
         let bindingCases = 0;
         for (const worldW of [200, 800, 3620.2, 12000]) {
             for (const panelW of [800, 1200, 1440, 1800, 2560]) {
                 const kFit = panelW / worldW;
                 const where = `world ${worldW} panel ${panelW}`;
                 expect(labelsLegible(readableDefaultScale(kFit)), where).toBe(true);
-                // The plans where the floor is what saves it — i.e. where a
-                // renderer landing on `kFit` WOULD open illegibly. Counted, so
-                // the sweep cannot pass by containing only plans that are
-                // legible at fit-to-width anyway.
+                // The plans where the floor is what raises it — i.e. where
+                // `kFit` itself is NOT legible. Counted, so the sweep cannot
+                // pass by containing only plans that are legible at
+                // fit-to-width anyway.
                 if (!labelsLegible(kFit)) bindingCases += 1;
             }
         }
         expect(bindingCases, 'plans whose fit-to-width is NOT legible')
             .toBeGreaterThan(4);
-        // Ratio 1 at the landing scale, on every plan — the ladder's own
-        // definition of the view a reader lands on.
+        // Ratio 1 is this scale, and the ladder is anchored on it — req #3168's
+        // choice, kept by req #3312 even though the landing moved off it (see
+        // the `curK / kDefault` comment in PipelinePlanVisualizer.jsx).
         expect(semanticLevel(1)).toBe('mid');
         // The guard, which is the other half of "always": a non-finite kFit
         // resolves to the floor instead of propagating NaN into every downstream
-        // scale (`labelsLegible(NaN)` is false, so a NaN default would open a
-        // plan with no labels and no error anywhere).
+        // scale — and `kDefault` feeds `scaleExtent` and both focus clamps, so a
+        // NaN here blanks the canvas with no error anywhere.
         for (const bad of [NaN, Infinity, undefined, null, '1.2']) {
             expect(readableDefaultScale(bad), `kFit=${bad}`).toBe(K_READABLE);
             expect(labelsLegible(readableDefaultScale(bad))).toBe(true);
@@ -3576,6 +3602,121 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
             expect(strokePx(k)).toBeCloseTo(
                 NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY * k, 10);
         }
+    });
+
+    // ── The follow-on: a different MARK below the band above (req #3299) ────
+    // The case above proved WHERE the ring stops reading; this proves the
+    // fix — a fixed-screen-size dot below that same floor, on the SAME
+    // REACHABLE sweep and the SAME live-plan zoom floor, so both halves of the
+    // story are measured against one sweep rather than two.
+    describe('the deep-zoom-out DOT covers what the ring cannot (req #3299)', () => {
+        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k) * k;
+
+        it('the dot band IS the band the ring cannot reach — found by '
+            + 'SEARCHING the swept range, not by restating the closed form '
+            + '(same discipline as the sibling case above)', () => {
+            const unreadable = new Set(
+                REACHABLE.filter((k) => strokePx(k) < NEXT_MARK_MIN_STROKE_PX));
+            const dotted = new Set(REACHABLE.filter((k) => nextMarkIsDot(k)));
+            expect(unreadable.size, 'ring-unreadable samples').toBeGreaterThan(10);
+            expect(dotted.size, 'dot-drawn samples').toBe(unreadable.size);
+            for (const k of unreadable) expect(dotted.has(k), `k=${k}`).toBe(true);
+        });
+
+        it('is derived from the ring\'s own acceptance floor, not chosen', () => {
+            expect(NEXT_MARK_FLOOR_K).toBeCloseTo(
+                NEXT_MARK_MIN_STROKE_PX / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY), 10);
+            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.29);
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.31);
+            // The formula only means what it claims to on the CAPPED branch
+            // (`strokePx(k) = STROKE × MAX_MAGNIFY × k` there) — true only
+            // while the floor itself sits below where the magnification caps
+            // (`K_READABLE / NEXT_HALO_MAX_MAGNIFY`). If a future change moved
+            // `K_READABLE` low enough to violate this, the floor would stop
+            // meaning "where the ring drops under the acceptance stroke".
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(K_READABLE / NEXT_HALO_MAX_MAGNIFY);
+        });
+
+        it('draws the ring at and above the floor, the dot only below it — '
+            + 'the k >= 0.3 band this requirement must not move', () => {
+            const atOrAbove = REACHABLE.filter((k) => k >= NEXT_MARK_FLOOR_K);
+            const below = REACHABLE.filter((k) => k < NEXT_MARK_FLOOR_K);
+            expect(atOrAbove.length).toBeGreaterThan(0);
+            expect(below.length).toBeGreaterThan(0);
+            for (const k of atOrAbove) expect(nextMarkIsDot(k), `k=${k}`).toBe(false);
+            for (const k of below) expect(nextMarkIsDot(k), `k=${k}`).toBe(true);
+            // The exact boundary itself stays on the ring — `nextMarkIsDot` is
+            // a strict `<`, so a camera parked exactly at the floor is not a
+            // special case needing its own branch.
+            expect(nextMarkIsDot(NEXT_MARK_FLOOR_K)).toBe(false);
+        });
+
+        it('holds the dot at a FIXED screen radius across the whole '
+            + 'reachable deep-zoom-out range, including the live zoom floor', () => {
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            expect(below.length, 'reachable samples below the floor')
+                .toBeGreaterThan(10);
+            for (const k of [...below, LIVE_ZOOM_FLOOR]) {
+                expect(nextMarkDotRadius(k) * k, `dot screen radius at k=${k}`)
+                    .toBeCloseTo(NEXT_MARK_SCREEN_RADIUS, 10);
+            }
+        });
+
+        it('meets the ring\'s own outer edge AT the floor — no size jump '
+            + 'crossing it, the same join `NEXT_HALO_SCREEN_RADIUS` makes at '
+            + '`K_READABLE`', () => {
+            const ringOuterAt = (k) => NEXT_HALO_MAX_OUTER * k; // capped branch
+            expect(NEXT_MARK_SCREEN_RADIUS)
+                .toBeCloseTo(ringOuterAt(NEXT_MARK_FLOOR_K), 10);
+            // And therefore continuous across a fine sweep straddling it, not
+            // just at the one named point — the gap shrinks WITH eps rather
+            // than sitting under one fixed tolerance regardless of it, which
+            // is what actually distinguishes "continuous" from "close enough
+            // at the scale I happened to check".
+            for (const eps of [0.01, 0.001, 0.0001]) {
+                const above = ringOuterAt(NEXT_MARK_FLOOR_K + eps);
+                const below = nextMarkDotRadius(NEXT_MARK_FLOOR_K - eps)
+                    * (NEXT_MARK_FLOOR_K - eps);
+                expect(Math.abs(above - below), `eps=${eps}`)
+                    .toBeLessThan(NEXT_HALO_MAX_OUTER * eps * 1.01);
+            }
+        });
+
+        it('never merges with the bead\'s own ring — clears it by at least '
+            + 'the acceptance stroke at every k it draws at, including the '
+            + 'top of its own band where the bead is largest', () => {
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            expect(below.length).toBeGreaterThan(10);
+            // The true worst case is the supremum of the dot's domain
+            // (k -> NEXT_MARK_FLOOR_K from below, where the bead is largest)
+            // — added explicitly rather than trusting a sample grid to land
+            // on it, since `REACHABLE`'s nearest sample (k ~= 0.2934) is not
+            // actually the tightest point.
+            for (const k of [...below, LIVE_ZOOM_FLOOR, NEXT_MARK_FLOOR_K - 1e-9]) {
+                const fringe = nextMarkDotRadius(k) * k - BEAD_OUTER_RADIUS * k;
+                expect(fringe, `clearance to the bead at k=${k}`)
+                    .toBeGreaterThanOrEqual(NEXT_MARK_MIN_STROKE_PX);
+            }
+        });
+
+        it('is comfortably readable at the live zoom floor, where the ring '
+            + 'was proved unreadable', () => {
+            // The ring's entire outer edge was under 3 screen px there (the
+            // sibling case above). The dot clears the ring's own acceptance
+            // floor by a wide margin at the SAME k.
+            expect(NEXT_MARK_SCREEN_RADIUS).toBeGreaterThan(NEXT_MARK_MIN_STROKE_PX);
+            expect(nextMarkDotRadius(LIVE_ZOOM_FLOOR) * LIVE_ZOOM_FLOOR)
+                .toBeCloseTo(NEXT_MARK_SCREEN_RADIUS, 10);
+        });
+
+        it('nextMarkDotRadius does not divide by zero on a bad k', () => {
+            for (const bad of [NaN, 0, -1, Infinity]) {
+                expect(Number.isFinite(nextMarkDotRadius(bad)), `k=${bad}`).toBe(true);
+            }
+            expect(nextMarkIsDot(NaN)).toBe(false);
+            expect(nextMarkIsDot(0)).toBe(false);
+            expect(nextMarkIsDot(-1)).toBe(false);
+        });
     });
 });
 
@@ -3964,11 +4105,12 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     // The complete key (directive 2) is TALLER than the bead legend it replaces
     // — one row per CHANNEL, plus a heading and the size/motion footer — and no
     // wider, because the component caps it at PLAN_KEY_MAX_W. These sizes
-    // bracket what it can actually be at that cap: collapsed (a heading and a
-    // button), the ordinary expanded key, and the worst case (a machine key on a
-    // many-machine plan, wrapped over several rows).
+    // bracket what it can actually be at that cap: collapsed (just the toggle
+    // button — the default state since req #3309, and the panel's own
+    // `minWidth`/`minHeight` floor), the ordinary expanded key, and the worst
+    // case (a machine key on a many-machine plan, wrapped over several rows).
     const KEY_SIZES = [
-        { w: 90, h: 26, label: 'collapsed' },
+        { w: 32, h: 28, label: 'collapsed (default since req #3309)' },
         { w: 300, h: 76, label: 'expanded, state key' },
         { w: PLAN_KEY_MAX_W, h: 96, label: 'expanded, wrapped to the cap' },
         { w: PLAN_KEY_MAX_W, h: 180, label: 'worst case — many machines, at the cap' },
@@ -5769,7 +5911,152 @@ describe('step focus geometry (req #3253)', () => {
     });
 });
 
-describe('reset = factory default scale (req #3216 D1)', () => {
+// ── The THIRD focus target (req #3297) ──────────────────────────────────────
+// The epic name's second stop: one launch batch of one band. The SELECTION
+// half — which batch that is, and which level a click lands on — is pinned in
+// `pipelineEpicZoom.test.js` against this same fixture.
+describe('batch focus geometry (req #3297)', () => {
+    const batchPlan = orderedPlan(
+        buildPipelineModel({ pipeline: EPIC_ZOOM_PIPELINE, ...EPIC_ZOOM_READS }),
+        { now: EPIC_ZOOM_NOW },
+    );
+    const lay = computePlanLayout(batchPlan.rows, batchPlan.batches);
+    const bandOf = (key) => lay.bands.find((b) => (b.key == null ? 'none' : b.key) === key);
+    const batchBand = bandOf(11);       // holds A (two segments) and B (one)
+    const plainBand = bandOf(12);       // one step, no batch at all
+    const size = { w: 900, h: 640 };
+    const kBase = 0.6;
+    const kFloor = kBase * FOCUS_MIN_RATIO;
+    const segmentsOf = (letter) => lay.batchBoxes.filter((b) => b.letter === letter);
+
+    it('is set up on a plan that actually derives batches', () => {
+        expect(batchPlan.batches.map((b) => b.letter)).toEqual(['A', 'B']);
+        expect(segmentsOf('A')).toHaveLength(2);
+        expect(segmentsOf('B')).toHaveLength(1);
+    });
+
+    // A batch is ONE launch unit; `computePlanLayout` splits its box per
+    // (band, column) only so a segment never encloses a non-member. Fitting one
+    // segment would frame part of the /swarm-start and call it the batch.
+    it('unions every segment the batch draws in that band', () => {
+        const rect = batchFitRect(lay, batchBand, 'A');
+        expect(rect).toBeTruthy();
+        for (const seg of segmentsOf('A')) {
+            expect(rect.x).toBeLessThanOrEqual(seg.x);
+            expect(rect.y).toBeLessThanOrEqual(seg.y);
+            expect(rect.x + rect.w).toBeGreaterThanOrEqual(seg.x + seg.width);
+            expect(rect.y + rect.h).toBeGreaterThanOrEqual(seg.y + seg.height);
+        }
+        // …and it is genuinely wider than either segment alone, so the union is
+        // doing work rather than the two happening to coincide.
+        const widest = Math.max(...segmentsOf('A').map((s) => s.width));
+        expect(rect.w).toBeGreaterThan(widest);
+    });
+
+    // The context margin (`BATCH_FOCUS_CONTEXT`): proportional, symmetric, and
+    // therefore incapable of moving the camera — only of changing k, and only
+    // where the fit rather than the ceiling binds.
+    it('inflates by BATCH_FOCUS_CONTEXT on all four sides, symmetrically', () => {
+        const segs = segmentsOf('B');
+        const box = segs[0];
+        const rect = batchFitRect(lay, batchBand, 'B');
+        expect(rect.w).toBeCloseTo(box.width * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
+        expect(rect.h).toBeCloseTo(box.height * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
+        // Same centre as the bare box — this is what makes the constant unable
+        // to shift the framing.
+        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
+        expect(rect.y + rect.h / 2).toBeCloseTo(box.y + box.height / 2, 6);
+    });
+
+    it('centres the batch in the viewport', () => {
+        const rect = batchFitRect(lay, batchBand, 'A');
+        const tr = batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor);
+        expect(tr).toBeTruthy();
+        expect(tr.x + (rect.x + rect.w / 2) * tr.k).toBeCloseTo(size.w / 2, 6);
+        expect(tr.y + (rect.y + rect.h / 2) * tr.k).toBeCloseTo(size.h / 2, 6);
+    });
+
+    // Requirement item 8. A batch box is small, so the tight fit wants a scale
+    // far past anything the surface allows; the ceiling is what turns that into
+    // the reference framing — the box comfortably readable with the plan still
+    // around it — and what stops the next wheel event snapping the camera back.
+    it('clamps at the same ceiling every other focus uses', () => {
+        for (const letter of ['A', 'B']) {
+            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
+            expect(tr.k).toBeLessThanOrEqual(kBase * FOCUS_MAX_RATIO + 1e-9);
+            expect(tr.k).toBeGreaterThanOrEqual(kFloor - 1e-9);
+        }
+        // And on this fixture the ceiling really is what binds — otherwise the
+        // assertion above would pass on a fit that never approached it.
+        const tr = batchFocusTransform(lay, batchBand, 'B', size, kBase, kFloor);
+        expect(tr.k).toBeCloseTo(kBase * FOCUS_MAX_RATIO, 9);
+    });
+
+    it('leaves every segment of the batch on screen', () => {
+        for (const letter of ['A', 'B']) {
+            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
+            for (const seg of segmentsOf(letter)) {
+                expect(tr.x + seg.x * tr.k).toBeGreaterThanOrEqual(0);
+                expect(tr.y + seg.y * tr.k).toBeGreaterThanOrEqual(0);
+                expect(tr.x + (seg.x + seg.width) * tr.k).toBeLessThanOrEqual(size.w);
+                expect(tr.y + (seg.y + seg.height) * tr.k).toBeLessThanOrEqual(size.h);
+            }
+        }
+    });
+
+    // Requirement item 6, the geometry end: a band with no box for that letter
+    // has nothing to fit, and must return null so the caller can leave the
+    // camera exactly where it is rather than apply a transform built from
+    // Infinity.
+    it('refuses a band that draws no box for the letter', () => {
+        expect(batchFitRect(lay, plainBand, 'A')).toBeNull();
+        expect(batchFocusTransform(lay, plainBand, 'A', size, kBase, kFloor)).toBeNull();
+        expect(batchFitRect(lay, batchBand, 'Z')).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'Z', size, kBase, kFloor)).toBeNull();
+    });
+
+    it('returns null rather than NaN geometry on degenerate input', () => {
+        expect(batchFitRect(null, batchBand, 'A')).toBeNull();
+        expect(batchFitRect(lay, null, 'A')).toBeNull();
+        expect(batchFitRect(lay, batchBand, null)).toBeNull();
+        expect(batchFitRect(lay, { stepIds: [] }, 'A')).toBeNull();
+        expect(batchFitRect(computePlanLayout([], []), batchBand, 'A')).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', { w: 0, h: 0 }, kBase, kFloor)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', undefined, kBase, kFloor)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, 0, kFloor)).toBeNull();
+    });
+
+    // The floor is the CALLER'S OWN (req #3274) and this function inherits that
+    // contract unchanged — a missing one refuses the fit rather than
+    // re-deriving a copy that silently disagrees with `scaleExtent`.
+    it('requires the caller to hand in its own scale floor', () => {
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, 0)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, -1)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, NaN)).toBeNull();
+        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor)).toBeTruthy();
+    });
+
+    // The band scoping is a DEFENCE on an argument this module does not derive
+    // (since req #3188 an engine batch cannot span bands). Asserted against a
+    // hand-built layout, because the engine cannot produce the input it guards.
+    it('ignores a same-letter segment belonging to another band', () => {
+        const foreign = {
+            ...lay,
+            batchBoxes: [
+                ...segmentsOf('B'),
+                { letter: 'B', stepIds: [8], x: 4000, y: 4000, width: 60, height: 60,
+                    bandIndex: 1, depth: 0 },
+            ],
+        };
+        const rect = batchFitRect(foreign, batchBand, 'B');
+        const box = segmentsOf('B')[0];
+        expect(rect.x + rect.w).toBeLessThan(4000);
+        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
+    });
+});
+
+describe('the base view = factory default scale (req #3216 D1, req #3312)', () => {
     const kFit = 0.8;
     // The caller's own configured floor, passed in rather than re-derived
     // (review finding) — see the function's own comment for why. Computed
@@ -5829,6 +6116,96 @@ describe('reset = factory default scale (req #3216 D1)', () => {
         expect(factoryDefaultScale({ height: 500 }, undefined, kFit, kFloor)).toBe(kFit);
         expect(factoryDefaultScale({ height: 0 }, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
         expect(factoryDefaultScale(null, { w: 1000, h: 900 }, kFit, kFloor)).toBe(kFit);
+    });
+
+    // ── THE LANDING VIEW IS THIS SCALE (req #3312) ──────────────────────────
+    // The ask, as arithmetic: "replace the default view with the same viewport
+    // you derive with the reset button". In the renderer that is structural —
+    // `resetView` applies ONE expression and both the landing effect and the
+    // header's Reset nonce call it, so there is no second number for a test to
+    // catch drifting. What IS reachable from here, and worth pinning, is what
+    // the reader consequently sees: on the plan this was filed against, a view
+    // the readable default could not give them.
+    //
+    // MEASURED GEOMETRY, not synthetic: the module's own Substrate Rebuild
+    // fixture through `computePlanLayout`, which is a real 34-step plan laying
+    // out to 2540.88 × 1356. The panel sizes are the real ones the page can
+    // present (the panel's own `minHeight: 480` up to a tall display). Every
+    // number below is READ from the layout rather than restated, so a change to
+    // the row pitch moves the fixture and the cases with it.
+    describe('is the view a plan opens in (req #3312)', () => {
+        const world = computePlanLayout(plan.rows, plan.batches);
+        // Exactly as PipelinePlanVisualizer derives them, so these cases
+        // exercise the real contract between the three numbers rather than a
+        // convenient floor.
+        const scales = (size) => {
+            const kFitHere = size.w / world.width;
+            const kDefaultHere = readableDefaultScale(kFitHere);
+            const floorHere = Math.min(kFitHere, kDefaultHere) * ZOOM_MIN_RATIO;
+            return {
+                kFitHere,
+                kDefaultHere,
+                floorHere,
+                kLand: factoryDefaultScale(world, size, kFitHere, floorHere),
+            };
+        };
+
+        for (const [panelW, panelH] of [[1200, 480], [1440, 720], [1800, 900]]) {
+            it(`shows the whole plan on open — ${panelW}x${panelH}`, () => {
+                const size = { w: panelW, h: panelH };
+                const { kFitHere, kDefaultHere, floorHere, kLand } = scales(size);
+
+                // THE ACCEPTANCE BAR: the whole vertical extent is on screen at
+                // the scale the plan opens at. The floor is not binding on any
+                // of these panels — asserted, so a case cannot pass by clamping
+                // instead of fitting.
+                expect(kLand, 'floor is not what produced this').toBeGreaterThan(floorHere);
+                expect(kLand * world.height).toBeLessThanOrEqual(size.h + 1e-9);
+
+                // AND IT IS STRICTLY FURTHER OUT THAN THE VIEW IT REPLACED.
+                // `kDefault` is 0.8 on all three panels; at that scale this world
+                // is 1084.8px tall with its origin in the panel's top-left
+                // corner, which is where "zoomed into the top epic's name" came
+                // from. Asserted rather than described, so the case still means
+                // something if the fixture grows.
+                expect(kLand).toBeLessThan(kDefaultHere);
+                expect(kDefaultHere * world.height,
+                    'the replaced view did NOT fit vertically').toBeGreaterThan(size.h);
+                // Width was never the binding axis here — the plan fits across
+                // at `kFit` on every one of these panels and still did not fit
+                // DOWN, which is the whole shape of the defect.
+                expect(kLand).toBeLessThanOrEqual(kFitHere);
+            });
+        }
+
+        // THE COST, asserted rather than described — a reader meets it on open
+        // and the memory doc claims it. On a plan this tall the landing is below
+        // the legibility gate, so the page opens as bare beads: precisely what
+        // the header's Reset has produced on plans this size since req #3216,
+        // and what was asked for. Stated here so a future change that quietly
+        // re-raises the landing has to come through this case.
+        it('opens below the label gate on a plan too tall to fit legibly', () => {
+            const { kDefaultHere, kLand } = scales({ w: 1440, h: 900 });
+            expect(labelsLegible(kLand)).toBe(false);
+            // The scale it replaced was legible — the trade, in one line.
+            expect(labelsLegible(kDefaultHere)).toBe(true);
+        });
+
+        // A SMALL PLAN IS UNTOUCHED. Where the world already fits both axes at
+        // fit-to-width, the landing is `kFit` — the same view #3168 gave it,
+        // labels and all — so this requirement costs nothing on plans that were
+        // never the problem.
+        it('is unchanged on a plan that already fits at a legible scale', () => {
+            const layout = { width: 900, height: 400 };
+            const size = { w: 1440, h: 900 };
+            const kFitHere = size.w / layout.width;          // 1.6
+            const kDefaultHere = readableDefaultScale(kFitHere);
+            const floorHere = Math.min(kFitHere, kDefaultHere) * ZOOM_MIN_RATIO;
+            const kLand = factoryDefaultScale(layout, size, kFitHere, floorHere);
+            expect(kLand).toBe(kFitHere);
+            expect(kLand).toBe(kDefaultHere);
+            expect(labelsLegible(kLand)).toBe(true);
+        });
     });
 });
 

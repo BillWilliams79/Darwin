@@ -139,14 +139,15 @@ export default function PipelinePlanToolbar({
                 widget TYPE, so the row reads as one control set) is unaffected
                 by it — it is still a small Chip.
 
-                Reset's behaviour: FACTORY DEFAULT, not the readable landing
-                scale the page opens on — one click always shows the whole plan's
-                vertical extent, from any pan or zoom. Width re-centres on every
-                change (it rescales every column) onto WHICHEVER of the two
-                scales is currently active — see `recenterModeRef` in
-                PipelinePlanVisualizer.jsx — so clicking Width right after Reset
-                keeps showing the whole plan instead of snapping back to the
-                readable scale out from under its own neighbour.
+                Reset's behaviour: FACTORY DEFAULT — one click always shows the
+                whole plan's vertical extent, from any pan or zoom. Since req
+                #3312 that is ALSO the view the page opens on, so Reset means
+                "back to where this plan started" rather than a second base view
+                the landing had to be told about: it and Width's recentre apply
+                one expression (`kFactoryDefault` in PipelinePlanVisualizer.jsx),
+                and the ref that used to pick between two scales is gone. What
+                the control still adds over the landing is the INTENT — it ends
+                any `?epic=` re-fit, exactly as a drag does.
 
                 No `data-viz-chrome` here, unlike in the key: that attribute
                 exempts a control from the canvas's two gesture filters, and

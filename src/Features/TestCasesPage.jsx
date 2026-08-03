@@ -379,10 +379,10 @@ function TestCasesTableView({ testCases, categoryById, featuresByTestCase, onEdi
             field: '_actions', headerName: '', width: 80, sortable: false, filterable: false,
             renderCell: (p) => (
                 <Box sx={{ display: 'flex', height: '100%', alignItems: 'center' }}>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
+                    <IconButton size="small" aria-label="Edit test case" onClick={(e) => { e.stopPropagation(); onEdit(p.row); }}>
                         <EditIcon fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
+                    <IconButton size="small" aria-label="Delete test case" onClick={(e) => { e.stopPropagation(); onDelete(p.row); }}>
                         <DeleteIcon fontSize="small" />
                     </IconButton>
                 </Box>
@@ -459,8 +459,8 @@ function TestCasesCardsView({ testCases, categoryById, featuresByTestCase, onEdi
                                                                                  minWidth: 90, textAlign: 'right' }}>
                                                 {(featuresByTestCase[tc.id] || []).length} feature(s)
                                             </Typography>
-                                            <IconButton size="small" onClick={() => onEdit(tc)}><EditIcon fontSize="small" /></IconButton>
-                                            <IconButton size="small" onClick={() => onDelete(tc)}><DeleteIcon fontSize="small" /></IconButton>
+                                            <IconButton size="small" aria-label="Edit test case" onClick={() => onEdit(tc)}><EditIcon fontSize="small" /></IconButton>
+                                            <IconButton size="small" aria-label="Delete test case" onClick={() => onDelete(tc)}><DeleteIcon fontSize="small" /></IconButton>
                                         </Box>
                                     );
                                 })}

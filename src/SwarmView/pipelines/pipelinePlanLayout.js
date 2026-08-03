@@ -512,12 +512,22 @@ const BEAD_R = 10;
 //
 // A lane is the unit this layout already uses for "content that may not be drawn
 // over", so the epic takes one: BAND_HEADER is now a full lane's height, and
-// nothing else is ever placed in it. That moves the fit threshold to k ≈ 0.39,
-// well below the 0.8 default and below fit-to-width on every real plan. Under
-// that — deep zoom-out, where the strip is genuinely shorter on screen than the
-// chip — `placeEpicChips` SCALES the chip down to its lane rather than
-// overflowing it or dropping it, so the guarantee holds at every k rather than
-// over a range.
+// nothing else is ever placed in it. That moves the fit threshold to k ≈ 0.39.
+//
+// **THE OPENING VIEW IS NO LONGER ABOVE THAT THRESHOLD** (req #3312, found in
+// review). The margin recorded here — "well below the 0.8 default and below
+// fit-to-width on every real plan" — was measured against a landing pinned at
+// `readableDefaultScale`; the landing is now `factoryDefaultScale`, and on the
+// 34-step fixture at 1280x720 that is k = 0.354-0.373, i.e. BELOW 0.39. What
+// makes the collision unreachable there is a DIFFERENT fact, and it is stated
+// rather than left implied: below `K_READABLE` no step label is drawn at all,
+// so there is nothing for the epic name to overlap. **That makes `K_READABLE`
+// load-bearing for this reservation** — lowering it would put drawn step labels
+// under a chip at the very scale a plan opens in. The scaling below is what
+// keeps the guarantee absolute either way: under the threshold — deep zoom-out,
+// where the strip is genuinely shorter on screen than the chip —
+// `placeEpicChips` SCALES the chip down to its lane rather than overflowing it
+// or dropping it, so it holds at every k rather than over a range.
 // 83, not 62, because THE HEADER IS NOT THE CLEAR STRIP. A lane-0 step label is
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
@@ -806,29 +816,44 @@ export const K_READABLE = READABLE_MIN_PX / PLAN_VIZ_FONT.req;
  * `nextHaloMagnify`, which freezes at exactly this scale and would have to
  * choose one of them).
  *
- * IT IS TRUE AT THE VIEW EVERY PLAN OPENS IN, by construction — see
- * `readableDefaultScale` below, which is the scale `resetView` lands on. A plan
- * that already fits at a legible size never reaches this gate at all, so nothing
- * about a small plan's view changes.
+ * IT IS TRUE AT `readableDefaultScale` BY CONSTRUCTION — that function's own
+ * floor IS this threshold. A plan that already fits at a legible size never
+ * reaches this gate at all, so nothing about a small plan's view changes.
+ *
+ * IT IS NOT TRUE AT THE VIEW A PLAN OPENS IN, and this comment said it was
+ * until req #3312 moved the landing off `readableDefaultScale` and onto
+ * `factoryDefaultScale`. On a plan too tall to fit at the readable scale the
+ * canvas now opens BELOW this threshold and draws no gated labels at all —
+ * which is what the header's Reset has done on those plans since req #3216, and
+ * is the view #3312 asked the page to open in. The gate itself is unchanged;
+ * only the claim about where the reader first meets it was.
  */
 export function labelsLegible(k) {
     return Number.isFinite(k) && k >= K_READABLE;
 }
 
 /**
- * THE SCALE A PLAN OPENS IN (req #3168) — fit-to-width, floored at legible.
+ * THE READABLE SCALE (req #3168) — fit-to-width, floored at legible.
+ *
+ * NO LONGER THE SCALE A PLAN OPENS IN, which is what this was introduced as and
+ * what its name still says. Req #3312 moved the landing onto
+ * `factoryDefaultScale` — the header's Reset — so that opening a plan and
+ * clicking Reset produce the same viewport. What this number still IS, and why
+ * it is not merely dead:
+ *
+ *   · the ANCHOR of the semantic level ladder (`semanticLevel(curK / kDefault)`)
+ *     and of the zoom behavior's `scaleExtent`, both of which req #3168 pinned
+ *     to it deliberately and PIPE-09 asserts;
+ *   · the base scale the epic and step focus transforms clamp against.
  *
  * EXPORTED as a function rather than left as `Math.max(kFit, K_READABLE)` inline
- * in the component (req #3280). The invariant that matters is "the landing view
- * always draws its labels", and while the formula lived in the renderer the test
- * for it could only rebuild the same `Math.max` and assert `max(a,b) >= b` — an
- * identity, green even if the component were changed to land on `kFit` and every
- * plan wider than its panel opened with no labels at all. A test can only reach
- * the number the renderer actually uses.
+ * in the component (req #3280), because a test can only reach the number the
+ * renderer actually uses — an inline formula could only be re-derived in the
+ * test and asserted against itself.
  *
- * `factoryDefaultScale` is the SIBLING, not a duplicate: since req #3216 the
- * header's Reset and the landing view are deliberately two different scales, and
- * `recenterModeRef` picks between them. This one is the landing view.
+ * `factoryDefaultScale` is the SIBLING, not a duplicate. The two were the
+ * landing and Reset respectively between req #3216 and req #3312; they are now
+ * the ladder's anchor and the base view.
  *
  * A non-finite `kFit` resolves to `K_READABLE` rather than propagating NaN —
  * `size.w / layout.width` is a division the caller performs on measured values,
@@ -3352,7 +3377,8 @@ export const NEXT_HALO_DASH = [3, 3];
 // pitch above are all multiplied by k. MEASURED on the live plan (pipeline 2,
 // 136 rows, world width 3620): `kDefault = max(kFit, K_READABLE)` is 0.8 at
 // every realistic panel width, so the 'out' level is by definition k < 0.4, and
-// the plan OPENS there on a 1440px panel (kFit = 0.398). At k = 0.4 this mark
+// since req #3312 the plan OPENS at or below that on a 1440px panel — the
+// landing is `factoryDefaultScale ≤ kFit = 0.398`. At k = 0.4 this mark
 // renders as a 0.8px stroke with 1.2px dashes at 85% opacity, and its inner
 // edge sits 0.1px from the bead's own eligible ring — a sub-pixel dashed
 // outline touching a solid one. It is not that the halo is not drawn at
@@ -3381,18 +3407,21 @@ export const NEXT_HALO_DASH = [3, 3];
 // k = 0.4 and the flat band runs from there up to K_READABLE: on the live plan
 // the request is 2.0× at k = 0.4 (exactly the ceiling), 1.6× at k = 0.5, 1.0× at
 // k = 0.8, and 9.65× at the zoom floor (0.0829, a 1200px panel) against a
-// ceiling of 2.0. Measured at k = 0.398 — fit-to-width on a 1440px panel, one
-// wheel-click OUT from where the plan lands: radius 9.94px, stroke 1.59px, dash
+// ceiling of 2.0. Measured at k = 0.398 — fit-to-width on a 1440px panel, at or
+// just above where the plan now lands: radius 9.94px, stroke 1.59px, dash
 // 2.39px, ten dash cycles, and 4.67px of clear space to the bead — against
 // 4.97 / 0.80 / 1.19 / 0.10 before. The mark is unambiguous at the scale the
 // question is asked at, which is what was actually broken.
 //
-// **NOT the view the plan opens in, and #3271 said it was** (found in review of
-// req #3280). `resetView` lands on `kDefault` — `recenterModeRef` initialises to
-// 'readable' — so a plan OPENS at k = 0.8, ratio 1, level 'mid', ids at 11.0px.
-// The broken band is reached by zooming OUT from the landing view, not in. The
-// arithmetic below never depended on which end the reader arrives from; only
-// this description did.
+// **WHICH IS THE VIEW THE PLAN OPENS IN AGAIN, after two corrections in
+// opposite directions.** #3271 said it was; reviewing req #3280 found that
+// false, because `resetView` then landed on `kDefault` = 0.8 (ratio 1, level
+// 'mid', ids at 11.0px) and the broken band was reached by zooming OUT of the
+// landing view rather than into it. Req #3312 moved the landing onto
+// `factoryDefaultScale`, so on the live plan the reader once again ARRIVES in
+// this band. The arithmetic below never depended on which end the reader comes
+// from — only these descriptions did, three times now, which is the argument
+// for stating the measured scale and letting the landing be named separately.
 //
 // ── AND THE SCALE IT FREEZES AT IS DERIVED, NEVER CHOSEN (req #3280) ────────
 // #3271 aimed the mark at its own world radius, i.e. at the k = 1 appearance,
@@ -3539,6 +3568,134 @@ export function nextHaloMagnify(k) {
     const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
     if (!(want > 1)) return 1;
     return Math.min(want, NEXT_HALO_MAX_MAGNIFY);
+}
+
+// ── Below the ring's reach: a different MARK (req #3299) ───────────────────
+// #3271/#3280 made the halo hold a flat 10px screen radius from `K_READABLE`
+// down to `K_READABLE / NEXT_HALO_MAX_MAGNIFY` (k = 0.4 on the live plan) by
+// magnifying it. Below that the magnification is already AT its ceiling —
+// `NEXT_HALO_CLEARANCES` forbids growing the ring's WORLD radius any further,
+// on pain of running into the launch-unit box — so the mark's ON-SCREEN size
+// resumes shrinking with `k`: `stroke(k) = NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY * k`,
+// linear in `k` with nothing left to counteract it.
+//
+// THE ACCEPTANCE FLOOR: a stroke needs to read as an outline rather than as a
+// blur, and 1.2 world/screen px is that floor (half the weight of the flat
+// band's own 1.6px stroke — the flattest a form this thin can go and still be
+// legible, measured against the flat band already shipping). Solving
+// `stroke(k) >= NEXT_MARK_MIN_STROKE_PX` for `k` gives the derived floor below
+// — DERIVED, not chosen, so a future change to the stroke width or the
+// magnification ceiling moves this floor with it rather than silently
+// disagreeing (the same discipline `NEXT_HALO_MAX_OUTER` and
+// `NEXT_HALO_SCREEN_RADIUS` already follow). On the live plan this floor is
+// k = 0.3 — matching the measured split in
+// `pipelinePlanLayout.test.js` ("cannot reach the deep zoom-out band, and
+// says where it stops").
+//
+// BELOW IT NO RING CAN WORK, at any ceiling: `NEXT_HALO_CLEARANCES` bounds the
+// ring's WORLD size, and world size buys nothing once the ENTIRE mark is under
+// a handful of screen px — the ring is already smaller than the stroke it
+// would need (`NEXT_HALO_MAX_OUTER * k` is under 3 screen px at the live
+// zoom floor, asserted alongside the split above). So the fix is not a bigger
+// or thicker ring; it is a DIFFERENT MARK, built the opposite way round:
+//
+//   - THE RING is sized in WORLD units and scaled by the camera, which is
+//     exactly why it disappears — it was always going to, past some k.
+//   - THE DOT below is sized in SCREEN units and counter-scaled against the
+//     camera (`NEXT_MARK_SCREEN_RADIUS / k` as a world radius, so the camera's
+//     own `× k` cancels it back to a fixed on-screen size) — a FLAT mark that
+//     cannot vanish because nothing about it depends on how far zoomed out the
+//     camera is. This is the "screen-space marker anchored at the bead" the
+//     requirement asked to be investigated, not a tuning of the ring.
+//
+// IT DOES NOT RECOLOUR THE BEAD, and the colour language is untouched: the
+// dot is drawn as its OWN node, in the halo's existing colour
+// (`style.haloColor` — eligible green, or suppressed red), replacing only the
+// RING's geometry below this floor. The bead's own fill (state) and ring (run
+// mode) keep drawing at their own — now sub-pixel — world size beneath it,
+// exactly as they always have; nothing here adds a fourth channel or repaints
+// an existing one. What changes is FORM, the same axis the ring-vs-bead
+// separation already spends: a filled dot needs no minimum stroke width to
+// read, so it has no floor at all, whereas a stroked ring fundamentally does.
+//
+// OVERLAP WITH NEIGHBOURS IS ACCEPTED, not solved here. Beads sit ~26 world px
+// apart, i.e. a handful of screen px at the zoom floor, so any mark that reads
+// at that scale necessarily spans several columns — the clearance list above
+// cannot bound it because the clearances are stated in world units and this
+// mark deliberately is not. Concretely, at the live zoom floor (k = 0.0829)
+// the dot's WORLD radius is `NEXT_MARK_SCREEN_RADIUS / k` ≈ 97.7 world px
+// against that ~26px pitch — several columns each side, wider than the ring
+// it replaces ever reached even at its own ceiling. That trade only matters
+// when many neighbouring steps are eligible at once, which is not the common
+// case this deep in Overview; a plan where it is stays legible as "a lot is
+// eligible here", which is still true.
+//
+// `ZOOM_MIN_RATIO` is left AT 0.25 (not tightened, not loosened): the
+// requirement asked whether it is the right floor "measured against what a
+// reader can actually do at the scales it admits", and what a reader can now
+// do at the floor is see which steps are eligible, which they could not
+// before. Raising the floor would remove scales this fix just made useful;
+// lowering it is a separate, unmeasured question this fix does not answer.
+export const NEXT_MARK_MIN_STROKE_PX = 1.2;
+export const NEXT_MARK_FLOOR_K = NEXT_MARK_MIN_STROKE_PX
+    / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY);
+// The dot's fixed on-screen radius — DERIVED, not chosen, for the same reason
+// `NEXT_HALO_SCREEN_RADIUS` is (line ~3320 above): a chosen number here makes
+// the two branches disagree at the crossing, exactly the "mark HALVES in one
+// wheel-click" defect req #3280 was filed to remove, reintroduced at a new
+// threshold. Below the floor the ring's magnification is already capped, so
+// its WORLD outer edge is pinned at `NEXT_HALO_MAX_OUTER` and its SCREEN outer
+// edge is `NEXT_HALO_MAX_OUTER * k` — shrinking, which is the whole defect,
+// but CONTINUOUS, so matching the dot's fixed screen size to that edge AT the
+// floor makes the two branches meet with no step:
+//
+//     NEXT_MARK_SCREEN_RADIUS === NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K
+//
+// (mirrors `NEXT_HALO_SCREEN_RADIUS === NEXT_HALO_RADIUS * K_READABLE` at the
+// OTHER join). This also fixes a second defect found in review: the dot is
+// drawn UNDER the bead's own Group (same draw order the ring always used), so
+// it is only visible as the annulus outside the bead's own outer edge —
+// `NEXT_MARK_SCREEN_RADIUS - BEAD_OUTER_RADIUS * k`. A CHOSEN 4px radius put
+// that annulus under the 1.2px acceptance floor for k in (0.249, 0.300) —
+// solid, same eligible green as the bead's own ring, reading as "the ring got
+// thicker" rather than as a second mark, exactly what the ring's own dashing
+// exists to prevent (see the comment above `NEXT_HALO_RADIUS`). The derived
+// value clears the bead by >= 4.7px at every k this mark draws at (worst case
+// is the top of the band, k -> NEXT_MARK_FLOOR_K, where the bead is largest);
+// asserted in pipelinePlanLayout.test.js rather than left as an accident of
+// the chosen number.
+export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
+
+/**
+ * Is `k` below the ring's reach, i.e. must the deep-zoom-out DOT be drawn
+ * instead of the halo ring (req #3299)?
+ *
+ * `false` everywhere the ring already reads (`k >= NEXT_MARK_FLOOR_K`,
+ * `NEXT_MARK_FLOOR_K` itself included) — the whole of the k >= 0.3 band this
+ * requirement is forbidden from moving stays on the ring, byte-identical.
+ *
+ * @param {number} k  the world→screen scale actually being drawn at
+ * @returns {boolean}
+ */
+export function nextMarkIsDot(k) {
+    return Number.isFinite(k) && k > 0 && k < NEXT_MARK_FLOOR_K;
+}
+
+/**
+ * The deep-zoom-out dot's WORLD radius for this frame — the value that,
+ * multiplied by the camera's own `k`, always renders at
+ * `NEXT_MARK_SCREEN_RADIUS` screen px regardless of how small `k` gets.
+ *
+ * Only meaningful where `nextMarkIsDot(k)` is true; the caller picks the
+ * branch, this only sizes it.
+ *
+ * @param {number} k  the world→screen scale actually being drawn at
+ * @returns {number} a world radius, or `NEXT_MARK_SCREEN_RADIUS` unscaled if
+ *   `k` is non-finite or non-positive (never reached under a real camera, but
+ *   never a division by zero either)
+ */
+export function nextMarkDotRadius(k) {
+    return Number.isFinite(k) && k > 0 ? NEXT_MARK_SCREEN_RADIUS / k : NEXT_MARK_SCREEN_RADIUS;
 }
 
 // ── Epic focus geometry (req #3204) ─────────────────────────────────────────
@@ -3861,6 +4018,119 @@ export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
     return fitTransform(stepFitRect(layout, stepId), size, kBase, null, kFloor);
 }
 
+// ── THE BATCH FIT'S CONTEXT MARGIN (req #3297) ──────────────────────────────
+// The fraction of the batch rect's OWN width and height added on each side
+// before the fit. It is the difference between "the dashed box fills the panel"
+// and the framing the requirement asked for — the launch unit comfortably
+// readable with the plan still visible around it.
+//
+// Proportional, and symmetric, for two reasons that are worth keeping straight:
+//
+//   · SYMMETRIC means it cannot change WHICH POINT ends up at the centre of the
+//     viewport. The inflated rect has the same centre as the bare one, so the
+//     batch stays framed on exactly the same spot whatever this number is. The
+//     only thing it can change is `k` — and then, necessarily, the translation
+//     that carries that centre at the new scale; the claim is about the framing,
+//     not about the two numbers. And it changes `k` only when the fit — rather
+//     than the `FOCUS_MAX_RATIO` ceiling — is what binds. That is the LARGE
+//     batch box: a six-lane run whose tight fit would otherwise crop to its own
+//     dashed edge.
+//   · On the SMALL box — one column, two beads, the reference screenshot's own
+//     case — the ceiling binds and this constant is inert. The generous
+//     whitespace there is `FOCUS_MAX_RATIO`, exactly as it is for a one-step
+//     epic, and NOT this number. Do not tune this expecting the small case to
+//     move; it will not. Requirement item 8 is that ceiling, and it is why a
+//     batch box small enough to want k=8 still lands at 2.6 × the readable
+//     default.
+//
+// A world-space constant would have been wrong on both counts: a fixed number
+// of world px is a different fraction of every box, and on the small box — the
+// one that most wants air — it is the smallest fraction of all.
+export const BATCH_FOCUS_CONTEXT = 0.25;
+
+/**
+ * The world-space rectangle ONE LAUNCH BATCH occupies within ONE BAND
+ * (req #3297) — the union of every `batchBoxes` SEGMENT that batch draws there,
+ * inflated by `BATCH_FOCUS_CONTEXT`.
+ *
+ * The union, not one segment: a batch is one launch unit and `computePlanLayout`
+ * splits its box per (band, column) precisely so a segment never encloses a
+ * non-member. Fitting one segment would put the reader in front of part of the
+ * `/swarm-start` and call it the batch.
+ *
+ * SCOPED BY THE BAND'S OWN STEP IDS, not by `box.bandIndex`. The caller has a
+ * band object (that is what the epic name carries — see `placeEpicChips`), never
+ * its index, and `indexOf` on the bands array is an identity assumption this
+ * module has no reason to make. A segment belongs to the band when it holds a
+ * step the band holds. Since req #3188 an engine batch cannot span bands at all,
+ * so the scoping is a defence rather than a discriminator — the same standing
+ * this module already gives that argument where `batchBoxes` is built.
+ *
+ * THE BATCH LETTER IS DELIBERATELY OUTSIDE THE RECT, and that is not the
+ * omission it looks like. The letter is placed by a de-collision sweep that may
+ * lift it far above its own box (the sweep's own comment records a letter
+ * climbing 300px), and a rect that chased it would zoom the launch unit — the
+ * thing the reader clicked for — down to a smudge at the bottom of a view mostly
+ * full of empty band. The context margin above is what keeps the letter on
+ * screen in the ordinary case, which is the right trade: the letter is a label
+ * for the box, so losing it costs identification, while losing the box costs the
+ * feature.
+ *
+ * @param {Object} layout   computePlanLayout output
+ * @param {Object} band     a `layout.bands` entry (carries `stepIds`)
+ * @param {string} letter   the batch letter, e.g. 'A'
+ * @returns {{x:number,y:number,w:number,h:number}|null} null when that band
+ *   draws no box for that letter — the caller must not fit.
+ */
+export function batchFitRect(layout, band, letter) {
+    if (!layout || !band || !letter || !Array.isArray(layout.batchBoxes)) return null;
+    const ids = new Set(band.stepIds || []);
+    if (!ids.size) return null;
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const box of layout.batchBoxes) {
+        if (box.letter !== letter) continue;
+        if (!(box.stepIds || []).some((id) => ids.has(id))) continue;
+        if (!Number.isFinite(box.x) || !Number.isFinite(box.y)
+            || !Number.isFinite(box.width) || !Number.isFinite(box.height)) continue;
+        if (box.x < left) left = box.x;
+        if (box.x + box.width > right) right = box.x + box.width;
+        if (box.y < top) top = box.y;
+        if (box.y + box.height > bottom) bottom = box.y + box.height;
+    }
+    if (!(right > left) || !(bottom > top)) return null;
+    const w = right - left;
+    const h = bottom - top;
+    const padX = w * BATCH_FOCUS_CONTEXT;
+    const padY = h * BATCH_FOCUS_CONTEXT;
+    return { x: left - padX, y: top - padY, w: w + 2 * padX, h: h + 2 * padY };
+}
+
+/**
+ * The {x, y, k} that frames ONE LAUNCH BATCH of ONE BAND (req #3297) — the
+ * second stop of the epic name's two-state zoom.
+ *
+ * The THIRD geometry function feeding `PipelinePlanVisualizer`'s single
+ * `applyFocus`, and deliberately nothing more than that: same `fitTransform`,
+ * same `FOCUS_MAX_RATIO` ceiling, same REQUIRED `kFloor` contract as the band
+ * and the step (see the FLOOR block above `bandFitRect`). The camera move, its
+ * transition and its four flags live in the component and exist once.
+ *
+ * `neighbours` is null, as it is for the step fit: the reserve exists so a
+ * FOCUSED BAND's neighbours can still print their names beside it, and a batch
+ * sits inside one band with the band's own name already clamped to the viewport
+ * by `placeEpicChips`. Nothing here needs a strip reserved for it.
+ *
+ * @returns {{x:number,y:number,k:number}|null} null when that band draws no box
+ *   for that letter, there is no viewport yet, or no floor was handed in — in
+ *   every one of which the caller must leave the camera exactly where it is.
+ */
+export function batchFocusTransform(layout, band, letter, size, kBase, kFloor) {
+    return fitTransform(batchFitRect(layout, band, letter), size, kBase, null, kFloor);
+}
+
 // The centring itself, shared by both focus targets (extracted req #3253).
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.
 //
@@ -3944,16 +4214,27 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
     };
 }
 
-// ── Reset = FACTORY DEFAULT (req #3216 D1) ──────────────────────────────────
+// ── THE BASE VIEW = FACTORY DEFAULT (req #3216 D1, req #3312) ───────────────
 // "Reset" used to mean "back to `kDefault`", the READABLE landing scale (req
 // #3168, `K_READABLE` above) — fit-to-width floored at a legible text size.
-// The requirement redefines what the control returns to: fully zoomed out so
-// the whole plan's VERTICAL extent is visible, one click, from any pan or
-// zoom. "reset that lands somewhere the user still has to zoom out from is
-// not reset." On a plan with many epic bands the readable floor can sit
-// ABOVE the scale that needs, which is exactly the failure mode this
-// function exists to rule out — it is deliberately NOT `kDefault`, and
-// legibility is not a concern it weighs at all.
+// #3216 redefined what the control returns to: fully zoomed out so the whole
+// plan's VERTICAL extent is visible, one click, from any pan or zoom. "reset
+// that lands somewhere the user still has to zoom out from is not reset." On a
+// plan with many epic bands the readable floor can sit ABOVE the scale that
+// needs, which is exactly the failure mode this function exists to rule out —
+// it is deliberately NOT `kDefault`, and legibility is not a concern it weighs
+// at all.
+//
+// **AND SINCE req #3312 IT IS THE LANDING VIEW TOO.** #3216 left the two apart,
+// so a plan OPENED at `kDefault` — zoomed in past fit-to-width with the world
+// origin at the panel's top-left, i.e. on the top epic's name — and the reader
+// had to click Reset to see the plan they had just opened. There is now ONE
+// base view and this function computes it; the component's `resetView` applies
+// it for the landing and for the header's Reset alike, so the two cannot
+// disagree. THE COST, stated because a reader meets it on open: on a plan too
+// tall to fit at `K_READABLE` the landing is below `labelsLegible` and opens as
+// bare beads — precisely what Reset has shown on those plans since #3216, and
+// what was asked for.
 //
 // PURE and exported for the same reason `epicFocusTransform` is (the comment
 // two functions up): this is a fit computation over `layout`/`size`, testable

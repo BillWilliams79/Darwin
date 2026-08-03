@@ -614,6 +614,7 @@ const CyclemeterImport = () => {
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <IconButton
                     size="small"
+                    aria-label="Advanced import options"
                     onClick={() => setShowAdvanced(v => !v)}
                     color={showAdvanced ? 'primary' : 'default'}
                 >

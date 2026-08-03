@@ -63,11 +63,11 @@ const AreaTableRow = ({area, areaIndex, changeAreaName, keyDownAreaName, blurAre
             </Box>
             <Box>
                 { area.id === '' ?
-                        <IconButton>
+                        <IconButton aria-label="Save area">
                             <SavingsIcon />
                         </IconButton>
                     :
-                        <IconButton onClick={(event) => clickAreaDelete(event, area.id, area.area_name)} >
+                        <IconButton aria-label="Delete area" onClick={(event) => clickAreaDelete(event, area.id, area.area_name)} >
                             <DeleteIcon />
                         </IconButton>
                 }

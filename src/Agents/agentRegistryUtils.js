@@ -878,6 +878,42 @@ export const planOwnerTransfer = ({
 };
 
 /**
+ * Did this rejection say, definitely, that the junction row ALREADY EXISTED?
+ *
+ * Not a message helper — a CONTROL-FLOW predicate. `applyLinkPlan`'s rollback
+ * uses it to decide whether the row it is about to delete is one of its own, and
+ * getting that wrong destroys a link nobody touched (req #3294). It lives beside
+ * `restErrorMessage` because both read the same req #3059 fields, and putting the
+ * classification in one place is the point.
+ *
+ * TRUE ONLY FOR THE COMPOSITE PRIMARY KEY. A junction here is keyed on
+ * (agent_fk, <target>_fk), so 1062 on `PRIMARY` is the one answer that means "the
+ * row you tried to insert is already sitting there" — and therefore that whoever
+ * put it there, it was not this write.
+ *
+ * `table` IS REQUIRED, deliberately. `constraint` arrives unqualified, every
+ * table has a `PRIMARY`, and a predicate that suppressed a cleanup on the wrong
+ * table would reintroduce the very defect it exists to close.
+ *
+ * The OTHER 1062s `agent_documents` can raise are different situations and must
+ * NOT match: `uq_agent_documents_owner` (a second ownership claim, over the
+ * VIRTUAL `owned_document_fk`) and `uq_agent_documents_principles` (a second
+ * guiding-principles document for one agent). Both mean the INSERT genuinely did
+ * not land, so nothing of the caller's is left behind and its cleanup has to go
+ * ahead. They are told apart here BY CONSTRAINT NAME rather than by accident,
+ * which is why this reads the name and not just the errno.
+ */
+export const isDuplicateLink = (err, table) => {
+    // Enforced, not merely documented: without this a forgotten argument compares
+    // `undefined === undefined` and matches EVERY table's PRIMARY key, which is
+    // the exact over-match the paragraph above rules out.
+    if (!table) return false;
+    if (err?.httpStatus?.httpStatus !== 409) return false;
+    const d = err.httpStatus.httpDetail || {};
+    return d.errno === 1062 && d.constraint === 'PRIMARY' && d.table === table;
+};
+
+/**
  * Turn a thrown call_rest_api rejection into something a human can act on.
  *
  * Lambda-Rest answers a constraint violation with HTTP 409 and a structured body
@@ -927,6 +963,19 @@ export const restErrorMessage = (err, fallback) => {
     if (errno === 1062 && constraint === 'uq_agent_documents_owner') {
         return 'Another agent already owns this document — at most one owner per document. '
             + 'Use "curated" for a second architect, or hand ownership over from the current owner.';
+    }
+    // req #3129's mirror key: at most one `principles` link per AGENT, where
+    // `uq_agent_documents_owner` is at most one `owned` link per DOCUMENT.
+    //
+    // Reachable even though no control in this app ASSIGNS the role. The popover
+    // seeds its chips from the stored set and filters out only `owned`
+    // (DocumentLinkPopover), so a link the MCP daemon marked `principles` carries
+    // that member straight back out through the re-POST — and every role edit is a
+    // DELETE and a fresh INSERT. If the daemon assigns another principles document
+    // to the same agent inside that window, this is the answer.
+    if (errno === 1062 && constraint === 'uq_agent_documents_principles') {
+        return 'This agent already has a guiding-principles document — at most one per agent. '
+            + 'Reload the page: it may have been assigned in another tab.';
     }
     if (errno === 1062 && constraint === 'PRIMARY' && table === 'agent_documents') {
         return 'That document is already linked to this agent.';

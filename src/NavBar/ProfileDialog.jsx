@@ -11,7 +11,7 @@ const ProfileDialog = ({ open, onClose }) => {
         <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 Profile
-                <IconButton onClick={onClose} size="small" data-testid="profile-dialog-close">
+                <IconButton onClick={onClose} size="small" aria-label="Close profile dialog" data-testid="profile-dialog-close">
                     <CloseIcon fontSize="small" />
                 </IconButton>
             </DialogTitle>

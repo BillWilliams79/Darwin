@@ -23,6 +23,7 @@ export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => 
     const action = (
         <IconButton size="small"
                     color="inherit"
+                    aria-label="Close notification"
                     onClick={snackBarClose} >
             <CloseIcon fontSize="small" />
         </IconButton>

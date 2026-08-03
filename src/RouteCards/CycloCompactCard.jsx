@@ -113,6 +113,7 @@ const CycloCompactCard = ({ run, routeName, partners = [], runPartners = [], onC
                 <IconButton
                     size="small"
                     onClick={onCollapse}
+                    aria-label="Collapse stats"
                     sx={{ color: 'rgba(255,255,255,0.45)', p: 0.25 }}
                     data-testid="map-stats-collapse-btn"
                 >

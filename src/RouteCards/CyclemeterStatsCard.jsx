@@ -263,6 +263,7 @@ const CyclemeterStatsCard = ({ run, routeName, onCollapse, onToggleStyle }) => {
                 <IconButton
                     size="small"
                     onClick={onCollapse}
+                    aria-label="Collapse stats"
                     sx={{ color: 'rgba(255,255,255,0.5)', p: '2px' }}
                     data-testid="map-stats-collapse-btn"
                 >
