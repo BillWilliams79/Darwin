@@ -1,23 +1,30 @@
 // PipelinesPage.jsx — /swarm/pipelines (req #3114).
 //
 // The orchestrator of a view-switchable page per memory/view-switchable-pages.md:
-// the `.app-content-planpage` CSS grid, an icon-only ToggleButtonGroup pinned
-// FIRST and LEFT (R8), shared controls beside it, the flexGrow spacer LAST, and
-// exactly one view component rendered at a time. View state comes from
-// useViewPreference (R1/V8) under `darwin-swarm-pipelines-view`.
+// the `.app-content-planpage` CSS grid, the canonical `<ViewerHeader>`, and exactly
+// one view component rendered at a time. View state comes from useViewPreference
+// (R1/V8) under `darwin-swarm-pipelines-view`.
 //
 // Both views are fed the SAME pre-filtered rows and the SAME derived summaries
 // (R5) — switching views re-renders, never re-fetches.
+//
+// req #3282 — the header used to be hand-rolled: a bare Box holding a
+// ToggleButtonGroup, the ChipFilter, an inline `variant="caption"` accounting line
+// and a separate `flexGrow` spacer, with NO TITLE at all. Req #3067 extracted
+// `ViewerHeader` at the moment a third hand-rolled copy existed and had already
+// drifted; this was the fourth, and it had drifted on V2 (the spacer Box), V7 (the
+// accounting position AND its type scale) and on having no title. Converting also
+// fixes the toggle's accessible name for free: the old row wrapped the Tooltip
+// INSIDE the ToggleButton around the icon, so MUI put the name on an SvgIcon that
+// SvgIcon.js then marks aria-hidden and both buttons computed an EMPTY accessible
+// name (the same defect req #3281 files against PipelineDetail.jsx). ViewerHeader
+// wraps the Tooltip AROUND the button and sets `aria-label` on the button itself.
 
 import { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
@@ -32,6 +39,7 @@ import {
 } from '../../hooks/useDataQueries';
 import { useViewPreference } from '../../hooks/useViewPreference';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
+import ViewerHeader from '../../Components/ViewerHeader/ViewerHeader';
 import ChipFilter from '../../Components/ChipFilter';
 import PipelineCardsView from './PipelineCardsView';
 import PipelinesTableView from './PipelinesTableView';
@@ -85,9 +93,13 @@ function writeStoredStatusFilter(statuses) {
     }
 }
 
+// `label` is REQUIRED by ViewerHeader and is never rendered as text: it becomes
+// BOTH the tooltip and the button's aria-label. So it is the full caption here
+// ('Cards view', matching DocumentsPage) rather than the bare noun the old
+// hand-rolled row expanded with a `${label} View` template at the render site.
 const VIEWS = [
-    { value: 'cards', label: 'Cards', icon: ViewModuleIcon },
-    { value: 'table', label: 'Table', icon: TableChartIcon },
+    { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
+    { value: 'table', label: 'Table view', icon: TableChartIcon },
 ];
 
 // req #3220 — fixed vocabulary, so options are module-level, same pattern as
@@ -201,50 +213,47 @@ export default function PipelinesPage() {
 
     return (
         <Box className="app-content-planpage">
-            <Box className="app-content-view-toggle"
-                 sx={{ display: 'flex', alignItems: 'center', gap: 2,
-                        mt: 3, mb: 1, px: 3, flexWrap: 'wrap' }}>
-                <ToggleButtonGroup
-                    value={activeView}
-                    exclusive
-                    onChange={(_e, v) => setView(v)}
-                    size="small"
-                    sx={{ flexShrink: 0 }}
-                    data-testid="pipelines-view-toggle"
-                >
-                    {VIEWS.map(({ value, label, icon: Icon }) => (
-                        <ToggleButton key={value} value={value} sx={{ px: 2 }}
-                                      data-testid={`view-toggle-${value}`}>
-                            <Tooltip title={`${label} View`}>
-                                <Icon fontSize="small" />
-                            </Tooltip>
-                        </ToggleButton>
-                    ))}
-                </ToggleButtonGroup>
+            {/* The grid class goes on a WRAPPER, not on ViewerHeader's own row.
+                `.app-content-planpage` assigns areas by class and ViewerHeader
+                returns a FRAGMENT — the header row plus the V7 accounting line —
+                so classing the row alone would leave the accounting Typography as
+                a second, unplaced grid child, auto-flowed into the `tabs` row at
+                one column's width. Both lines belong in the `view-toggle` area,
+                which is also exactly where the accounting text sat before.
 
-                {/* Shared control — filters BOTH views (R4/R5). Multi-select via
-                    the standardized ChipFilter (req #3220), not a second
-                    hand-rolled implementation of it. */}
-                <ChipFilter
-                    options={pipelineStatusOptions}
-                    selected={statusFilter}
-                    onToggle={toggleStatus}
-                    testId="pipelines-status-filter"
-                    chipTestIdPrefix="pipelines-status-chip"
+                Only the page-level insets (mt/px) live here; the rhythm INSIDE the
+                header — the row/accounting gap and the accounting line's own
+                bottom margin — is ViewerHeader's and is not overridden. */}
+            <Box className="app-content-view-toggle" sx={{ mt: 3, px: 3 }}>
+                <ViewerHeader
+                    title="Pipelines"
+                    views={VIEWS}
+                    view={activeView}
+                    onViewChange={setView}
+                    testIdPrefix="pipelines"
+                    /* Shared control — filters BOTH views (R4/R5). Multi-select
+                       via the standardized ChipFilter (req #3220), not a second
+                       hand-rolled implementation of it. V3 puts it in the filters
+                       slot: it changes WHAT is listed. */
+                    filters={
+                        <ChipFilter
+                            options={pipelineStatusOptions}
+                            selected={statusFilter}
+                            onToggle={toggleStatus}
+                            testId="pipelines-status-filter"
+                            chipTestIdPrefix="pipelines-status-chip"
+                        />
+                    }
+                    /* Counts the WHOLE dataset, with the filtered subset named
+                       separately (V7). The call-to-action names what the ACTIVE
+                       view actually shows — "click a row" is wrong advice in
+                       Cards, where the click target is a card. */
+                    accounting={<>
+                        {filtered.length} of {pipelines.length} pipeline
+                        {pipelines.length === 1 ? '' : 's'} — click a{' '}
+                        {activeView === 'table' ? 'row' : 'card'} for the plan
+                    </>}
                 />
-
-                {/* Accounting line counts the WHOLE dataset, with the filtered
-                    subset named separately (V7). The call-to-action names what
-                    the ACTIVE view actually shows — "click a row" is wrong
-                    advice in Cards, where the click target is a card. */}
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                            data-testid="pipelines-accounting">
-                    {filtered.length} of {pipelines.length} pipeline
-                    {pipelines.length === 1 ? '' : 's'} — click a{' '}
-                    {activeView === 'table' ? 'row' : 'card'} for the plan
-                </Typography>
-
-                <Box sx={{ flexGrow: 1 }} />
             </Box>
 
             <Box className="app-content-tabpanel" sx={{ px: 3, pt: 0 }}>
