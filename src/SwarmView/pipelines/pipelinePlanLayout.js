@@ -776,6 +776,102 @@ export const pinnedLevelOf = (v) => PLAN_LEVEL_BY_PREF[normalizePlanLevelPref(v)
 export const READABLE_MIN_PX = 11;
 export const K_READABLE = READABLE_MIN_PX / PLAN_VIZ_FONT.req;
 
+/**
+ * Is the plan's smallest REQUIRED text legible at this scale (req #3280)?
+ *
+ * THE LEVEL LADDER ANSWERS A RELATIVE QUESTION AND LEGIBILITY IS AN ABSOLUTE
+ * ONE, and until this existed the ladder was asked both. `semanticLevel()` takes
+ * `curK / kDefault`, so "how far in from where you started" decides WHAT IS
+ * DRAWN — and on a large plan the level that starts drawing the step names and
+ * the requirement ids begins at an absolute `k` where neither can be read.
+ * MEASURED on live pipeline 2 (136 rows, world width 3620.2, `kDefault` 0.8):
+ * L2 begins at k = 0.400, which renders the step label at 6.6px and the
+ * requirement ids at 5.5px, against the 11px floor two lines above.
+ *
+ * So the two questions are separated, and the ladder is NOT MOVED — req #3168
+ * anchored it on `kDefault` deliberately and PIPE-09 pins its wheel behaviour.
+ * The level still says which kinds this view is FOR; this says whether the
+ * reader could actually use them. A kind is drawn only when both agree.
+ *
+ * THE REQUIREMENT IDS ARE THE TEXT THIS IS MEASURED ON, exactly as `K_READABLE`
+ * itself is: the step label is bigger and the title slot is a level-gated extra,
+ * so a scale that keeps the ids legible keeps everything a reader needs legible.
+ * One threshold for all three gated kinds, not one per font — three thresholds
+ * would be three places for the halo's magnification to step (see
+ * `nextHaloMagnify`, which freezes at exactly this scale and would have to
+ * choose one of them).
+ *
+ * IT IS TRUE AT THE VIEW EVERY PLAN OPENS IN, by construction — see
+ * `readableDefaultScale` below, which is the scale `resetView` lands on. A plan
+ * that already fits at a legible size never reaches this gate at all, so nothing
+ * about a small plan's view changes.
+ */
+export function labelsLegible(k) {
+    return Number.isFinite(k) && k >= K_READABLE;
+}
+
+/**
+ * THE SCALE A PLAN OPENS IN (req #3168) — fit-to-width, floored at legible.
+ *
+ * EXPORTED as a function rather than left as `Math.max(kFit, K_READABLE)` inline
+ * in the component (req #3280). The invariant that matters is "the landing view
+ * always draws its labels", and while the formula lived in the renderer the test
+ * for it could only rebuild the same `Math.max` and assert `max(a,b) >= b` — an
+ * identity, green even if the component were changed to land on `kFit` and every
+ * plan wider than its panel opened with no labels at all. A test can only reach
+ * the number the renderer actually uses.
+ *
+ * `factoryDefaultScale` is the SIBLING, not a duplicate: since req #3216 the
+ * header's Reset and the landing view are deliberately two different scales, and
+ * `recenterModeRef` picks between them. This one is the landing view.
+ *
+ * A non-finite `kFit` resolves to `K_READABLE` rather than propagating NaN —
+ * `size.w / layout.width` is a division the caller performs on measured values,
+ * and a NaN scale silently blanks the canvas rather than erroring.
+ */
+export function readableDefaultScale(kFit) {
+    return Number.isFinite(kFit) ? Math.max(kFit, K_READABLE) : K_READABLE;
+}
+
+/**
+ * THE LEVEL LADDER, AS ONE PREDICATE — is this label kind drawn (req #3221,
+ * absolute half added by req #3280)?
+ *
+ * IT LIVES HERE RATHER THAN IN THE RENDERER because the halo's whole guarantee
+ * is a relationship between this answer and `nextHaloMagnify`'s: a magnified
+ * halo reaches past the 14-world-px box a step label and the first requirement
+ * id sit in, so it may only grow where they are not drawn. While the predicate
+ * was three lines inside the component and the magnification was a function in
+ * this module, NOTHING COULD ASSERT THE PAIR — the component's own test would
+ * have had to rasterise a canvas to see it, which is precisely why the
+ * component publishes `data-drawn` at all. With both here, one sweep over
+ * (kind × level × k) proves it, and deleting the legibility condition reddens
+ * that sweep instead of shipping.
+ *
+ * Two conditions, and a kind is drawn only when both hold:
+ *   · the LEVEL — what this view is for. 'out' carries no per-step detail;
+ *     the title slot is 'in' only.
+ *   · LEGIBILITY — whether the reader could use it (`labelsLegible`). ONE
+ *     threshold for all three kinds, not one per font: `K_READABLE` is derived
+ *     from the SMALLEST of them, so a scale that keeps the requirement ids
+ *     legible keeps the step name and the title slot legible too — and three
+ *     per-font thresholds would be three scales at which the halo's
+ *     magnification has to stop, where it can only stop at one.
+ *
+ * `true` for everything else, and that fallback is load-bearing rather than a
+ * default nobody reaches: the ruler's slot ticks, the launch-unit letters and
+ * the epic band names are drawn at every level and are not gated at all.
+ *
+ * This is DRAW-ONLY. `computePlanLayout` reserves every label's rect at every
+ * level regardless — the zero-overlap invariant is asserted against it
+ * unconditionally — so a kind going dark never moves anything else.
+ */
+export function drawsLabelKind(kind, level, k) {
+    if (kind === 'step' || kind === 'req') return level !== 'out' && labelsLegible(k);
+    if (kind === 'title') return level === 'in' && labelsLegible(k);
+    return true;
+}
+
 // ── The time axis (req #3201) ───────────────────────────────────────────────
 // Sentinel slot prefixes. Sorting the composed keys lexicographically IS the
 // chronological order: '0' < '1' < '2', and ISO days sort as strings.
@@ -3164,8 +3260,11 @@ export const NEXT_HALO_DASH = [3, 3];
 // at 13.75 and the bead's ring caps the inner edge at 11.5, so the world stroke
 // can be at most 2 — exactly what it already is. Making the stroke
 // screen-constant while pinning the radius merges the two rings for all k < 0.8.
-// The only room is the room the LABELS vacate, which is why this is gated on
-// the label predicate and not on k alone.
+// The only room is the room the LABELS vacate, which is why the magnification
+// stops exactly where the labels start being drawn — `K_READABLE`, the same
+// scale `labelsLegible` gates them on (req #3280). It is one scale answering
+// both halves, so "the halo never crosses a drawn label" needs no coordination
+// between two predicates: it is true by arithmetic.
 //
 // ONE MAGNIFICATION FOR THE WHOLE MARK, never per-property. Radius, stroke and
 // dash all scale by the same `m`, so the halo is always the same SHAPE — the
@@ -3173,19 +3272,55 @@ export const NEXT_HALO_DASH = [3, 3];
 // the bead does not, the gap between the two rings can only OPEN. A fix that
 // counter-scaled the stroke alone would close it.
 //
-// `m` targets a fixed on-screen radius, so between the ceiling and k = 1 the
-// apparent thickness is a flat NEXT_HALO_STROKE px and the dash pitch a flat
-// NEXT_HALO_DASH px — the k = 1 appearance, held constant as you zoom out
-// instead of thinning to nothing. ON A LARGE PLAN THE CEILING BINDS FIRST and
-// that band is never reached: the live plan's 'out' is the whole reachable
-// range below k = 0.4, which asks for 2.5× at its top and 12.1× at the zoom
-// floor, against a ceiling of 2.0. Measured at the view the plan OPENS in
-// (1440px panel, kFit 0.398,
-// the view the plan OPENS in): radius 9.94px, stroke 1.59px, dash 2.39px, ten
-// dash cycles, and 4.67px of clear space to the bead — against 4.97 / 0.80 /
-// 1.19 / 0.10 before. The mark is unambiguous at the scale the question is
-// asked at, which is what was actually broken.
-export const NEXT_HALO_SCREEN_RADIUS = 12.5;
+// `m` targets a fixed on-screen radius, so below that scale the apparent
+// thickness is flat and the dash pitch is flat — one appearance, held constant
+// as you zoom out instead of thinning to nothing. THE CEILING BINDS BELOW
+// k = 0.4 and the flat band runs from there up to K_READABLE: on the live plan
+// the request is 2.0× at k = 0.4 (exactly the ceiling), 1.6× at k = 0.5, 1.0× at
+// k = 0.8, and 9.65× at the zoom floor (0.0829, a 1200px panel) against a
+// ceiling of 2.0. Measured at k = 0.398 — fit-to-width on a 1440px panel, one
+// wheel-click OUT from where the plan lands: radius 9.94px, stroke 1.59px, dash
+// 2.39px, ten dash cycles, and 4.67px of clear space to the bead — against
+// 4.97 / 0.80 / 1.19 / 0.10 before. The mark is unambiguous at the scale the
+// question is asked at, which is what was actually broken.
+//
+// **NOT the view the plan opens in, and #3271 said it was** (found in review of
+// req #3280). `resetView` lands on `kDefault` — `recenterModeRef` initialises to
+// 'readable' — so a plan OPENS at k = 0.8, ratio 1, level 'mid', ids at 11.0px.
+// The broken band is reached by zooming OUT from the landing view, not in. The
+// arithmetic below never depended on which end the reader arrives from; only
+// this description did.
+//
+// ── AND THE SCALE IT FREEZES AT IS DERIVED, NEVER CHOSEN (req #3280) ────────
+// #3271 aimed the mark at its own world radius, i.e. at the k = 1 appearance,
+// and switched the magnification off with the LABEL PREDICATE — which is binary
+// on the semantic level. That put a 2.0× → 1.0× step one wheel-click wide at the
+// L1/L2 boundary (k = 0.400 on the live plan): the mark HALVED as the reader
+// zoomed in, and what it halved to was the 0.80px stroke with 1.20px dashes,
+// 0.10px from the bead's own ring, that #3271 was filed to remove.
+//
+// The magnification now stops at `K_READABLE` — the scale at which the labels
+// start being drawn (`labelsLegible`) — and the screen size it holds is the size
+// the UNMAGNIFIED mark has AT that scale. That identity is the whole fix:
+//
+//     NEXT_HALO_SCREEN_RADIUS === NEXT_HALO_RADIUS * K_READABLE
+//     ⇒  m(K_READABLE⁻) = 1  =  m(K_READABLE⁺)
+//
+// so the two branches MEET rather than meeting-with-a-step.
+//
+// AND THE LEVEL BOUNDARIES ARE NOT CROSSINGS AT ALL ANY MORE — that is the
+// stronger statement, and the reason it holds on every plan size. `m` is a
+// function of `k` ALONE, continuous on each of its three pieces and at both
+// joins (`m(0.4) = 2` from either side; `m(K_READABLE) = 1` from either side),
+// so where the level ladder happens to put L1/L2 is irrelevant to it. The
+// live plan's boundary lands at k = 0.400, which IS one of the joins — the
+// arithmetic is continuous there anyway, and that is the coincidence the first
+// draft of this comment mistook for the reason.
+//
+// A CHOSEN number here would break that. 12.5 was chosen, and it is what made
+// the k = 0.8 halo (10.00px radius, the unmagnified mark) 25% smaller than the
+// k = 0.79 halo. The derivation is the invariant; the value 10 is its output.
+export const NEXT_HALO_SCREEN_RADIUS = NEXT_HALO_RADIUS * K_READABLE;
 // The halo's outer edge at m = 1: 13.5 against the 14 the text bound allows.
 const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // HOW FAR IT MAY GROW: the SMALLEST clearance to any piece of world furniture
@@ -3193,9 +3328,17 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // about it is how this got written twice and reviewed wrong twice:
 //
 //  - HALF A COLUMN PITCH was the first ceiling (2.37×). Wrong in the other
-//    direction: the live plan's Overview asks for 2.51 at kFit = 0.398, so the
-//    screen-constant branch would never once have executed on the very plan
-//    this was filed against.
+//    direction: under #3271's target the live plan asked for 2.51 at k = 0.398,
+//    so the screen-constant branch would never once have executed on the very
+//    plan this was filed against.
+//    **THAT MEASUREMENT NO LONGER REFUTES IT** (found in review of req #3280).
+//    The target is now `K_READABLE / k`, so the same k asks for 2.011 — below
+//    2.37 — and a 2.37 ceiling would leave the branch reachable. The candidate
+//    is still rejected, but on the SECOND ground below rather than this one:
+//    half a column pitch is a one-constraint answer that says nothing about the
+//    launch-unit box, which is the clearance that actually binds at 28. Kept
+//    with its refutation corrected rather than deleted, because this list exists
+//    so a future reader does not re-derive a ceiling that was already tried.
 //  - "NEVER REACHES ANOTHER BEAD" was the second (3.76×). It cleared beads and
 //    crossed everything else — the epic chip's strip at every k below 0.371
 //    (which INCLUDES the opening view on a 1200px panel), and its own launch
@@ -3267,21 +3410,28 @@ export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
 
 /**
  * The magnification applied to the next-step halo's radius, stroke width and
- * dash pattern (req #3271). ALWAYS 1 where the step and requirement labels are
- * drawn: their boxes start 14px from the bead centre in both directions, and
- * that bound is what fixes NEXT_HALO_RADIUS in the first place. It is also 1
- * once the mark is already at or above its target size on screen, so zooming IN
- * never changes it — at 'in' and 'mid' the halo is byte-identical to what it
- * was before this function existed.
+ * dash pattern (req #3271, made continuous by req #3280).
  *
- * @param {number} k             the world→screen scale actually being drawn at
- * @param {boolean} labelsDrawn  does this level draw step/requirement labels?
- *                               (the visualizer's own `drawsKind('step')` — the
- *                               halo takes exactly the room the labels vacate)
- * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY]
+ * A PURE FUNCTION OF `k`, and that is the fix rather than a tidy-up. #3271 took
+ * a second argument — "does this level draw the labels?" — because the halo may
+ * only grow into room the labels are not using, and a BOOLEAN bound produces a
+ * STEP: the mark halved in one wheel-click at whatever absolute scale the level
+ * ladder happened to put the boundary at. Since `labelsLegible` gates the labels
+ * on `K_READABLE` and this stops magnifying at `K_READABLE`, the two can no
+ * longer disagree, so the argument had nothing left to say. **Labels drawn ⇒
+ * `m === 1`** is now an arithmetic consequence, not a contract between two
+ * modules — which is what protects the 14-world-px text bound that fixes
+ * `NEXT_HALO_RADIUS` in the first place.
+ *
+ * It is 1 at and above `K_READABLE`, so zooming IN never changes the mark and
+ * the halo at 'in' — and across the top half of 'mid' — is byte-identical to
+ * what it was before either requirement existed.
+ *
+ * @param {number} k  the world→screen scale actually being drawn at
+ * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY], monotone
+ *   non-increasing in `k` and continuous everywhere
  */
-export function nextHaloMagnify(k, labelsDrawn) {
-    if (labelsDrawn) return 1;
+export function nextHaloMagnify(k) {
     if (!Number.isFinite(k) || k <= 0) return 1;
     const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
     if (!(want > 1)) return 1;

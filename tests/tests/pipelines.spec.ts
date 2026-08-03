@@ -1928,6 +1928,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //
             //    The ladder itself is asserted whole, because "gated at L1" is
             //    only meaningful next to the kinds that draw at every level.
+            //
+            //    SINCE REQ #3280 EACH OF THE THREE ALSO ASKS WHETHER IT IS
+            //    LEGIBLE — `k >= K_READABLE` — and these assertions are unmoved
+            //    by it for a structural reason rather than a lucky one: pinning
+            //    does not move the camera (step 2 asserts exactly that), so the
+            //    scale here is still the default `kDefault = max(kFit,
+            //    K_READABLE)`, which is `>= K_READABLE` on every plan at every
+            //    panel width. The absolute half of the gate is exercised in
+            //    `pipelinePlanLayout.test.js` (`the next-step halo survives the
+            //    level CROSSINGS`), which sweeps kind × level × k directly
+            //    against `drawsLabelKind` — the same function this canvas calls.
             const drawnAt = async (lvl: string, expected: string, message: string) => {
                 await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
                 await expect(container, message).toHaveAttribute('data-drawn', expected);

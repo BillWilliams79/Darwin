@@ -12,14 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
-import { semanticLevel } from '../../konvaSwarmModel';
+import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
-    NEXT_HALO_CLEARANCES, nextHaloMagnify, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
+    NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
+    readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
@@ -2928,20 +2929,29 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         expect(beadStyle(eligibleRow, true).ringWidth).toBe(BEAD_RING_W_EMPHASIS);
     });
 
-    // THE 'in'/'mid' GUARANTEE, and the reason the label-clearance case above
-    // stays the binding one: wherever a step or requirement label is drawn, the
-    // halo is byte-identical to what it was before this existed.
+    // THE GUARANTEE, and the reason the label-clearance case above stays the
+    // binding one: wherever a step or requirement label is drawn, the halo is
+    // byte-identical to what it was before this existed.
+    //
+    // ASKED THROUGH `labelsLegible`, not through a boolean the caller hands in
+    // (req #3280). The old version passed `true` and asserted 1, which proved
+    // the function's first line and nothing about the canvas — the visualizer
+    // could have passed `false` at a level that draws labels and this stayed
+    // green. Reading the SAME predicate the renderer gates the labels on is what
+    // makes this a claim about what is on screen.
     it('is exactly 1 at every k where the labels are drawn', () => {
-        for (const k of K_SWEEP) {
-            expect(nextHaloMagnify(k, true), `k=${k}`).toBe(1);
+        for (const k of K_SWEEP.filter(labelsLegible)) {
+            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
         }
+        // Non-vacuity: the sweep must actually contain legible scales.
+        expect(K_SWEEP.filter(labelsLegible).length).toBeGreaterThan(5);
     });
 
     // Zooming IN never changes the mark either. Only the zoomed-OUT half of the
     // range, where the mark had shrunk below its target, is touched at all.
     it('is exactly 1 once the mark already meets its target on screen', () => {
         for (const k of K_SWEEP.filter((v) => v >= 1)) {
-            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
+            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
         }
     });
 
@@ -2949,30 +2959,36 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // world units, every one of these products collapses to `constant × k` and
     // the case fails at the first k in the sweep.
     it('holds the halo SCREEN-constant across a k sweep, until the cap bites', () => {
-        for (const k of K_SWEEP) {
-            const m = nextHaloMagnify(k, false);
+        for (const k of [...K_SWEEP, 0.45, 0.6, 0.75].sort((a, b) => a - b)) {
+            const m = nextHaloMagnify(k);
             if (m >= NEXT_HALO_MAX_MAGNIFY || m === 1) continue;
-            // The RADIUS product is an algebraic identity of the definition of
-            // `m` and can never fail — it is here to name the target, not to
-            // guard it. The STROKE and DASH products are the load-bearing
-            // assertions: they hold only while the screen radius the halo aims
-            // at is its own world radius, so retuning NEXT_HALO_SCREEN_RADIUS
-            // in isolation breaks them.
+            // ALL THREE ARE THE SAME IDENTITY times a different constant, and
+            // saying so is the correction (review finding on this block: the
+            // previous comment claimed the stroke and dash products were
+            // "load-bearing" against the radius one being an identity, which is
+            // not true — each reduces to
+            // `NEXT_HALO_SCREEN_RADIUS / NEXT_HALO_RADIUS === K_READABLE`).
+            // They are kept as a REGRESSION PIN on the shape rather than as a
+            // proof: if the mark ever stops scaling by ONE factor — a stroke
+            // counter-scaled on its own is the specific fix #3271 rejected —
+            // the three stop agreeing and this reddens. The claim that the
+            // freeze scale is derived is asserted directly, once, below.
             expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`)
                 .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 10);
             expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`)
-                .toBeCloseTo(NEXT_HALO_STROKE, 10);
+                .toBeCloseTo(NEXT_HALO_STROKE * K_READABLE, 10);
             for (const [i, d] of NEXT_HALO_DASH.entries()) {
-                expect(d * m * k, `dash[${i}] px at k=${k}`).toBeCloseTo(d, 10);
+                expect(d * m * k, `dash[${i}] px at k=${k}`)
+                    .toBeCloseTo(d * K_READABLE, 10);
             }
         }
         // The sweep must actually EXERCISE the screen-constant branch, or the
         // loop above passes by skipping everything (review-proofing).
-        const exercised = K_SWEEP.filter((k) => {
-            const m = nextHaloMagnify(k, false);
+        const exercised = [...K_SWEEP, 0.45, 0.6, 0.75].filter((k) => {
+            const m = nextHaloMagnify(k);
             return m > 1 && m < NEXT_HALO_MAX_MAGNIFY;
         });
-        expect(exercised.length).toBeGreaterThan(0);
+        expect(exercised.length).toBeGreaterThan(2);
     });
 
     // ONE factor for the whole mark, so the shape is invariant: the halo can
@@ -2998,7 +3014,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         const swept = [LIVE_ZOOM_FLOOR,
             ...K_SWEEP.filter((v) => v < 0.5 && v > LIVE_ZOOM_FLOOR)];
         for (const k of swept) {
-            const gapPx = (innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS) * k;
+            const gapPx = (innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS) * k;
             const unfixedPx = (innerAt(1) - BEAD_OUTER_RADIUS) * k;
             expect(unfixedPx, `world-constant gap px at k=${k}`).toBeLessThan(0.2);
             expect(gapPx, `gap px at k=${k}`).toBeGreaterThan(0.9);
@@ -3017,15 +3033,18 @@ describe('the next-step halo survives Overview (req #3271)', () => {
             // mark this requirement replaced.
             expect(gapPx / unfixedPx, `gap ratio at k=${k}`).toBeGreaterThan(30);
         }
-        // At the scale the plan OPENS in, the gap is comfortably supra-pixel —
+        // At fit-to-width on a 1440px panel the gap is comfortably supra-pixel —
         // that is the claim this case exists to make, distinct from the floor.
-        const kOpen = 1440 / 3620.2;
-        expect((innerAt(nextHaloMagnify(kOpen, false)) - BEAD_OUTER_RADIUS) * kOpen,
-            'gap px at the opening view').toBeGreaterThan(4);
+        // (Called "the opening view" until req #3280's review; the plan actually
+        // lands on `kDefault` = 0.8, one wheel-click in from here. See the
+        // `turns the measured Overview scales` case below.)
+        const kFitWide = 1440 / 3620.2;
+        expect((innerAt(nextHaloMagnify(kFitWide)) - BEAD_OUTER_RADIUS) * kFitWide,
+            'gap px at fit-to-width, 1440px panel').toBeGreaterThan(4);
         // And the world gap never closes at any k, magnified or not.
         let prevGap = null;
         for (const k of [...K_SWEEP].sort((a, b) => b - a)) {
-            const gap = innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS;
+            const gap = innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS;
             expect(gap, `k=${k}`).toBeGreaterThan(0);
             if (prevGap !== null) expect(gap, `k=${k}`).toBeGreaterThanOrEqual(prevGap);
             prevGap = gap;
@@ -3196,7 +3215,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     });
 
     it('is monotone — zooming out never shrinks the mark', () => {
-        const ms = K_SWEEP.map((k) => nextHaloMagnify(k, false));
+        const ms = K_SWEEP.map((k) => nextHaloMagnify(k));
         for (let i = 1; i < ms.length; i += 1) {
             expect(ms[i], `k=${K_SWEEP[i]}`).toBeLessThanOrEqual(ms[i - 1]);
         }
@@ -3204,7 +3223,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
 
     it('falls back to 1 on a scale that is not a usable number', () => {
         for (const k of [0, -1, NaN, Infinity, -Infinity, undefined, null]) {
-            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
+            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
         }
     });
 
@@ -3217,20 +3236,30 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // the bead's own ring.
     it('turns the measured Overview scales into a mark that can be seen', () => {
         // The three scales that matter on the live plan: fit-to-width on a
-        // 1200px and a 1440px panel (both level 'out' — the plan OPENS there),
-        // and the ceiling of 'out' itself.
+        // 1200px and a 1440px panel (both level 'out'), and the ceiling of
+        // 'out' itself.
+        //
+        // NOT "where the plan OPENS", which is what this said and what #3271's
+        // source comments said (corrected in review of req #3280). `resetView`
+        // lands on `kDefault` = 0.8 — `recenterModeRef` initialises to
+        // 'readable' — so the landing view is ratio 1, level 'mid'. These are
+        // the scales one wheel-click OUT of it, which is where the defect was;
+        // nothing about the assertions below depended on the difference.
         const LIVE_WORLD_W = 3620.2;
         const kOutCeiling = K_READABLE * 0.5;            // 0.4, 'out' by definition
         const cases = [1200 / LIVE_WORLD_W, 1440 / LIVE_WORLD_W, kOutCeiling];
         for (const k of cases) {
-            expect(nextHaloMagnify(k, true), `labels drawn at k=${k}`).toBe(1);
+            // No label is drawn at any of them — which is WHY the mark is free
+            // to grow there, and is now asserted rather than assumed (req #3280
+            // made the two the same question).
+            expect(labelsLegible(k), `labels legible at k=${k}`).toBe(false);
             // What it used to be, at that same k: a sub-pixel dashed outline
             // whose inner edge sat a tenth of a pixel from the bead's own ring.
             expect(NEXT_HALO_STROKE * k, `old stroke px at k=${k}`).toBeLessThan(0.81);
             expect((innerAt(1) - BEAD_OUTER_RADIUS) * k, `old gap px at k=${k}`)
                 .toBeLessThan(0.11);
             // What it is now — a dashed ring, clear of the bead.
-            const m = nextHaloMagnify(k, false);
+            const m = nextHaloMagnify(k);
             expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`).toBeGreaterThan(1.3);
             expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`).toBeGreaterThan(8);
             expect(NEXT_HALO_DASH[0] * m * k, `dash px at k=${k}`).toBeGreaterThan(1.9);
@@ -3241,6 +3270,310 @@ describe('the next-step halo survives Overview (req #3271)', () => {
             const cycles = (2 * Math.PI * NEXT_HALO_RADIUS * m * k)
                 / (NEXT_HALO_DASH[0] + NEXT_HALO_DASH[1]);
             expect(cycles, `dash cycles at k=${k}`).toBeGreaterThan(6);
+        }
+    });
+});
+
+// ── …AND IT HAS TO SURVIVE THE CROSSING TOO (req #3280) ─────────────────────
+// #3271 fixed L1 under an instruction not to touch L2, and what that left is two
+// defects rather than one: the sub-pixel mark it was filed to remove was still
+// reachable — the whole band from k = 0.400 up to K_READABLE, i.e. everything
+// between fit-to-width and the scale the plan LANDS on — and the mark HALVED
+// crossing into it. Both come from the same place — the halo's bound was
+// the LABEL PREDICATE, which is binary on a level derived from a RATIO, while
+// legibility is ABSOLUTE. These cases pin the two questions being asked of ONE
+// absolute scale.
+describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
+    const innerAt = (m) => (NEXT_HALO_RADIUS - NEXT_HALO_STROKE / 2) * m;
+    // Live pipeline 2: 136 rows into a 3620.2px world, so `kFit` is 0.33–0.40 on
+    // a 1200–1440px panel and `kDefault = max(kFit, K_READABLE)` is 0.8.
+    const LIVE_WORLD_W = 3620.2;
+    const LIVE_K_DEFAULT = K_READABLE;
+    const LIVE_ZOOM_FLOOR = (1200 / LIVE_WORLD_W) * ZOOM_MIN_RATIO;
+    // Every k the camera can reach on that plan, at a resolution fine enough to
+    // see a one-wheel-click step: 600 samples over [floor, kDefault × 8].
+    const REACHABLE = Array.from({ length: 601 }, (_, i) =>
+        LIVE_ZOOM_FLOOR + (i / 600) * (LIVE_K_DEFAULT * ZOOM_MAX_RATIO - LIVE_ZOOM_FLOOR));
+
+    // THE INVARIANT THE WHOLE FIX RESTS ON, and the one #3271 held by handing a
+    // boolean across a module boundary. It is now arithmetic: the labels turn on
+    // at `K_READABLE` and the magnification turns off at `K_READABLE`, so no
+    // caller can put a grown halo under a drawn label — including a reader who
+    // PINS L3 at Overview, which is exactly what a level-derived predicate could
+    // not protect against.
+    // ASKED THROUGH THE PREDICATE THE RENDERER ACTUALLY USES, over every
+    // (kind × level × k) it can be asked at — pinned levels included, which is
+    // the combination a level-derived gate could not protect and the reason
+    // `drawsLabelKind` moved into this module (req #3280). A `&& labelsLegible`
+    // deleted from it reddens here rather than shipping a halo drawn through a
+    // step name.
+    it('never magnifies at a scale where a label is drawn', () => {
+        const KINDS = ['step', 'req', 'title'];
+        const LEVELS = ['out', 'mid', 'in'];
+        const bad = [];
+        let drawn = 0;
+        for (const k of REACHABLE) {
+            for (const level of LEVELS) {
+                for (const kind of KINDS) {
+                    if (!drawsLabelKind(kind, level, k)) continue;
+                    drawn += 1;
+                    if (nextHaloMagnify(k) !== 1) {
+                        bad.push(`${kind} drawn at ${level}, k=${k.toFixed(4)},`
+                            + ` m=${nextHaloMagnify(k)}`);
+                    }
+                }
+            }
+        }
+        expect(bad.slice(0, 8)).toEqual([]);
+        // Non-vacuity, both ways: the sweep must contain combinations that DRAW
+        // and scales that MAGNIFY, or the loop above is asserting about nothing.
+        expect(drawn, 'kind × level × k combinations that draw')
+            .toBeGreaterThan(500);
+        expect(REACHABLE.filter((k) => nextHaloMagnify(k) > 1).length)
+            .toBeGreaterThan(20);
+        // The ungated kinds keep drawing everywhere, at every level and scale —
+        // the halo's clearances are what bound it against THEM, and a predicate
+        // that started gating them would silently change what those clearances
+        // are protecting.
+        for (const k of [LIVE_ZOOM_FLOOR, 0.4, K_READABLE, 6]) {
+            for (const level of LEVELS) {
+                expect(drawsLabelKind('batch', level, k), `batch at ${level}`).toBe(true);
+                expect(drawsLabelKind('slot', level, k), `slot at ${level}`).toBe(true);
+            }
+        }
+    });
+
+    // The LEVEL half is untouched — the ladder still decides which kinds a view
+    // is for, and req #3280 only added a second condition. At a legible scale
+    // the predicate is exactly what it was before this requirement.
+    it('leaves the ladder itself alone at a legible scale', () => {
+        for (const k of [K_READABLE, 1, 2, 6.4]) {
+            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'out', k)))
+                .toEqual([]);
+            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'mid', k)))
+                .toEqual(['step', 'req']);
+            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'in', k)))
+                .toEqual(['step', 'req', 'title']);
+        }
+        // And below it, every gated kind goes dark at every level.
+        for (const k of [LIVE_ZOOM_FLOOR, 0.2, 0.4, 0.799]) {
+            for (const level of ['out', 'mid', 'in']) {
+                expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, level, k)),
+                    `level ${level} at k=${k}`).toEqual([]);
+            }
+        }
+    });
+
+    // DEFECT 2, DIRECTLY. The L1/L2 boundary is `SEMANTIC_OUT_MAX × kDefault` —
+    // 0.400 on the live plan — and one wheel-click either side of it took the
+    // mark from 9.98px of radius to 4.99px. Stated as a bound on the STEP
+    // between ADJACENT samples across the whole reachable range, so it catches a
+    // discontinuity wherever one is introduced, not only at the boundary that
+    // happened to have one.
+    //
+    // THE BOUND IS THE SAMPLE SPACING, not a tuned tolerance. The apparent
+    // radius is `12.5 × m(k) × k`, and on each of the three branches its
+    // log-slope in `k` is 0 or 1 — the mark either holds still or tracks the
+    // zoom — so `|Δr| / r` can never exceed `Δk / k`. A tolerance chosen by hand
+    // would have to be loose enough for the steepest branch and would then be
+    // blind to a jump smaller than that; this one shrinks with the sweep.
+    // Measured against the defect: the old mark HALVED at the boundary — 100%
+    // of the smaller radius — where the bound there is 2.6%.
+    //
+    // THE `1e-9` IS NOT SLACK TO BE TIGHTENED. On two of the three branches
+    // (`r = 25k` below the cap and `r = 12.5k` above K_READABLE) the apparent
+    // radius tracks `k` exactly, so `rel` EQUALS `bound` and the case passes
+    // only on that epsilon. That is the case at its most sensitive, not a fudge:
+    // removing the epsilon reddens a correct implementation.
+    it('changes size continuously — no crossing halves the mark', () => {
+        const jumps = [];
+        for (let i = 1; i < REACHABLE.length; i += 1) {
+            const [a, b] = [REACHABLE[i - 1], REACHABLE[i]];
+            const ra = NEXT_HALO_RADIUS * nextHaloMagnify(a) * a;
+            const rb = NEXT_HALO_RADIUS * nextHaloMagnify(b) * b;
+            const rel = Math.abs(rb - ra) / Math.min(ra, rb);
+            const bound = (b - a) / a;
+            if (rel > bound + 1e-9) {
+                jumps.push(`k=${a.toFixed(4)}→${b.toFixed(4)}: ${ra}→${rb}`
+                    + ` (${(rel * 100).toFixed(1)}% > ${(bound * 100).toFixed(1)}%)`);
+            }
+        }
+        expect(jumps.slice(0, 8)).toEqual([]);
+        // The sweep straddles the boundary the defect was at, or it is asserting
+        // continuity over a range that never crosses anything.
+        const kBoundary = SEMANTIC_OUT_MAX * LIVE_K_DEFAULT;
+        expect(REACHABLE.some((k) => k < kBoundary)).toBe(true);
+        expect(REACHABLE.some((k) => k > kBoundary && k < K_READABLE)).toBe(true);
+        expect(REACHABLE.some((k) => k > K_READABLE)).toBe(true);
+    });
+
+    // The SAME continuity, asserted where the defect was measured rather than
+    // over a sweep: the boundary itself, sampled one wheel-click apart. d3-zoom's
+    // wheel factor is 2^(-deltaY/500) and the requirement's own table is a
+    // 0.399/0.400 pair, so a tighter pair than any gesture can produce.
+    it('crosses the measured L1/L2 boundary with no visible change', () => {
+        const kBoundary = SEMANTIC_OUT_MAX * LIVE_K_DEFAULT;           // 0.400
+        expect(kBoundary).toBeCloseTo(0.4, 10);
+        expect(semanticLevel(0.399 / LIVE_K_DEFAULT)).toBe('out');
+        expect(semanticLevel(0.400 / LIVE_K_DEFAULT)).toBe('mid');
+        const px = (k) => ({
+            radius: NEXT_HALO_RADIUS * nextHaloMagnify(k) * k,
+            stroke: NEXT_HALO_STROKE * nextHaloMagnify(k) * k,
+            dash: NEXT_HALO_DASH[0] * nextHaloMagnify(k) * k,
+            gap: (innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS) * k,
+        });
+        const below = px(0.399);
+        const above = px(0.400);
+        for (const key of Object.keys(below)) {
+            expect(above[key] / below[key], `${key} across the boundary`)
+                .toBeCloseTo(1, 2);
+        }
+        // And the requirement's own MEASURED row for the L2 side, which is what
+        // it was filed on: 5.00px radius / 0.80px stroke / 1.20px dash / 0.10px
+        // gap. Every one of them is now the L1 side's number instead.
+        expect(above.radius).toBeCloseTo(10.0, 2);
+        expect(above.stroke).toBeCloseTo(1.6, 2);
+        expect(above.dash).toBeCloseTo(2.4, 2);
+        expect(above.gap).toBeGreaterThan(4.5);
+    });
+
+    // DEFECT 1. The bottom of L2 — everything from the boundary up to the scale
+    // the labels arrive at — is where the 0.80px stroke lived, and it is the
+    // band #3271 was forbidden from touching. It is now flat: one apparent size
+    // for the whole band, which is the size the mark has at the TOP of it.
+    it('holds one apparent mark from the L1/L2 boundary to the labels', () => {
+        const kBoundary = SEMANTIC_OUT_MAX * LIVE_K_DEFAULT;
+        const band = REACHABLE.filter((k) => k >= kBoundary && k < K_READABLE);
+        expect(band.length, 'the band is swept').toBeGreaterThan(5);
+        for (const k of band) {
+            const m = nextHaloMagnify(k);
+            expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`)
+                .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 6);
+            expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`)
+                .toBeCloseTo(NEXT_HALO_STROKE * K_READABLE, 6);
+            // The acceptance number, stated as itself.
+            expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`)
+                .toBeGreaterThanOrEqual(1.2);
+            // ...and no label is drawn anywhere in it, so nothing is crossed.
+            expect(labelsLegible(k), `labels at k=${k}`).toBe(false);
+        }
+        // The band's TOP is where the unmagnified mark takes over, at the same
+        // size — the identity that makes the two branches meet.
+        expect(NEXT_HALO_RADIUS * nextHaloMagnify(K_READABLE) * K_READABLE)
+            .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 10);
+    });
+
+    // The freeze scale is DERIVED from the legibility scale, not typed beside
+    // it. A hand-tuned NEXT_HALO_SCREEN_RADIUS is precisely what put a step at
+    // the top of the band, so the two are pinned to each other rather than to
+    // their values.
+    it('freezes at exactly the scale the labels turn on', () => {
+        expect(NEXT_HALO_SCREEN_RADIUS).toBeCloseTo(NEXT_HALO_RADIUS * K_READABLE, 10);
+        expect(labelsLegible(K_READABLE)).toBe(true);
+        expect(labelsLegible(K_READABLE - 1e-9)).toBe(false);
+        expect(nextHaloMagnify(K_READABLE)).toBe(1);
+        expect(nextHaloMagnify(K_READABLE - 1e-9)).toBeCloseTo(1, 8);
+    });
+
+    // The predicate is measured on the SMALLEST required text and the module's
+    // own 11px floor — no new number entered the module for this.
+    it('is the 11px floor applied to the requirement ids, not a new constant', () => {
+        expect(PLAN_VIZ_FONT.req * K_READABLE).toBeCloseTo(READABLE_MIN_PX, 10);
+        // The step label is the bigger of the two gated kinds, so the same gate
+        // never hides text the reader could have read while showing text they
+        // could not.
+        expect(PLAN_VIZ_FONT.label).toBeGreaterThan(PLAN_VIZ_FONT.req);
+        expect(PLAN_VIZ_FONT.label * K_READABLE).toBeGreaterThan(READABLE_MIN_PX);
+        for (const k of [0, -1, NaN, Infinity, -Infinity, undefined, null, '0.9']) {
+            expect(labelsLegible(k), `k=${k}`).toBe(false);
+        }
+    });
+
+    // THE LANDING VIEW IS ALWAYS LEGIBLE, at every plan size — so this gate can
+    // never make a plan OPEN without its labels, and the E2E's level assertions
+    // (which all read the default camera) are unmoved by it.
+    //
+    // ASKED OF `readableDefaultScale`, the function the renderer calls (req
+    // #3280 review). The first draft rebuilt `Math.max(kFit, K_READABLE)` here
+    // and asserted the result was `>= K_READABLE` — which is `max(a,b) >= b`,
+    // an identity that stays green if the component is changed to land on
+    // `kFit` and every plan wider than its panel opens with no labels at all.
+    // That is exactly the claim in this case's title, so the identity version
+    // asserted nothing. Hoisting the formula is what made it reachable.
+    it('never withholds the labels at the view a plan opens in', () => {
+        let bindingCases = 0;
+        for (const worldW of [200, 800, 3620.2, 12000]) {
+            for (const panelW of [800, 1200, 1440, 1800, 2560]) {
+                const kFit = panelW / worldW;
+                const where = `world ${worldW} panel ${panelW}`;
+                expect(labelsLegible(readableDefaultScale(kFit)), where).toBe(true);
+                // The plans where the floor is what saves it — i.e. where a
+                // renderer landing on `kFit` WOULD open illegibly. Counted, so
+                // the sweep cannot pass by containing only plans that are
+                // legible at fit-to-width anyway.
+                if (!labelsLegible(kFit)) bindingCases += 1;
+            }
+        }
+        expect(bindingCases, 'plans whose fit-to-width is NOT legible')
+            .toBeGreaterThan(4);
+        // Ratio 1 at the landing scale, on every plan — the ladder's own
+        // definition of the view a reader lands on.
+        expect(semanticLevel(1)).toBe('mid');
+        // The guard, which is the other half of "always": a non-finite kFit
+        // resolves to the floor instead of propagating NaN into every downstream
+        // scale (`labelsLegible(NaN)` is false, so a NaN default would open a
+        // plan with no labels and no error anywhere).
+        for (const bad of [NaN, Infinity, undefined, null, '1.2']) {
+            expect(readableDefaultScale(bad), `kFit=${bad}`).toBe(K_READABLE);
+            expect(labelsLegible(readableDefaultScale(bad))).toBe(true);
+        }
+        // And it is fit-to-width whenever fit-to-width is already legible —
+        // a floor, never an override (the req #3168 contract).
+        expect(readableDefaultScale(2.5)).toBe(2.5);
+        expect(readableDefaultScale(0.4)).toBe(K_READABLE);
+    });
+
+    // WHAT THIS COULD NOT REACH, as an assertion rather than as a note. The
+    // clearance ceiling caps the halo's OUTER edge at NEXT_HALO_MAX_OUTER world
+    // px; at the reachable zoom floor that whole edge is under three SCREEN px,
+    // so a >= 1.2px stroke is not something a bigger ring can buy there — the
+    // ring is smaller than the stroke it would need. The band needs a different
+    // MARK, which is a design decision and a follow-on requirement, and this
+    // case exists so the arithmetic is checked rather than remembered.
+    it('cannot reach the deep zoom-out band, and says where it stops', () => {
+        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k) * k;
+        // WHERE IT STOPS, found by SEARCHING the swept range rather than by
+        // restating the algebra (review finding: the first draft computed
+        // `1.2 / (STROKE × MAX_MAGNIFY)` and then asserted the predicate that
+        // expression solves, which on the capped branch reduces to `k >= kHolds`
+        // — the definition). A search over the samples can disagree with the
+        // closed form, and if the branch structure ever changes it will.
+        const holds = REACHABLE.filter((k) => strokePx(k) >= 1.2);
+        const fails = REACHABLE.filter((k) => strokePx(k) < 1.2);
+        expect(holds.length, 'scales that meet the acceptance stroke')
+            .toBeGreaterThan(500);
+        expect(fails.length, 'scales that do not — the band this cannot reach')
+            .toBeGreaterThan(10);
+        // It is a clean split, not a scatter: every failing sample is below
+        // every holding one, so "below k ≈ 0.3" is the whole of the shortfall.
+        expect(Math.max(...fails)).toBeLessThan(Math.min(...holds));
+        expect(Math.min(...holds)).toBeGreaterThan(0.29);
+        expect(Math.min(...holds)).toBeLessThan(0.31);
+        // THE PROOF that no ceiling under NEXT_HALO_MAX_OUTER could have closed
+        // it: at the zoom floor the halo's ENTIRE outer edge is under three
+        // screen px, so the ring is smaller than the stroke it would need. This
+        // is the one assertion here that is about the geometry rather than about
+        // `m`, and it is why the remainder is a follow-on and not a retune.
+        expect(NEXT_HALO_MAX_OUTER * LIVE_ZOOM_FLOOR,
+            'the halo\'s entire outer edge, in screen px, at the zoom floor')
+            .toBeLessThan(3);
+        expect(strokePx(LIVE_ZOOM_FLOOR), 'stroke px at the zoom floor')
+            .toBeLessThan(0.4);
+        // Unchanged by this requirement, not regressed by it: below the ceiling
+        // the mark was `4k` before and is `4k` now.
+        for (const k of [LIVE_ZOOM_FLOOR, 0.15, 0.2, 0.25]) {
+            expect(strokePx(k)).toBeCloseTo(
+                NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY * k, 10);
         }
     });
 });
