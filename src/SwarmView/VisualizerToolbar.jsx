@@ -157,7 +157,7 @@ const VisualizerToolbar = () => {
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>
-                <IconButton onClick={handlePrev} size="small" data-testid="visualizer-prev">
+                <IconButton onClick={handlePrev} size="small" aria-label="Previous period" data-testid="visualizer-prev">
                     <ChevronLeftIcon />
                 </IconButton>
                 <Typography data-testid="visualizer-date-title" sx={{
@@ -166,7 +166,7 @@ const VisualizerToolbar = () => {
                 }}>
                     {displayTitle}
                 </Typography>
-                <IconButton onClick={handleNext} size="small" data-testid="visualizer-next">
+                <IconButton onClick={handleNext} size="small" aria-label="Next period" data-testid="visualizer-next">
                     <ChevronRightIcon />
                 </IconButton>
             </Box>

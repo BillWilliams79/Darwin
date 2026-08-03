@@ -127,6 +127,7 @@ const MapPartnerSettingsView = () => {
             renderCell: (params) => (
                 <IconButton
                     size="small"
+                    aria-label="Delete partner"
                     onClick={() => setDeleteConfirm({ open: true, id: params.row.id, name: params.row.name })}
                     data-testid={`delete-partner-${params.row.id}`}
                 >
