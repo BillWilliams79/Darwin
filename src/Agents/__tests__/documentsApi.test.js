@@ -370,10 +370,14 @@ describe('applyLinkPlan — rollback', () => {
         }]).catch(e => e);
 
         expect(err).toBeInstanceOf(LinkRollbackError);
-        expect(err.message).toMatch(/could not be restored/);
+        expect(err.message).toMatch(/now missing/);
         expect(err.message).toMatch(/Reload the page/);
         expect(err.lost).toHaveLength(1);
         expect(err.lost[0].prev).toBe(prev);
+        // A relink has an incumbent, so nothing here is an ORPHAN — the missing
+        // link is the whole story and the message must not also claim a stray one.
+        expect(err.orphaned).toHaveLength(0);
+        expect(err.message).not.toMatch(/may have been created/);
         expect(err.cause).toBeTruthy();
         // It must still carry httpStatus, or showError throws inside the catch
         // block that is trying to report it.
@@ -411,6 +415,244 @@ describe('applyLinkPlan — rollback', () => {
             .map(c => c.body[0].agent_fk);
         expect(restores).toContain(3);
         expect(restores).toContain(2);
+    });
+
+    // -----------------------------------------------------------------------
+    // req #3101, finding 3a — the CREATE-ONLY ORPHAN.
+    //
+    // A standalone create step (claiming a currently-unowned document, so there is
+    // no incumbent and no `prev` to roll back to) whose INSERT genuinely commits
+    // while its HTTP response is lost, AND whose cleanup DELETE then also fails for
+    // an unrelated reason, leaves a row nobody authorized sitting in the junction.
+    // Before #3101 the rollback tracked only rows the user previously HAD, so this
+    // double fault raised NOTHING beyond the original — by-then-stale — error.
+    // -----------------------------------------------------------------------
+
+    it('reports an ORPHAN when a create-only step cannot be cleaned up', async () => {
+        //   1 POST(5)  the claim — fails (or its response is lost)
+        //   2 DELETE(5) rollback cleanup — ALSO fails, so the row may still be there
+        scriptCalls(() => 'fail');
+
+        const next = link(5, 'owned');
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next,
+        }]).catch(e => e);
+
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.orphaned).toHaveLength(1);
+        expect(err.orphaned[0].agent_fk).toBe(5);
+        expect(err.orphaned[0].next).toBe(next);
+        // Nothing the user HAD went missing, so the message must not say so.
+        expect(err.lost).toHaveLength(0);
+        expect(err.message).toMatch(/may have been created/);
+        expect(err.message).not.toMatch(/now missing/);
+        expect(err.message).toMatch(/Reload the page/);
+        expect(err.cause).toBeTruthy();
+        expect(err.httpStatus).toBeTruthy();
+    });
+
+    it('does NOT report an orphan when the cleanup DELETE succeeds', async () => {
+        // The single-fault case, which is the overwhelmingly common one: the write
+        // failed and its cleanup worked, so the database is exactly where it
+        // started and "your edit was rejected" is the whole truth.
+        scriptCalls((i, method) => (method === 'POST' ? 'fail' : 'ok'));
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next: link(5, 'owned'),
+        }]).catch(e => e);
+
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('does NOT report an orphan when a 404 tells us the row was never there', async () => {
+        // `unlinkAgentDocument` maps 404 to "already gone", which is the desired
+        // end state rather than a failure. Counting it as an orphan would cry wolf
+        // on the commonest shape of this double fault.
+        scriptCalls((i, method) => (method === 'POST' ? 'fail' : '404'));
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 5, document_fk: 10, prev: null, next: link(5, 'owned'),
+        }]).catch(e => e);
+
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('names BOTH kinds of damage when both happened, missing links first', async () => {
+        // Step 1 is a relink whose restore fails (LOST). Step 2 is a create whose
+        // cleanup fails (ORPHANED). One error has to carry both, or the user
+        // repairs half the damage and stops.
+        //   1 DEL(2)   2 POST(2)     step1 ok
+        //   3 POST(5)                step2 — FAILS
+        //   4 DEL(5)                 rollback step2 cleanup — FAILS -> orphaned
+        //   5 DEL(2)   6 POST(2)     rollback step1 — restore FAILS -> lost
+        scriptCalls((i) => ((i === 3 || i === 4 || i === 6) ? 'fail' : 'ok'));
+
+        const prev = link(2, 'owned,autoload');
+        const err = await applyLinkPlan(URI, TOKEN, [
+            { agent_fk: 2, document_fk: 10, prev, next: { ...prev, relationship: 'autoload' } },
+            { agent_fk: 5, document_fk: 10, prev: null, next: link(5, 'owned') },
+        ]).catch(e => e);
+
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.lost).toHaveLength(1);
+        expect(err.orphaned).toHaveLength(1);
+        expect(err.message).toMatch(/now missing/);
+        expect(err.message).toMatch(/may have been created/);
+        // LOST leads: a link an agent was told to read is gone silently, while a
+        // stray one is on the card the user is looking at.
+        expect(err.message.indexOf('now missing'))
+            .toBeLessThan(err.message.indexOf('may have been created'));
+    });
+
+    it('still attempts the RESTORE when the cleanup DELETE threw', async () => {
+        // The two halves of a step's rollback were one try block until #3101, so a
+        // failed cleanup — the half that costs the user nothing — skipped the
+        // restore, which is the half that repairs real damage. They are independent
+        // now, and this pins that: the restore POST must be issued even though the
+        // DELETE before it threw.
+        //   1 DEL(2)  2 POST(2)   step1 — POST FAILS
+        //   3 DEL(2)              rollback cleanup — FAILS
+        //   4 POST(2)             rollback restore — must still happen
+        scriptCalls((i) => ((i === 2 || i === 3) ? 'fail' : 'ok'));
+
+        const prev = link(2, 'owned,autoload', { notes: 'why', sort_order: 6 });
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev, next: { ...prev, relationship: 'autoload' },
+        }]).catch(e => e);
+
+        const c = calls();
+        expect(c).toHaveLength(4);
+        expect(c[3].method).toBe('POST');
+        expect(c[3].body[0]).toMatchObject({
+            agent_fk: 2, relationship: 'owned,autoload', notes: 'why', sort_order: 6,
+        });
+        // The restore SUCCEEDED, so nothing was lost — and a step with a `prev` is
+        // never an orphan, because the restore targets that same composite-PK row.
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('reports an ORPHAN on a relink whose prev turned out to be already gone', async () => {
+        // THE SHAPE THE FIRST VERSION OF THIS FIX MISSED. Keying the orphan check on
+        // "no `prev`" looks equivalent to "no restore ran" and is not: another writer
+        // removing the link between the plan being built and the write executing
+        // leaves `prev` non-null, the DELETE 404s, and the restore is correctly
+        // SKIPPED (resurrecting a row that did not exist is its own corruption) —
+        // but the INSERT still created a row that was not there a moment earlier.
+        // Reachable from a single popover Save.
+        //   1 DEL(2) -> 404   prev already gone, nothing to restore
+        //   2 POST(2)         our write — FAILS
+        //   3 DEL(2)          rollback cleanup — ALSO fails
+        scriptCalls((i) => (i === 1 ? '404' : 'fail'));
+
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10,
+            prev: link(2, 'referenced'), next: link(2, 'curated'),
+        }]).catch(e => e);
+
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.orphaned).toHaveLength(1);
+        expect(err.orphaned[0].agent_fk).toBe(2);
+        expect(err.lost).toHaveLength(0);
+        expect(err.message).toMatch(/may have been created/);
+        expect(err.message).not.toMatch(/now missing/);
+    });
+
+    it('says the link CARRIES THE REJECTED VALUE, not that it is missing, when the cleanup failed too', async () => {
+        // A triple fault, and the most misleading state of the three: the cleanup
+        // DELETE failed so the row is still there holding `next` — the value the
+        // rejected edit asked for — and the restore then collides with it. Telling
+        // the user it is "missing" sends them hunting for a row that is on screen.
+        //   1 DEL(2)  ok       prev removed
+        //   2 POST(2) FAIL     our write
+        //   3 DEL(2)  FAIL     rollback cleanup
+        //   4 POST(2) FAIL     rollback restore
+        scriptCalls((i) => (i === 1 ? 'ok' : 'fail'));
+
+        const prev = link(2, 'owned,autoload');
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev, next: { ...prev, relationship: 'autoload' },
+        }]).catch(e => e);
+
+        expect(err).toBeInstanceOf(LinkRollbackError);
+        expect(err.lost).toHaveLength(1);
+        expect(err.lost[0].cleanupFailed).toBe(true);
+        expect(err.message).toMatch(/still carries the rejected value/);
+        expect(err.message).not.toMatch(/now missing/);
+        // Not an orphan either — a restore WAS attempted for this step.
+        expect(err.orphaned).toHaveLength(0);
+    });
+
+    it('rolls back a step whose LEADING DELETE lost its response', async () => {
+        // The mirror of "the INSERT may have committed", and it was untreated: the
+        // record used to be pushed AFTER the delete, so a DELETE that committed and
+        // then failed to answer left `applied` empty, the rollback never saw the
+        // step, and the link was silently gone with no error naming it.
+        //
+        // The rollback for this shape is ONE POST and nothing else.
+        //   1 DEL(2)  FAIL — may or may not have committed
+        //   2 POST(2) rollback restore
+        scriptCalls((i) => (i === 1 ? 'fail' : 'ok'));
+
+        const prev = link(2, 'owned,autoload', { notes: 'why', sort_order: 6 });
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev, next: { ...prev, relationship: 'autoload' },
+        }]).catch(e => e);
+
+        const c = calls();
+        expect(c.map(x => x.method)).toEqual(['DELETE', 'POST']);
+        expect(c[1].body[0]).toMatchObject({
+            agent_fk: 2, relationship: 'owned,autoload', notes: 'why', sort_order: 6,
+        });
+        // Put back, so the original error is still the headline.
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+    });
+
+    it('issues NO cleanup DELETE for a step that wrote nothing — it would destroy the row', async () => {
+        // THE REGRESSION THIS PINS, and it is the reason the leading-DELETE repair
+        // is a bare POST. A cleanup DELETE is 404-TOLERANT, which is not the same as
+        // a no-op: against a row that is genuinely still there it SUCCEEDS and
+        // removes it. The commonest failure of all is the database REFUSING the
+        // leading DELETE with the row untouched — so issuing a "just in case"
+        // cleanup on this path makes the rollback destroy the very link it exists to
+        // save, and the loss is then unreportable (`restoreNeeded` is false, so it
+        // is not `lost`; a restore was attempted, so it is not `orphaned`).
+        //
+        // A step whose leading DELETE threw has written nothing. There is nothing of
+        // its own to clean up, and the lone POST is safe in both directions: it
+        // restores a row that really was removed, and collides harmlessly with one
+        // that was not.
+        scriptCalls((i) => (i === 1 ? 'fail' : 'ok'));
+
+        await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev: link(2, 'referenced'), next: null,
+        }]).catch(e => e);
+
+        const c = calls();
+        expect(c.filter(x => x.method === 'DELETE')).toHaveLength(1);   // the failed one only
+        expect(c.map(x => x.method)).toEqual(['DELETE', 'POST']);
+    });
+
+    it('does NOT claim a loss when the leading DELETE never established one', async () => {
+        // REPAIR and REPORT are decided separately, and this is why. A leading
+        // DELETE that threw may or may not have committed, so the repair is
+        // attempted — but if the repair also fails, nothing ever established that a
+        // link went missing. Claiming one here would fire a false alarm on the
+        // COMMON path (the database simply refusing the DELETE, where nothing
+        // changed at all) to cover a rare lost-response.
+        //   1 DEL(2) FAIL   2 POST(2) FAIL
+        scriptCalls(() => 'fail');
+
+        const prev = link(2, 'owned,autoload');
+        const err = await applyLinkPlan(URI, TOKEN, [{
+            agent_fk: 2, document_fk: 10, prev, next: { ...prev, relationship: 'autoload' },
+        }]).catch(e => e);
+
+        // The repair WAS attempted — that is the half worth having.
+        expect(calls().map(x => x.method)).toEqual(['DELETE', 'POST']);
+        expect(err).not.toBeInstanceOf(LinkRollbackError);
+        // ...and it is not mistaken for an orphan either: `prev` existed, so any row
+        // sitting in that slot is its, not one this step invented.
+        expect(err.orphaned).toBeUndefined();
     });
 
     it('restores prev when the re-INSERT fails on a SINGLE relink', async () => {

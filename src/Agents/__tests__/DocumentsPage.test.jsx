@@ -973,3 +973,215 @@ describe('DocumentsPage — drill-through', () => {
             .toBe('https://example.test/quiet');
     });
 });
+
+// ===========================================================================
+// req #3101 — the polish pass.
+//
+// Two affordances, both PERSISTENT and both about things the card previously
+// only revealed once you had already acted:
+//
+//   § 1  which of five commit models a control uses (the user learned this by
+//        clicking, and one of the five was not rendered at all)
+//   § 2  that a row is a REGISTRATION, not a file — stated only inside the
+//        delete and location dialogs, i.e. only to somebody mid-destruction
+// ===========================================================================
+
+const commitModeOf = (testId) => byTestId(testId)?.getAttribute('data-commit-mode');
+
+describe('DocumentsPage — the commit-mode language (req #3101 § 1)', () => {
+    it('marks every editable region of a card, not a sample of them', () => {
+        mount();
+        for (const region of ['name', 'type', 'owner', 'location', 'url', 'agents']) {
+            expect(byTestId(`document-commit-${region}-20`)).toBeTruthy();
+        }
+        // ...and the create form, whose commit model is its own (a CREATE fired on
+        // blur once both required columns hold a legal value).
+        expect(commitModeOf('document-commit-template')).toBe('blur');
+    });
+
+    it('says blur for the two ordinary text columns', () => {
+        mount();
+        expect(commitModeOf('document-commit-name-20')).toBe('blur');
+        expect(commitModeOf('document-commit-url-20')).toBe('blur');
+    });
+
+    it('says click for the controls that write on one click', () => {
+        mount();
+        expect(commitModeOf('document-commit-type-20')).toBe('click');
+        expect(commitModeOf('document-commit-agents-20')).toBe('click');
+    });
+
+    it('reads the OWNER row per card, because its mode genuinely differs', () => {
+        // Claiming an unowned document is one additive write and goes straight
+        // through; transferring or releasing an owned one opens a dialog. A single
+        // averaged marker would be wrong on every card.
+        mount();
+        expect(commitModeOf('document-commit-owner-20')).toBe('confirm');   // owned
+        expect(commitModeOf('document-commit-owner-21')).toBe('click');     // unowned
+    });
+
+    it('reads the LOCATION field per card, matching the confirm gate exactly', () => {
+        // doc 20 has an autoload reader, so its location routes through
+        // DocumentLocationDialog; doc 22 has none, so it commits on blur. The
+        // marker must track the gate rather than restate a page-wide rule.
+        mount();
+        expect(commitModeOf('document-commit-location-20')).toBe('confirm');
+        expect(commitModeOf('document-commit-location-22')).toBe('blur');
+    });
+
+    it('follows the gate when the last autoload reader is unlinked', () => {
+        // The marker is derived, not a fixture: removing the only autoload link
+        // must move doc 20 from confirm to blur without anything else changing.
+        mount();
+        expect(commitModeOf('document-commit-location-20')).toBe('confirm');
+
+        junctionData = JUNCTION.filter(l => l.relationship !== 'owned,autoload')
+            .map(l => ({ ...l }));
+        act(() => bump());
+        expect(commitModeOf('document-commit-location-20')).toBe('blur');
+    });
+
+    it('renders the key once on the page, covering all five models', () => {
+        mount();
+        expect(byTestId('documents-commit-legend')).toBeTruthy();
+        for (const mode of ['click', 'blur', 'confirm', 'staged', 'readOnly']) {
+            expect(byTestId(`documents-commit-legend-${mode}`)).toBeTruthy();
+        }
+    });
+
+    it('marks the popover as STAGED and shows the read-only load-order slot', () => {
+        // The fifth model had NO rendering at all before this pass:
+        // `agent_documents.sort_order` belongs to AgentDetail and this page carries
+        // it through every write untouched, which was a contract only the code knew.
+        mount();
+        click(byTestId('document-20-agent-2'));
+        expect(commitModeOf('document-link-commit-20-2')).toBe('staged');
+        expect(commitModeOf('document-link-slot-mode-20-2')).toBe('readOnly');
+        expect(byTestId('document-link-slot-20-2').textContent).toMatch(/Load-order slot 4/);
+    });
+
+    it('is DISPLAY ONLY — a marker never gates or intercepts a write', () => {
+        // The property that makes it safe to put on eight regions at once.
+        mount();
+        return editField('document-url-input-20', 'https://example.test/moved')
+            .then(() => {
+                expect(putBodies()).toEqual([
+                    { id: 20, fields: { url: 'https://example.test/moved' } },
+                ]);
+            });
+    });
+});
+
+describe('DocumentsPage — registration versus file (req #3101 § 2)', () => {
+    it('states on the page itself that a row is a registration, not a file', () => {
+        mount();
+        const text = byTestId('documents-accounting').textContent;
+        expect(text).toMatch(/registrations/);
+        expect(text).toMatch(/never the file/);
+        expect(text).toMatch(/deleting a row never deletes a file/i);
+    });
+
+    it('gives every card a persistent "points at" row', () => {
+        mount();
+        for (const id of [20, 21, 22]) {
+            expect(byTestId(`document-${id}-target`)).toBeTruthy();
+            expect(byTestId(`document-${id}-target-unverified`).textContent)
+                .toMatch(/never verified/);
+        }
+    });
+
+    it('shows a path-only row as a repo path, and says the path is what opens', () => {
+        mount();
+        expect(byTestId('document-20-target-path')).toBeTruthy();
+        expect(byTestId('document-20-target-path').getAttribute('data-opens')).toBe('1');
+        expect(byTestId('document-20-target-url')).toBeNull();
+        expect(byTestId('document-20-target-none')).toBeNull();
+    });
+
+    it('shows BOTH when a row carries both, and marks the URL as the one that opens', () => {
+        // Which of the two the open-link button resolves to is a precedence rule
+        // (`documentHref`) that was previously invisible on the card.
+        mount();
+        expect(byTestId('document-22-target-path').getAttribute('data-opens')).toBe('0');
+        expect(byTestId('document-22-target-url').getAttribute('data-opens')).toBe('1');
+        expect(byTestId('document-22-target-url-rejected')).toBeNull();
+    });
+
+    it('SURFACES a URL the scheme guard rejected — documentHref swallows it silently', () => {
+        // The row keeps a working link (the blob URL), so before this the column
+        // being unusable was indistinguishable from it being empty.
+        documentsData = DOCUMENTS.map(d => (d.id === 22
+            ? { ...d, url: 'javascript:alert(1)' } : { ...d }));
+        mount();
+        expect(byTestId('document-22-target-url-rejected')).toBeTruthy();
+        expect(byTestId('document-22-target-url')).toBeNull();
+        expect(byTestId('document-22-target-path').getAttribute('data-opens')).toBe('1');
+    });
+
+    it('says outright when a row points at NOTHING', () => {
+        documentsData = DOCUMENTS.map(d => (d.id === 21
+            ? { ...d, location: null, url: null } : { ...d }));
+        mount();
+        expect(byTestId('document-21-target-none')).toBeTruthy();
+        expect(byTestId('document-21-target-path')).toBeNull();
+        expect(byTestId('document-21-target-url')).toBeNull();
+        // ...and the open-link button is correspondingly absent rather than dead.
+        expect(byTestId('document-open-link-21')).toBeNull();
+    });
+
+    it('repaints when the location is edited, so it can never state a stale target', () => {
+        documentsData = DOCUMENTS.map(d => (d.id === 21
+            ? { ...d, location: null, url: null } : { ...d }));
+        mount();
+        expect(byTestId('document-21-target-none')).toBeTruthy();
+
+        documentsData = documentsData.map(d => (d.id === 21
+            ? { ...d, location: 'memory/found.md' } : d));
+        act(() => bump());
+        expect(byTestId('document-21-target-none')).toBeNull();
+        expect(byTestId('document-21-target-path').getAttribute('data-opens')).toBe('1');
+    });
+});
+
+describe('DocumentsPage — the affordances do not overstate themselves (req #3101)', () => {
+    it('does not call a scheme-less URL "external" — it is same-origin', () => {
+        // documentUrlError and isSafeHref both let a relative href through on
+        // purpose. Labelling it "external URL" would be the card stating something
+        // false, which is the one thing the "Points at" row exists to stop.
+        documentsData = DOCUMENTS.map(d => (d.id === 22
+            ? { ...d, url: '/docs/quiet.html' } : { ...d }));
+        mount();
+        const chip = byTestId('document-22-target-url');
+        expect(chip.textContent).toMatch(/stored link/);
+        expect(chip.textContent).not.toMatch(/external/);
+        // Still the resolved target — the label changed, not the precedence.
+        expect(chip.getAttribute('data-opens')).toBe('1');
+    });
+
+    it('still says "external URL" for a real off-site address', () => {
+        mount();
+        expect(byTestId('document-22-target-url').textContent).toMatch(/external URL/);
+    });
+
+    it('carries the WHOLE explanation in aria-label, and adds no tab stops', () => {
+        // A tooltip hung off a role-less span is weakly supported by AT, so the
+        // sentence goes in `aria-label` under `role="img"` — where a screen reader
+        // reads it with no interaction at all.
+        //
+        // And deliberately NOT focusable: seven markers per card is ~580
+        // non-interactive tab stops across the live registry, sitting between a
+        // keyboard user and the fields they came to edit. `CommitModeLegend` carries
+        // every mode's name as visible text, so nothing is only-on-hover.
+        mount();
+        for (const id of ['document-commit-name-20', 'document-commit-owner-20',
+                          'document-20-target-help']) {
+            const el = byTestId(id);
+            expect(el.getAttribute('role')).toBe('img');
+            expect(el.hasAttribute('tabindex')).toBe(false);
+            // The full sentence, not the two-word name.
+            expect(el.getAttribute('aria-label').length).toBeGreaterThan(40);
+        }
+        expect(byTestId('document-commit-owner-20').getAttribute('aria-label'))
+            .toMatch(/two writes/);
+    });
+});

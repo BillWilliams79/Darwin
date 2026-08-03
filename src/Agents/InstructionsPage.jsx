@@ -71,6 +71,7 @@ import {
     useInstructions, useAgents, useAgentInstructions,
     instructionKeys, agentInstructionKeys,
 } from '../hooks/useDataQueries';
+import { useBusyCounts } from '../hooks/useBusyCounts';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -159,11 +160,13 @@ const InstructionsPage = () => {
     const [dialogIntent, setDialogIntent] = useState('delete');
     const [busy, setBusy] = useState(false);
     // Membership writes are pessimistic and scoped to one card, so the spinner and
-    // the disabled controls are scoped to that card too. A SET rather than a single
-    // id: two cards can legitimately be mid-write at once, and a single id would
-    // let the first one to finish clear the second card's spinner while its write
-    // was still in flight.
-    const [membershipBusyIds, setMembershipBusyIds] = useState(() => new Set());
+    // the disabled controls are scoped to that card too. A per-row COUNTER rather
+    // than a single id or a set of ids: two cards can legitimately be mid-write at
+    // once (a single id would let the first one to finish clear the second card's
+    // spinner), and so can two writes against the SAME card — which a
+    // boolean-via-Set got wrong, releasing the flag when the first of the two
+    // finished (req #3101, closing finding 3c). See useBusyCounts.
+    const { mark: markMembershipBusy, isBusy: isMembershipBusy } = useBusyCounts();
     // The row whose CONTENT field is focused, so its hints show only while that
     // field is in use. Deliberately per-field, not per-row: keying it off the row
     // would pop "check this does not contradict…" under the body while the user
@@ -314,12 +317,6 @@ const InstructionsPage = () => {
     };
 
     // ---------- membership ----------
-
-    const markMembershipBusy = (rowId, on) => setMembershipBusyIds(prev => {
-        const next = new Set(prev);
-        if (on) next.add(rowId); else next.delete(rowId);
-        return next;
-    });
 
     // The freshest junction rows, for work that runs LATER than the render that
     // scheduled it — see the queue below.
@@ -660,7 +657,7 @@ const InstructionsPage = () => {
                     agentIndex={agentIndex}
                     openAgents={openAgents}
                     slotOf={slotOf}
-                    membershipBusyIds={membershipBusyIds}
+                    isMembershipBusy={isMembershipBusy}
                     timezone={timezone}
                     sortMode={sortMode}
                     sortDesc={sortDesc}
@@ -705,7 +702,7 @@ const InstructionsPage = () => {
             >
                 {rows.map(row => {
                     const blocked = rowBlocked(row.id);
-                    const membershipBusy = membershipBusyIds.has(row.id);
+                    const membershipBusy = isMembershipBusy(row.id);
                     const boundSet = new Set(row.refs);
 
                     return (
