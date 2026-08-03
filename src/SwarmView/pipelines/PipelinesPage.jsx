@@ -213,12 +213,18 @@ export default function PipelinesPage() {
                     data-testid="pipelines-view-toggle"
                 >
                     {VIEWS.map(({ value, label, icon: Icon }) => (
-                        <ToggleButton key={value} value={value} sx={{ px: 2 }}
-                                      data-testid={`view-toggle-${value}`}>
-                            <Tooltip title={`${label} View`}>
+                        <Tooltip key={value} title={`${label} View`}>
+                            {/* Explicit aria-label (req #3281 code review):
+                                keeps the accessible name independent of
+                                Tooltip injection, which MUI never delivers on
+                                a disabled child — see view-switchable-pages.md
+                                § I V5. */}
+                            <ToggleButton value={value} aria-label={`${label} View`}
+                                          sx={{ px: 2 }}
+                                          data-testid={`view-toggle-${value}`}>
                                 <Icon fontSize="small" />
-                            </Tooltip>
-                        </ToggleButton>
+                            </ToggleButton>
+                        </Tooltip>
                     ))}
                 </ToggleButtonGroup>
 
