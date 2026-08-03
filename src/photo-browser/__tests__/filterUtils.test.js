@@ -172,4 +172,18 @@ describe('collectPhotosForRuns', () => {
         expect(collectPhotosForRuns(index, [])).toEqual([]);
         expect(collectPhotosForRuns(index, null)).toEqual([]);
     });
+
+    it('accepts an unsorted index and preserves its order in the output', () => {
+        const shuffled = [index[5], index[7], index[1], index[4], index[0], index[3], index[2], index[6]];
+        expect(collectPhotosForRuns(shuffled, [run, run2]))
+            .toEqual([index[5], index[1], index[4], index[3], index[2]]);
+    });
+
+    it('count is the per-ride sum, collect the union: they diverge when a photo falls in overlapping windows', () => {
+        expect(countPhotosForRuns(index, [run, run2]))
+            .toBe(collectPhotosForRuns(index, [run, run2]).length);
+        const overlapping = { ...run, id: 9, start_time: '2026-03-21T17:15:00Z' };
+        expect(countPhotosForRuns(index, [run, overlapping])).toBe(5);
+        expect(collectPhotosForRuns(index, [run, overlapping])).toHaveLength(3);
+    });
 });
