@@ -1,3 +1,21 @@
+// LoggedIn — the `/loggedin` OAuth callback of the deprecated Hosted-UI authorization-code flow.
+//
+// KEPT, NOT DELETED (req #3291). No routed path in the app performs the authorization redirect,
+// but `/loggedin/` is still live config: `LoginPage.jsx`'s "Forgot password?" anchor sends users
+// to the Cognito Hosted UI with `redirect_uri=<VITE_LOGIN_REDIRECT>` = `.../loggedin/`. Whether
+// Cognito returns the browser here after a completed password reset — and with what query
+// parameters — is UNVERIFIED; it needs a live production reset test. Keeping unrouted code is
+// cheap to reverse, deleting a reachable password-reset callback (and the Cognito app client's
+// callback URLs with it) is not.
+//
+// Note: this component cannot currently complete on ANY input. `LoginLink` was the sole writer of
+// both pieces of state the guards below check, and it was imported by nothing well before req
+// #3291 deleted it — so this was already true. A reset return carries no `?code=` and stops at the
+// first guard; a well-formed `?code=…&state=…` return then fails the CSRF check, because nothing
+// writes the `csrfToken` cookie any more (the only mentions left are in this file). The
+// PKCE-verifier check below is therefore unreachable, though its verifier is equally unwritten.
+// Settling what this path SHOULD do is part of the live password-reset test named above.
+
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
@@ -13,7 +31,8 @@ import { useCookies } from 'react-cookie';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { exchangeCodeForTokens, parseIdToken } from '../services/authService';
+import { exchangeCodeForTokens } from '../services/authService';
+import { parseIdToken } from '../services/tokenService';
 import { getAndClearCodeVerifier } from '../services/pkce';
 
 // 90 days in seconds

@@ -11,26 +11,17 @@ test.describe('Authentication P1', () => {
     await page.goto('/profile');
     await page.waitForLoadState('domcontentloaded');
 
-    // Profile renders "Log Out" as <Button component={Link}> → <a role="link">
+    // Profile renders "Log Out" as a plain MUI <Button onClick={...}> → <button>, which
+    // client-side navigate()s to /logout. Not an anchor — the local name is historical.
     const logoutLink = page.getByTestId('logout-button');
     await expect(logoutLink).toBeVisible({ timeout: 5000 });
 
-    // LogoutLink component clears refreshToken cookie and redirects to Cognito logout URL.
-    // Cognito logout URL is external (amazoncognito.com) — intercept the
-    // external navigation to avoid leaving the test domain.
-    await page.route('**/amazoncognito.com/**', route => {
-      // Return a simple page instead of following the Cognito redirect
-      route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: '<html><body>Logged out</body></html>',
-      });
-    });
-
     await logoutLink.click();
 
-    // After LogoutLink renders, the refreshToken cookie should be cleared
-    // and the page redirects to Cognito logout URL.
+    // /logout renders LogoutPage, which calls AuthContext.logout() on mount: it clears the
+    // refreshToken cookie, the legacy idToken/accessToken/profile cookies, React state and the
+    // view-preference localStorage keys. Everything happens locally — the browser never leaves
+    // the app domain.
     await page.waitForTimeout(2000);
 
     // Verify cookies are cleared by navigating back to the app
