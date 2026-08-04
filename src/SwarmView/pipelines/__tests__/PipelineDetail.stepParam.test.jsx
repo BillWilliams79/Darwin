@@ -25,20 +25,22 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, levelPref,
-        levelPrefFromLink }) {
+    const Panel = (name) => function ModeStub({ focusStepId, levelPref }) {
         return <div data-testid={`mode-${name}`}
                     data-focus={focusStepId == null ? '' : String(focusStepId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
                     // observable half of the `?level=` contract is the prop.
-                    data-level={levelPref == null ? '' : String(levelPref)}
-                    // Req #3310 — and WHOSE level it is. `levelPref` collapses
-                    // the link's pin and the reader's stored one into one value
-                    // by design; this is the only thing that tells them apart,
-                    // and the canvas's camera correction turns on it.
-                    data-level-link={levelPrefFromLink ? '1' : '0'} />;
+                    data-level={levelPref == null ? '' : String(levelPref)} />;
     };
+    // A `data-level-link` attribute rode beside it between req #3310 and req
+    // #3324, mirroring the `levelPrefFromLink` prop the page passed so the
+    // canvas could tell a reader's own pick from a `?level=` link's — the pin's
+    // camera correction split every one of its flags on that. #3324 deleted the
+    // correction and the prop with it: a level is DRAWN the same way whoever
+    // asked for it, so there is nothing left for the stub to observe. Emitting
+    // it anyway would have made three assertions read `'0'` — the only value it
+    // could still produce — which is a green test asserting nothing.
     const MODES = [
         { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
@@ -112,7 +114,7 @@ function mount(url) {
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const focusOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus');
 const levelOf = (name) => node(`mode-${name}`)?.getAttribute('data-level');
-const levelFromLinkOf = (name) => node(`mode-${name}`)?.getAttribute('data-level-link');
+const storedLevel = () => localStorage.getItem('darwin-pipeline-viz-level');
 const click = (el) => act(() => { el.click(); });
 
 // `useViewPreference` stores a RAW string and reads sessionStorage FIRST, falling
@@ -286,64 +288,82 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
     });
 });
 
-// ── Req #3310 — WHOSE level, and Reset ──────────────────────────────────────
-// Since #3310 a pinned level the current scale cannot draw MOVES THE CAMERA, and
-// every flag on that move splits on whether the reader chose the level in the
-// moment. `levelPref` deliberately cannot answer that — it is one value for both
-// sources — so the page passes the answer separately. Both facts below are
-// invisible in the rendered canvas (react-konva does not mount here) and
-// invisible in `levelPref`, which is exactly why they are asserted at the prop.
-describe('PipelineDetail — whose level is it, and Reset (req #3310)', () => {
-    it('marks a ?level= pin as the LINK\'s, not the reader\'s', () => {
+// ── Req #3324 — the level is FIXED UNTIL AUTO IS SELECTED ───────────────────
+// > *"the buttons are sticky … it's fixed until Auto is selected."*
+//
+// So the page's job is to hand the canvas one level and to change it for exactly
+// two reasons: the reader picked one, or a `?level=` link asked for one. Nothing
+// else may touch it — and RESET is the "nothing else" this describe is about,
+// because Reset DID clear it between req #3310 and #3324 and that is the
+// behaviour these cases were written to lock in. They now lock in its opposite.
+//
+// WHY IT IS ASSERTED AT THE PROP: the canvas is react-konva and cannot mount
+// here, so `levelPref` is the whole of what this page can be observed to decide.
+// The four modes' RENDERING contract lives in `pipelinePlanLayout.test.js`
+// (`the four modes`) and in PIPE-16/16b.
+describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
+    it('hands the canvas a ?level= link\'s pin', () => {
         storeLevel('3');
         mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
-        // THE REGRESSION THIS GUARDS: read as a reader's own pick, the canvas
-        // treats the link's pin as an in-the-moment camera instruction, raises
-        // `userMovedCameraRef` — and the `?step=` focus arriving in the SAME
-        // link is then skipped by its own guard. A silently dead link.
-        expect(levelFromLinkOf('plan')).toBe('1');
+        // …and does NOT write it to storage: a link asks to see one thing once
+        // (req #3253), so the reader's own L3 is still there afterward.
+        expect(storedLevel()).toBe('3');
     });
 
-    it('marks the reader\'s stored pin as their own', () => {
+    it('hands the canvas the reader\'s stored pin when no link asks', () => {
         storeLevel('3');
         mount('/swarm/pipeline/2?mode=plan');
         expect(levelOf('plan')).toBe('3');
-        expect(levelFromLinkOf('plan')).toBe('0');
     });
 
-    it('a manual pick after a link is the reader\'s again', () => {
+    it('a manual pick after a link wins, and persists', () => {
         storeLevel('auto');
         mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
-        expect(levelFromLinkOf('plan')).toBe('1');
+        expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-level-3'));
         expect(levelOf('plan')).toBe('3');
-        expect(levelFromLinkOf('plan')).toBe('0');
+        expect(storedLevel()).toBe('3');
     });
 
-    // Reset lands on `factoryDefaultScale` — the whole plan's vertical extent,
-    // which is BELOW `K_READABLE` on any plan large enough to need it. A pin that
-    // survived it would leave a lit chip over an overview: the "stuck at L1"
-    // state #3310 is about, one click away, in the level control's own left-hand
-    // neighbour. `auto` IS the factory default, so Reset returns it.
-    it('Reset returns the level to the factory default', () => {
+    // THE #3310 BEHAVIOUR, INVERTED (req #3324). Reset lands on
+    // `factoryDefaultScale` — the whole plan's vertical extent, below
+    // `K_READABLE` on any plan large enough to need it — and #3310 cleared the
+    // pin there because a pin could not be DRAWN at that scale, so a lit chip
+    // sat over a blank overview. #3324 honours the pin at every scale, so the
+    // factory camera and a pinned level are a coherent pair and Reset is what it
+    // says: the view. The reader's way back to Auto is the Auto chip.
+    it('Reset restores the camera and leaves the pinned level alone', () => {
         storeLevel('3');
         mount('/swarm/pipeline/2?mode=plan');
         expect(levelOf('plan')).toBe('3');
         click(node('pipeline-viz-reset'));
-        expect(levelOf('plan')).toBe('auto');
-        expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('auto');
-        // Re-render via an unrelated state change — the pin must not come back.
+        expect(levelOf('plan')).toBe('3');
+        expect(storedLevel()).toBe('3');
+        // Re-render via an unrelated state change — still L3.
         click(node('pipeline-description-btn'));
-        expect(levelOf('plan')).toBe('auto');
+        expect(levelOf('plan')).toBe('3');
     });
 
-    it('Reset clears a LINK\'s pin too, so it cannot snap back', () => {
+    it('Reset leaves a LINK\'s pin alone too', () => {
         storeLevel('auto');
         mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-reset'));
+        expect(levelOf('plan')).toBe('2');
+    });
+
+    it('AUTO is the one control that clears a pin', () => {
+        storeLevel('3');
+        mount('/swarm/pipeline/2?mode=plan');
+        click(node('pipeline-viz-level-auto'));
         expect(levelOf('plan')).toBe('auto');
-        expect(levelFromLinkOf('plan')).toBe('0');
+        expect(storedLevel()).toBe('auto');
+        // And clicking the PINNED chip is the same exit (the shared control's
+        // escape hatch), so a pin is never a trap.
+        click(node('pipeline-viz-level-2'));
+        expect(levelOf('plan')).toBe('2');
+        click(node('pipeline-viz-level-2'));
+        expect(levelOf('plan')).toBe('auto');
     });
 });
