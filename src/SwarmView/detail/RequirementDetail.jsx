@@ -655,6 +655,17 @@ const RequirementDetail = () => {
             </Box>
 
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, ...NARROW }}>
+                {/* Req #3313 — ID moves onto the title line: "ID - Title" instead of
+                    "Title" alone. New-mode (req #2424): kept in layout but
+                    invisible, matching the other rows below, so the title's left
+                    edge doesn't jump once the draft is saved and isNew flips. */}
+                <Box component="span" data-testid="requirement-id"
+                     sx={{
+                         fontSize: 24, fontWeight: 500, color: 'text.secondary', flexShrink: 0,
+                         ...(isNew && { visibility: 'hidden' }),
+                     }}>
+                    ID - {requirement.id}
+                </Box>
                 <TextField
                     variant="standard"
                     value={requirement.title || ''}
@@ -683,8 +694,60 @@ const RequirementDetail = () => {
                 )}
             </Box>
 
+            {/* Req #3313 — Category moves here, between the ID/Title line and Status,
+                out of its former position directly above Description (which now
+                gets the freed-up whitespace to itself, right below Machine).
+                Category's own html/behavior is untouched — only its position and
+                the now-relocated ID span (see the title line above) changed. */}
+            <Box sx={{
+                mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', ...NARROW,
+                color: categoryUnset ? 'error.main' : 'text.secondary',
+                fontWeight: 'bold', fontSize: '1.25rem',
+            }}>
+                <Box component="span">Category -&nbsp;</Box>
+                {allCategories ? (
+                    <Select
+                        // Req #2815: when the category is unset (the aggregator-template /
+                        // "new" case) focus the category select, not description. The user
+                        // presses ArrowDown to open the list, picks a category, and then
+                        // lands in description (which autofocuses once a category is set).
+                        // Req #2884: suppress this if the user already focused a field — the
+                        // select mounts late (after the categories query resolves) and would
+                        // otherwise steal focus from the field being typed in.
+                        autoFocus={categoryUnset && !userInteractedRef.current}
+                        value={requirement.category_fk || ''}
+                        onChange={handleCategoryChange}
+                        displayEmpty
+                        renderValue={(selected) => {
+                            if (!selected) return 'Must Select';
+                            const cat = allCategories.find(c => c.id === selected);
+                            return cat ? cat.category_name : '';
+                        }}
+                        variant="standard"
+                        IconComponent={() => null}
+                        data-testid="requirement-category-select"
+                        sx={{
+                            fontSize: '1.25rem',
+                            fontWeight: 'bold',
+                            color: categoryUnset ? 'error.main' : 'text.secondary',
+                            '& .MuiSelect-select': { py: 0, pr: '0 !important' },
+                            '&:before': { borderBottomColor: 'transparent' },
+                            '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
+                        }}
+                    >
+                        {allCategories.map(cat => (
+                            <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: '1.25rem' }}>
+                                {cat.category_name}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                ) : (
+                    <Box component="span">—</Box>
+                )}
+            </Box>
+
             {/* New-mode (req #2424): keep this row in the layout but invisible so
-                Category/Description below don't shift when the requirement is saved
+                Description below doesn't shift when the requirement is saved
                 and the row becomes visible. */}
             <Box sx={{
                 display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
@@ -772,7 +835,7 @@ const RequirementDetail = () => {
             {/* Autonomy — editable during authoring/approved/swarm_ready, full opacity whenever editable, faded+disabled otherwise (req #3054).
                 Fade tracks EDITABILITY, not swarm_ready alone: fading it during authoring/approved
                 misrepresented a fully-editable control as disabled (same fix as AI Settings/Machine pin, req #3008).
-                New-mode (req #2424): kept in layout but invisible so Category/Description below don't shift when the requirement is saved. */}
+                New-mode (req #2424): kept in layout but invisible so Description below doesn't shift when the requirement is saved. */}
             {(() => {
                 const isEditable = ['authoring', 'approved', 'swarm_ready'].includes(currentStatus);
                 const isFaded = !isEditable;
@@ -1080,56 +1143,6 @@ const RequirementDetail = () => {
                     </Box>
                 );
             })()}
-
-            <Box sx={{
-                mb: 2, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', ...NARROW,
-                color: categoryUnset ? 'error.main' : 'text.secondary',
-                fontWeight: 'bold', fontSize: '1.25rem',
-            }}>
-                <Box component="span">Category -&nbsp;</Box>
-                {allCategories ? (
-                    <Select
-                        // Req #2815: when the category is unset (the aggregator-template /
-                        // "new" case) focus the category select, not description. The user
-                        // presses ArrowDown to open the list, picks a category, and then
-                        // lands in description (which autofocuses once a category is set).
-                        // Req #2884: suppress this if the user already focused a field — the
-                        // select mounts late (after the categories query resolves) and would
-                        // otherwise steal focus from the field being typed in.
-                        autoFocus={categoryUnset && !userInteractedRef.current}
-                        value={requirement.category_fk || ''}
-                        onChange={handleCategoryChange}
-                        displayEmpty
-                        renderValue={(selected) => {
-                            if (!selected) return 'Must Select';
-                            const cat = allCategories.find(c => c.id === selected);
-                            return cat ? cat.category_name : '';
-                        }}
-                        variant="standard"
-                        IconComponent={() => null}
-                        data-testid="requirement-category-select"
-                        sx={{
-                            fontSize: '1.25rem',
-                            fontWeight: 'bold',
-                            color: categoryUnset ? 'error.main' : 'text.secondary',
-                            '& .MuiSelect-select': { py: 0, pr: '0 !important' },
-                            '&:before': { borderBottomColor: 'transparent' },
-                            '&:hover:not(.Mui-disabled):before': { borderBottomColor: 'rgba(0,0,0,0.3)' },
-                        }}
-                    >
-                        {allCategories.map(cat => (
-                            <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: '1.25rem' }}>
-                                {cat.category_name}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                ) : (
-                    <Box component="span">—</Box>
-                )}
-                {!isNew && (
-                    <Box component="span" data-testid="requirement-id">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ID - {requirement.id}</Box>
-                )}
-            </Box>
 
             <Box sx={{ mb: 2, ...NARROW }}>
                 <Typography
