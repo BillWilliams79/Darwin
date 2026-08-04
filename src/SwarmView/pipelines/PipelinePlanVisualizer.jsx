@@ -93,7 +93,6 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-import { semanticLevel } from '../konvaSwarmModel';
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
 } from './pipelineViewModel';
@@ -116,7 +115,7 @@ import {
     readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
-    labelsLegible, drawsLabelKind, levelPinTransform, BEAD_LANE_OFFSET,
+    planLevelFor, drawsLabelKind, BEAD_LANE_OFFSET,
     buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -266,14 +265,10 @@ export default function PipelinePlanVisualizer({
     // pattern, req #2407), so the panel is the canvas and nothing else.
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
-    // Req #3310 — is `levelPref` the READER's stored pin, or the one a `?level=`
-    // link asked for? The value cannot say: `PipelineDetail` resolves both into
-    // one prop (`activeLevelPref`), which is right for drawing and wrong for the
-    // pin's camera correction, whose whole flag split turns on whether the
-    // reader chose this level in the moment. A link-driven pin that took the
-    // reader-click path would set `userMovedCameraRef` and silently kill the
-    // `?step=` focus arriving in the very same link (review finding).
-    levelPrefFromLink = false,
+    // A `levelPrefFromLink` flag rode beside `levelPref` between req #3310 and
+    // req #3324, to tell a reader's own click from a `?level=` link for the sake
+    // of the pin's camera correction. With no correction there is nothing that
+    // needs to know: the level is DRAWN the same way whoever asked for it.
     // `levelPref` IN, the level actually drawn OUT. The SETTER is gone (req
     // #3241): the Auto/L1/L2/L3 control that called it moved to the page header,
     // so this panel no longer writes the preference — it reads it, draws at that
@@ -702,43 +697,26 @@ export default function PipelinePlanVisualizer({
     // new landing scale instead would change what is DRAWN at every k and undo
     // req #3280's legibility gate, for a requirement that asked about the
     // CAMERA. The denominator stays where #3168 put it.
-    // ── Auto, or PINNED (req #3168) ─────────────────────────────────────────
-    // `KonvaBuildCanvas`'s own line, in this canvas's vocabulary:
-    // `pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`. Pinning changes
-    // what is DRAWN and — with the one exception req #3310 added, a pin the
-    // current scale cannot draw at all — never where the camera is, so a pinned
-    // reader can still pan and zoom freely and PIPE-09's wheel ladder is
-    // untouched while the selector sits on Auto.
+    // ── FOUR MODES, ONE LEVEL (req #3324) ───────────────────────────────────
+    // `planLevelFor` is the whole rule and it lives in `pipelinePlanLayout` where
+    // a test can reach it: a PIN returns itself at every scale and every panel
+    // width, and AUTO reads the ladder and demotes an illegible answer to 'out'.
+    // What is bound here is only this frame's inputs.
+    //
+    // THERE IS ONE LEVEL NOW. This used to compute the ladder's answer and the
+    // level actually drawn separately — publishing one as `data-level` and
+    // reporting the other to the toolbar — which is how the selector came to sit
+    // on L1 while the reader had pinned L2 ("L1, L2 and L3 are still broken").
+    // The chip, the attribute, `data-drawn` and the pixels now all name the same
+    // level, and `legible` as a separate frame-level fact is gone with it.
+    //
+    // PINNING STILL NEVER MOVES THE CAMERA, and since #3324 that has no
+    // exception: req #3310's `levelPinTransform` and the effect that applied it
+    // are deleted, so a pinned reader pans and zooms freely and PIPE-09's wheel
+    // ladder is untouched while the selector sits on Auto.
     const pinnedLevel = pinnedLevelOf(levelPref);
-    const autoLevelName = semanticLevel(kDefault > 0 ? curK / kDefault : 1);
-    const level = pinnedLevel || autoLevelName;
-    // ── …AND WHETHER THE READER COULD USE IT (req #3280) ────────────────────
-    // The ladder above is a RATIO and legibility is ABSOLUTE, so on a large plan
-    // the level that starts drawing per-step text begins at a scale where none
-    // of it can be read: measured on live pipeline 2, L2 starts at k = 0.400 and
-    // renders the requirement ids at 5.5px. The ladder is deliberately NOT moved
-    // (req #3168 anchored it on `kDefault`; PIPE-09 pins its wheel behaviour) —
-    // it keeps saying which kinds this view is FOR, and this says whether they
-    // are worth drawing. `drawsKind` below requires both.
-    //
-    // PINNING IS INCLUDED, not exempted. A reader who pins L2 or L3 while zoomed
-    // out past `K_READABLE` is asking for detail at a scale that cannot carry it
-    // — on the live plan, ids at 5.5px and the L3 title slot at 3.8px one
-    // wheel-click out from where the plan lands — and drawing it is not an
-    // answer. Exempting the pin instead would break the halo's guarantee
-    // (`nextHaloMagnify` stops magnifying at exactly this scale, so an exempt pin
-    // would put a 2× mark under drawn labels), and re-coupling the halo to the
-    // pin is the two-predicate arrangement req #3280 exists to delete.
-    //
-    // ITS COST WAS A DEAD BAND, AND THE COST IS NOW PAID ELSEWHERE (req #3310).
-    // Below this scale all three chips produced the same canvas, so the level
-    // selector was inert there — reported as "it always gets stuck at L1 unless
-    // you zoom in and out". The gate is UNCHANGED; what changed is that a pin
-    // naming a level this scale cannot draw now moves the scale to meet it (see
-    // `levelPinTransform` and the effect that applies it below). So the reader
-    // never sits below `K_READABLE` with a pin they cannot see, and the pin is
-    // still never drawn illegibly.
-    const legible = labelsLegible(curK);
+    const level = planLevelFor(pinnedLevel,
+        kDefault > 0 ? curK / kDefault : 1, curK);
 
     // The d3-zoom behavior (KonvaSwarmCanvas pattern).
     useEffect(() => {
@@ -1284,29 +1262,26 @@ export default function PipelinePlanVisualizer({
     // because the halo's ceiling depends on this answer and a rule that lives in
     // a component cannot be asserted against a function that does not: the pair
     // is now one sweep in the layout tests. What stays here is the binding of
-    // that rule to THIS frame's level and scale, and the attribute.
-    // A PLAIN FUNCTION, not a `useCallback` (review finding). It was one, and
-    // once `curK` joined what it closes over the memo could never hit — the
-    // identity changed on every frame of a zoom. Nothing depends on that
-    // identity: both call sites are in the render body below and it appears in
-    // no dependency array, so the wrapper only read as if it memoised something.
-    const drawsKind = (kind) => drawsLabelKind(kind, level, curK);
+    // that rule to THIS frame's level, and the attribute.
+    // A PLAIN FUNCTION, not a `useCallback` (review finding): nothing depends on
+    // its identity — both call sites are in the render body below and it appears
+    // in no dependency array — so the wrapper only read as if it memoised
+    // something.
+    const drawsKind = (kind) => drawsLabelKind(kind, level);
     const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
 
-    // Report the level actually being rendered so the toolbar's selector can
-    // softly mark it while on Auto — BuildVisualizerPage's `onEffectiveLevel`
-    // handshake. In an EFFECT, not during render: this calls a setState on the
-    // PARENT, and doing that in a child's render body is the React warning that
-    // ends in a cross-component update loop.
+    // Report the level being rendered so the toolbar's selector can softly mark
+    // it while on Auto — BuildVisualizerPage's `onEffectiveLevel` handshake. In
+    // an EFFECT, not during render: this calls a setState on the PARENT, and
+    // doing that in a child's render body is the React warning that ends in a
+    // cross-component update loop.
     //
-    // THE LEVEL ACTUALLY RENDERED, not the ladder's answer (req #3280). Below
-    // `K_READABLE` none of the three gated kinds is drawn, so what is on screen
-    // IS Overview whatever the ratio says — and the soft mark exists to tell a
-    // reader on Auto what they are looking at. `data-level` keeps carrying the
-    // ladder's own answer a few hundred lines down, because that is a different
-    // fact and PIPE-09 reads it.
-    const drawnLevel = legible ? level : 'out';
-    useEffect(() => { onEffectiveLevel?.(drawnLevel); }, [drawnLevel, onEffectiveLevel]);
+    // `level` ITSELF, with nothing subtracted (req #3324). A second, quieter
+    // level was computed here — `legible ? level : 'out'` — so that the soft mark
+    // named what was really on screen while `data-level` carried the ladder's
+    // answer. Two answers to one question is what let the control report L1 over
+    // a canvas pinned to L2; `planLevelFor` resolves it once and this reports it.
+    useEffect(() => { onEffectiveLevel?.(level); }, [level, onEffectiveLevel]);
 
     // The frames before the zoom behavior has emitted anything draw the view
     // the landing effect is about to apply, not the readable scale it used to
@@ -1452,94 +1427,18 @@ export default function PipelinePlanVisualizer({
         epicFocusTransform(layout, band, size, kDefault, kZoomFloor), opts),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
-    // ── A PIN THE SCALE CANNOT DRAW MOVES THE SCALE (req #3310) ─────────────
-    // The level chips went inert below `K_READABLE` — see `levelPinTransform`
-    // in pipelinePlanLayout.js, which carries the whole decision and returns
-    // `null` for every case where they already worked. This is the binding of
-    // that geometry to this canvas's live camera, and nothing more: the entire
-    // rule is over there, where a test can reach it.
-    //
-    // THROUGH `applyFocus`, never a transform write of its own. That is the one
-    // path in this file that drives the zoom BEHAVIOUR and carries the
-    // `focusingRef`/`suppressSaveRef` discipline that took two review findings to
-    // get right — and a reader-initiated level pin is exactly the kind of camera
-    // move that wants its animation, so it takes the same route the epic and step
-    // fits do rather than a second one beside it.
-    //
-    // ── IT FIRES ON A LANDING AS WELL AS ON A CLICK, and that is the half that
-    // makes the reported symptom go away rather than merely become avoidable.
-    // Both of the states that produce it PERSIST — the camera in the viewport
-    // record, the level in localStorage — so a reader who left the page pinned
-    // and zoomed out RE-ENTERS the dead band on arrival with the chip already
-    // pressed. Clicking it there UNPINS (the shared control's escape hatch), so
-    // the level they can see is dead would take two clicks to fix and the first
-    // one would look like nothing happened.
-    //
-    // ── TWO KINDS OF CALLER, AND EVERY FLAG SPLITS ON WHICH ────────────────
-    // A LANDING is any camera this canvas established rather than the reader:
-    // the mount pass, a re-land after a rescale, and a `?level=` link — which is
-    // a landing wearing a pref change, since `PipelineDetail` hands the link's
-    // level through the SAME prop as the stored one (`levelPrefFromLink` is how
-    // the two are told apart, because nothing in the value can be).
-    //
-    //   · `persist` — a CLICK is the reader saying where to look, saved like a
-    //     drag, and it ends any pending `?epic=` re-fit exactly as `factoryReset`
-    //     does. A landing is none of those things: `persist: false` keeps
-    //     `userMovedCameraRef` down and writes nothing back, which is the same
-    //     doctrine `levelOverride` itself is held under — a link asks to see one
-    //     thing once and must never rewrite what the reader chose.
-    //   · `animate` — see `applyFocus`. A landing correction runs INSTANTLY
-    //     because the panel is sized twice at mount and the second sizing
-    //     interrupts any transition the first one started; a click is animated,
-    //     because the reader is watching a camera they already had.
-    //   · A DEEP LINK OUTRANKS A STORED PIN. `?epic=` fits a band and `?step=`
-    //     fits one bead — an explicit instruction about WHERE to look, against a
-    //     stored preference about how MUCH to draw. Those effects run after this
-    //     one and guard on `userMovedCameraRef`, so a landing correction that
-    //     fired here would at best be pre-empted a frame later and at worst (on
-    //     the `persist` path) kill the link outright. It stands aside instead,
-    //     and the key is consumed deliberately: this landing belongs to the link.
-    //     A CLICK is never stood aside for — a reader who arrived by link and
-    //     then picks a level is no longer following it.
-    //
-    //     ON THE LINK ACTUALLY TAKING THE CAMERA, not on the parameter being
-    //     present (review finding). Both of those effects legitimately decline —
-    //     an epic with no band on this plan, a step dropped from it, a reader who
-    //     has already taken the wheel — and each has a rendered "not on this
-    //     plan" notice precisely because it is a real outcome rather than a typo.
-    //     Yielding to a link that then declines forfeits the correction for the
-    //     whole visit and lands the reader back in the dead band with a lit chip:
-    //     the symptom this requirement is about, reached from a fourth direction.
-    //     The predicates below are the SAME expressions those two effects gate on
-    //     — including step-beats-epic — so the three cannot disagree about who
-    //     owns this landing.
-    //
-    // The readiness guard does NOT consume the key (`focusEpic`'s contract, and
-    // the landing effect's): with no live camera yet there is nothing to correct
-    // and marking it applied would strand a pinned reader in the dead band for
-    // the rest of the visit.
-    const pinAppliedRef = useRef({ key: null, pref: null, link: false });
-    useEffect(() => {
-        const applied = pinAppliedRef.current;
-        if (applied.key === landKey && applied.pref === levelPref
-            && applied.link === levelPrefFromLink) return;
-        // A landing is any run where the WORLD changed under us, including the
-        // first: `key` starts null, so the mount pass is a landing.
-        const landing = applied.key !== landKey || levelPrefFromLink;
-        const live = liveTransformRef.current;
-        if (!live || size.w === 0) return;
-        const linkTakesCamera = !userMovedCameraRef.current && (focusStepId != null
-            ? stepFocusTransform(layout, focusStepId, size, kDefault, kZoomFloor) != null
-            : (focusEpicId != null
-                && layout.bands.some((b) => b.epicId === focusEpicId)));
-        const tr = (landing && linkTakesCamera)
-            ? null
-            : levelPinTransform(live, size, layout, pinnedLevelOf(levelPref),
-                kZoomFloor, kDefault * ZOOM_MAX_RATIO);
-        if (tr && !applyFocus(tr, { persist: !landing, animate: !landing })) return;
-        pinAppliedRef.current = { key: landKey, pref: levelPref, link: levelPrefFromLink };
-    }, [levelPref, levelPrefFromLink, landKey, size, layout, kZoomFloor, kDefault,
-        focusEpicId, focusStepId, applyFocus]);
+    // ── AND NO PIN EFFECT AT ALL (req #3324) ────────────────────────────────
+    // Req #3310 put an effect here that read the live camera and, when the
+    // pinned level named something the scale could not draw, zoomed to the
+    // smallest scale that could — on a click AND on every landing, with a flag
+    // apiece for persist/animate and a stand-aside for `?epic=`/`?step=` links.
+    // All of it existed to rescue a chip that `drawsLabelKind`'s legibility AND
+    // had made inert. #3324 honours the pin instead, so the whole mechanism is
+    // deleted: no `pinAppliedRef`, no `levelPrefFromLink` prop, and no third
+    // caller of `applyFocus`. THE SELECTOR OWNS NO CAMERA MOVE — a level pin
+    // changes what is drawn and nothing else, which is what the reader asked for
+    // and what makes PIPE-16's "pinning must not move the camera" true at every
+    // scale rather than only at the ones the correction declined to fire on.
 
     // ── THE SECOND STOP: ONE LAUNCH BATCH (req #3297) ───────────────────────
     // The THIRD geometry function through the SAME `applyFocus`, and the third
@@ -2005,12 +1904,14 @@ export default function PipelinePlanVisualizer({
     // drawn at, and `dash` is an array prop — a fresh one per bead would hand
     // react-konva a changed reference for every halo on every frame of a zoom.
     //
-    // IT IS NOT ASKED WHETHER THE LABELS ARE DRAWN (req #3280). It used to be,
-    // and passing `drawsKind('step')` — a predicate that is binary on the LEVEL
-    // — is what stepped the mark from 2.0× to 1.0× in one wheel-click at the
-    // L1/L2 boundary. Both sides now turn on the same absolute scale, so the
-    // guarantee the argument encoded (a magnified halo never sits under a drawn
-    // label) holds by arithmetic and cannot be got wrong here.
+    // IT IS ASKED WHETHER THE LABELS ARE DRAWN, AGAIN (req #3324). #3271 asked,
+    // #3280 stopped asking because both sides turned on `K_READABLE` and the
+    // guarantee (a magnified mark never sits under a drawn label) followed by
+    // arithmetic — and #3324's pinned level, which draws its labels at EVERY
+    // scale, is exactly the case that arithmetic no longer covers. The step
+    // #3280 deleted does not come back: `nextHaloMagnify` is already 1 at every
+    // legible `k`, and Auto never draws a label below that, so the argument
+    // changes nothing during a wheel. See the function's own docstring.
     //
     // NOT a `useMemo`, and it cannot become one: the `!rows.length` early return
     // above sits between this and the last hook, so a hook here would be
@@ -2026,8 +1927,8 @@ export default function PipelinePlanVisualizer({
     // above was written when the band was narrower and would otherwise read as
     // a smaller claim than it is.
     // `curK`, not `t.k` — the same number, deliberately read from the same
-    // expression the label gate reads. The invariant is "the scale the halo
-    // sizes itself against is the scale the labels are gated on", and two
+    // expression the level resolution reads. The invariant is "the scale the halo
+    // sizes itself against is the scale Auto's demotion is judged on", and two
     // expressions that agree today are how that quietly stops being true.
     // req #3299 — below the ring's reach (`nextHaloMagnify`'s ceiling is
     // already maxed out, so the ring's ON-SCREEN size resumes shrinking with
@@ -2038,8 +1939,12 @@ export default function PipelinePlanVisualizer({
     // dot branch, and `NEXT_HALO_DASH.map` allocates a fresh array every frame
     // on the capped branch this replaces — are only computed for the branch
     // that needs them.
-    const haloIsDot = nextMarkIsDot(curK);
-    const haloM = haloIsDot ? 1 : nextHaloMagnify(curK);
+    // ONE ANSWER, ASKED ONCE, and handed to both marks — `drawsKind('step')` is
+    // the same call the label loop below makes, so the mark and the labels cannot
+    // disagree about whether there is room (req #3324).
+    const labelsDrawn = drawsKind('step');
+    const haloIsDot = nextMarkIsDot(curK, labelsDrawn);
+    const haloM = haloIsDot ? 1 : nextHaloMagnify(curK, labelsDrawn);
     const haloDash = haloIsDot || haloM === 1 ? NEXT_HALO_DASH
         : NEXT_HALO_DASH.map((d) => d * haloM);
     const dotRadius = haloIsDot ? nextMarkDotRadius(curK) : 0;
@@ -2368,6 +2273,11 @@ export default function PipelinePlanVisualizer({
                  // Group below is drawn at, so this can never drift from what
                  // the canvas actually did.
                  data-ruler-y={stickyRulerY(t).toFixed(2)}
+                 // THE LEVEL THE CANVAS DREW — one level, so this and the
+                 // toolbar's soft mark and `data-drawn` can no longer disagree
+                 // (req #3324). It used to publish the LADDER's answer while the
+                 // control was told the drawn one, which is how a pinned L2 could
+                 // read as L1 on the chips.
                  data-level={level}
                  data-drawn={drawnKinds}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure

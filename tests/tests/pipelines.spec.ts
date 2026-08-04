@@ -299,9 +299,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         await expect(container, 'three clicks back out lands at ratio 1.5157 → mid')
             .toHaveAttribute('data-level', 'mid');
         // The OTHER half of the guarantee, asserted rather than assumed: at this
-        // ratio the three gated kinds are legible, so a level really does decide
-        // what is drawn. `data-drawn` is empty at any scale below `K_READABLE`
-        // whatever the level says.
+        // ratio the three gated kinds are legible, so this helper lands where the
+        // LADDER is what decides. On AUTO — which is where this helper always runs
+        // — `data-drawn` is empty at any scale below `K_READABLE`, because
+        // `planLevelFor` demotes an illegible level to 'out'. Under a PIN it is
+        // not (req #3324): PIPE-16 §5 and PIPE-16b assert exactly that, which is
+        // why this sentence names the mode it is true of.
         await expect(container, 'the camera is above the legibility floor')
             .toHaveAttribute('data-drawn', 'step,req');
     }
@@ -2066,8 +2069,8 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
     // ── PIPE-16: what's drawn is gated by level, and the L1/L2/L3/Auto selector ──
 
-    test('PIPE-16: the level selector pins what is DRAWN, and moves the camera '
-        + 'only where the scale cannot draw it',
+    test('PIPE-16: the level selector pins what is DRAWN at every scale, and '
+        + 'never moves the camera',
         async ({ page }) => {
             await page.setViewportSize({ width: 1800, height: 1000 });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
@@ -2158,21 +2161,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    The ladder itself is asserted whole, because "gated at L1" is
             //    only meaningful next to the kinds that draw at every level.
             //
-            //    SINCE REQ #3280 EACH OF THE THREE ALSO ASKS WHETHER IT IS
-            //    LEGIBLE — `k >= K_READABLE` — and these assertions are unmoved
-            //    by it for a structural reason rather than a lucky one: pinning
-            //    does not move the camera (step 2 asserts exactly that), so the
-            //    scale here is whatever step 1 established. **That used to be
-            //    the landing scale `kDefault = max(kFit, K_READABLE)`, which is
-            //    `>= K_READABLE` on every plan at every panel width; req #3312
-            //    moved the landing below it, so the guarantee now comes from
-            //    `zoomToLegibleMid` — ratio 1.5157 against a `kDefault` that is
-            //    still floored at `K_READABLE`.** Step 1 asserts the legibility
-            //    directly (`data-drawn` non-empty) rather than leaving it to be
-            //    inferred here. The absolute half of the gate is exercised in
-            //    `pipelinePlanLayout.test.js` (`the next-step halo survives the
-            //    level CROSSINGS`), which sweeps kind × level × k directly
-            //    against `drawsLabelKind` — the same function this canvas calls.
+            //    THE SET IS THE LEVEL'S ALONE SINCE REQ #3324 — `drawsLabelKind`
+            //    asks one question and it is the level — so these three lines are
+            //    now the whole rule at EVERY scale, and §5 asserts exactly the
+            //    same three sets from deep in the illegible band. Between req
+            //    #3280 and #3324 each kind also asked `k >= K_READABLE`, which is
+            //    why the assertions here had to be argued safe from the camera
+            //    `zoomToLegibleMid` establishes; legibility is now AUTO's own
+            //    demotion (`planLevelFor`) and decides nothing under a pin.
             const drawnAt = async (lvl: string, expected: string, message: string) => {
                 await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
                 await expect(container, message).toHaveAttribute('data-drawn', expected);
@@ -2187,19 +2183,22 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(layout.labels.filter((l: { kind: string }) => l.kind === 'step').length,
                 'the plan has one step label per row').toBe(plan.rows.length);
 
-            // ── 5. THE DEAD BAND, AND THE WAY OUT OF IT (req #3310) ─────────
-            //    Everything above happens at the landing scale, which is
-            //    `max(kFit, K_READABLE)` and therefore always legible — which is
-            //    exactly why none of it caught the regression. Below
-            //    `K_READABLE` the absolute half of `drawsLabelKind` is false for
-            //    every level, so all four chips produced one identical canvas
-            //    and the reader was, in their words, "stuck at L1".
+            // ── 5. BELOW THE LEGIBILITY FLOOR, THE PIN STILL DECIDES (#3324) ─
+            //    Everything above happens at a legible scale, which is why none
+            //    of it caught either regression. Below `K_READABLE` the level
+            //    used to decide NOTHING — `drawsLabelKind` ANDed an absolute
+            //    legibility test into every level, so all four chips produced one
+            //    identical canvas and the reader was "stuck at L1" (#3310). #3310
+            //    answered that by MOVING THE CAMERA to meet a pin; the user's
+            //    reply was #3324 — "L1, L2 and L3 are still broken" — because a
+            //    rule set for what is displayed may not change the zoom. So: the
+            //    pin draws its kinds HERE, and the camera does not move.
             //
-            //    The band is REACHED HERE rather than assumed, and the
-            //    precondition is asserted first: on a plan whose `kFit` is large
-            //    enough the zoom floor sits above `K_READABLE` and there is no
-            //    dead band to reach, which would make the rest of this step pass
-            //    while proving nothing.
+            //    The band is REACHED rather than assumed, and the precondition is
+            //    asserted first: on a plan whose `kFit` is large enough the zoom
+            //    floor sits above `K_READABLE` and there is no band to reach,
+            //    which would make the rest of this step pass while proving
+            //    nothing.
             const vizBox = (await canvas.boundingBox())!;
             const planLayout = computePlanLayout(plan.rows, plan.batches,
                 // `timeAxis` is part of the geometry (req #3201) and the page
@@ -2222,107 +2221,145 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect.poll(scaleNow,
                 { message: 'the wheel reaches the illegible band' })
                 .toBeLessThan(K_READABLE);
-            // STILL PINNED AT L3 from step 4, and drawing none of it. The gate
-            // is unchanged by this requirement — a reader who zooms out THEMSELVES
-            // still gets the overview, which is what req #3280 is for.
+            // STILL PINNED AT L3 from step 4 — and now DRAWING it. Tiny, because
+            // the reader is zoomed a long way out; that is the honest consequence
+            // of a fixed rule set and it is what was asked for.
             await expect(page.getByTestId('pipeline-viz-level-3'))
                 .toHaveAttribute('aria-pressed', 'true');
-            await expect(container, 'the dead band draws none of the gated kinds')
+            await expect(container, 'a pinned level draws its kinds at ANY scale')
+                .toHaveAttribute('data-drawn', 'step,req,title');
+            const deep = (await container.getAttribute('data-transform'))!;
+
+            //    AND THE OTHER TWO PINS DECIDE HERE TOO — the four chips are four
+            //    canvases in this band, which is the whole of what "still broken"
+            //    meant. Each is asserted with the camera BYTE-IDENTICAL to the one
+            //    the reader's own wheel left, which is the assertion #3310's
+            //    correction could not make (it moved the camera on exactly these
+            //    clicks).
+            for (const [lvl, drawn] of [['2', 'step,req'], ['1', ''],
+                ['3', 'step,req,title']] as const) {
+                await page.getByTestId(`pipeline-viz-level-${lvl}`).click();
+                await expect(container, `L${lvl} in the illegible band`)
+                    .toHaveAttribute('data-drawn', drawn);
+                expect(await container.getAttribute('data-transform'),
+                    `pinning L${lvl} must not move the camera`).toBe(deep);
+            }
+
+            //    AUTO IS THE ONLY THING THAT HANDS THE LEVEL BACK TO THE SCALE.
+            //    Here that means the overview, from the same camera: the
+            //    resolution algorithm runs only when it is enabled.
+            await page.getByTestId('pipeline-viz-level-auto').click();
+            await expect(page.getByTestId('pipeline-viz-level-auto'))
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container, 'Auto demotes what this scale cannot render')
                 .toHaveAttribute('data-drawn', '');
-            const stuck = (await container.getAttribute('data-transform'))!;
-
-            //    THE FIX: naming a level the scale cannot draw moves the scale
-            //    to the smallest one that can, and the chip does what it says.
-            //    Polled, not read once: the move animates (it goes through the
-            //    same `applyFocus` transition an epic fit does), so the settled
-            //    value is what the assertions are about.
-            await page.getByTestId('pipeline-viz-level-2').click();
-            await expect(container, 'L2 draws its kinds from the dead band')
-                .toHaveAttribute('data-drawn', 'step,req');
-            await expect.poll(scaleNow,
-                // 3 places, because `data-transform` publishes `k` at 4 — the
-                // assertion may not be tighter than the number it reads.
-                { message: 'to the smallest legible scale, and no further' })
-                .toBeCloseTo(K_READABLE, 3);
+            await expect(container).toHaveAttribute('data-level', 'out');
             expect(await container.getAttribute('data-transform'),
-                'and it got there by moving the camera').not.toBe(stuck);
-
-            //    AND NO FURTHER THAN THAT. L1 draws none of the gated kinds at
-            //    any scale, so it never needs the camera — the exception stays
-            //    the exception, and §2's invariant still governs everything else.
-            const atReadable = (await container.getAttribute('data-transform'))!;
-            await page.getByTestId('pipeline-viz-level-1').click();
-            await expect(container).toHaveAttribute('data-drawn', '');
-            expect(await container.getAttribute('data-transform'),
-                'L1 never moves the camera').toBe(atReadable);
+                'and Auto moves no camera either').toBe(deep);
         });
 
-    // ── PIPE-16b: the pin survives the two ways a reader RE-ENTERS the dead
-    //    band without touching the wheel (req #3310) ─────────────────────────
+    // ── PIPE-16b: the pin is STICKY — across a reload, and across Reset
+    //    (req #3324, replacing #3310's "honoured on landing") ─────────────────
 
-    test('PIPE-16b: a pinned level is honoured on landing, and Reset restores the '
-        + 'factory view whole',
+    test('PIPE-16b: a pinned level survives a reload and a Reset, and only Auto '
+        + 'clears it',
         async ({ page }) => {
-            // PIPE-16 §5 proves the CLICK path. This proves the two paths that
-            // produce the reported symptom without a click, and neither is
-            // reachable from a settled page: the camera and the level pref are
-            // BOTH persisted, so "stuck at L1" was a state the reader re-entered
-            // on arrival, with the chip already pressed — and clicking that chip
-            // UNPINS, so the first click looked like nothing happened.
+            // PIPE-16 §5 proves the CLICK path in the illegible band. This proves
+            // the two ways the level is asked to PERSIST — and both were where the
+            // reader met the defect, because the camera and the pref are BOTH
+            // stored: "stuck at L1" was a state re-entered on arrival with the
+            // chip already pressed, and clicking that chip UNPINS, so the first
+            // click looked like nothing happened.
             await page.setViewportSize({ width: 1800, height: 1000 });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId);
             const container = page.getByTestId('pipeline-plan-visualizer');
             const scaleNow = async () => Number(
                 (await container.getAttribute('data-transform'))!.split(',')[2]);
 
-            // Pin L2 and zoom OUT past legibility by hand. The reader's own wheel
-            // is never corrected — req #3280's gate is untouched — so this is the
-            // state that then gets persisted.
+            // Pin L2 and zoom OUT past legibility by hand. Nothing corrects the
+            // reader's own wheel — the level is a rule set, not a camera — so this
+            // is the state that gets persisted.
             await page.getByTestId('pipeline-viz-level-2').click();
             await expect(container).toHaveAttribute('data-drawn', 'step,req');
             const box = (await canvas.boundingBox())!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 800);
-            await expect.poll(scaleNow, { message: 'the wheel reaches the dead band' })
+            await expect.poll(scaleNow, { message: 'the wheel reaches the illegible band' })
                 .toBeLessThan(K_READABLE);
             await expect(container,
-                'and the reader keeps the overview they zoomed out for')
-                .toHaveAttribute('data-drawn', '');
+                'and L2 is still what is drawn, at the scale the reader chose')
+                .toHaveAttribute('data-drawn', 'step,req');
 
-            // ── 1. THE LANDING. Both halves come back from storage — the camera
-            //    from the viewport record, the pin from localStorage — so without
-            //    the correction this is where every subsequent visit begins.
+            // ── 1. THE LANDING. The PIN comes back from localStorage; the camera
+            //    deliberately does NOT — `pinPreferences` is an init script, so it
+            //    re-runs on this new document and clears the `darwin-viewport-*`
+            //    record (see its own note). So the plan lands on the FACTORY
+            //    DEFAULT, which on this fixture at this width is below
+            //    `K_READABLE` — the exact state the reader used to re-enter with a
+            //    lit chip over a blank overview, and the reason #3310 reached for
+            //    a camera correction on landing.
+            //
+            //    THE CAMERA IS ASSERTED AGAINST `factoryDefaultScale`, not merely
+            //    "still small": that is what proves nothing corrected it. #3310's
+            //    landing correction moved this exact camera to `K_READABLE`, so
+            //    this assertion is the one that reddens if it ever comes back.
             await page.reload();
             await expect(container).toBeVisible({ timeout: 30000 });
             await expect(page.getByTestId('pipeline-viz-level-2'),
                 'the pin came back with the page').toHaveAttribute('aria-pressed', 'true');
             await expect(container, 'and the plan opens AT the level it is pinned to')
                 .toHaveAttribute('data-drawn', 'step,req');
-            await expect.poll(scaleNow,
-                { message: 'corrected to the smallest legible scale' })
-                .toBeCloseTo(K_READABLE, 3);
-
-            // ── 2. RESET. It lands on `factoryDefaultScale` — the whole plan's
-            //    vertical extent, which is BELOW K_READABLE on any plan large
-            //    enough to need it. A pin that survived that would leave the
-            //    reader on the overview with L2 still lit: the same complaint,
-            //    one click away, in the level control's own left-hand neighbour.
-            //    So Reset restores the factory view WHOLE, level included.
-            await page.getByTestId('pipeline-viz-reset').click();
-            await expect(page.getByTestId('pipeline-viz-level-auto'),
-                'Reset returns the level to its factory default too')
-                .toHaveAttribute('aria-pressed', 'true');
-            await expect(page.getByTestId('pipeline-viz-level-2'))
-                .toHaveAttribute('aria-pressed', 'false');
-            await expect.poll(scaleNow,
-                { message: 'and it really is the fully-zoomed-out view' })
+            await expect(container, 'reporting that level, not the ladder\'s answer')
+                .toHaveAttribute('data-level', 'mid');
+            const landedBox = (await canvas.boundingBox())!;
+            const landedLayout = computePlanLayout(plan.rows, plan.batches,
+                { ...PLAN_VIEW_OPTIONS, timeAxis: plan.timeAxis || null });
+            const landedSize = { w: landedBox.width, h: landedBox.height };
+            const kFitLanded = landedSize.w / landedLayout.width;
+            const kBaseLanded = Math.max(kFitLanded, K_READABLE);
+            const kFloorLanded = Math.min(kFitLanded, kBaseLanded) * ZOOM_MIN_RATIO;
+            const kFactory = factoryDefaultScale(landedLayout, landedSize,
+                kFitLanded, kFloorLanded);
+            expect(kFactory,
+                'the factory view on this fixture is below the legibility floor, '
+                + 'so the pin really is being honoured where it used to be inert')
                 .toBeLessThan(K_READABLE);
+            await expect.poll(scaleNow,
+                { message: 'the camera is the factory default, uncorrected' })
+                .toBeCloseTo(kFactory, 2);
 
-            // …and the chips work from there, which is the whole point of
-            // clearing the pin rather than leaving a lit chip over an overview.
-            await page.getByTestId('pipeline-viz-level-3').click();
-            await expect(container).toHaveAttribute('data-drawn', 'step,req,title');
-            await expect.poll(scaleNow).toBeCloseTo(K_READABLE, 3);
+            // ── 2. RESET IS THE CAMERA, AND ONLY THE CAMERA (req #3324). Zoom IN
+            //    first, so Reset has something to undo and the assertion below is
+            //    about a camera that MOVED. Reset then returns the factory view —
+            //    the whole plan's vertical extent, the same number §1 just
+            //    verified — and leaves the level alone: "it's fixed until Auto is
+            //    selected", and Reset is not one of the four modes. It DID clear
+            //    the pin between #3310 and #3324, when a pin below `K_READABLE`
+            //    could not be drawn at all, so a lit chip over a blank overview
+            //    was the same complaint one click away.
+            await page.mouse.move(landedBox.x + landedBox.width / 2,
+                landedBox.y + landedBox.height / 2);
+            for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -800);
+            await expect.poll(scaleNow, { message: 'the reader zooms in past legibility' })
+                .toBeGreaterThan(K_READABLE);
+            await page.getByTestId('pipeline-viz-reset').click();
+            await expect.poll(scaleNow,
+                { message: 'Reset returns the factory view' })
+                .toBeCloseTo(kFactory, 2);
+            await expect(page.getByTestId('pipeline-viz-level-2'),
+                'and Reset did not touch the pinned level')
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container, 'which is still what the canvas draws')
+                .toHaveAttribute('data-drawn', 'step,req');
+
+            // ── 3. AUTO IS THE ONE WAY OUT, and from the factory camera it means
+            //    the overview — the resolution algorithm, running only now that it
+            //    is enabled.
+            await page.getByTestId('pipeline-viz-level-auto').click();
+            await expect(page.getByTestId('pipeline-viz-level-auto'))
+                .toHaveAttribute('aria-pressed', 'true');
+            await expect(container).toHaveAttribute('data-drawn', '');
+            await expect(container).toHaveAttribute('data-level', 'out');
         });
 
     // ── PIPE-17: requirement titles under the bead (req #3168) ──────────────

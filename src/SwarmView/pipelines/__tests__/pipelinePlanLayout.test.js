@@ -34,7 +34,7 @@ import {
     LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
-    levelPinTransform,
+    planLevelFor,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
@@ -3312,71 +3312,112 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         LIVE_ZOOM_FLOOR + (i / 600) * (LIVE_K_DEFAULT * ZOOM_MAX_RATIO - LIVE_ZOOM_FLOOR));
 
     // THE INVARIANT THE WHOLE FIX RESTS ON, and the one #3271 held by handing a
-    // boolean across a module boundary. It is now arithmetic: the labels turn on
-    // at `K_READABLE` and the magnification turns off at `K_READABLE`, so no
-    // caller can put a grown halo under a drawn label — including a reader who
-    // PINS L3 at Overview, which is exactly what a level-derived predicate could
-    // not protect against.
-    // ASKED THROUGH THE PREDICATE THE RENDERER ACTUALLY USES, over every
-    // (kind × level × k) it can be asked at — pinned levels included, which is
-    // the combination a level-derived gate could not protect and the reason
-    // `drawsLabelKind` moved into this module (req #3280). A `&& labelsLegible`
-    // deleted from it reddens here rather than shipping a halo drawn through a
-    // step name.
+    // boolean across a module boundary. #3280 made it arithmetic — the labels
+    // turned on at `K_READABLE` and the magnification off at `K_READABLE`, so no
+    // caller could put a grown halo under a drawn label.
+    //
+    // REQ #3324 VOIDED THE ARITHMETIC AND THE ARGUMENT IS BACK. A PINNED level
+    // draws its labels at every scale, so `k` alone no longer implies anything
+    // about them — which is precisely the case #3280's own comment claimed a
+    // level-derived predicate could not protect against, and it was right: the
+    // protection is the ARGUMENT, and the arithmetic was only ever protecting
+    // Auto. So the sweep asks over every level a MODE can produce, and asks the
+    // magnification the way the renderer asks it.
     it('never magnifies at a scale where a label is drawn', () => {
         const KINDS = ['step', 'req', 'title'];
         const LEVELS = ['out', 'mid', 'in'];
         const bad = [];
         let drawn = 0;
+        let pinnedBelowLegible = 0;
         for (const k of REACHABLE) {
-            for (const level of LEVELS) {
+            const ratio = k / LIVE_K_DEFAULT;
+            // The FOUR MODES at this scale: three pins, and Auto's own answer.
+            const modes = [
+                ...LEVELS.map((lvl) => [`pin ${lvl}`, planLevelFor(lvl, ratio, k)]),
+                ['auto', planLevelFor(null, ratio, k)],
+            ];
+            for (const [mode, level] of modes) {
                 for (const kind of KINDS) {
-                    if (!drawsLabelKind(kind, level, k)) continue;
+                    if (!drawsLabelKind(kind, level)) continue;
                     drawn += 1;
-                    if (nextHaloMagnify(k) !== 1) {
-                        bad.push(`${kind} drawn at ${level}, k=${k.toFixed(4)},`
-                            + ` m=${nextHaloMagnify(k)}`);
+                    // EXACTLY THE RENDERER'S CALL — `drawsKind('step')` is what
+                    // `PipelinePlanVisualizer` hands both marks.
+                    const labelsDrawn = drawsLabelKind('step', level);
+                    const m = nextHaloMagnify(k, labelsDrawn);
+                    if (m !== 1) {
+                        bad.push(`${kind} drawn at ${mode}, k=${k.toFixed(4)}, m=${m}`);
                     }
+                    // The DOT is bounded by the same question (req #3324): it
+                    // holds a fixed SCREEN size, so in world units it is the
+                    // largest this mark ever gets.
+                    if (nextMarkIsDot(k, labelsDrawn)) {
+                        bad.push(`${kind} drawn at ${mode}, k=${k.toFixed(4)}, dot`);
+                    }
+                    if (mode !== 'auto' && !labelsLegible(k)) pinnedBelowLegible += 1;
                 }
             }
         }
         expect(bad.slice(0, 8)).toEqual([]);
-        // Non-vacuity, both ways: the sweep must contain combinations that DRAW
-        // and scales that MAGNIFY, or the loop above is asserting about nothing.
-        expect(drawn, 'kind × level × k combinations that draw')
+        // Non-vacuity, three ways: the sweep must contain combinations that DRAW,
+        // scales that would MAGNIFY, and — the case this argument exists for —
+        // pinned levels drawing BELOW the legibility floor. Without the third,
+        // deleting the argument would leave this sweep green.
+        expect(drawn, 'kind × mode × k combinations that draw')
             .toBeGreaterThan(500);
         expect(REACHABLE.filter((k) => nextHaloMagnify(k) > 1).length)
+            .toBeGreaterThan(20);
+        expect(pinnedBelowLegible, 'pinned kinds drawn below K_READABLE')
             .toBeGreaterThan(20);
         // The ungated kinds keep drawing everywhere, at every level and scale —
         // the halo's clearances are what bound it against THEM, and a predicate
         // that started gating them would silently change what those clearances
         // are protecting.
-        for (const k of [LIVE_ZOOM_FLOOR, 0.4, K_READABLE, 6]) {
-            for (const level of LEVELS) {
-                expect(drawsLabelKind('batch', level, k), `batch at ${level}`).toBe(true);
-                expect(drawsLabelKind('slot', level, k), `slot at ${level}`).toBe(true);
-            }
+        for (const level of LEVELS) {
+            expect(drawsLabelKind('batch', level), `batch at ${level}`).toBe(true);
+            expect(drawsLabelKind('slot', level), `slot at ${level}`).toBe(true);
         }
     });
 
-    // The LEVEL half is untouched — the ladder still decides which kinds a view
-    // is for, and req #3280 only added a second condition. At a legible scale
-    // the predicate is exactly what it was before this requirement.
-    it('leaves the ladder itself alone at a legible scale', () => {
-        for (const k of [K_READABLE, 1, 2, 6.4]) {
-            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'out', k)))
-                .toEqual([]);
-            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'mid', k)))
-                .toEqual(['step', 'req']);
-            expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'in', k)))
-                .toEqual(['step', 'req', 'title']);
+    // AND AUTO'S HALF IS STILL PURE ARITHMETIC (req #3324). The step #3280
+    // deleted came from a boolean turning over during a WHEEL; that cannot
+    // happen while the flag is a no-op everywhere Auto can reach, so this asserts
+    // the no-op directly rather than inferring it from the docstring: wherever
+    // AUTO draws a label, the UNFLAGGED magnification is already 1.
+    it('is a no-op on the AUTO branch, so #3280\'s continuous meet stands', () => {
+        let autoDraws = 0;
+        for (const k of REACHABLE) {
+            const level = planLevelFor(null, k / LIVE_K_DEFAULT, k);
+            if (!drawsLabelKind('step', level)) continue;
+            autoDraws += 1;
+            expect(nextHaloMagnify(k), `unflagged m at k=${k.toFixed(4)}`).toBe(1);
+            expect(nextMarkIsDot(k), `unflagged dot at k=${k.toFixed(4)}`).toBe(false);
         }
-        // And below it, every gated kind goes dark at every level.
+        expect(autoDraws, 'scales where AUTO draws the step label')
+            .toBeGreaterThan(100);
+    });
+
+    // The LEVEL half is now the WHOLE of `drawsLabelKind` (req #3324) — one
+    // condition, and it is the level. A pin therefore draws its own kinds at
+    // every scale, and the legibility floor that used to be ANDed in here lives
+    // on `planLevelFor`'s AUTO branch (asserted in its own describe below).
+    it('is the ladder and nothing else, at every scale', () => {
+        expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'out')))
+            .toEqual([]);
+        expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'mid')))
+            .toEqual(['step', 'req']);
+        expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, 'in')))
+            .toEqual(['step', 'req', 'title']);
+        // THE REGRESSION, AS ONE ASSERTION: a pinned level draws the same set
+        // deep in the old dead band as it does at the readable scale. This is
+        // what "still broken" meant — all four chips drew one canvas here.
         for (const k of [LIVE_ZOOM_FLOOR, 0.2, 0.4, 0.799]) {
-            for (const level of ['out', 'mid', 'in']) {
-                expect(['step', 'req', 'title'].filter((x) => drawsLabelKind(x, level, k)),
-                    `level ${level} at k=${k}`).toEqual([]);
-            }
+            expect(labelsLegible(k), `k=${k} is below the floor`).toBe(false);
+            expect(['step', 'req', 'title']
+                .filter((x) => drawsLabelKind(x, planLevelFor('mid', 1, k))),
+            `pinned L2 at k=${k}`).toEqual(['step', 'req']);
+            expect(['step', 'req', 'title']
+                .filter((x) => drawsLabelKind(x, planLevelFor('in', 1, k))),
+            `pinned L3 at k=${k}`).toEqual(['step', 'req', 'title']);
         }
     });
 
@@ -4717,112 +4758,80 @@ describe('the semantic-level selector (req #3168, directive C)', () => {
     });
 });
 
-// ── The pin's camera move (req #3310) ───────────────────────────────────────
-// The live plan's numbers, because the defect was reported against it: world
-// width 3620.2 in a 1600px panel gives `kFit = 0.442`, so `kDefault = max(kFit,
-// K_READABLE) = K_READABLE` and the whole band below it is reachable — one Reset
-// click lands there.
-describe('a pin the scale cannot draw moves the scale (req #3310)', () => {
-    const SIZE = { w: 1600, h: 900 };
-    const LAYOUT = { width: 3620.2, height: 2000 };
-    const kFit = SIZE.w / LAYOUT.width;
-    const kDefault = Math.max(kFit, K_READABLE);
-    const kFloor = Math.min(kFit, kDefault) * ZOOM_MIN_RATIO;
-    const kMax = kDefault * ZOOM_MAX_RATIO;
-    const pin = (t, level) => levelPinTransform(t, SIZE, LAYOUT, level, kFloor, kMax);
-    // Deep in the dead band, and reachable: `factoryDefaultScale` fits the whole
-    // vertical extent, which on this world is well below the floor of legibility.
-    const DEAD = { x: 600, y: 300, k: 0.2 };
+// ── THE FOUR MODES (req #3324) ──────────────────────────────────────────────
+// `planLevelFor` replaced the pin's camera move (`levelPinTransform`, req
+// #3310), which stood here and is deleted: the reader's ruling is that a pinned
+// level is a fixed rule set for what is DISPLAYED, so honouring it needs no
+// camera at all. The live plan's numbers, because both defects were reported
+// against it — world width 3620.2 in a 1600px panel gives `kFit = 0.442`, so
+// `kDefault = max(kFit, K_READABLE) = K_READABLE` and the whole band below the
+// legibility floor is reachable: one Reset click lands there.
+describe('the four modes (req #3324)', () => {
+    const kDefault = K_READABLE;                       // the live plan's anchor
+    const kFloor = (1600 / 3620.2) * ZOOM_MIN_RATIO;   // its reachable minimum
+    const K_SPAN = Array.from({ length: 241 }, (_, i) =>
+        kFloor + (i / 240) * (kDefault * ZOOM_MAX_RATIO - kFloor));
 
-    it('IS the regression: below K_READABLE every level draws the same canvas', () => {
-        // The defect, stated as the arithmetic that produces it rather than as a
-        // description of it — if this ever stops holding, the fix below is
-        // answering a question nobody is asking any more.
-        expect(labelsLegible(DEAD.k)).toBe(false);
-        for (const level of ['out', 'mid', 'in']) {
-            for (const kind of ['step', 'req', 'title']) {
-                expect(drawsLabelKind(kind, level, DEAD.k),
-                    `${kind} at ${level}, k=${DEAD.k}`).toBe(false);
-            }
-        }
-        // …and the move restores the difference the chips are FOR.
-        const moved = pin(DEAD, 'mid');
-        expect(moved, 'L2 in the dead band must move the camera').not.toBeNull();
-        expect(drawsLabelKind('step', 'mid', moved.k)).toBe(true);
-        expect(drawsLabelKind('req', 'mid', moved.k)).toBe(true);
-        expect(drawsLabelKind('title', 'mid', moved.k),
-            'L2 still stops short of the title slot — the LEVEL half is untouched')
-            .toBe(false);
-        expect(drawsLabelKind('title', 'in', pin(DEAD, 'in').k)).toBe(true);
-    });
-
-    it('lands on the SMALLEST legible scale, not on the landing view', () => {
-        // The shortest jump out of the dead band keeps as much of the plan in
-        // view as legibility allows.
-        const moved = pin(DEAD, 'mid');
-        expect(moved.k).toBe(K_READABLE);
-        expect(labelsLegible(moved.k)).toBe(true);
-        expect(pin(DEAD, 'in').k).toBe(K_READABLE);
-    });
-
-    it('holds the world point under the viewport centre', () => {
-        // What makes it read as a zoom rather than a jump somewhere else in the
-        // plan. Chosen so the pan clamp does not bind — that is asserted below.
-        const moved = pin(DEAD, 'mid');
-        const worldAt = (t) => ({
-            x: (SIZE.w / 2 - t.x) / t.k,
-            y: (SIZE.h / 2 - t.y) / t.k,
-        });
-        expect(worldAt(moved).x).toBeCloseTo(worldAt(DEAD).x, 6);
-        expect(worldAt(moved).y).toBeCloseTo(worldAt(DEAD).y, 6);
-    });
-
-    it('returns the result CLAMPED, so the pan bound still holds', () => {
-        // A camera parked at the far right of the dead band: holding the centre
-        // exactly would carry the world off the panel, and the bound wins.
-        const far = { x: -1500, y: -900, k: 0.2 };
-        const moved = pin(far, 'in');
-        expect(moved).not.toBeNull();
-        const loX = Math.min(0, SIZE.w / 2 - moved.k * LAYOUT.width);
-        expect(moved.x).toBeGreaterThanOrEqual(loX);
-        expect(moved.x).toBeLessThanOrEqual(SIZE.w / 2);
-        expect(moved.k).toBe(K_READABLE);
-    });
-
-    it('MOVES NOTHING wherever the chips already worked', () => {
-        // This is PIPE-16 §2 and PIPE-17's invariant, in the units the rule is
-        // written in. Every one of these is a case a reader can already reach,
-        // and a move in any of them would be a regression of its own.
-        expect(pin(DEAD, null), 'Auto pins nothing').toBeNull();
-        expect(pin(DEAD, 'out'),
-            'L1 draws none of the gated kinds — legible at every scale').toBeNull();
-        for (const level of ['out', 'mid', 'in']) {
-            for (const k of [K_READABLE, kDefault, 1, 1.6, kMax]) {
-                expect(pin({ x: 0, y: 0, k }, level),
-                    `${level} at k=${k} is already drawn`).toBeNull();
+    // THE REQUIREMENT, AS ONE ASSERTION. "The buttons are sticky and keep the
+    // formatting selected applied to the visualizer regardless of the size of the
+    // viewport [or] the zoom level."
+    it('honours a pin at EVERY reachable scale and every ratio', () => {
+        for (const pinned of ['out', 'mid', 'in']) {
+            for (const k of K_SPAN) {
+                // The ratio is swept independently of `k` on purpose: it carries
+                // the VIEWPORT's contribution (`kFit` -> `kDefault` moves with
+                // the panel width), so a pin that ignores both arguments is the
+                // only thing that can pass this. 0.1 and 40 are far outside
+                // anything the zoom extent allows, which is the point.
+                for (const ratio of [0.1, 0.24, 0.5, 1, 1.9, 8, 40, NaN]) {
+                    expect(planLevelFor(pinned, ratio, k),
+                        `pin ${pinned} at ratio=${ratio}, k=${k.toFixed(4)}`)
+                        .toBe(pinned);
+                }
             }
         }
     });
 
-    it('never zooms OUT to reach legibility, and refuses garbage', () => {
-        // The clamp can only lower the target, so the "is it an advance?" guard
-        // is asserted rather than assumed. A ceiling below `K_READABLE` is the
-        // degenerate shape that reaches it.
-        expect(levelPinTransform({ x: 0, y: 0, k: 0.6 }, SIZE, LAYOUT, 'mid',
-            0.1, 0.5)).toBeNull();
-        // A floor ABOVE `K_READABLE` — a plan small enough that `kFit` is large.
-        // Every legal scale there is legible, so the only way in is an
-        // out-of-extent camera, and the answer is the floor rather than a scale
-        // the behaviour would refuse.
-        const tight = levelPinTransform({ x: 0, y: 0, k: 0.5 }, SIZE, LAYOUT, 'mid',
-            1.2, 9.6);
-        expect(tight.k).toBe(1.2);
-        for (const bad of [null, undefined, {}, { x: 0, y: 0, k: 0 },
-            { x: 0, y: 0, k: -1 }, { x: 0, y: 0, k: NaN }]) {
-            expect(pin(bad, 'mid'), `transform ${JSON.stringify(bad)}`).toBeNull();
+    // "Auto — algorithm changes the display settings between L1, L2 and L3 based
+    // on the resolution." Both halves of that algorithm, and BOTH are Auto's
+    // alone: the ladder's ratio bands, and the absolute floor below which the
+    // level's own text cannot be rendered.
+    it('runs the ladder on AUTO, and demotes what the scale cannot render', () => {
+        // Legible: the ladder decides, exactly as it did before req #3280.
+        for (const [ratio, level] of [[0.25, 'out'], [0.49, 'out'], [0.5, 'mid'],
+            [1, 'mid'], [1.89, 'mid'], [1.9, 'in'], [8, 'in']]) {
+            expect(planLevelFor(null, ratio, K_READABLE), `ratio ${ratio}`).toBe(level);
+            expect(planLevelFor(null, ratio, 6.4), `ratio ${ratio} zoomed in`).toBe(level);
         }
-        expect(levelPinTransform(DEAD, SIZE, LAYOUT, 'mid', NaN, kMax)).toBeNull();
-        expect(levelPinTransform(DEAD, SIZE, LAYOUT, 'mid', kFloor, NaN)).toBeNull();
+        // Illegible: 'out' whatever the ladder says — which is EXACTLY the old
+        // `&& labelsLegible(k)` for all three gated kinds, and the reason the
+        // demotion could replace it without changing one pixel of Auto.
+        for (const k of [kFloor, 0.2, 0.4, K_READABLE - 1e-9]) {
+            expect(labelsLegible(k), `k=${k} below the floor`).toBe(false);
+            for (const ratio of [0.1, 0.5, 1, 1.9, 8]) {
+                expect(planLevelFor(null, ratio, k),
+                    `auto at ratio=${ratio}, k=${k}`).toBe('out');
+            }
+        }
+        // The boundary belongs to legible, like `labelsLegible`'s own.
+        expect(planLevelFor(null, 1, K_READABLE)).toBe('mid');
+    });
+
+    // A garbage `k` cannot silently promote a level: `labelsLegible` rejects a
+    // non-finite scale, and the pinned branch never reads it at all.
+    it('resolves to a real level from any input', () => {
+        for (const k of [NaN, undefined, null, 0, -1, Infinity]) {
+            expect(['out', 'mid', 'in']).toContain(planLevelFor(null, 1, k));
+            expect(planLevelFor('in', 1, k)).toBe('in');
+        }
+        // `pinnedLevelOf` is what the canvas feeds this, so the two compose into
+        // the four modes the control actually offers.
+        for (const pref of ['auto', '1', '2', '3']) {
+            const level = planLevelFor(pinnedLevelOf(pref), 1, K_READABLE);
+            expect(['out', 'mid', 'in'], `pref ${pref}`).toContain(level);
+        }
+        expect(planLevelFor(pinnedLevelOf('2'), 0.1, kFloor)).toBe('mid');
+        expect(planLevelFor(pinnedLevelOf('auto'), 0.1, kFloor)).toBe('out');
     });
 });
 

@@ -21,6 +21,24 @@
 //     (outlined in the primary colour, not filled), so the control reports the
 //     derived answer without claiming it was chosen.
 //
+// WHAT A CANVAS OWES THIS CONTROL (req #3324, the user's ruling — and it binds
+// every consumer, present and future):
+//
+//   · FOUR MODES, NO FIFTH. Auto runs the resolution algorithm; L1/L2/L3 are
+//     each a fixed rule set for what is displayed.
+//   · A PIN IS ABSOLUTE. The chosen level applies regardless of the viewport's
+//     size and regardless of the zoom, and stays until Auto is chosen. A canvas
+//     that suppresses, demotes or "corrects" a pinned level has not implemented
+//     this control — that was the req #3280/#3310 defect in the Plan visualizer,
+//     twice reported and fixed in #3324.
+//   · A PIN MOVES NOTHING BUT PIXELS. It is not a zoom button; the camera is the
+//     reader's.
+//   · RESET IS NOT ONE OF THE MODES. A neighbouring Reset restores the view and
+//     leaves the level pinned.
+//
+// The pattern doc is `memory/semantic-zoom-control.md` (Frontend Architect),
+// which is where a NEW visualizer should start rather than from either canvas.
+//
 // The control is deliberately ignorant of what a "level" MEANS. It speaks
 // `null | 1 | 2 | 3`; each canvas maps that to its own vocabulary — the Build
 // Visualizer's `autoLevel()` returns 1|2|3 directly, the Plan visualizer's

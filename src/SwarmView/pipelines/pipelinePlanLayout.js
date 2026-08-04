@@ -56,6 +56,12 @@
 //      level changes never relayout, so the overlap guarantee holds at every k.
 
 import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+// THE LADDER ITSELF, imported rather than passed in (req #3324): `planLevelFor`
+// below is the ONE place the four modes are resolved, and a resolution that took
+// the ladder's answer as an argument would leave half of Auto at the call site —
+// which is where the two-levels-at-once confusion #3324 fixes came from. The
+// same ladder the swarm canvas uses, deliberately (`semanticLevel`'s own note).
+import { semanticLevel } from '../konvaSwarmModel';
 
 // ── POC design language (viz-generate.py palette, kept verbatim) ────────────
 export const PLAN_VIZ_PALETTE = {
@@ -518,16 +524,34 @@ const BEAD_R = 10;
 // review). The margin recorded here — "well below the 0.8 default and below
 // fit-to-width on every real plan" — was measured against a landing pinned at
 // `readableDefaultScale`; the landing is now `factoryDefaultScale`, and on the
-// 34-step fixture at 1280x720 that is k = 0.354-0.373, i.e. BELOW 0.39. What
-// makes the collision unreachable there is a DIFFERENT fact, and it is stated
-// rather than left implied: below `K_READABLE` no step label is drawn at all,
-// so there is nothing for the epic name to overlap. **That makes `K_READABLE`
-// load-bearing for this reservation** — lowering it would put drawn step labels
-// under a chip at the very scale a plan opens in. The scaling below is what
-// keeps the guarantee absolute either way: under the threshold — deep zoom-out,
-// where the strip is genuinely shorter on screen than the chip —
-// `placeEpicChips` SCALES the chip down to its lane rather than overflowing it
-// or dropping it, so it holds at every k rather than over a range.
+// 34-step fixture at 1280x720 that is k = 0.354-0.373, i.e. BELOW 0.39. The
+// argument recorded here was that a DIFFERENT fact made the collision
+// unreachable — below `K_READABLE` no step label is drawn at all, so there is
+// nothing for the epic name to overlap — which made `K_READABLE` load-bearing
+// for this reservation.
+//
+// **THAT ARGUMENT IS DEAD (req #3324, found in review), AND SO IS ITS FALLBACK.**
+// A PINNED L2/L3 draws step labels at EVERY scale (`planLevelFor` — legibility is
+// now Auto's own demotion and decides nothing under a pin), so "no label is
+// drawn down there" is simply false, and `K_READABLE` protects nothing here. The
+// sentence that followed it — that `placeEpicChips` SCALES the chip down to its
+// lane rather than overflowing it — stopped being true one requirement earlier:
+// since req #3272 the chip is FLOORED at `EPIC_CHIP_MIN_H`, and that function's
+// own comment says a lane too short for the floored chip "gets the chip anyway,
+// drawn over the first row of step labels on its 60%-opaque panel."
+//
+// So the honest statement of the reservation is: it is a WORLD-px lane against a
+// SCREEN-height chip, so it holds while `k >= ~0.348`
+// (`(EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH`, i.e. 21.6/62) and the
+// floored chip is drawn over lane 0's step labels below that — reachable by
+// wheel (the live plan's zoom floor is 0.11) and on landing/Reset on any plan
+// whose `factoryDefaultScale` is smaller. Nothing detects it:
+// `collectWorldObstacles` excludes `'epic'` and `placeEpicChips`'s only
+// `keepOut` is the legend. The overlap itself was accepted by #3272 on the
+// user's own directive (a floored, legible name over a 60%-opaque panel beats a
+// name too small to read); #3324 only removes the claim that a pin could not
+// reach it. If that trade is ever revisited, the fix is a taller reservation or
+// an obstacle entry — not a legibility gate on the pin.
 // 83, not 62, because THE HEADER IS NOT THE CLEAR STRIP. A lane-0 step label is
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
@@ -765,10 +789,11 @@ export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
 // touched, exactly as `KonvaBuildCanvas` does it
 // (`pinnedLevel != null ? pinnedLevel : autoLevel(ratio)`).
 //
-// ONE EXCEPTION, AND ONLY ONE (req #3310): a pin that names a level the current
-// SCALE cannot draw moves the camera far enough that it can. See
-// `levelPinTransform` below for why that exception has to exist and why it is
-// this narrow — at every scale where the chips already worked, nothing moves.
+// AND NOTHING QUALIFIES THAT (req #3324). There is no exception, no scale at
+// which a pin decides less than the whole of what is drawn, and no camera move
+// belonging to the selector. `planLevelFor` below is the one place the four
+// modes are resolved; read its docstring before adding a condition to either
+// side of it.
 export const PLAN_LEVEL_BY_PREF = { auto: null, 1: 'out', 2: 'mid', 3: 'in' };
 export const PLAN_LEVEL_NUMBER = { out: 1, mid: 2, in: 3 };
 export const DEFAULT_PLAN_LEVEL_PREF = 'auto';
@@ -806,7 +831,17 @@ export const K_READABLE = READABLE_MIN_PX / PLAN_VIZ_FONT.req;
  * So the two questions are separated, and the ladder is NOT MOVED — req #3168
  * anchored it on `kDefault` deliberately and PIPE-09 pins its wheel behaviour.
  * The level still says which kinds this view is FOR; this says whether the
- * reader could actually use them. A kind is drawn only when both agree.
+ * reader could actually use them.
+ *
+ * IT IS AUTO'S CONDITION, NOT THE DRAWING'S (req #3324). This was ANDed into
+ * `drawsLabelKind` for every level, pinned or not, which made the level chips
+ * inert below the threshold and is the defect #3324 is about — the reader's
+ * explicit ruling is that L1/L2/L3 are a fixed rule set "regardless of the size
+ * of the viewport [or] the zoom level". So it now sits inside `planLevelFor`,
+ * on the AUTO branch alone: a resolution-driven demotion is exactly what Auto
+ * is FOR, and "Auto only works when it is enabled" is what puts it there rather
+ * than one line lower. The threshold, the font it is measured on and the
+ * arithmetic are all untouched.
  *
  * THE REQUIREMENT IDS ARE THE TEXT THIS IS MEASURED ON, exactly as `K_READABLE`
  * itself is: the step label is bigger and the title slot is a level-gated extra,
@@ -830,6 +865,57 @@ export const K_READABLE = READABLE_MIN_PX / PLAN_VIZ_FONT.req;
  */
 export function labelsLegible(k) {
     return Number.isFinite(k) && k >= K_READABLE;
+}
+
+/**
+ * THE FOUR MODES, RESOLVED IN ONE PLACE (req #3324).
+ *
+ * > *"There are four modes only. Auto — algorithm changes the display settings
+ * > between L1, L2 and L3 based on the resolution; Auto only works when it is
+ * > enabled. L1 through L3 are a rule set and formation for what gets displayed
+ * > at the three levels, and the buttons are sticky and keep the formatting
+ * > selected applied to the visualizer regardless of the size of the viewport
+ * > [or] the zoom level. It's fixed until Auto is selected."*
+ *
+ * That is the whole contract, and it is TWO BRANCHES with nothing between them:
+ *
+ *   · **A PIN RETURNS ITSELF.** No scale condition, no viewport condition, no
+ *     correction. `k` is not consulted at all on this branch, which is what
+ *     "regardless of the zoom level" means as code — and "regardless of the size
+ *     of the viewport" comes free with it, because every resolution-derived
+ *     number this canvas has (`kFit` → `kDefault` → the ladder's ratio) reaches
+ *     the level only through the other branch.
+ *   · **AUTO IS THE ALGORITHM.** The ladder answers from the ratio, and a scale
+ *     that cannot render the level's own text demotes it to `'out'` — the
+ *     resolution-driven decision `labelsLegible` was written for (req #3280),
+ *     now on the only branch entitled to make one.
+ *
+ * ── WHY THE DEMOTION IS A LEVEL AND NOT A SECOND GATE ───────────────────────
+ * It was an `&& labelsLegible(k)` inside `drawsLabelKind`, ANDed for every level
+ * alike, and that is exactly the defect: below `K_READABLE` all four chips drew
+ * one identical canvas. Req #3310 tried to rescue the chips by MOVING THE CAMERA
+ * to meet a pin; the user's answer to that was #3324 — "still broken" — because
+ * a control that changes the zoom to honour itself is not a rule set about what
+ * is displayed. Demoting instead is exactly equivalent to the old AND for all
+ * three gated kinds ('mid' and 'in' drew none of them below the threshold, and
+ * 'out' draws none at any scale), so nothing about AUTO's rendering changed
+ * while the pinned branch became unconditional.
+ *
+ * It also collapses two "levels" into one. The component used to carry the
+ * ladder's answer AND the level actually drawn, publishing one as `data-level`
+ * and reporting the other to the toolbar — which is why the selector could sit
+ * on L1 while the canvas was pinned to L2, the reported symptom. There is one
+ * level now, and the chip, the attribute and the drawing all name it.
+ *
+ * @param {?('out'|'mid'|'in')} pinnedLevel  `pinnedLevelOf(pref)`; null = Auto
+ * @param {number} ratio  `curK / kDefault` — the ladder's input, Auto only
+ * @param {number} k      the absolute world→screen scale, Auto only
+ * @returns {'out'|'mid'|'in'} the level the canvas draws
+ */
+export function planLevelFor(pinnedLevel, ratio, k) {
+    if (pinnedLevel != null) return pinnedLevel;
+    const auto = semanticLevel(ratio);
+    return labelsLegible(k) ? auto : 'out';
 }
 
 /**
@@ -864,8 +950,19 @@ export function readableDefaultScale(kFit) {
 }
 
 /**
- * THE LEVEL LADDER, AS ONE PREDICATE — is this label kind drawn (req #3221,
- * absolute half added by req #3280)?
+ * THE LEVEL'S RULE SET — is this label kind drawn (req #3221)?
+ *
+ * ONE CONDITION, AND IT IS THE LEVEL (req #3324). 'out' carries no per-step
+ * detail; the title slot is 'in' only. That is the whole of it, so the three
+ * chips and this function say the same thing and a reader who pins L2 gets L2's
+ * formation at every scale and every panel width — the contract #3324 states.
+ *
+ * IT TOOK A `k` UNTIL #3324, ANDed with `labelsLegible`, and that is what made
+ * the chips inert below `K_READABLE`. The condition is not gone: it moved into
+ * `planLevelFor`'s AUTO branch, where a resolution-driven decision belongs. So
+ * this function is now given a level that has already accounted for legibility
+ * where legibility is Auto's business, and answers the level's own question
+ * only. See `planLevelFor` for the ruling and for why demotion is equivalent.
  *
  * IT LIVES HERE RATHER THAN IN THE RENDERER because the halo's whole guarantee
  * is a relationship between this answer and `nextHaloMagnify`'s: a magnified
@@ -875,18 +972,11 @@ export function readableDefaultScale(kFit) {
  * this module, NOTHING COULD ASSERT THE PAIR — the component's own test would
  * have had to rasterise a canvas to see it, which is precisely why the
  * component publishes `data-drawn` at all. With both here, one sweep over
- * (kind × level × k) proves it, and deleting the legibility condition reddens
- * that sweep instead of shipping.
- *
- * Two conditions, and a kind is drawn only when both hold:
- *   · the LEVEL — what this view is for. 'out' carries no per-step detail;
- *     the title slot is 'in' only.
- *   · LEGIBILITY — whether the reader could use it (`labelsLegible`). ONE
- *     threshold for all three kinds, not one per font: `K_READABLE` is derived
- *     from the SMALLEST of them, so a scale that keeps the requirement ids
- *     legible keeps the step name and the title slot legible too — and three
- *     per-font thresholds would be three scales at which the halo's
- *     magnification has to stop, where it can only stop at one.
+ * (kind × level × k) proves it, and breaking the pair reddens that sweep
+ * instead of shipping. Since #3324 the pair is closed by CONSTRUCTION as well:
+ * `nextHaloMagnify` and `nextMarkIsDot` take this answer as an argument, rather
+ * than relying on both sides happening to turn on the same threshold — an
+ * arithmetic coincidence a pin drawing labels at any scale would have voided.
  *
  * `true` for everything else, and that fallback is load-bearing rather than a
  * default nobody reaches: the ruler's slot ticks, the launch-unit letters and
@@ -896,109 +986,27 @@ export function readableDefaultScale(kFit) {
  * level regardless — the zero-overlap invariant is asserted against it
  * unconditionally — so a kind going dark never moves anything else.
  */
-export function drawsLabelKind(kind, level, k) {
-    if (kind === 'step' || kind === 'req') return level !== 'out' && labelsLegible(k);
-    if (kind === 'title') return level === 'in' && labelsLegible(k);
+export function drawsLabelKind(kind, level) {
+    if (kind === 'step' || kind === 'req') return level !== 'out';
+    if (kind === 'title') return level === 'in';
     return true;
 }
 
-/**
- * THE CAMERA MOVE A PIN NEEDS, OR `null` (req #3310).
- *
- * ── WHAT BROKE ──────────────────────────────────────────────────────────────
- * The two predicates above are ANDed, one relative and one absolute, and only
- * the relative one is under the selector's control. So below `K_READABLE` the
- * pinned level decides nothing: `drawsLabelKind` is false for all three gated
- * kinds at 'out', 'mid' and 'in' alike, and Auto/L1/L2/L3 produce one identical
- * canvas. Req #3280 wrote that cost down and accepted it; the user filed #3310
- * against it — *"it always gets stuck at L1 unless you zoom in and out"*.
- *
- * It reads as ALWAYS rather than sometimes because both halves persist: the
- * camera is saved per plan and restored at landing (`viewport.read()`), and the
- * level pref is a `useViewPreference`. One Reset click reaches the dead band on
- * the live plan — `factoryDefaultScale` fits the whole vertical extent, far
- * below `K_READABLE` — and every visit after that re-lands there.
- *
- * ── WHY THIS FIX AND NOT THE OTHER ONE ──────────────────────────────────────
- * The obvious alternative is to exempt an explicit pin from `labelsLegible`.
- * Rejected on two counts, and the second is the disqualifying one:
- *
- *   · It breaks the halo's guarantee. `nextHaloMagnify` is a function of `k`
- *     ALONE and "labels drawn ⇒ m === 1" is true by ARITHMETIC precisely
- *     because both sides turn on `K_READABLE`. A pin that draws labels below it
- *     would put a 2× mark under drawn text, and re-coupling the halo to the pin
- *     restores the two-predicate arrangement req #3280 exists to delete.
- *   · IT DOES NOT ANSWER THE ASK. On the live plan a pin at the Reset scale
- *     draws the requirement ids at about a pixel. A canvas that changed but
- *     still cannot be read is not "the default characteristics of the L2
- *     visualizer"; it is the same complaint with different pixels.
- *
- * So the SCALE moves to meet the level, rather than the level's rule bending to
- * meet the scale. Both predicates stay exactly as they are.
- *
- * ── AND IT IS AS NARROW AS IT CAN BE ────────────────────────────────────────
- * `null` — no move at all — in every case the chips already worked:
- *
- *   · Auto pins nothing.
- *   · 'out' draws none of the gated kinds, so it is legible at every scale by
- *     construction. L1 NEVER moves the camera.
- *   · Already legible: 'mid' and 'in' are fully drawn at any `k >= K_READABLE`,
- *     which includes the scale every plan lands on (`readableDefaultScale`).
- *
- * That is what keeps PIPE-16's and PIPE-17's "pinning must not move the camera"
- * assertions true as written — they operate at the landing scale — while the
- * dead band this requirement is about stops existing.
- *
- * The target is `K_READABLE` itself, the SMALLEST scale that draws the level,
- * so the reader keeps as much of the plan in view as legibility allows and the
- * jump out of the dead band is the shortest one available. Clamped into the
- * zoom behaviour's own extent, which is also the guard for the one plan shape
- * where the floor sits ABOVE `K_READABLE` (a plan small enough that `kFit` is
- * large): there every legal scale is legible already, `kFloor <= curK` makes
- * the target non-advancing, and this returns `null`.
- *
- * @param {?{x:number,y:number,k:number}} t   the transform being drawn
- * @param {{w:number,h:number}} size          the viewport, in screen px
- * @param {{width:number,height:number}} layout  the world
- * @param {?('out'|'mid'|'in')} level         the PINNED level; null for auto
- * @param {number} kFloor  the zoom behaviour's `scaleExtent` floor
- * @param {number} kMax    the zoom behaviour's `scaleExtent` ceiling
- * @returns {?{x:number,y:number,k:number}} the transform to apply, or null
- */
-export function levelPinTransform(t, size, layout, level, kFloor, kMax) {
-    if (!t || !Number.isFinite(t.k) || t.k <= 0) return null;
-    // `x`/`y` are validated too, not just `k` (review finding): `clampPlanTransform`
-    // propagates a non-finite translation rather than rejecting it, and the caller
-    // hands the result to the zoom behaviour, where a NaN blanks the canvas with
-    // no error to see.
-    if (!Number.isFinite(t.x) || !Number.isFinite(t.y)) return null;
-    if (level == null || level === 'out') return null;
-    if (labelsLegible(t.k)) return null;
-    if (!Number.isFinite(kFloor) || !Number.isFinite(kMax)) return null;
-    const k = Math.min(Math.max(K_READABLE, kFloor), kMax);
-    // Never zoom OUT to reach legibility. Unreachable while `K_READABLE` is the
-    // gate `labelsLegible` reads (we are here only because `t.k < K_READABLE`),
-    // and asserted rather than assumed because the clamp above can lower `k`.
-    if (!(k > t.k)) return null;
-    // AND NEVER MOVE FOR NOTHING. A ceiling below `K_READABLE` would otherwise
-    // return a jump to a scale that still cannot draw the pinned level — the
-    // camera moves, the canvas is unchanged, and the caller has spent its one
-    // correction. Unreachable today (`kMax` is `kDefault * 8` and `kDefault >=
-    // K_READABLE`), and asserted here so the docstring's contract is a property
-    // of the function rather than of its callers.
-    if (!labelsLegible(k)) return null;
-    // THE VIEWPORT CENTRE IS THE FIXED POINT — the same anchor `zoom.scaleTo`
-    // uses for a programmatic scale. The world point under the middle of the
-    // panel is what the reader is looking at, so holding it is what makes this
-    // read as a zoom rather than a jump to somewhere else in the plan.
-    const cx = (size?.w || 0) / 2;
-    const cy = (size?.h || 0) / 2;
-    return clampPlanTransform({
-        x: cx - (cx - t.x) * (k / t.k),
-        y: cy - (cy - t.y) * (k / t.k),
-        k,
-    }, size, layout, kFloor, kMax);
-}
+// ── THE PIN NEVER MOVES THE CAMERA (req #3324) ──────────────────────────────
+// `levelPinTransform` stood here between req #3310 and req #3324: a pin naming a
+// level the current SCALE could not draw zoomed the camera to the smallest scale
+// that could. It existed because `drawsLabelKind` ANDed the level with
+// `labelsLegible`, so below `K_READABLE` all four chips drew one canvas — and
+// moving the camera was chosen over exempting the pin, on the grounds that an
+// exempt pin would break the halo's guarantee and would draw text nobody could
+// read. The user's answer was #3324, *"L1, L2 and L3 are still broken"*: a
+// selector that changes the zoom to honour itself is not a rule set about what
+// is displayed, and it left AUTO's resolution algorithm running while a level was
+// pinned. The rejected fix is the shipped one now, with the halo's guarantee
+// carried as an ARGUMENT (see `drawsLabelKind`, `nextHaloMagnify`,
+// `nextMarkIsDot`) instead of as an arithmetic coincidence between two
+// thresholds, and legibility kept as AUTO's own demotion in `planLevelFor`.
+// Nothing replaces the function: the selector owns no camera move at all.
 
 // ── The time axis (req #3201) ───────────────────────────────────────────────
 // Sentinel slot prefixes. Sorting the composed keys lexicographically IS the
@@ -3441,10 +3449,16 @@ export const NEXT_HALO_DASH = [3, 3];
 // so the two branches MEET rather than meeting-with-a-step.
 //
 // AND THE LEVEL BOUNDARIES ARE NOT CROSSINGS AT ALL ANY MORE — that is the
-// stronger statement, and the reason it holds on every plan size. `m` is a
+// stronger statement, and the reason it holds on every plan size. The CURVE is a
 // function of `k` ALONE, continuous on each of its three pieces and at both
 // joins (`m(0.4) = 2` from either side; `m(K_READABLE) = 1` from either side),
-// so where the level ladder happens to put L1/L2 is irrelevant to it. The
+// so where the level ladder happens to put L1/L2 is irrelevant to it.
+//
+// (Req #3324 added a `labelsDrawn` SHORT-CIRCUIT in front of that curve, for the
+// pinned case the arithmetic above cannot cover. It changes no value Auto ever
+// computes — the curve is already exactly 1 at every legible `k`, and Auto draws
+// no label below that — so every claim in this block still describes the mark a
+// reader sees while the selector is on Auto. See `nextHaloMagnify`.) The
 // live plan's boundary lands at k = 0.400, which IS one of the joins — the
 // arithmetic is continuous there anyway, and that is the coincidence the first
 // draft of this comment mistook for the reason.
@@ -3544,26 +3558,52 @@ export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
  * The magnification applied to the next-step halo's radius, stroke width and
  * dash pattern (req #3271, made continuous by req #3280).
  *
- * A PURE FUNCTION OF `k`, and that is the fix rather than a tidy-up. #3271 took
- * a second argument — "does this level draw the labels?" — because the halo may
- * only grow into room the labels are not using, and a BOOLEAN bound produces a
- * STEP: the mark halved in one wheel-click at whatever absolute scale the level
- * ladder happened to put the boundary at. Since `labelsLegible` gates the labels
- * on `K_READABLE` and this stops magnifying at `K_READABLE`, the two can no
- * longer disagree, so the argument had nothing left to say. **Labels drawn ⇒
- * `m === 1`** is now an arithmetic consequence, not a contract between two
- * modules — which is what protects the 14-world-px text bound that fixes
- * `NEXT_HALO_RADIUS` in the first place.
+ * CONTINUOUS IN `k`, AND SHORT-CIRCUITED BY THE LABELS. #3271 took a boolean
+ * "does this level draw the labels?" — because the halo may only grow into room
+ * the labels are not using — and a BOOLEAN BOUND PRODUCES A STEP: the mark
+ * halved in one wheel-click at whatever absolute scale the level ladder happened
+ * to put the boundary at. #3280 deleted the argument, because `labelsLegible`
+ * gated the labels on `K_READABLE` and this stops magnifying at `K_READABLE`, so
+ * **labels drawn ⇒ `m === 1`** followed by ARITHMETIC and the two could not
+ * disagree.
+ *
+ * REQ #3324 VOIDED THAT COINCIDENCE and the argument is back, deliberately: a
+ * PINNED level draws its labels at every scale, including the whole band below
+ * `K_READABLE` where this magnifies, so nothing about `k` alone can still imply
+ * the labels are absent. The guarantee is therefore stated rather than inferred —
+ * and it protects the same 14-world-px text bound that fixes
+ * `NEXT_HALO_RADIUS`.
+ *
+ * **#3280's SMOOTHNESS IS NOT GIVEN BACK.** The step it deleted came from the
+ * boolean turning over during a WHEEL, at the ladder's L1/L2 boundary. It cannot
+ * now: on the AUTO branch `labelsDrawn` implies `labelsLegible(k)`
+ * (`planLevelFor` demotes an illegible level to 'out'), and this function is
+ * already exactly 1 at every legible `k` — so the argument changes nothing Auto
+ * ever computes, at any scale, and the continuous meet at `K_READABLE` stands.
+ * The one place it bites is a PIN held below that scale, where the mark's size
+ * changes at the moment the reader clicks a chip: a discrete act, with the
+ * canvas visibly changing anyway, which is the opposite of an unexplained jump
+ * mid-gesture.
  *
  * It is 1 at and above `K_READABLE`, so zooming IN never changes the mark and
  * the halo at 'in' — and across the top half of 'mid' — is byte-identical to
- * what it was before either requirement existed.
+ * what it was before any of these requirements existed.
  *
  * @param {number} k  the world→screen scale actually being drawn at
+ * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
+ *   frame. Defaults to `false` — the answer at every scale where the question
+ *   did not exist before #3324, so a caller that only knows `k` gets #3280's
+ *   pure-`k` curve. **THE DEFAULT IS THE PERMISSIVE ANSWER, deliberately and at
+ *   a cost** (review finding): it is what lets the tests sweep the bare curve,
+ *   and it is why a SECOND renderer that forgot the argument would magnify over
+ *   its own drawn labels in silence. There is exactly one production caller
+ *   (`PipelinePlanVisualizer`'s `labelsDrawn`, read from the same `drawsKind`
+ *   the label loop uses); a second one must pass it.
  * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY], monotone
  *   non-increasing in `k` and continuous everywhere
  */
-export function nextHaloMagnify(k) {
+export function nextHaloMagnify(k, labelsDrawn = false) {
+    if (labelsDrawn) return 1;
     if (!Number.isFinite(k) || k <= 0) return 1;
     const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
     if (!(want > 1)) return 1;
@@ -3674,10 +3714,29 @@ export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
  * `NEXT_MARK_FLOOR_K` itself included) — the whole of the k >= 0.3 band this
  * requirement is forbidden from moving stays on the ring, byte-identical.
  *
+ * AND `false` WHEREVER THE LABELS ARE DRAWN (req #3324), for the same reason
+ * `nextHaloMagnify` returns 1 there: the dot holds a FIXED SCREEN SIZE, so in
+ * world units it is the largest this mark ever gets — larger than the magnified
+ * ring it replaces — and a pinned level draws its labels at every scale,
+ * including this whole band. It never fires in AUTO, where `planLevelFor`
+ * demotes an illegible level to 'out' and `NEXT_MARK_FLOOR_K` sits far below
+ * `K_READABLE`, so req #3299's mark is untouched at every scale Auto can reach.
+ *
+ * THE RESIDUAL COST, stated rather than left to be discovered: a reader pinned to
+ * L2/L3 below `NEXT_MARK_FLOOR_K` gets the sub-pixel RING that req #3299 was
+ * filed about, because the room the dot needs is room the pinned labels are
+ * occupying. One click on Auto restores the dot. The alternative — drawing the
+ * dot over the pin's own (by then ~4px) labels — trades a mark that is hard to
+ * see for a mark drawn through text, which is what `NEXT_HALO_CLEARANCES` exists
+ * to forbid.
+ *
  * @param {number} k  the world→screen scale actually being drawn at
+ * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
+ *   frame; defaults to `false`, the pre-#3324 answer.
  * @returns {boolean}
  */
-export function nextMarkIsDot(k) {
+export function nextMarkIsDot(k, labelsDrawn = false) {
+    if (labelsDrawn) return false;
     return Number.isFinite(k) && k > 0 && k < NEXT_MARK_FLOOR_K;
 }
 
