@@ -25,7 +25,16 @@
 // Design rule 9: every mark here derives from requirements and the plan
 // hierarchy. Session/phase detail belongs to the Swarm visualizer.
 
-import { useEffect, useMemo, useRef } from 'react';
+// `useState` is used by the horizontal-scroll container ref below (req #3311's
+// `useScrollMemory` wiring) and was NEVER IMPORTED — measured on origin/master
+// 2026-08-04, commit 53442e4: Table mode threw `useState is not defined` on
+// mount, which is the DEFAULT panel of this page, so /swarm/pipeline/:id was
+// dead in both modes. Nothing caught it: this file has no component test, there
+// is no eslint in this package (see PipelineDetail.jsx's own note on that), and
+// Vite happily bundles an unresolved identifier because it is only a
+// ReferenceError at RUNTIME. Repaired here, from req #3324's session, because
+// it stood between that requirement and anyone being able to look at it.
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';

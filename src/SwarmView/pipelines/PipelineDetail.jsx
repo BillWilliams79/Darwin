@@ -485,23 +485,23 @@ export default function PipelineDetail() {
         setLevelOverride(null);
         setLevelPref(v);
     }, [setLevelPref]);
-    // ── RESET IS THE FACTORY DEFAULT VIEW, AND THE LEVEL IS PART OF IT (#3310) ──
-    // Reset lands on `factoryDefaultScale` — the whole plan's vertical extent —
-    // which is BELOW `K_READABLE` on any plan large enough to need it (0.225 on
-    // the live plan). A pin that survived it would leave the reader looking at
-    // the overview with L3 still pressed: the exact "stuck at L1 with a chip
-    // lit" state this requirement is about, one click away, in the chip group's
-    // own left-hand neighbour. Clearing it is not a second behaviour bolted on —
-    // `auto` IS the factory default (`DEFAULT_PLAN_LEVEL_PREF`), so a control
-    // that promises the factory view and returns everything about it except the
-    // level is the inconsistent version.
+    // ── RESET IS THE VIEW, AND ONLY THE VIEW (req #3324) ────────────────────
+    // The camera goes back to the factory default; the LEVEL does not move.
+    // > *"There are four modes only… it's fixed until Auto is selected."*
+    // Reset is not one of the four — it is an action on the camera — so it may
+    // not un-pin a level, and the reader who wants Auto has a chip that says so
+    // one position to the right.
     //
-    // It goes through `handleLevelPrefChange`, so a `?level=` link is cleared by
-    // the same act and cannot snap the level back on the next render.
+    // IT DID CLEAR THE LEVEL between req #3310 and req #3324, on the grounds
+    // that Reset lands below `K_READABLE` where a pin could not be drawn at all,
+    // making a lit chip over an overview the "stuck at L1" state again. That
+    // premise is gone: a pinned level is now honoured at every scale, so the
+    // factory camera and a pinned level are a perfectly coherent pair — the
+    // reader sees L2's formation on the whole plan, small, which is what asking
+    // for a fixed rule set at that zoom means.
     const handleResetView = useCallback(() => {
-        handleLevelPrefChange(DEFAULT_PLAN_LEVEL_PREF);
         setResetViewNonce((n) => n + 1);
-    }, [handleLevelPrefChange]);
+    }, []);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
@@ -1074,15 +1074,13 @@ export default function PipelineDetail() {
                              // it is on this page's own header now, so the panel
                              // no longer changes the preference, it only reports
                              // the level it settled on via `onEffectiveLevel`.
+                             // A `levelPrefFromLink` flag went with it between req
+                             // #3310 and req #3324, so the canvas could tell the
+                             // reader's own pick from a `?level=` link for the sake
+                             // of the pin's camera correction. #3324 deleted the
+                             // correction, so `activeLevelPref` collapsing the two
+                             // is now right for the only thing a level does: draw.
                              levelPref={activeLevelPref}
-                             // …and WHOSE level it is (req #3310). `activeLevelPref`
-                             // deliberately collapses the link's pin and the reader's
-                             // stored one into a single value, which is right for
-                             // drawing and wrong for the camera correction that pin
-                             // now performs: only the reader's own pick may persist a
-                             // camera or outrank a `?step=` focus arriving in the very
-                             // same link.
-                             levelPrefFromLink={levelOverride != null}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />

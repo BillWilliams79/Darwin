@@ -41,10 +41,11 @@ import { PLAN_LEVEL_NUMBER } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
-// (see the chip below for why the two may not drift), and since req #3310 it has
-// to say that the level goes back too.
+// (see the chip below for why the two may not drift). It named the level too
+// between req #3310 and req #3324, because Reset cleared the pin; #3324 made the
+// level fixed until Auto is chosen, so Reset is about the camera and says so.
 export const RESET_LABEL = 'Reset — fully zoomed out, the whole plan\'s vertical '
-    + 'extent visible, and the level back to Auto';
+    + 'extent visible';
 
 // Req #3168 — column width, the one piece of the plan's geometry a reader could
 // not influence. It only ever WIDENS (see STEP_WIDTH_FACTORS): a narrower column
@@ -169,13 +170,14 @@ export default function PipelinePlanToolbar({
                     // req #3242 user directive — "Detail:" -> "View"
                     label="View"
                     leadingChildren={(
-                        // THE LEVEL IS NAMED IN THE LABEL because Reset clears it
-                        // (req #3310), and a control that silently un-pins a chip
-                        // sitting immediately to its right is a surprise however
-                        // right the behaviour is. Reset lands below `K_READABLE`,
-                        // where a pinned level cannot be honoured at all — which
-                        // is why the level is reset and Width and Colour, which
-                        // stay valid at every scale, are not.
+                        // RESET TOUCHES NO CHIP IN THIS GROUP (req #3324). Between
+                        // req #3310 and #3324 it cleared the pinned level, and the
+                        // label had to say so — a control that silently un-pins a
+                        // chip immediately to its right is a surprise however right
+                        // the behaviour is. The level is fixed until Auto is chosen
+                        // now, so Reset is exactly what Width and Colour already
+                        // were to it: unrelated. Its label says camera and nothing
+                        // else.
                         <Tooltip title={RESET_LABEL}>
                             <Chip
                                 label="Reset"
