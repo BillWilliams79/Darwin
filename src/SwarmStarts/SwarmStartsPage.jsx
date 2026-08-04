@@ -98,13 +98,6 @@ export default function SwarmStartsPage() {
         { field: 'wall_seconds', headerName: 'Wall Clock Time', width: 140, type: 'number',
             valueFormatter: formatDuration },
         {
-            field: 'auto_start',
-            headerName: 'Auto-Start',
-            width: 100,
-            type: 'boolean',
-            valueGetter: (_v, row) => Boolean(row.auto_start),
-        },
-        {
             // req #2955 (backed by #2949's swarm_starts.ai_model column) — the
             // launcher's model, i.e. the model that incurred this start's cost.
             field: 'ai_model',
@@ -151,7 +144,7 @@ export default function SwarmStartsPage() {
         {
             field: 'requirements_list',
             headerName: 'Requirements',
-            width: 360,
+            width: 270,
             sortable: false,
             // valueGetter feeds quick-filter and CSV export with a newline-
             // joined string ("2685 — display\n2686 — stats\n…"). Filter
@@ -202,16 +195,19 @@ export default function SwarmStartsPage() {
                 );
             },
         },
-        // Token columns — hidden by default, revealable via column-visibility toolbar.
+        // Req #3325 — the same four token factors shown in the single
+        // swarm-start viewer (SwarmStartDetail's Token totals), in the order
+        // requested: Input, Output, Cache Read, Cache Write. Shown directly
+        // as visible columns here (not hidden-by-default, and not folded
+        // into one combined total).
         { field: 'tokens_input', headerName: 'Input', width: 100, type: 'number',
-            valueFormatter: formatNum },
-        { field: 'tokens_cache_write', headerName: 'Cache W', width: 110, type: 'number',
-            valueFormatter: formatNum },
-        { field: 'tokens_cache_read', headerName: 'Cache R', width: 120, type: 'number',
             valueFormatter: formatNum },
         { field: 'tokens_output', headerName: 'Output', width: 100, type: 'number',
             valueFormatter: formatNum },
-        { field: 'turn_count', headerName: 'Turns', width: 80, type: 'number' },
+        { field: 'tokens_cache_read', headerName: 'Cache Read', width: 120, type: 'number',
+            valueFormatter: formatNum },
+        { field: 'tokens_cache_write', headerName: 'Cache Write', width: 120, type: 'number',
+            valueFormatter: formatNum },
         {
             // req #2943 — which machine ran this /swarm-start. Name resolved
             // client-side from the machines cache; NULL / unresolved → em-dash.
@@ -243,18 +239,12 @@ export default function SwarmStartsPage() {
         return Math.max(REQ_BASE_HEIGHT, 28 + REQ_LINE_HEIGHT * capped);
     }, [requirementsByStart]);
 
-    // Hide the four token columns by default; users can reveal via the toolbar.
+    // Req #3325 — the four token columns are visible by default now (they
+    // used to be hidden-by-default raw columns); no columnVisibilityModel
+    // needed.
     const initialState = useMemo(() => ({
         pagination: { paginationModel: { pageSize: 25 } },
         sorting: { sortModel: [{ field: 'started_at', sort: 'desc' }] },
-        columns: {
-            columnVisibilityModel: {
-                tokens_input: false,
-                tokens_cache_write: false,
-                tokens_cache_read: false,
-                tokens_output: false,
-            },
-        },
     }), []);
 
     if (isLoading) {
