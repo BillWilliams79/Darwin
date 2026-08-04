@@ -1,26 +1,40 @@
 // @vitest-environment jsdom
 //
 // Req #3158 — the aggregator card renders the combined ride track map for the
-// FULL filtered list. Leaflet cannot run in jsdom, so ExportMapPreview is
-// mocked to a marker div that records how many tracks it was handed — which is
-// exactly the acceptance criterion (N filtered rides → N tracks on the card).
-// The coordinates hook is mocked so each state (loading / tracks / empty) can
-// be exercised directly.
+// FULL filtered list. Leaflet cannot run in jsdom, so RouteMapThumbnail and
+// RouteMapFull are mocked to marker divs that record how many tracks/runs
+// they were handed — which is exactly the acceptance criterion (N filtered
+// rides → N tracks on the card). The coordinates hook is mocked so each
+// state (loading / tracks / empty) can be exercised directly.
 //
 // Req #3174 — component-test coverage for feature #23. Adds the cap boundary
 // (MAX_AGGREGATE_RUNS + the truncation notice, driven with 201 stub runs) and
 // the stats arithmetic over the string DECIMALs Lambda-Rest actually returns.
-// Rendering moved to @testing-library/react; `hookResult` still stands in for
-// useMapCoordinatesForRuns, and the hook's ARGUMENT is now recorded too — the
-// cap has to bound the coordinate fan-out, not just the drawn polylines.
+//
+// Req #3165 review — the card was rebuilt to reuse the SAME two map
+// components a per-ride card uses instead of a lookalike built for this
+// card: RouteMapThumbnail as the card's non-interactive preview, and
+// RouteMapFull — reached the same way a per-ride card reaches it, by leaving
+// the card entirely rather than growing inside it — for the full interactive
+// map, opened in a `Dialog fullScreen` (the aggregate has no id to route to,
+// so this stands in for the navigation a per-ride card does). Both
+// generalized for multiple tracks. That moved the photo layer's downsampling
+// math and its IS_MACOS/photo-browser-enabled gate INTO RouteMapFull, which
+// — like every other Leaflet-heavy component in this codebase
+// (RouteMapThumbnail included) — has no unit coverage today; Leaflet cannot
+// run in jsdom, and this file's own mocking strategy exists because of that.
+// Tests that used to assert that math/gating directly are removed rather
+// than kept as false coverage; what remains here asserts the wiring THIS
+// component owns — whether the dialog is open, and what
+// tracks/runs/dedupedIndex/height/preferCanvas it hands to each tier.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
 let hookResult;
-let previewProps;
-let photoLayerProps;
+let thumbnailProps;
+let fullProps;
 let runIdsRequested;
 
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -30,13 +44,22 @@ vi.mock('../../hooks/useDataQueries', () => ({
     },
 }));
 
-vi.mock('../../MapExport/ExportMapPreview', () => ({
+vi.mock('../RouteMapThumbnail', () => ({
     default: (props) => {
-        previewProps = props;
+        thumbnailProps = props;
+        return <div data-testid="route-map-thumbnail" data-track-count={props.tracks.length} />;
+    },
+}));
+
+vi.mock('../RouteMapFull', () => ({
+    default: (props) => {
+        fullProps = props;
         return (
-            <div data-testid="export-map-preview" data-track-count={props.routeCoordinates.length}>
-                {props.children}
-            </div>
+            <div
+                data-testid="route-map-full"
+                data-track-count={props.tracks.length}
+                data-run-count={(props.runs || []).length}
+            />
         );
     },
 }));
@@ -47,23 +70,6 @@ vi.mock('../../MapExport/ExportMapPreview', () => ({
 const photoStub = vi.hoisted(() => ({ count: null }));
 vi.mock('../../photo-browser/filterUtils.js', () => ({
     countPhotosForRuns: (index, runs) => (photoStub.count ?? runs.length * 2),
-}));
-
-// The photo layer needs a live Leaflet map (useMap) — jsdom can't provide one,
-// and the aggregator contract here is only that the layer is mounted inside the
-// preview with the FULL run set when the feature gate is on (req #3159).
-vi.mock('../PhotoMarkerLayer', () => ({
-    default: (props) => {
-        photoLayerProps = props;
-        return <div data-testid="photo-marker-layer" data-run-count={props.runs.length} />;
-    },
-}));
-
-// Gate is macOS-only; a mutable getter lets tests exercise both halves.
-const gate = vi.hoisted(() => ({ isMacos: true }));
-vi.mock('../../photo-browser/proxyConfig.js', () => ({
-    get IS_MACOS() { return gate.isMacos; },
-    PHOTOS_PROXY_URL: '',
 }));
 
 import MapAggregatorCard, { MAX_AGGREGATE_RUNS } from '../MapAggregatorCard';
@@ -100,15 +106,14 @@ const stubTracks = (n) => Array.from({ length: n }, (_, i) => (
 
 const statsText = () => screen.getByTestId('map-aggregator-card-stats').textContent;
 const truncationNotice = () => screen.queryByTestId('map-aggregator-card-truncation');
+const expandCard = () => fireEvent.click(screen.getByTestId('map-aggregator-card-preview'));
 
 beforeEach(() => {
     hookResult = { isLoading: false, isError: false, data: TRACKS };
-    previewProps = undefined;
-    photoLayerProps = undefined;
+    thumbnailProps = undefined;
+    fullProps = undefined;
     runIdsRequested = undefined;
     photoStub.count = null;
-    localStorage.removeItem('photo-browser-enabled');
-    gate.isMacos = true;
 });
 
 afterEach(() => {
@@ -116,14 +121,46 @@ afterEach(() => {
 });
 
 describe('MapAggregatorCard (req #3158)', () => {
-    it('renders under its testid with one track per filtered ride', () => {
+    it('renders the clickable preview first, with one track per filtered ride', () => {
         render(<MapAggregatorCard runs={RUNS} />);
         expect(screen.getByTestId('map-aggregator-card')).not.toBeNull();
-        const preview = screen.getByTestId('export-map-preview');
-        expect(preview.getAttribute('data-track-count')).toBe('3');
-        expect(previewProps.routeCoordinates).toBe(hookResult.data);
-        expect(previewProps.scrollWheel).toBe(false);
-        expect(previewProps.preferCanvas).toBe(true);
+        expect(screen.getByTestId('route-map-thumbnail').getAttribute('data-track-count')).toBe('3');
+        expect(thumbnailProps.tracks).toBe(hookResult.data);
+        expect(thumbnailProps.height).toBe(400);
+        expect(thumbnailProps.preferCanvas).toBe(true);
+        expect(screen.queryByTestId('route-map-full')).toBeNull();
+    });
+
+    it('opens the same full map every per-ride card uses, full-screen, when the preview is clicked', () => {
+        render(<MapAggregatorCard runs={RUNS} />);
+        // No full-screen dialog until the preview is clicked — a per-ride
+        // card doesn't leave its own page until its thumbnail is clicked
+        // either.
+        expect(screen.queryByTestId('route-map-full')).toBeNull();
+
+        expandCard();
+
+        // Full screen, not the card: RouteMapFull mounts in a Dialog
+        // (portaled to document.body), not inside the 400px card cell —
+        // and the card's own preview stays exactly as it was, underneath.
+        expect(screen.getByTestId('map-aggregator-card-full-dialog')).not.toBeNull();
+        expect(screen.getByTestId('route-map-full').getAttribute('data-track-count')).toBe('3');
+        expect(fullProps.tracks).toBe(hookResult.data);
+        expect(fullProps.runs).toBe(RUNS);
+        expect(fullProps.height).toBe('100%');
+        expect(fullProps.preferCanvas).toBe(true);
+        expect(screen.getByTestId('route-map-thumbnail')).not.toBeNull();
+    });
+
+    it('closes the full-screen dialog via its own close button', async () => {
+        render(<MapAggregatorCard runs={RUNS} />);
+        expandCard();
+        expect(screen.getByTestId('route-map-full')).not.toBeNull();
+
+        fireEvent.click(screen.getByTestId('map-aggregator-card-collapse-button'));
+        // MUI's Dialog unmounts its content after its exit transition, not
+        // synchronously with the click.
+        await waitFor(() => expect(screen.queryByTestId('route-map-full')).toBeNull());
     });
 
     it('stats header shows ride count and total distance; no photo segment without an index', () => {
@@ -145,25 +182,26 @@ describe('MapAggregatorCard (req #3158)', () => {
         expect(statsText()).toContain('6 photos');
     });
 
-    it('shows a spinner, not the map, while coordinates load', () => {
+    it('shows a spinner, not either map tier, while coordinates load', () => {
         hookResult = { isLoading: true, isError: false, data: undefined };
         render(<MapAggregatorCard runs={RUNS} />);
         expect(document.querySelector('[role="progressbar"]')).not.toBeNull();
-        expect(screen.queryByTestId('export-map-preview')).toBeNull();
+        expect(screen.queryByTestId('route-map-thumbnail')).toBeNull();
+        expect(screen.queryByTestId('route-map-full')).toBeNull();
     });
 
     it('surfaces a fetch failure instead of quietly dropping tracks', () => {
         hookResult = { isLoading: false, isError: true, data: undefined };
         render(<MapAggregatorCard runs={RUNS} />);
         expect(screen.getByTestId('map-aggregator-card-error')).not.toBeNull();
-        expect(screen.queryByTestId('export-map-preview')).toBeNull();
+        expect(screen.queryByTestId('route-map-thumbnail')).toBeNull();
         expect(document.body.textContent).not.toContain('No map data');
     });
 
     it('shows the no-data placeholder when no ride has a track', () => {
         hookResult = { isLoading: false, isError: false, data: [[], [], []] };
         render(<MapAggregatorCard runs={RUNS} />);
-        expect(screen.queryByTestId('export-map-preview')).toBeNull();
+        expect(screen.queryByTestId('route-map-thumbnail')).toBeNull();
         expect(document.body.textContent).toContain('No map data');
     });
 });
@@ -180,7 +218,7 @@ describe('MapAggregatorCard cap (req #3174)', () => {
 
         // One coordinate query per aggregated ride — 200, never 201.
         expect(runIdsRequested).toHaveLength(MAX_AGGREGATE_RUNS);
-        expect(screen.getByTestId('export-map-preview').getAttribute('data-track-count'))
+        expect(screen.getByTestId('route-map-thumbnail').getAttribute('data-track-count'))
             .toBe(String(MAX_AGGREGATE_RUNS));
     });
 
@@ -238,9 +276,10 @@ describe('MapAggregatorCard cap (req #3174)', () => {
         expect(statsText()).toContain('400 photos');
     });
 
-    it('hands the photo layer the capped set too', () => {
+    it('hands the full map the capped run set too, once expanded', () => {
         render(<MapAggregatorCard runs={stubRuns(201)} />);
-        expect(photoLayerProps.runs).toHaveLength(MAX_AGGREGATE_RUNS);
+        expandCard();
+        expect(fullProps.runs).toHaveLength(MAX_AGGREGATE_RUNS);
     });
 
     it('does not truncate exactly AT the cap — the notice is absent and all 200 draw', () => {
@@ -330,7 +369,7 @@ describe('MapAggregatorCard photo index states (req #3174)', () => {
         expect(() => render(<MapAggregatorCard runs={RUNS} dedupedPhotoIndex={null} />)).not.toThrow();
         expect(statsText()).not.toContain('photo');
         // The map itself is unaffected — a missing index costs the count, not the card.
-        expect(screen.getByTestId('export-map-preview')).not.toBeNull();
+        expect(screen.getByTestId('route-map-thumbnail')).not.toBeNull();
     });
 
     it('renders no photo segment when the parent is not managing an index at all', () => {
@@ -338,58 +377,17 @@ describe('MapAggregatorCard photo index states (req #3174)', () => {
         expect(statsText()).not.toContain('photo');
     });
 
-    it('passes the null index straight through to the photo layer', () => {
+    it('passes the null index straight through to RouteMapFull, once expanded', () => {
         // null means "parent is loading"; undefined means "self-load". The card
         // must not collapse the two — the layer's fallback depends on the
         // difference (req #3159).
         render(<MapAggregatorCard runs={RUNS} dedupedPhotoIndex={null} />);
-        expect(photoLayerProps.dedupedIndex).toBeNull();
+        expandCard();
+        expect(fullProps.dedupedIndex).toBeNull();
         cleanup();
 
         render(<MapAggregatorCard runs={RUNS} />);
-        expect(photoLayerProps.dedupedIndex).toBeUndefined();
-    });
-});
-
-describe('MapAggregatorCard photo layer (req #3159)', () => {
-    it('mounts PhotoMarkerLayer inside the preview with the FULL run set', () => {
-        render(<MapAggregatorCard runs={RUNS} />);
-        const layer = screen.getByTestId('export-map-preview')
-            .querySelector('[data-testid="photo-marker-layer"]');
-        expect(layer).not.toBeNull();
-        expect(layer.getAttribute('data-run-count')).toBe('3');
-        expect(photoLayerProps.runs).toBe(RUNS);
-    });
-
-    it('hands the layer the flattened track points and the parent-deduped index', () => {
-        const dedupedPhotoIndex = [{ path: '/x/a.jpg' }];
-        render(<MapAggregatorCard runs={RUNS} dedupedPhotoIndex={dedupedPhotoIndex} />);
-        expect(photoLayerProps.coordinates).toEqual(TRACKS.flat());
-        expect(photoLayerProps.dedupedIndex).toBe(dedupedPhotoIndex);
-    });
-
-    it('downsamples the placement point cloud past 4000 points', () => {
-        const bigTrack = Array.from({ length: 6000 }, (_, i) => ({
-            latitude: `${37 + i * 1e-5}`, longitude: '-122.1',
-        }));
-        hookResult = { isLoading: false, isError: false, data: [bigTrack] };
-        render(<MapAggregatorCard runs={[RUNS[0]]} />);
-        const sampled = photoLayerProps.coordinates;
-        expect(sampled.length).toBeLessThanOrEqual(4000);
-        expect(sampled.length).toBeGreaterThan(0);
-        for (const p of sampled) expect(bigTrack).toContain(p);
-    });
-
-    it('does not mount the layer when photo-browser is disabled', () => {
-        localStorage.setItem('photo-browser-enabled', 'false');
-        render(<MapAggregatorCard runs={RUNS} />);
-        expect(screen.queryByTestId('photo-marker-layer')).toBeNull();
-    });
-
-    it('does not mount the layer off macOS', () => {
-        gate.isMacos = false;
-        render(<MapAggregatorCard runs={RUNS} />);
-        expect(screen.queryByTestId('photo-marker-layer')).toBeNull();
-        expect(screen.getByTestId('export-map-preview')).not.toBeNull();
+        expandCard();
+        expect(fullProps.dedupedIndex).toBeUndefined();
     });
 });

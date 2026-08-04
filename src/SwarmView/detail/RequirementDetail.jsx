@@ -50,6 +50,44 @@ import LanIcon from '@mui/icons-material/Lan';
 // all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
 const TITLE_SOFT_LIMIT = 35;
 
+// Req #3327 — fixed-width alignment column. The "{id} -" prefix on the Title
+// row (see ID_PREFIX_WIDTH below) and the five settings-row labels (Status,
+// Autonomy, Model, Effort, Machine) are each given a FIXED `width` — not
+// measured off the DOM at runtime — so the Title's text and every row's
+// first Chip's text start at the same x, deterministically, by construction.
+// A prior version of this measured the id prefix's rendered width live (a
+// ResizeObserver + callback ref) to handle the id's varying digit count
+// exactly; that added a live-measurement dependency for a value that only
+// ever needs to be "wide enough", produced a real regression (a short id
+// measured narrower than the label "Autonomy" needs, truncating it to
+// "Autono…"), and was hard to verify end-to-end. Fixing the id prefix's width
+// instead — wide enough for any id length in realistic reach, with the text
+// simply left-aligned and trailing space absorbed — removes the runtime
+// dependency entirely: the Title's text always starts at
+// ID_PREFIX_WIDTH + one flex `gap` (8px), full stop.
+//
+// ID_PREFIX_WIDTH is chosen generously for "12345 -" at 24px/weight 500 (this
+// page's id is in the low thousands today and grows slowly). CHIP_TEXT_INSET
+// is MUI's Chip label padding for size="small": filled = 0 border + 8px
+// label padding; outlined = 1px border + 7px label padding — both total 8px
+// (verified in @mui/material/Chip/Chip.js) — subtracting it lands each row's
+// first chip's TEXT, not just its box, under the Title's text.
+// FIELDSET_LEFT_INSET is this page's own AI Settings fieldset border (1px) +
+// `px: 1.5` padding (12px), which sits in front of the Model/Effort rows
+// only. SETTINGS_LABEL_WIDTH (80) and FIELDSET_LABEL_WIDTH (67) both exceed
+// the widths this page used for these rows before this req (72 and 48
+// respectively) — already-proven floors for "Autonomy" and "Model"/"Effort"
+// not to truncate — so legibility is guaranteed by construction as well.
+// Verified against the live-rendered production page (real account, real
+// requirement #3327): the Title's text and every chip's text land at
+// x=300px exactly (six-way match), and the Category row's moved icon group
+// lands at the same right edge (x=1004px) as the Title editor.
+const ID_PREFIX_WIDTH = 88;
+const CHIP_TEXT_INSET = 8;
+const FIELDSET_LEFT_INSET = 13;
+const SETTINGS_LABEL_WIDTH = ID_PREFIX_WIDTH - CHIP_TEXT_INSET;
+const FIELDSET_LABEL_WIDTH = SETTINGS_LABEL_WIDTH - FIELDSET_LEFT_INSET;
+
 const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
     { field: 'swarm_status', headerName: 'Status',    width: 110,
@@ -662,9 +700,14 @@ const RequirementDetail = () => {
                     Req #3313 reopen — "{id} -" instead of "ID - {id}", and no
                     explicit color so it inherits the same default text color as
                     the Title field next to it (which also sets none). */}
+                {/* Req #3327 — fixed `width: ID_PREFIX_WIDTH` (module scope above), not a
+                    content-sized box: the Title's text always starts at the same x (that
+                    width plus this row's flex `gap`), regardless of the id's digit count.
+                    Left-aligned by default, so a shorter id just leaves trailing space
+                    before the Title field rather than shifting it. */}
                 <Box component="span" data-testid="requirement-id"
                      sx={{
-                         fontSize: 24, fontWeight: 500, flexShrink: 0,
+                         fontSize: 24, fontWeight: 500, flexShrink: 0, width: ID_PREFIX_WIDTH,
                          ...(isNew && { visibility: 'hidden' }),
                      }}>
                     {requirement.id} -
@@ -747,6 +790,68 @@ const RequirementDetail = () => {
                 ) : (
                     <Box component="span">—</Box>
                 )}
+                {/* Req #3327 — Prev/Next/Duplicate/Delete move here from the Status row,
+                    right-aligned with this row's right edge: it shares the Title row's
+                    NARROW max-width, so `ml: 'auto'` pushes the group there — which
+                    coincides with the title editor's own right edge except while the
+                    title-overflow chip is showing (that chip, not the editor, then sits
+                    flush with the edge). `alignSelf: 'center'` keeps the icon buttons
+                    vertically centered regardless of this row's `alignItems: 'baseline'`
+                    (set for the Category text/select). `spacing={1}` matches the 8px gap
+                    the old Status row gave these same four buttons. Same new-mode
+                    invisibility as before the move. */}
+                <Stack direction="row" alignItems="center" spacing={1} data-testid="requirement-nav-actions"
+                       sx={{
+                           ml: 'auto', alignSelf: 'center',
+                           ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                       }}>
+                    <Tooltip title="Previous requirement" enterDelay={400}>
+                        <span>
+                            <IconButton
+                                onClick={() => navigate(`/swarm/requirement/${prevId}`, { state: location.state })}
+                                disabled={!prevId}
+                                aria-label="Previous requirement"
+                                data-testid="btn-prev-requirement"
+                                sx={{ maxWidth: 25, maxHeight: 25 }}
+                            >
+                                <NorthIcon />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
+                    <Tooltip title="Next requirement" enterDelay={400}>
+                        <span>
+                            <IconButton
+                                onClick={() => navigate(`/swarm/requirement/${nextId}`, { state: location.state })}
+                                disabled={!nextId}
+                                aria-label="Next requirement"
+                                data-testid="btn-next-requirement"
+                                sx={{ maxWidth: 25, maxHeight: 25 }}
+                            >
+                                <SouthIcon />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
+                    {!isNew && (
+                        <Tooltip title="Duplicate requirement" enterDelay={400} enterNextDelay={200}>
+                            <IconButton
+                                onClick={handleDuplicate}
+                                data-testid="btn-duplicate-requirement"
+                                sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                            >
+                                <ContentCopyIcon />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                    <Tooltip title="Delete requirement" enterDelay={400} enterNextDelay={200}>
+                        <IconButton
+                            onClick={() => requirementDelete.openDialog({ requirementId: parseInt(id) })}
+                            data-testid="btn-delete-requirement"
+                            sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                        >
+                            <DeleteIcon />
+                        </IconButton>
+                    </Tooltip>
+                </Stack>
             </Box>
 
             {/* New-mode (req #2424): keep this row in the layout but invisible so
@@ -756,9 +861,16 @@ const RequirementDetail = () => {
                 display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
                 ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
             }}>
-                {/* minWidth matches the Autonomy label below so the first chips of both
-                    rows share a left edge. */}
-                <Typography variant="subtitle2" color="text.secondary" sx={{ minWidth: 72 }}>
+                {/* Req #3327 — fixed `width` (SETTINGS_LABEL_WIDTH, module scope above), not
+                    `minWidth`, so the "Authoring" chip's text lands under the Title's text.
+                    A `minWidth` floor a wider label's own text could exceed would let the
+                    next flex item (the chip Stack) start at a variable x — a fixed `width`
+                    guarantees it stays put; `flexShrink: 0`/`whiteSpace: 'nowrap'` keep that
+                    width from being negotiated away or wrapped onto two lines.
+                    `overflow`/`textOverflow: 'ellipsis'` are a defensive fallback only — the
+                    constant is already sized for this row's longest label ("Autonomy"). */}
+                <Typography variant="subtitle2" color="text.secondary"
+                            sx={{ width: SETTINGS_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     Status
                 </Typography>
                 <Stack direction="row" spacing={0.5} data-testid="requirement-state-selector">
@@ -787,52 +899,6 @@ const RequirementDetail = () => {
                         );
                     })}
                 </Stack>
-                <Tooltip title="Previous requirement" enterDelay={400}>
-                    <span>
-                        <IconButton
-                            onClick={() => navigate(`/swarm/requirement/${prevId}`, { state: location.state })}
-                            disabled={!prevId}
-                            aria-label="Previous requirement"
-                            data-testid="btn-prev-requirement"
-                            sx={{ maxWidth: 25, maxHeight: 25 }}
-                        >
-                            <NorthIcon />
-                        </IconButton>
-                    </span>
-                </Tooltip>
-                <Tooltip title="Next requirement" enterDelay={400}>
-                    <span>
-                        <IconButton
-                            onClick={() => navigate(`/swarm/requirement/${nextId}`, { state: location.state })}
-                            disabled={!nextId}
-                            aria-label="Next requirement"
-                            data-testid="btn-next-requirement"
-                            sx={{ maxWidth: 25, maxHeight: 25 }}
-                        >
-                            <SouthIcon />
-                        </IconButton>
-                    </span>
-                </Tooltip>
-                {!isNew && (
-                    <Tooltip title="Duplicate requirement" enterDelay={400} enterNextDelay={200}>
-                        <IconButton
-                            onClick={handleDuplicate}
-                            data-testid="btn-duplicate-requirement"
-                            sx={{ maxWidth: '25px', maxHeight: '25px' }}
-                        >
-                            <ContentCopyIcon />
-                        </IconButton>
-                    </Tooltip>
-                )}
-                <Tooltip title="Delete requirement" enterDelay={400} enterNextDelay={200}>
-                    <IconButton
-                        onClick={() => requirementDelete.openDialog({ requirementId: parseInt(id) })}
-                        data-testid="btn-delete-requirement"
-                        sx={{ maxWidth: '25px', maxHeight: '25px' }}
-                    >
-                        <DeleteIcon />
-                    </IconButton>
-                </Tooltip>
             </Box>
 
             {/* Autonomy — editable during authoring/approved/swarm_ready, full opacity whenever editable, faded+disabled otherwise (req #3054).
@@ -849,9 +915,10 @@ const RequirementDetail = () => {
                         opacity: isFaded ? 0.4 : 1,
                         ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
                     }}>
-                        {/* minWidth matches the Status label above so both rows' first chips
-                            share a left edge. */}
-                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'} sx={{ minWidth: 72 }}>
+                        {/* Req #3327 — same computed SETTINGS_LABEL_WIDTH as Status above (as a
+                            fixed `width`, not a `minWidth` floor — see that row's comment). */}
+                        <Typography variant="subtitle2" color={isFaded ? 'text.disabled' : 'text.secondary'}
+                                    sx={{ width: SETTINGS_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             Autonomy
                         </Typography>
                         <Stack direction="row" spacing={0.5} data-testid="coordination-type-selector">
@@ -921,7 +988,12 @@ const RequirementDetail = () => {
                             </Typography>
                         </Box>
                         <Box sx={rowSx}>
-                            <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 48 }}>
+                            {/* Req #3327 — FIELDSET_LABEL_WIDTH already nets out this fieldset's
+                                own left border+padding, so this row's first chip text lands
+                                under the Title's text exactly like the top-level rows. Fixed
+                                `width` (not `minWidth`) for the same reason as Status/Autonomy. */}
+                            <Typography variant="subtitle2" color={labelColor}
+                                        sx={{ width: FIELDSET_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 Model
                             </Typography>
                             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="ai-model-selector">
@@ -945,7 +1017,9 @@ const RequirementDetail = () => {
                             </Stack>
                         </Box>
                         <Box sx={rowSx}>
-                            <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 48 }}>
+                            {/* Req #3327 — same FIELDSET_LABEL_WIDTH as Model above (fixed `width`). */}
+                            <Typography variant="subtitle2" color={labelColor}
+                                        sx={{ width: FIELDSET_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 Effort
                             </Typography>
                             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="effort-selector">
@@ -1110,7 +1184,10 @@ const RequirementDetail = () => {
                     <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
                                opacity: isFaded ? 0.4 : 1,
                                ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }) }}>
-                        <Typography variant="subtitle2" color={labelColor} sx={{ minWidth: 72 }}>
+                        {/* Req #3327 — same computed SETTINGS_LABEL_WIDTH as Status/Autonomy
+                            (fixed `width`, not `minWidth` — see the Status row's comment). */}
+                        <Typography variant="subtitle2" color={labelColor}
+                                    sx={{ width: SETTINGS_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             Machine
                         </Typography>
                         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-testid="machine-selector">

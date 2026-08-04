@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
@@ -30,8 +30,22 @@ const wrapperSx = {
     border: '2px solid #bdbdbd',
 };
 
-const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT }) => {
-    const { data: coords = [], isLoading } = useMapCoordinates(runId);
+// tracks (req #3165): the aggregator card's non-interactive preview tier —
+// the SAME thumbnail a per-ride card shows, generalized to draw one polyline
+// per aggregated ride instead of one. When supplied, the internal single-run
+// fetch is skipped (the caller already holds the combined tracks); the
+// runId path below is completely unchanged for every existing caller.
+// preferCanvas: default false (SVG), matching every existing single-ride
+// caller; the aggregator opts in because up to MAX_AGGREGATE_RUNS SVG nodes
+// does not scale the way one canvas layer does.
+const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT, tracks, preferCanvas = false }) => {
+    const { data: coords = [], isLoading } = useMapCoordinates(runId, { enabled: !tracks });
+    // Empty tracks are routine (a run whose coordinate fetch returned no
+    // rows) — drop them before they become empty Polylines / dilute FitBounds.
+    const allTracks = useMemo(
+        () => (tracks ?? (coords.length > 0 ? [coords] : [])).filter(t => t.length > 0),
+        [tracks, coords]
+    );
 
     if (isLoading) {
         return (
@@ -41,7 +55,7 @@ const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT }) => {
         );
     }
 
-    if (coords.length === 0) {
+    if (allTracks.length === 0) {
         return (
             <Box sx={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', ...wrapperSx }}>
                 No map data
@@ -49,13 +63,15 @@ const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT }) => {
         );
     }
 
-    const positions = coords.map(c => [Number(c.latitude), Number(c.longitude)]);
+    const allPositions = allTracks.map(t => t.map(c => [Number(c.latitude), Number(c.longitude)]));
+    const flatPositions = allPositions.flat();
 
     return (
         <Box sx={wrapperSx}>
             <MapContainer
-                center={positions[0]}
+                center={flatPositions[0]}
                 zoom={13}
+                preferCanvas={preferCanvas}
                 style={{ height, width: '100%' }}
                 dragging={false}
                 scrollWheelZoom={false}
@@ -65,8 +81,10 @@ const RouteMapThumbnail = ({ runId, height = DEFAULT_HEIGHT }) => {
                 attributionControl={false}
             >
                 <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-                <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
-                <FitBounds positions={positions} />
+                {allPositions.map((positions, i) => (
+                    <Polyline key={i} positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
+                ))}
+                <FitBounds positions={flatPositions} />
             </MapContainer>
         </Box>
     );
