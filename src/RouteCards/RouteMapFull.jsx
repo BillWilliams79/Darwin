@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import L from 'leaflet';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -191,33 +191,73 @@ const CoordinateDisplay = () => {
     return null;
 };
 
-const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPartners }) => {
+// Placement point cloud for the photo grid overlay's track-avoidance
+// heuristic (findBestPlacement in PhotoMarkerLayer) only needs a quadrant
+// histogram — downsample past the point a single ride's track never reaches
+// but a whole filtered set of rides does (measured ~1.8M points at 500
+// rides, req #3174). Pure — exported for direct testing (RouteMapFull itself
+// cannot run under jsdom).
+export const MAX_PLACEMENT_POINTS = 4000;
+export function downsamplePlacementPoints(rows, max = MAX_PLACEMENT_POINTS) {
+    if (rows.length <= max) return rows;
+    const stride = Math.ceil(rows.length / max);
+    const sampled = [];
+    for (let i = 0; i < rows.length; i += stride) sampled.push(rows[i]);
+    return sampled;
+}
+
+// tracks/runs (req #3165): the aggregator card's full-interactive tier — the
+// SAME map a per-ride card opens on click, generalized to draw one polyline
+// per aggregated ride and hand PhotoMarkerLayer the whole run set instead of
+// one. `height` lets a caller embedding this inline in a card (rather than on
+// its own detail page) keep the card's own size. Every existing single-ride
+// caller (coordinates/run/routeName/partners/runPartners, default height) is
+// unaffected — tracks/runs are additive alternatives, not replacements.
+// preferCanvas: default false (SVG), matching the existing single-ride
+// caller; the aggregator opts in for the same reason RouteMapThumbnail does.
+const RouteMapFull = ({ coordinates, tracks, isLoading, run, runs, dedupedIndex, routeName, partners, runPartners, height = 'calc(100vh - 120px)', preferCanvas = false }) => {
     const photoMarkersEnabled = IS_MACOS && localStorage.getItem('photo-browser-enabled') !== 'false';
     const layersControlRef = React.useRef(null);
+
+    // Empty tracks are routine (a run whose coordinate fetch returned no
+    // rows) — drop them before they become empty Polylines / dilute FitBounds.
+    const allTracks = useMemo(
+        () => (tracks ?? (coordinates ? [coordinates] : [])).filter(t => t.length > 0),
+        [tracks, coordinates]
+    );
+    const allPositions = useMemo(
+        () => allTracks.map(t => t.map(c => [Number(c.latitude), Number(c.longitude)])),
+        [allTracks]
+    );
+    const positions = useMemo(() => allPositions.flat(), [allPositions]);
+    const placementCoords = useMemo(() => {
+        const flatRawCoords = allTracks.flat();
+        return tracks ? downsamplePlacementPoints(flatRawCoords) : flatRawCoords;
+    }, [allTracks, tracks]);
+
     if (isLoading) {
         return (
-            <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ height, minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <CircularProgress />
             </Box>
         );
     }
 
-    if (!coordinates || coordinates.length === 0) {
+    if (allTracks.length === 0) {
         return (
-            <Box sx={{ height: 'calc(100vh - 120px)', minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
+            <Box sx={{ height, minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
                 No map data available
             </Box>
         );
     }
-
-    const positions = coordinates.map(c => [Number(c.latitude), Number(c.longitude)]);
 
     return (
         <MapContainer
             className="route-map-full"
             center={positions[0]}
             zoom={13}
-            style={{ height: 'calc(100vh - 120px)', minHeight: 400, width: '100%', borderRadius: 4 }}
+            preferCanvas={preferCanvas}
+            style={{ height, minHeight: 400, width: '100%', borderRadius: 4 }}
             zoomControl={false}
             scrollWheelZoom={true}
             doubleClickZoom={true}
@@ -253,7 +293,9 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
                 </LayersControl.Overlay>
             </LayersControl>
 
-            <Polyline positions={positions} pathOptions={{ color: '#4285F4', weight: 3 }} />
+            {allPositions.map((p, i) => (
+                <Polyline key={i} positions={p} pathOptions={{ color: '#4285F4', weight: 3 }} />
+            ))}
             <FitBounds positions={positions} />
 
             <ZoomControl position="topleft" />
@@ -264,7 +306,7 @@ const RouteMapFull = ({ coordinates, isLoading, run, routeName, partners, runPar
             <ResetViewControl positions={positions} />
             <PersistentLayers controlRef={layersControlRef} />
             <CoordinateDisplay />
-            {photoMarkersEnabled && run && <PhotoMarkerLayer run={run} coordinates={coordinates} />}
+            {photoMarkersEnabled && (run || runs) && <PhotoMarkerLayer run={run} runs={runs} coordinates={placementCoords} dedupedIndex={dedupedIndex} />}
             {run && <MapStatsCard run={run} routeName={routeName} partners={partners} runPartners={runPartners} />}
         </MapContainer>
     );
