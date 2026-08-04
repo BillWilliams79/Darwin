@@ -658,13 +658,16 @@ const RequirementDetail = () => {
                 {/* Req #3313 — ID moves onto the title line: "ID - Title" instead of
                     "Title" alone. New-mode (req #2424): kept in layout but
                     invisible, matching the other rows below, so the title's left
-                    edge doesn't jump once the draft is saved and isNew flips. */}
+                    edge doesn't jump once the draft is saved and isNew flips.
+                    Req #3313 reopen — "{id} -" instead of "ID - {id}", and no
+                    explicit color so it inherits the same default text color as
+                    the Title field next to it (which also sets none). */}
                 <Box component="span" data-testid="requirement-id"
                      sx={{
-                         fontSize: 24, fontWeight: 500, color: 'text.secondary', flexShrink: 0,
+                         fontSize: 24, fontWeight: 500, flexShrink: 0,
                          ...(isNew && { visibility: 'hidden' }),
                      }}>
-                    ID - {requirement.id}
+                    {requirement.id} -
                 </Box>
                 <TextField
                     variant="standard"

@@ -223,10 +223,10 @@ test.describe('Swarm View', () => {
   test('SWM-24: requirement detail shows the requirement ID', async ({ page }) => {
     await page.goto(`/swarm/requirement/${testRequirementId}`);
     await expect(page.getByTestId('requirement-detail')).toBeVisible({ timeout: 10000 });
-    // Detail row renders "ID - N". The "Category Order - N" display was removed in req #2782.
+    // Detail row renders "N - ". The "Category Order - N" display was removed in req #2782.
     const idEl = page.getByTestId('requirement-id');
     await expect(idEl).toBeVisible({ timeout: 10000 });
-    await expect(idEl).toContainText(`ID - ${testRequirementId}`);
+    await expect(idEl).toContainText(`${testRequirementId} -`);
     await expect(page.getByTestId('requirement-index')).toHaveCount(0);
     await expect(page.getByText(/Category Order/)).toHaveCount(0);
   });
