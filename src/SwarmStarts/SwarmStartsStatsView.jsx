@@ -36,6 +36,7 @@ import {
 } from 'recharts';
 
 import { parsePhaseBreakdown } from '../utils/phaseTelemetry';
+import { swarmStartTokenTotal } from './tokenTotals';
 import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { EFFORTS, EFFORT_COLOR, effortLabel } from '../SwarmView/effortChipStyles';
 
@@ -74,12 +75,6 @@ const DEFAULT_THROUGHPUT_RANGE = 'All';
 
 // session_count histogram buckets: each integer 0..5 is its own bucket, 6+ collapsed.
 const SESSION_BUCKETS = ['0', '1', '2', '3', '4', '5', '6+'];
-
-const rowTokenTotal = (row) =>
-    (Number(row.tokens_input) || 0) +
-    (Number(row.tokens_cache_write) || 0) +
-    (Number(row.tokens_cache_read) || 0) +
-    (Number(row.tokens_output) || 0);
 
 // Pure aggregator — rows → stats object. Exported for unit testing.
 export function computeSwarmStartStats(rows) {
@@ -159,7 +154,10 @@ export function computeSwarmStartStats(rows) {
         cacheWriteTotal += Number(row.tokens_cache_write) || 0;
         cacheReadTotal += Number(row.tokens_cache_read) || 0;
         outputTotal += Number(row.tokens_output) || 0;
-        const tokenTotal = rowTokenTotal(row);
+        // ?? 0 preserves this file's pre-existing "untracked contributes
+        // nothing to the running sum" behavior explicitly — the shared
+        // helper itself returns null for an all-null row (see tokenTotals.js).
+        const tokenTotal = swarmStartTokenTotal(row) ?? 0;
 
         // Sessions histogram
         const sessKey = sessionCount >= 6 ? '6+' : String(sessionCount);
