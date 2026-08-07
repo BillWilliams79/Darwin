@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
 
@@ -49,41 +48,57 @@ function topologyDevAssets(command) {
   }
   const candidates = [
     process.env.TOPOLOGY_PATH,
+    // Sibling of the Darwin checkout. The normal hit on the unified workspace
+    // layout (req #3077): the Primary's <workspace>/primary/Topology, and a
+    // session's own <session>/Topology when Topology is in its affectedRepos.
     path.resolve(darwinRoot, '..', 'Topology'),
+    // Two up — the LEGACY layout, where a session worktree is <root>/wt-<task>/
+    // and the machine's single Topology clone sits at <root>/Topology. Still
+    // live on WSL, whose cutover is req #3086.
     path.resolve(darwinRoot, '..', '..', 'Topology'),
-    // Canonical clone location. Needed by the primary Claude session, whose
-    // Darwin/ is a symlink to /Users/billw/Desktop/darwin — `darwinRoot` resolves
-    // through the symlink, so the relative candidates land in Desktop/ and miss
-    // the real clone at ~/Projects/DarwinAI/Topology/. Workers don't need this
-    // (their Darwin/ is a real worktree dir → two-up already resolves correctly).
-    path.resolve(os.homedir(), 'Projects', 'DarwinAI', 'Topology'),
+    // There is deliberately NO home-directory-anchored rung here. The
+    // regression guard in tests/vite-topology/ greps this whole file, comments
+    // included, so re-introducing the old spelling anywhere in it goes red
+    // (req #3142). One such rung existed for the reference Mac's primary
+    // session, whose Darwin/ used to be a symlink: darwinRoot resolved through
+    // it, so both relative candidates
+    // landed in the symlink target's parents and missed the real clone. Req
+    // #3127 retired that layout: the Primary is now a plain directory at
+    // <workspace>/primary, so candidate 2 wins for it. The rung outlived its
+    // reason, pointed at a path that no longer exists, and — because the test
+    // guarding it mirrored the literal — took its own regression test down with
+    // it into a permanent SKIP. Anything the relative candidates cannot reach is
+    // the resolve-primary-root.sh fallback's job, below.
   ].filter(Boolean)
   // Require the candidate to be a directory AND contain the systems2 entrypoint.
   // An empty/uninitialized submodule directory satisfies isDirectory() but lacks
   // the asset payload, causing every /systems2 request to silently 404. Probing
-  // the actual entrypoint file lets the loop fall through to the next candidate
-  // (typically the canonical $HOME/Projects/DarwinAI/Topology clone). Req #2519.
+  // the actual entrypoint file lets the loop fall through to the next candidate,
+  // and past all of them to the primary-root fallback below. Req #2519.
   let topologyPath = candidates.find(hasTopologyEntrypoint)
 
   // Shared-machine fallback (req #3155), dev-server only — a session whose
   // affectedRepos didn't include Topology has no `../Topology` sibling of its
-  // own, and on WSL (legacy layout, req #3086 not yet cut over) there is no
-  // canonical ~/Projects/DarwinAI/Topology clone either — every candidate
-  // above misses, and /systems2 404s with only a misleading WebSocket/bfcache
-  // line in the browser console. resolve-primary-root.sh resolves this
-  // machine's primary DarwinAI-Config checkout (workspace root on legacy
-  // layout, <workspace>/primary on the target layout) regardless of which
-  // repos this session happens to have cloned, so its sibling Topology/ clone
-  // — checked out once per machine, not per session — is reachable as a last
-  // resort. Only shelled out to when the cheap candidates already missed and
-  // only for `vite serve` — `vite build` never needs Topology at all (see
-  // `apply: 'serve'` below) and must not pay a subprocess for nothing.
+  // own, so every candidate above misses and /systems2 404s with only a
+  // misleading WebSocket/bfcache line in the browser console.
+  // resolve-primary-root.sh resolves this machine's primary DarwinAI-Config
+  // checkout (workspace root on legacy layout, <workspace>/primary on the
+  // target layout) regardless of which repos this session happens to have
+  // cloned, so its sibling Topology/ clone — checked out once per machine, not
+  // per session — is reachable as a last resort. Only shelled out to when the
+  // cheap candidates already missed and only for `vite serve` — `vite build`
+  // never needs Topology at all (see `apply: 'serve'` below) and must not pay a
+  // subprocess for nothing.
   //
-  // Does NOT reach the reference Mac's primary session, whose Darwin/ is a
-  // symlink through which `darwinRoot` resolves (see the comment on candidate
-  // 4 above) — `resolve-primary-root.sh` lives beside the REAL checkout, not
-  // the symlink target, so the script path below misses there. Candidate 4
-  // is what covers that layout; this fallback is WSL/session-clone-specific.
+  // Since req #3142 this is the ONLY fallback, and unlike the retired
+  // home-anchored rung it asks the machine where its primary checkout is
+  // instead of asserting one absolute path for every machine. NOTE THE LIMIT,
+  // which is narrower than "any Darwin checkout with no Topology beside it":
+  // the resolver is addressed RELATIVE to darwinRoot, so it is only found when
+  // this Darwin checkout sits inside a DarwinAI-Config checkout. A bare
+  // BillWilliams79/Darwin clone gets `resolver script not found at …` in the
+  // diagnostic below and no Topology — that reader's route is TOPOLOGY_PATH or
+  // a sibling clone, and the Topology repo's own README says so.
   //
   // req #3155 was exactly a case where the only diagnostic lived in a log
   // nobody looked at — so a failure here must not repeat that silence.
@@ -139,9 +154,10 @@ function topologyDevAssets(command) {
         // visually loud enough to catch on next glance. See req #2540.
         server.config.logger.error(
           '[topology-dev-assets] no Topology clone found; /systems2 routes will 404. ' +
-          'Set TOPOLOGY_PATH, clone https://github.com/BillWilliams79/Topology to ' +
-          '~/Projects/DarwinAI/Topology/, or check this machine\'s primary DarwinAI-Config ' +
-          "checkout for a Topology/ clone (req #3155 fallback)." +
+          'Set TOPOLOGY_PATH, clone https://github.com/BillWilliams79/Topology beside ' +
+          `this Darwin checkout (${path.resolve(darwinRoot, '..', 'Topology')}), or check ` +
+          "this machine's primary DarwinAI-Config checkout for a Topology/ clone " +
+          '(req #3155 fallback).' +
           (fallbackDiagnostic ? ` [fallback diagnostic: ${fallbackDiagnostic}]` : ''),
           { clear: false, timestamp: true }
         )
