@@ -7,10 +7,16 @@
 // `parseSummary` is exported so the SwarmStartDetail page (and the unit test)
 // can reuse it without duplicating the parser.
 
-import { useCallback, useContext, useMemo } from 'react';
+import { useCallback, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
+import AppContext from '../Context/AppContext';
+import call_rest_api from '../RestApi/RestApi';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { swarmStartKeys, swarmStartSessionKeys } from '../hooks/useQueryKeys';
 import {
     useAllSwarmStarts,
     useSessions,
@@ -22,12 +28,14 @@ import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import { selectRequirementsForSwarmStart } from './requirementsList';
 import SwarmStartsStatsView from './SwarmStartsStatsView';
+import SwarmStartDeleteDialog from './SwarmStartDeleteDialog';
 
 import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -35,6 +43,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 const VIEW_STORAGE_KEY = 'darwin-swarm-starts-view';
@@ -50,8 +59,11 @@ const REQ_BASE_HEIGHT = 52;
 const formatNum = (v) => (v == null ? '—' : Number(v).toLocaleString());
 
 export default function SwarmStartsPage() {
-    const { profile } = useContext(AuthContext);
+    const { profile, idToken } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
 
@@ -59,9 +71,16 @@ export default function SwarmStartsPage() {
     // Req #2685 — junction + sessions feed the per-row "Requirements" cell.
     // Both lists are already paged into the cache by other views (SwarmStartDetail,
     // SessionsView); reusing them keeps this page free of extra round-trips.
-    const { data: sessionsArray = [] } = useSessions(creatorFk);
-    const { data: junction = [] } = useAllSwarmStartSessions(creatorFk);
+    const { data: sessionsArray = [], isLoading: sessionsLoading, isError: sessionsError } =
+        useSessions(creatorFk);
+    const { data: junction = [], isLoading: junctionLoading, isError: junctionError } =
+        useAllSwarmStartSessions(creatorFk);
     const { data: machinesData = [] } = useMachines(creatorFk);
+    // req #3265 code review (re-verify pass, finding 1) — a settled query
+    // error leaves isLoading false and data undefined (defaulted to []), which
+    // without isError here would read identically to "confirmed unlinked" and
+    // silently re-open the C2 fail-open on the error path.
+    const linkedLoading = sessionsLoading || junctionLoading || sessionsError || junctionError;
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -73,6 +92,32 @@ export default function SwarmStartsPage() {
     // View toggle (Table | Stats) — req #2686.
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
     const handleViewChange = (_event, newView) => setView(newView);
+
+    // req #3265 — delete affordance. This is a CLIENT-SIDE guard only: the
+    // dialog disables Delete and names linked sessions, but there is no
+    // database-level backstop (swarm_start_sessions.swarm_start_fk is ON
+    // DELETE CASCADE, not RESTRICT — see SwarmStartDeleteDialog.jsx).
+    const swarmStartDelete = useConfirmDialog({
+        onConfirm: ({ swarmStartId }) => {
+            const uri = `${darwinUri}/swarm_starts`;
+            call_rest_api(uri, 'DELETE', { id: swarmStartId }, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
+                        queryClient.invalidateQueries({ queryKey: swarmStartKeys.all(creatorFk) });
+                        queryClient.invalidateQueries({ queryKey: swarmStartSessionKeys.all(creatorFk) });
+                    } else {
+                        showError(result, 'Unable to delete swarm start');
+                    }
+                })
+                .catch(error => showError(error, 'Unable to delete swarm start'));
+        }
+    });
+    // req #3265 W1 — a ref, not swarmStartDelete itself, in the columns memo's
+    // deps: useConfirmDialog returns a fresh object every render, which would
+    // otherwise re-identity `columns` (and reset DataGrid column state) on
+    // every render — see the identical reasoning on getRowHeight below.
+    const openDeleteRef = useRef(swarmStartDelete.openDialog);
+    openDeleteRef.current = swarmStartDelete.openDialog;
 
     // swarm_start.id → [{ reqId, title, sessionId, startedAt }], built once
     // per (sessions, junction) change. The DataGrid's `valueGetter` and
@@ -223,6 +268,31 @@ export default function SwarmStartsPage() {
             width: 200,
             valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
         },
+        {
+            // req #3265 — delete affordance. stopPropagation keeps the click
+            // from triggering the row's navigate-to-detail handler.
+            field: 'actions',
+            headerName: '',
+            width: 50,
+            sortable: false,
+            filterable: false,
+            disableExport: true,
+            renderCell: (params) => (
+                <Tooltip title="Delete swarm start">
+                    <IconButton
+                        size="small"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            openDeleteRef.current({ swarmStartId: params.row.id });
+                        }}
+                        data-testid={`btn-delete-swarm-start-${params.row.id}`}
+                    >
+                        <DeleteIcon fontSize="small" />
+                    </IconButton>
+                </Tooltip>
+            ),
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     ], [timezone, requirementsByStart, machineNameById]);
 
     // Req #2685 — row height grows to fit one line per linked session.
@@ -307,6 +377,19 @@ export default function SwarmStartsPage() {
             {view === 'stats' && (
                 <SwarmStartsStatsView rows={swarmStarts} />
             )}
+
+            <SwarmStartDeleteDialog
+                deleteDialogOpen={swarmStartDelete.dialogOpen}
+                setDeleteDialogOpen={swarmStartDelete.setDialogOpen}
+                setDeleteId={swarmStartDelete.setInfoObject}
+                setDeleteConfirmed={swarmStartDelete.setConfirmed}
+                swarmStart={swarmStarts.find(s => s.id === swarmStartDelete.infoObject.swarmStartId)}
+                linkedSessionIds={
+                    (requirementsByStart.get(swarmStartDelete.infoObject.swarmStartId) || [])
+                        .map(r => r.sessionId)
+                }
+                linkedLoading={linkedLoading}
+            />
         </Box>
     );
 }

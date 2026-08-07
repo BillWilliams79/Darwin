@@ -68,7 +68,17 @@ export const NAV_LINKS = [
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
-    { path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm' },
+    // Req #3238 — Machines nests as an L3 child of Requirements rather than
+    // standing beside it as an L2 sibling (reuses the collapsible L3 mechanism
+    // req #3209 shipped for Sessions verbatim — no second mechanism). Requirements
+    // is the first parent to carry this shape rather than the last, so future L3s
+    // (this one included) generalise onto the same field.
+    {
+        path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
+        children: [
+            { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
+        ],
+    },
     // Req #3236 — Epics, Features and Steps are the plan's own entities (Epic >
     // Feature > Step, sequenced into a pipeline's steps — design rule 10 walks
     // that chain for a step's label), so they nest as L3 children of Pipelines
@@ -99,7 +109,6 @@ export const NAV_LINKS = [
         ],
     },
     { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
-    { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
     // Instructions + Documents listings live under AGENTS (req #3013) — the same
     // icons the Agents page header chips used, kept in that order (Instructions
