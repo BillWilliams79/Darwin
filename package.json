@@ -59,7 +59,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "bash ../scripts/run-e2e.sh",
-    "test:unit": "vitest run src/"
+    "test:unit": "TZ=America/Los_Angeles vitest run src/"
   },
   "overrides": {
     "react-is": "$react"
