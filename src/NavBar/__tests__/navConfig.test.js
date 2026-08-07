@@ -130,6 +130,45 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
     });
 });
 
+// Req #3238 — Machines nests as an L3 child of Requirements, reusing the exact
+// mechanism the Sessions block above pins.
+describe('navConfig — Machines nests under Requirements (req #3238)', () => {
+    const REQUIREMENTS_PATH = '/swarm';
+    const MACHINES_PATH = '/swarm/machines';
+
+    const requirements = NAV_LINKS.find(l => l.path === REQUIREMENTS_PATH);
+
+    it('keeps Requirements as a top-level link in the swarm group', () => {
+        expect(requirements).toBeDefined();
+        expect(requirements.group).toBe('swarm');
+        expect(requirements.label).toBe('Requirements');
+    });
+
+    it('nests Machines under Requirements', () => {
+        expect(requirements.children.map(c => c.path)).toEqual([MACHINES_PATH]);
+        expect(requirements.children.map(c => c.label)).toEqual(['Machines']);
+    });
+
+    it('every child carries an icon so the collapsed sidebar can render it', () => {
+        requirements.children.forEach(child => expect(child.icon).toBeTruthy());
+    });
+
+    it('no longer lists Machines at the top level', () => {
+        const topLevel = NAV_LINKS.map(l => l.path);
+        expect(topLevel).not.toContain(MACHINES_PATH);
+    });
+
+    it('exposes Machines in the flattened list', () => {
+        const flat = flattenNavLinks(NAV_LINKS).map(l => l.path);
+        expect(flat).toContain(MACHINES_PATH);
+    });
+
+    it('leaves Requirements as the swarm group\'s first link', () => {
+        // Same HomePage-redirect invariant the Sessions block above pins.
+        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe(REQUIREMENTS_PATH);
+    });
+});
+
 describe('flattenNavLinks', () => {
     it('emits each parent immediately followed by its children', () => {
         const flat = flattenNavLinks([
