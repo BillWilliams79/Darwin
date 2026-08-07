@@ -562,18 +562,9 @@ export function batchMachineLabel(batch) {
 // apart — the banner shipped the raw wire value (`2026-07-24 06:31:38.000000`,
 // UTC, microseconds and all) while the cell showed a localized one.
 //
-// `dateFormat.formatDateTime` normalizes MySQL's space-separated naive form
-// ("2026-07-24 06:31:38") to UTC but reads the ISO-ish `T` form
-// ("2026-07-24T06:31:38") as LOCAL — a silent offset-sized error on the same
-// stored value. Lambda-Rest emits the space form today (MySQL JSON_OBJECT), so
-// nothing hits it; the engine's own toEpochMs handles BOTH, and eligibility
-// disagreeing with the label about what a gate means is exactly the class of bug
-// this feature cannot afford. Normalize here so the two halves agree regardless
-// of which form arrives. (The `dateFormat` asymmetry is a real pre-existing bug
-// in a util with many callers and no live symptom — flagged, not silently
-// widened from inside this requirement.)
-const NAIVE_T_FORM = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)$/;
-
+// `dateFormat.formatDateTime` now normalizes BOTH the MySQL space-separated
+// naive form and the ISO-ish `T` form to UTC (req #3120 fixed the asymmetry
+// that used to live here), so no local normalization is needed.
 /**
  * A wall-clock dependency, rendered the way every other timestamp in the app is.
  *
@@ -583,8 +574,7 @@ const NAIVE_T_FORM = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)$/;
  */
 export function formatTimeGate(timeAt, timezone) {
     if (!timeAt) return '';
-    const m = NAIVE_T_FORM.exec(String(timeAt));
-    return formatDateTime(m ? `${m[1]} ${m[2]}` : timeAt, timezone);
+    return formatDateTime(timeAt, timezone);
 }
 
 /**

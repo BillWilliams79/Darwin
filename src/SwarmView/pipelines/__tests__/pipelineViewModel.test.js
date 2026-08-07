@@ -526,13 +526,23 @@ describe('formatTimeGate — one formatter for both surfaces', () => {
         expect(formatTimeGate(WIRE, 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
     });
 
-    it('reads the naive T form as the SAME instant as the space form', () => {
-        // dateFormat.formatDateTime alone does NOT: it parses a `T`-separated
-        // datetime with no designator as LOCAL time, which would put the label an
-        // offset out of step with the engine's own toEpochMs — eligibility and the
-        // gate it is computed from disagreeing about what the value means.
-        expect(formatTimeGate('2026-07-24T06:31:38', 'UTC'))
-            .toBe(formatTimeGate('2026-07-24 06:31:38', 'UTC'));
+    it('reads the naive T form as the SAME absolute instant as the space form', () => {
+        // Regression guard for req #3120: dateFormat.formatDateTime used to parse
+        // a `T`-separated datetime with no designator as LOCAL time, which put the
+        // label an offset out of step with the engine's own toEpochMs —
+        // eligibility and the gate it is computed from disagreeing about what the
+        // value means. formatTimeGate's own normalization workaround was retired
+        // once dateFormat.js was fixed to handle both forms; this test now pins
+        // that fix rather than the workaround.
+        //
+        // Pinned to an ABSOLUTE value, not just T-vs-space parity: the pre-fix bug
+        // parsed the T form using the process's local timezone, so on a host whose
+        // local zone happens to be UTC the buggy and fixed parses are identical and
+        // a parity-only assertion would pass against either. `test:unit` pins
+        // `TZ=America/Los_Angeles` (Darwin/package.json) so this is meaningful
+        // wherever the suite runs.
+        expect(formatTimeGate('2026-07-24T06:31:38', 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
+        expect(formatTimeGate('2026-07-24 06:31:38', 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
     });
 
     it('leaves an explicit offset alone', () => {
