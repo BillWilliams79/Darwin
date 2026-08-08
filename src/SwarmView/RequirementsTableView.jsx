@@ -1,6 +1,8 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
+import { elevatorStateFrom } from './detail/requirementSort';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -17,7 +19,7 @@ import Typography from '@mui/material/Typography';
 import EditIcon from '@mui/icons-material/Edit';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { useQueryClient } from '@tanstack/react-query';
-import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+import { DataGrid, GridToolbar, gridExpandedSortedRowIdsSelector } from '@mui/x-data-grid';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -43,6 +45,15 @@ export const SWARM_TABLE_WIDTH = 1520;
 
 const FIELDS = 'id,title,requirement_status,category_fk,coordination_type,ai_model,effort,machine_fk,completed_at,create_ts';
 
+// req #3302 — FIXED ROWS, so `getRowHeight: () => 'auto'` could go. § D rule 2 of
+// memory/view-switchable-pages.md prohibits auto height by name: the row
+// virtualizer mis-measures after a re-sort and rows overlap or leave gaps. This
+// grid carries two `sortComparator`s and a sortable header on every column, so it
+// was the one place in the codebase most able to trigger it.
+//
+// A fixed row can still hold prose — the doc's own retirement of the
+// "truncate it or use auto height" dichotomy. Two shapes, because the two wrapping
+// cells want different things: prose CLAMPS to a line count, chips WRAP and scroll.
 const WRAP_CELL_SX = {
     whiteSpace: 'normal',
     wordBreak: 'break-word',
@@ -51,7 +62,41 @@ const WRAP_CELL_SX = {
     display: 'flex',
     alignItems: 'center',
     width: '100%',
+    // Fixed rows mean a cell can no longer grow the row it sits in; contain the
+    // overflow rather than letting it paint over the neighbouring row.
+    overflow: 'hidden',
 };
+
+// Prose that must not be truncated to one line. `-webkit-box` + line-clamp is the
+// only cross-browser two-line ellipsis, and it is why this cannot simply reuse
+// WRAP_CELL_SX's flex centring — the two display modes are mutually exclusive.
+// `.MuiDataGrid-cell` is a BLOCK with `line-height: calc(var(--height) - 1px)`,
+// which is what vertically centres every ordinary column. A clamped cell sets its
+// own `lineHeight`, so it loses that and floats to the top of the row unless it
+// centres itself — hence the flex wrapper around the clamp. The two cannot be one
+// element: `-webkit-box` and `flex` are mutually exclusive display modes.
+const CLAMP_WRAP_SX = {
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
+    width: '100%',
+};
+
+const CLAMP_CELL_SX = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+    lineHeight: 1.3,
+    width: '100%',
+};
+
+// `rowHeight` is a PRE-DENSITY figure: `useGridDimensions` computes the real
+// height as `floor(rowHeight × densityFactor)`, and `density="compact"` is 0.7.
+// 72 lands at 50px — two clamped lines at lineHeight 1.3 plus the cell padding.
+const ROW_HEIGHT = 72;
 
 const STATUS_SORT_ORDER = {
     authoring: 0, approved: 1, swarm_ready: 2, development: 3, deferred: 4, met: 5, wontfix: 6,
@@ -260,7 +305,37 @@ const RequirementsTableView = () => {
     const handleCellClick = (params) => {
         // Don't navigate when clicking the checkbox column
         if (params.field === '__check__') return;
-        navigate(`/swarm/requirement/${params.row.id}`);
+        // req #3302 — the THIRD surface that opens a requirement, and it hands the
+        // prev/next elevator its own order like the other two. Without this the
+        // arrows walk the requirement's CATEGORY, which is not what this view is
+        // showing: the grid's rows are filtered by the chips AND by the quick
+        // filter AND ordered by whichever column header the reader last clicked.
+        //
+        // `gridExpandedSortedRowIdsSelector` — FILTERED **and** sorted, across
+        // pages. NOT `api.getSortedRowIds()`, which reads `sortingState.sortedRows`
+        // and is sorted but UNFILTERED (verified in
+        // `@mui/x-data-grid/esm/hooks/features/sorting/gridSortingSelector.js`;
+        // the neighbouring `getRowIdFromRowIndex` doc says "sorted but unfiltered"
+        // outright). Handing over unfiltered ids would walk the elevator through
+        // rows the quick filter has hidden — the exact defect this handoff exists
+        // to remove, reintroduced one method call away from the fix.
+        //
+        // Across pages on purpose: pagination is how much you can SEE at once, not
+        // what you are looking at, and the reader can page past a boundary the
+        // arrows would otherwise stop at.
+        //
+        // Guarded because a selector needs the apiRef shape; losing the handoff
+        // falls back to the category query, never to a crash.
+        let ordered;
+        try {
+            ordered = params.api ? gridExpandedSortedRowIdsSelector({ current: params.api }) : null;
+        } catch {
+            ordered = null;
+        }
+        const state = Array.isArray(ordered) && ordered.length
+            ? elevatorStateFrom(ordered.map(id => ({ id })))
+            : undefined;
+        navigate(`/swarm/requirement/${params.row.id}`, state ? { state } : undefined);
     };
 
     const columns = [
@@ -276,7 +351,13 @@ const RequirementsTableView = () => {
             headerName: 'Title',
             width: 220,
             renderCell: (params) => (
-                <Box sx={WRAP_CELL_SX}>{params.value}</Box>
+                // The full title is the row's tooltip, so clamping hides nothing
+                // a reader cannot get back without leaving the page.
+                <Tooltip title={params.value || ''} enterDelay={600} enterNextDelay={300}>
+                    <Box sx={CLAMP_WRAP_SX}>
+                        <Box sx={CLAMP_CELL_SX}>{params.value}</Box>
+                    </Box>
+                </Tooltip>
             ),
         },
         {
@@ -361,6 +442,15 @@ const RequirementsTableView = () => {
                         ...WRAP_CELL_SX,
                         flexWrap: 'wrap',
                         gap: 0.5,
+                        // req #3302 — the row no longer grows to fit, so overflow
+                        // has to go SOMEWHERE. `hidden` would make every session
+                        // past the first line unreachable from this view, and the
+                        // chips are the only route from here to a session. A 24px
+                        // chip in a 50px row means the second line is always the
+                        // one that overflows, so this scrolls rather than clips.
+                        overflowY: 'auto',
+                        alignItems: 'flex-start',
+                        py: 0.5,
                     }}>
                         {list.map(s => {
                             const chipProps = swarmStatusChipProps(s.swarm_status);
@@ -452,7 +542,7 @@ const RequirementsTableView = () => {
                     rows={filteredRequirements}
                     columns={columns}
                     loading={reqLoading || catLoading}
-                    getRowHeight={() => 'auto'}
+                    rowHeight={ROW_HEIGHT}
                     slots={{ toolbar: GridToolbar }}
                     slotProps={{ toolbar: { showQuickFilter: true } }}
                     initialState={{

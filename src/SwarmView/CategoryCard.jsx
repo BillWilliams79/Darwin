@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { STATUS_SORT_PROCESS, processSort, processSortReverse, requirementHandSort } from './processSort';
+import { STATUS_SORT_PROCESS, requirementActiveSort, requirementHandSort, coerceSortMode } from './processSort';
 import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
@@ -85,13 +85,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         }
     });
 
-    // Legacy categories may have sort_mode='created' — treat anything other than
-    // 'hand' / 'reverse' as 'process'. Three live values: 'hand' | 'process' | 'reverse'.
-    const [sortMode, setSortMode] = useState(
-        category.sort_mode === 'hand'
-            ? 'hand'
-            : category.sort_mode === 'reverse' ? 'reverse' : 'process'
-    );
+    // Three live values: 'hand' | 'process' | 'reverse'. `coerceSortMode` is the
+    // ONE reading of the column (req #3302) — see its docstring for the two
+    // copies that disagreed.
+    const [sortMode, setSortMode] = useState(coerceSortMode(category.sort_mode));
 
     // Status Sort menu item toggles direction when already active: process ↔ reverse.
     // Hand Sort menu item always sets 'hand' directly.
@@ -116,14 +113,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         setSortMode(newMode);
 
         if (requirementsArray) {
-            // Hand mode honors persisted sort_order (req #2417). Newly empty
-            // sort_order rows fall to id-order via requirementHandSort's NULL→+∞
-            // tiebreak — same visual default as pre-#2417 createdSort.
-            const sortFn = newMode === 'hand'
-                ? requirementHandSort
-                : newMode === 'reverse' ? processSortReverse : processSort;
+            // req #3302 — the SAME comparator every other path uses. This used to
+            // call `requirementHandSort` bare for hand mode, skipping the status
+            // band that `activeSort` applies, so the order the user saw the
+            // instant they picked Hand Sort was not the order the next refetch,
+            // status-chip toggle or cross-card drop produced. `newMode`, not
+            // `sortMode` — this runs before the state update lands.
             const sorted = [...requirementsArray];
-            sorted.sort((a, b) => sortFn(a, b));
+            sorted.sort((a, b) => requirementActiveSort(newMode, a, b));
             setRequirementsArray(sorted);
         }
 
@@ -159,10 +156,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 if (sortModeMutationRef.current !== mutationId) return;
                 queryClient.setQueryData(openKey, previousOpen);
                 queryClient.setQueryData(allKey, previousAll);
-                const prior = category.sort_mode === 'hand'
-                    ? 'hand'
-                    : category.sort_mode === 'reverse' ? 'reverse' : 'process';
-                setSortMode(prior);
+                setSortMode(coerceSortMode(category.sort_mode));
                 showError(errorArg, message);
             };
 
@@ -720,40 +714,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         });
     }
 
-    // STATUS_SORT_PROCESS, processSort, processSortReverse imported from ./processSort
-
-    const STATUS_SORT = { authoring: 0, approved: 0, swarm_ready: 0, development: 0, deferred: 1, met: 2, wontfix: 3 };
-
-    const activeSort = (a, b) => {
-        if (a.id === '') return 1;
-        if (b.id === '') return -1;
-        if (sortMode === 'process') return processSort(a, b);
-        if (sortMode === 'reverse') return processSortReverse(a, b);
-        // Three-group sort: active (0) < deferred (1) < met (2)
-        const aState = STATUS_SORT[a.requirement_status] ?? 0;
-        const bState = STATUS_SORT[b.requirement_status] ?? 0;
-        if (aState !== bState) return aState - bState;
-        if (a.requirement_status === 'met' && b.requirement_status === 'met') {
-            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-            if (aTime !== bTime) return bTime - aTime;  // most recent first
-        }
-        if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
-            const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
-            const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
-            if (aTime !== bTime) return bTime - aTime;  // most recent first
-        }
-        if (a.requirement_status === 'wontfix' && b.requirement_status === 'wontfix') {
-            // wontfix timestamps via completed_at (terminal, like met — req #2783)
-            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-            if (aTime !== bTime) return bTime - aTime;  // most recent first
-        }
-        // Hand mode (req #2417): sort_order ASC within the active group, NULL last,
-        // id tiebreak. Default (no sortMode change yet) also lands here and degrades
-        // gracefully — sort_order=NULL on every row → pure id ASC, unchanged from #2405.
-        return requirementHandSort(a, b);
-    }
+    // req #3302 — THE sort lives in ./processSort as `requirementActiveSort`.
+    // This was a local copy, and `changeSortMode` used a THIRD ordering that
+    // skipped the status band, so picking Hand Sort ordered the rows one way and
+    // the next refetch / chip toggle / cross-card drop re-ordered them another.
+    // One implementation now, called by every path that orders this card.
+    const activeSort = (a, b) => requirementActiveSort(sortMode, a, b);
 
     return (
         <Card key={categoryIndex} raised={true} ref={mergedRef}
