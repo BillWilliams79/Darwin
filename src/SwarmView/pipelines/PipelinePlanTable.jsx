@@ -223,6 +223,17 @@ function BatchBannerRow({ batch, colSpan, timezone }) {
                         <em>{batch.noLaunchReason
                             || 'no linked requirements — nothing to launch'}</em>
                     )}
+                    {/* req #3360. A PARTIAL exclusion is the common case and it
+                        is invisible without this: the command reads
+                        `/swarm-start 3329 3331 3333` on a step that links six
+                        requirements, which is indistinguishable from a dropped
+                        one. Rendered only ALONGSIDE a command — when there is
+                        none, `noLaunchReason` above already names every id. */}
+                    {batch.swarmStartCommand && (batch.launchExcluded || []).length > 0 && (
+                        <em data-testid={`pipeline-batch-skipped-${batch.letter}`}>
+                            skipped: {batch.launchExcluded.join(', ')}
+                        </em>
+                    )}
                 </Box>
             </TableCell>
         </TableRow>

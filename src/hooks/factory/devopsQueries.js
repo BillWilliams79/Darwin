@@ -194,7 +194,7 @@ export const swarmCompleteSessions = createEntityQueries({
 // ---------------------------------------------------------------------------
 const MACHINE_DEFAULT_FIELDS =
     'id,title,description,hostname,platform,arch,hw_model,os_version,' +
-    'last_seen_at,closed,sort_order,creator_fk,create_ts,update_ts';
+    'last_seen_at,max_live_sessions,closed,sort_order,creator_fk,create_ts,update_ts';
 
 export const machines = createEntityQueries({
     entity: 'machines',
@@ -400,7 +400,7 @@ export const orchestrationClaims = createEntityQueries({
 export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:
-        'id,title,description,pipeline_status,machine_fk,' +
+        'id,title,description,pipeline_status,execution_mode,machine_fk,' +
         'started_at,completed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'id:desc',
