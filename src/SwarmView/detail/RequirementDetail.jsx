@@ -3,12 +3,13 @@ import { useParams, useNavigate, useLocation, Link as RouterLink } from 'react-r
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
-import { useAllCategories, useMachines, useFeatureById, useEpicById } from '../../hooks/useDataQueries';
+import { useAllCategories, useMachines, useFeatureById, useEpicById, usePipelinedRequirementIds } from '../../hooks/useDataQueries';
 import { useEpicPipelineLocation } from './useEpicPipelineLocation';
 import { useRequirementStepLocation } from './useRequirementStepLocation';
 import { epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
-import { siblingActiveSort } from './requirementSort';
+import { siblingElevator, readElevatorIds } from './requirementSort';
+import { coerceSortMode, DEFAULT_SORT_MODE } from '../processSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../../utils/requirementStatusTimestamps';
 import AuthContext from '../../Context/AuthContext';
@@ -194,7 +195,7 @@ const RequirementDetail = () => {
     } : null);
     const [sessions, setSessions] = useState([]);
     const [siblings, setSiblings] = useState([]);
-    const [sibSortMode, setSibSortMode] = useState('hand');
+    const [sibSortMode, setSibSortMode] = useState(DEFAULT_SORT_MODE);
     const [loading, setLoading] = useState(!isNew);
 
     // Req #2818: in the aggregator-template / category-unset flow the Category select is
@@ -356,6 +357,10 @@ const RequirementDetail = () => {
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
+    // req #3302 — the card's OTHER filter. See `visibleSiblings` below.
+    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
+    const pipelinedIds = usePipelinedRequirementIds(profile?.userName, { enabled: hidePipelined });
+
     const queryClient = useQueryClient();
 
     const requirementDelete = useConfirmDialog({
@@ -446,7 +451,7 @@ const RequirementDetail = () => {
                     // so a dev-seeded session is visible here too (without this, dev showed the
                     // list from darwin_dev but linked sessions from production darwin).
                     call_rest_api(`${darwinUri}/swarm_sessions?source_ref=requirement:${p.id}`, 'GET', '', idToken).catch(() => null),
-                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                    call_rest_api(`${darwinUri}/requirements?category_fk=${p.category_fk}&fields=id,requirement_status,completed_at,deferred_at,started_at,sort_order${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                     call_rest_api(`${darwinUri}/categories?id=${p.category_fk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
                 ]);
 
@@ -457,9 +462,7 @@ const RequirementDetail = () => {
                     setSiblings(siblingsResult.data);
                 }
                 if (categoryResult?.httpStatus?.httpStatus === 200 && categoryResult.data.length > 0) {
-                    // Mirror CategoryCard coercion: 'hand' / 'reverse' pass through, anything else → 'process'.
-                    const raw = categoryResult.data[0].sort_mode;
-                    setSibSortMode(raw === 'hand' ? 'hand' : raw === 'reverse' ? 'reverse' : 'process');
+                    setSibSortMode(coerceSortMode(categoryResult.data[0].sort_mode));
                 }
             } catch (error) {
                 showError(error, 'Unable to load requirement');
@@ -637,11 +640,11 @@ const RequirementDetail = () => {
             : `&requirement_status=(${siblingStatuses.join(',')})`;
         try {
             const [siblingsResult, categoryResult] = await Promise.all([
-                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,completed_at,deferred_at,started_at${siblingFilter}`, 'GET', '', idToken).catch(() => null),
+                call_rest_api(`${darwinUri}/requirements?category_fk=${newCategoryFk}&fields=id,requirement_status,completed_at,deferred_at,started_at,sort_order${siblingFilter}`, 'GET', '', idToken).catch(() => null),
                 call_rest_api(`${darwinUri}/categories?id=${newCategoryFk}&fields=id,sort_mode`, 'GET', '', idToken).catch(() => null),
             ]);
             if (siblingsResult?.httpStatus?.httpStatus === 200) setSiblings(siblingsResult.data || []);
-            if (categoryResult?.httpStatus?.httpStatus === 200) setSibSortMode(categoryResult.data[0]?.sort_mode || 'hand');
+            if (categoryResult?.httpStatus?.httpStatus === 200) setSibSortMode(coerceSortMode(categoryResult.data[0]?.sort_mode));
         } catch (e) {
             // siblings refresh is best-effort
         }
@@ -657,18 +660,41 @@ const RequirementDetail = () => {
         }
     }, [focusDescriptionPending, requirement]);
 
-    const sortedSiblings = useMemo(() => {
-        if (!siblings.length) return [];
-        return [...siblings].sort((a, b) => siblingActiveSort(sibSortMode, a, b));
-    }, [siblings, sibSortMode]);
+    // req #3302 — THE ELEVATOR'S POPULATION MUST BE THE CARD'S, not just its
+    // ORDER. `requirementSort.js`'s header states the invariant ("prev/next
+    // navigation matches the row order shown on the category card") and the two
+    // comparators have always agreed; what diverged is WHICH ROWS they sort.
+    // `CategoryCard` gained the pipelined filter in req #3258 and this list did
+    // not, so with `hidePipelinedRequirements` on — its DEFAULT since req #3242 —
+    // the siblings were a strict SUPERSET of the visible rows.
+    //
+    // Measured on `darwin_dev` category 1052 (Agents), default chips: the card's
+    // first row (#3100) sat at sibling index 1 behind pipelined #3074, so Up was
+    // enabled on the first row, and Down from it landed on pipelined #3136 —
+    // a requirement the card does not show at all.
+    //
+    // Same predicate, same source of truth (`utils/pipelineMembership.js`) and
+    // the same in-flight behaviour as the card: an unresolved junction read
+    // yields an empty set and drops nothing, so the elevator can only ever be
+    // too permissive for a moment, never hide a row the card is showing.
+    // req #3302 — the surface that opened this page hands over the ordered ids it
+    // rendered (`elevatorStateFrom`), and that wins. It is the ONLY thing that
+    // can be right for the SwarmStartCard aggregator, whose list is every
+    // category under ONE status with its own filter and sort — nothing derivable
+    // from this requirement's `category_fk`. A refresh or a pasted link carries
+    // no state, and the category query below is the fallback.
+    const linkOrderedIds = readElevatorIds(location.state);
 
-    const currentIndex = useMemo(() => {
-        const idNum = parseInt(id);
-        return sortedSiblings.findIndex(s => parseInt(s.id) === idNum);
-    }, [sortedSiblings, id]);
-
-    const prevId = currentIndex > 0 ? sortedSiblings[currentIndex - 1]?.id : null;
-    const nextId = currentIndex >= 0 && currentIndex < sortedSiblings.length - 1 ? sortedSiblings[currentIndex + 1]?.id : null;
+    const { prevId, nextId } = useMemo(
+        () => siblingElevator(siblings, {
+            sortMode: sibSortMode,
+            pipelinedIds,
+            hidePipelined,
+            currentId: id,
+            orderedIds: linkOrderedIds,
+        }),
+        [siblings, sibSortMode, pipelinedIds, hidePipelined, id, linkOrderedIds],
+    );
 
     const titleOverflow = Math.max(0, (requirement?.title || '').length - TITLE_SOFT_LIMIT);
 

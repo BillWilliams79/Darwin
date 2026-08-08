@@ -74,3 +74,79 @@ export const requirementHandSort = (a, b) => {
     if (aSort !== bSort) return aSort - bSort;
     return a.id - b.id;
 };
+
+// ── THE requirement sort — one implementation, three modes (req #3302) ───────
+//
+// There were THREE copies of this rule and they disagreed:
+//
+//  1. `CategoryCard.activeSort` — status band, then `requirementHandSort`.
+//  2. `CategoryCard.changeSortMode` — bare `requirementHandSort`, NO status band.
+//     So picking Hand Sort ordered the rows one way and the very next refetch,
+//     status-chip toggle or cross-card drop re-ordered them another, with nothing
+//     on screen to explain it.
+//  3. `detail/requirementSort.js` — a second transcription of the comparators for
+//     the prev/next elevator, whose header already declared it must not drift.
+//
+// This is now the only one. (2) and (3) call it; `requirementSort.js` re-exports
+// the names its own callers and tests use.
+//
+// The status BAND is deliberate in hand mode and is not a bug being preserved:
+// terminal work sinks below active work in every mode, and `sort_order` positions
+// a row WITHIN its band. `changeSortMode` skipping it was the defect.
+const STATUS_SORT_ACTIVE = {
+    authoring: 0, approved: 0, swarm_ready: 0, development: 0,
+    deferred: 1, met: 2, wontfix: 3,
+};
+
+/**
+ * @param {string} sortMode  'process' | 'reverse' | anything else → hand
+ * @returns {number} comparator result; the template row (`id === ''`) sorts last.
+ */
+export const requirementActiveSort = (sortMode, a, b) => {
+    if (a.id === '') return 1;
+    if (b.id === '') return -1;
+    if (sortMode === 'process') return processSort(a, b);
+    if (sortMode === 'reverse') return processSortReverse(a, b);
+
+    const aState = STATUS_SORT_ACTIVE[a.requirement_status] ?? 0;
+    const bState = STATUS_SORT_ACTIVE[b.requirement_status] ?? 0;
+    if (aState !== bState) return aState - bState;
+
+    // Within a terminal band, most-recent first. `secondarySort` is not reused
+    // here: it keys off the status ranks of the PROCESS ladder, and hand mode's
+    // bands are coarser (all four active statuses share band 0).
+    if (a.requirement_status === b.requirement_status) {
+        const key = a.requirement_status === 'deferred' ? 'deferred_at'
+            : (a.requirement_status === 'met' || a.requirement_status === 'wontfix') ? 'completed_at'
+            : null;
+        if (key) {
+            const aTime = a[key] ? new Date(a[key]).getTime() : 0;
+            const bTime = b[key] ? new Date(b[key]).getTime() : 0;
+            if (aTime !== bTime) return bTime - aTime;
+        }
+    }
+    return requirementHandSort(a, b);
+};
+
+export { STATUS_SORT_ACTIVE };
+
+/** The card's default order when a category names nothing usable. */
+export const DEFAULT_SORT_MODE = 'process';
+
+/**
+ * `categories.sort_mode` -> one of the three live values (req #3302).
+ *
+ * FOUR copies of this coercion existed and TWO of them disagreed: `CategoryCard`
+ * (twice — the initial state and the rollback) and `RequirementDetail`'s initial
+ * load read `'hand' | 'reverse' | else process`, while its category-CHANGE path
+ * read `sort_mode || 'hand'` raw. That second form hands a legacy `'created'`
+ * straight through to `requirementActiveSort`, which has no case for it and falls
+ * to the HAND branch — so changing a requirement's category could silently
+ * re-order the prev/next elevator by a mode the card never uses. A NULL differed
+ * too: `'hand'` on one path, `'process'` on the other.
+ *
+ * Legacy `'created'` (retired) and anything unrecognised resolve to `process`,
+ * which is what every live category row carries.
+ */
+export const coerceSortMode = (raw) =>
+    raw === 'hand' ? 'hand' : raw === 'reverse' ? 'reverse' : DEFAULT_SORT_MODE;

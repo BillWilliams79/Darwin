@@ -11,7 +11,6 @@ import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
-import { useViewPreference } from '../hooks/useViewPreference';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
@@ -47,6 +46,8 @@ import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
 import ChipFilter from '../Components/ChipFilter';
+import { SWARM_VIEWS } from './swarmViewLink';
+import { useSwarmViewSelection } from './useSwarmViewSelection';
 
 // req #2992 — fixed vocabulary, so options are module-level. Colors come from
 // requirementStatusChipProps, not the ChipFilter palette.
@@ -56,7 +57,17 @@ const requirementStatusOptions = ALL_REQUIREMENT_STATUSES.map(status => ({
     chipProps: requirementStatusChipProps(status),
 }));
 
-const SWARM_VIEW_STORAGE_KEY = 'darwin-swarm-view';
+// The CHROME for each view — its tooltip and its icon (§ C R3's canonical mapping).
+// Kept here rather than in `swarmViewLink.js` so that module stays free of MUI and
+// testable without a DOM; the VOCABULARY is still `SWARM_VIEWS`, and the toggle row
+// maps over that, so this object can only ever add presentation to a value the
+// validator already knows.
+const SWARM_VIEW_CHROME = {
+    cards:      { label: 'Cards View',      Icon: ViewModuleIcon },
+    table:      { label: 'Table View',      Icon: TableChartIcon },
+    visualizer: { label: 'Visualizer View', Icon: BubbleChartIcon },
+    trends:     { label: 'Trends View',     Icon: TimelineIcon },
+};
 
 const SwarmView = () => {
 
@@ -65,7 +76,21 @@ const SwarmView = () => {
     const queryClient = useQueryClient();
 
     const [projectsArray, setProjectsArray] = useState()
-    const [view, setView] = useViewPreference(SWARM_VIEW_STORAGE_KEY, 'cards');
+
+    // ── `?view=` makes the SURFACE addressable, not just the page (req #3168 R9) ──
+    // Which panel this page shows is a persisted PREFERENCE (§ H), so `/swarm`
+    // alone names the page and not a view of it: it opens whatever this reader
+    // last chose, or `cards` for a first-time visitor. That made Table,
+    // Visualizer and Trends unlinkable — no URL reliably landed on one — which is
+    // a real gap for a dev-server deep link, a bug report, and a link pasted into
+    // a review.
+    //
+    // The rules and their rationale live in `useSwarmViewSelection.js`, because
+    // they are stateful and a stateful rule inside this component is a rule no
+    // test can reach. `setView` is the MANUAL PICK (clears the link override and
+    // persists); `showViewTransiently` is a CROSS-VIEW HANDSHAKE (override only,
+    // never persisted).
+    const { view, setView, showTransiently: showViewTransiently } = useSwarmViewSelection();
 
     const activeTab = useSwarmTabStore(s => s.activeTab);
     const setActiveTab = useSwarmTabStore(s => s.setActiveTab);
@@ -271,26 +296,23 @@ const SwarmView = () => {
                             sx={{ flexShrink: 0 }}
                             data-testid="swarm-view-toggle"
                         >
-                            <Tooltip title="Cards View">
-                                <ToggleButton value="cards" data-testid="view-toggle-cards" sx={{ px: 2 }}>
-                                    <ViewModuleIcon fontSize="small" />
-                                </ToggleButton>
-                            </Tooltip>
-                            <Tooltip title="Table View">
-                                <ToggleButton value="table" data-testid="view-toggle-table" sx={{ px: 2 }}>
-                                    <TableChartIcon fontSize="small" />
-                                </ToggleButton>
-                            </Tooltip>
-                            <Tooltip title="Visualizer View">
-                                <ToggleButton value="visualizer" data-testid="view-toggle-visualizer" sx={{ px: 2 }}>
-                                    <BubbleChartIcon fontSize="small" />
-                                </ToggleButton>
-                            </Tooltip>
-                            <Tooltip title="Trends View">
-                                <ToggleButton value="trends" data-testid="view-toggle-trends" sx={{ px: 2 }}>
-                                    <TimelineIcon fontSize="small" />
-                                </ToggleButton>
-                            </Tooltip>
+                            {/* Mapped OUT of the same vocabulary `?view=` is validated
+                                against (`PipelineDetail.jsx`'s shape), so a fifth view
+                                cannot render, toggle and persist while being unlinkable
+                                — which is what hand-written `value=` literals allowed,
+                                silently, with nothing failing. Adding a view now means
+                                adding it to `SWARM_VIEWS`, and `SWARM_VIEW_CHROME`
+                                fails the render if it has no entry. */}
+                            {SWARM_VIEWS.map((value) => {
+                                const { label, Icon } = SWARM_VIEW_CHROME[value];
+                                return (
+                                    <Tooltip key={value} title={label}>
+                                        <ToggleButton value={value} data-testid={`view-toggle-${value}`} sx={{ px: 2 }}>
+                                            <Icon fontSize="small" />
+                                        </ToggleButton>
+                                    </Tooltip>
+                                );
+                            })}
                         </ToggleButtonGroup>
                         <RequirementJumpInput />
                         {view === 'cards' && (
@@ -418,7 +440,10 @@ const SwarmView = () => {
                         claims the full tab-panels grid area like table/visualizer. */}
                     {view === 'trends' && (
                         <Box className="app-content-tabpanel">
-                            <RequirementsTrendsView onDrillToTable={() => setView('table')} />
+                            {/* Transient, not persisted — clicking a chart bar to inspect
+                                its requirements is not a request to make Table the
+                                default in every tab. See `showViewTransiently`. */}
+                            <RequirementsTrendsView onDrillToTable={() => showViewTransiently('table')} />
                         </Box>
                     )}
             </Box>
