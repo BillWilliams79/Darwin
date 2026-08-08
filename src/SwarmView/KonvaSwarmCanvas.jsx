@@ -123,10 +123,14 @@ const dateAtWorldY = (rows, y) => {
 
 // Popup datetime — "Mon Day @ h:mma" with NO year and NO weekday (req feedback).
 // Parses MySQL UTC ("YYYY-MM-DD HH:MM:SS") and ISO strings the same way as
-// utils/dateFormat's toDate.
+// utils/dateFormat's toDate: a naive datetime (space OR 'T' separated, no
+// Z/offset) is UTC-stored. Duplicated rather than imported because toDate
+// itself isn't exported; kept in step with dateFormat's `NAIVE_DATETIME`
+// (req #3120).
+const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
 const parseTs = (s) => {
     if (!s) return null;
-    if (typeof s === 'string' && s.includes(' ') && !s.includes('T')) return new Date(s.replace(' ', 'T') + 'Z');
+    if (typeof s === 'string' && NAIVE_DATETIME.test(s)) return new Date(s.replace(' ', 'T') + 'Z');
     return new Date(s);
 };
 const fmtDT = (s, tz) => {

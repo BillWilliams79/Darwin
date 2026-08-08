@@ -45,13 +45,12 @@ export const SORT_MODES = [
 // 00:00 and 08:00 UTC rendered tomorrow's date to a US Pacific viewer, and disagreed
 // with the `Created` column beside it, which parsed correctly.
 // The condition is "carries NO timezone information", not "contains a space".
-// `utils/dateFormat.js` normalizes only the space form, which is sufficient there
-// because it is only ever handed Lambda-Rest output — but this is an EXPORTED helper
-// with a generic name, and the next caller to pass it an ISO-without-offset string
-// (`2026-07-26T02:00:00`) would silently re-acquire the exact off-by-one-day defect
-// it exists to remove. Widened deliberately: on every input either function actually
-// sees this is a superset of dateFormat's behaviour, so the two cannot disagree on
-// real data — they only differ on a shape Lambda-Rest never emits.
+// `utils/dateFormat.js` now normalizes BOTH the space and 'T' forms to UTC
+// (req #3120 fixed the asymmetry that used to leave it handling only the
+// space form) — this module keeps its own copy anyway so a single call site
+// cannot get it wrong, and REQUIRES seconds where dateFormat's makes them
+// optional, so this regex is the narrower of the two rather than a superset.
+// Both still agree on every input Lambda-Rest actually emits.
 const NO_TIMEZONE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$/;
 
 export const dbTimestamp = (value) => {

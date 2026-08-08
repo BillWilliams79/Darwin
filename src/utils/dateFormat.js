@@ -2,11 +2,20 @@
 // All functions accept an IANA timezone string (e.g. 'America/Los_Angeles').
 // If timezone is null/undefined, falls back to browser default.
 
+// A naive datetime — space- or 'T'-separated, no trailing Z/offset designator —
+// is stored/produced as UTC everywhere in Darwin (MySQL JSON_OBJECT emits the
+// space form; other sources emit the 'T' form for the same instant). Mirrors
+// the naive-vs-designator distinction in pipelineModel.js's TIMESTAMP_RE so
+// both engines agree on what a bare timestamp means (req #3120).
+const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
 function toDate(dateStr) {
     if (!dateStr) return null;
-    // MySQL format: "YYYY-MM-DD HH:MM:SS" — stored as UTC, append Z
-    if (typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T')) {
-        return new Date(dateStr.replace(' ', 'T') + 'Z');
+    if (typeof dateStr === 'string') {
+        const trimmed = dateStr.trim();
+        if (NAIVE_DATETIME.test(trimmed)) {
+            return new Date(trimmed.replace(' ', 'T') + 'Z');
+        }
     }
     return new Date(dateStr);
 }

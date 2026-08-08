@@ -1,101 +1,131 @@
 // Sort helpers for the RequirementDetail sibling list.
 // Must stay in sync with CategoryCard.activeSort so prev/next navigation in the
 // single-requirement editor matches the row order shown on the category card.
+//
+// req #3302 — THAT INVARIANT IS ABOUT THE POPULATION AS WELL AS THE ORDER, and
+// only the order was ever honoured here. `CategoryCard` gained the pipelined
+// filter in req #3258 (default ON since req #3242) and this list did not, so the
+// elevator walked a strict SUPERSET of the visible rows: Up was enabled on the
+// card's first row, and Down landed on a requirement the card does not show.
+// `siblingElevator` below now owns BOTH halves plus the index arithmetic, so a
+// test can reach the answer the component actually renders rather than
+// re-deriving it — the failure mode that let this ship with a green suite.
 
-export const STATUS_SORT = {
-    authoring: 0,
-    approved: 0,
-    swarm_ready: 0,
-    development: 0,
-    deferred: 1,
-    met: 2,
-    wontfix: 3,
+import { excludePipelined } from '../../utils/pipelineMembership';
+
+// req #3302 — ONE IMPLEMENTATION. These were a second transcription of
+// `../processSort.js`'s comparators, kept in step by hand and by this file's own
+// header comment. They are now re-exports of the single implementation, under
+// the names this module's callers and tests already use. The `sibling*` aliases
+// survive because they read correctly at the call site (the detail page walks
+// SIBLINGS); they are the same functions, which
+// `__tests__/elevatorMatchesCard.test.js` asserts by identity rather than by
+// comparing two orderings — a comparison passes while two copies happen to agree
+// and says nothing about whether they are one thing.
+export {
+    STATUS_SORT_ACTIVE as STATUS_SORT,
+    STATUS_SORT_PROCESS,
+    STATUS_SORT_PROCESS_REVERSE,
+    processSort as siblingProcessSort,
+    processSortReverse as siblingProcessSortReverse,
+    requirementActiveSort as siblingActiveSort,
+} from '../processSort';
+
+import { requirementActiveSort } from '../processSort';
+
+const siblingActiveSortLocal = requirementActiveSort;
+
+/**
+ * THE elevator: which siblings the prev/next arrows walk, in what order, and
+ * where the current requirement sits in them.
+ *
+ * One function because the three answers are one fact. Splitting them is how the
+ * page came to sort the right rows and navigate the wrong ones.
+ *
+ * `hidePipelined` is passed through rather than assumed: the toggle is a user
+ * CONTROL on a browse surface (`useShowClosedStore.hidePipelinedRequirements`),
+ * so the elevator has to follow it in BOTH positions. When it is off — or while
+ * the junction read is still in flight, leaving `pipelinedIds` empty —
+ * `excludePipelined` returns the input untouched, so the elevator can only ever
+ * be momentarily too permissive, never hide a row the card is showing.
+ *
+ * @param {Array<{id: number|string, requirement_status: string}>} siblings
+ * @param {object}  opts
+ * @param {string}  opts.sortMode       'process' | 'reverse' | 'hand'
+ * @param {Set<number>} [opts.pipelinedIds]  from `pipelinedRequirementIds`
+ * @param {boolean} [opts.hidePipelined=false]
+ * @param {number|string} [opts.currentId]   the requirement being viewed
+ * @returns {{ordered: Array, currentIndex: number, prevId: (number|null), nextId: (number|null)}}
+ *   `currentIndex` is -1 when the current requirement is not in the visible set
+ *   (it is itself filtered out, or the read has not landed); both ids are then
+ *   null, which disables both arrows rather than guessing a neighbour.
+ */
+export const siblingElevator = (siblings, {
+    sortMode,
+    pipelinedIds,
+    hidePipelined = false,
+    currentId,
+    orderedIds = null,
+} = {}) => {
+    // HANDED-OVER ORDER WINS, and is used verbatim — no filter, no sort. It is
+    // the list the reader was looking at when they clicked, so re-deriving it
+    // could only make it agree less. This is the aggregator's whole fix, and it
+    // also makes the card exact in `hand` mode, where the sibling REST read does
+    // not even project the `sort_order` the card ordered by.
+    const ordered = orderedIds
+        ? orderedIds.map(id => ({ id }))
+        : (() => {
+            const rows = Array.isArray(siblings) ? siblings : [];
+            const visible = excludePipelined(rows, pipelinedIds, hidePipelined) || [];
+            return [...visible].sort((a, b) => siblingActiveSortLocal(sortMode, a, b));
+        })();
+
+    const idNum = parseInt(currentId, 10);
+    const currentIndex = Number.isNaN(idNum)
+        ? -1
+        : ordered.findIndex(s => parseInt(s.id, 10) === idNum);
+
+    return {
+        ordered,
+        currentIndex,
+        prevId: currentIndex > 0 ? (ordered[currentIndex - 1]?.id ?? null) : null,
+        nextId: currentIndex >= 0 && currentIndex < ordered.length - 1
+            ? (ordered[currentIndex + 1]?.id ?? null)
+            : null,
+    };
 };
 
-export const STATUS_SORT_PROCESS = {
-    authoring: 0,
-    approved: 1,
-    swarm_ready: 2,
-    development: 3,
-    deferred: 4,
-    met: 5,
-    wontfix: 6,
-};
+// ── The ELEVATOR LINK — one contract, both halves (req #3302) ────────────────
+//
+// A category card and the SwarmStartCard aggregator show DIFFERENT LISTS of the
+// same requirements: the card is one category under the status chips and the
+// pipelined toggle; the aggregator is EVERY category under ONE status, with
+// pipelined work excluded unconditionally and its own sort. Rebuilding either
+// from `category_fk` gets the aggregator wrong in all three dimensions at once
+// — scope, filter and order — which is what "the aggregator ignores top, bottom
+// and sort order" was.
+//
+// So the surface that opened the detail page HANDS OVER the ordered ids it
+// actually rendered, and the elevator walks those. There is no second
+// derivation to drift from the first — the failure this file already carries one
+// scar from. Both halves live here so the writer and the reader cannot disagree
+// about the key.
+//
+// It is carried in router state, so a REFRESH or a pasted link has none, and the
+// elevator falls back to the category query. That is the honest degradation:
+// with no list on screen there is nothing for the arrows to contradict.
 
-// Reverse-order rank (req #2406). Must match STATUS_SORT_PROCESS_REVERSE in ../processSort.js.
-export const STATUS_SORT_PROCESS_REVERSE = {
-    deferred: 0,
-    met: 1,
-    wontfix: 2,
-    development: 3,
-    swarm_ready: 4,
-    approved: 5,
-    authoring: 6,
-};
+/** Router state for a row opening the detail page. Spread into `navigate`'s `state`. */
+export const elevatorStateFrom = (requirementsArray) => ({
+    // The template row (`id === ''`) is an input affordance, not a requirement.
+    siblingIds: (Array.isArray(requirementsArray) ? requirementsArray : [])
+        .filter(r => r && r.id !== '' && r.id !== null && r.id !== undefined)
+        .map(r => Number(r.id))
+        .filter(n => !Number.isNaN(n)),
+});
 
-export const siblingCreatedSort = (a, b) => a.id - b.id;
-
-// Within-group secondary sort shared by forward and reverse process sorts.
-// Recency/id-tiebreaker carry the same meaning in either direction.
-const secondarySort = (a, b) => {
-    switch (a.requirement_status) {
-        case 'development': {
-            const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
-            const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
-            return aTime - bTime;  // oldest started first
-        }
-        case 'deferred': {
-            const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
-            const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
-            return bTime - aTime;  // most recently deferred first
-        }
-        case 'met':
-        case 'wontfix': {
-            // wontfix is terminal like met — both timestamp via completed_at (req #2783)
-            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-            return bTime - aTime;  // most recently completed first
-        }
-        default:  // authoring, approved, swarm_ready — oldest (smallest id) first
-            return a.id - b.id;
-    }
-};
-
-export const siblingProcessSort = (a, b) => {
-    const aRank = STATUS_SORT_PROCESS[a.requirement_status] ?? 0;
-    const bRank = STATUS_SORT_PROCESS[b.requirement_status] ?? 0;
-    if (aRank !== bRank) return aRank - bRank;
-    return secondarySort(a, b);
-};
-
-export const siblingProcessSortReverse = (a, b) => {
-    const aRank = STATUS_SORT_PROCESS_REVERSE[a.requirement_status] ?? 0;
-    const bRank = STATUS_SORT_PROCESS_REVERSE[b.requirement_status] ?? 0;
-    if (aRank !== bRank) return aRank - bRank;
-    return secondarySort(a, b);
-};
-
-export const siblingActiveSort = (sortMode, a, b) => {
-    if (sortMode === 'process') return siblingProcessSort(a, b);
-    if (sortMode === 'reverse') return siblingProcessSortReverse(a, b);
-    const aState = STATUS_SORT[a.requirement_status] ?? 0;
-    const bState = STATUS_SORT[b.requirement_status] ?? 0;
-    if (aState !== bState) return aState - bState;
-    if (a.requirement_status === 'met' && b.requirement_status === 'met') {
-        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-        if (aTime !== bTime) return bTime - aTime;
-    }
-    if (a.requirement_status === 'deferred' && b.requirement_status === 'deferred') {
-        const aTime = a.deferred_at ? new Date(a.deferred_at).getTime() : 0;
-        const bTime = b.deferred_at ? new Date(b.deferred_at).getTime() : 0;
-        if (aTime !== bTime) return bTime - aTime;
-    }
-    if (a.requirement_status === 'wontfix' && b.requirement_status === 'wontfix') {
-        // wontfix timestamps via completed_at (terminal, like met — req #2783)
-        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
-        if (aTime !== bTime) return bTime - aTime;
-    }
-    return siblingCreatedSort(a, b);
+/** The ordered ids a link carried, or `null` when it carried none. */
+export const readElevatorIds = (locationState) => {
+    const ids = locationState?.siblingIds;
+    return Array.isArray(ids) && ids.length > 0 ? ids : null;
 };

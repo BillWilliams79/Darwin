@@ -4,6 +4,7 @@ import { useTheme, darken, lighten } from '@mui/material/styles';
 
 import { useDrag, useDrop } from 'react-dnd';
 import { useRequirementActions } from '../hooks/useRequirementActions';
+import { elevatorStateFrom } from './detail/requirementSort';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -440,7 +441,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         size="small"
                         variant="outlined"
                         clickable
-                        onClick={() => navigate(`/swarm/requirement/${requirement.id}`)}
+                        // req #3302 — hand the elevator the order this surface actually
+                        // rendered. A category card and the aggregator show different
+                        // lists of the same requirements, and only the surface knows which.
+                        onClick={() => navigate(`/swarm/requirement/${requirement.id}`,
+                                                { state: elevatorStateFrom(requirementsArray) })}
                         aria-label={`Open requirement ${requirement.id}`}
                         data-testid={`req-id-chip-${requirement.id}`}
                     />

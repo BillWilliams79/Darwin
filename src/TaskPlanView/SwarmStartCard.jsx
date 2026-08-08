@@ -37,6 +37,72 @@ import { requirementStatusTimestampFields, requirementStatusTimestampState } fro
 // 'wontfix' was never added, same reasoning). 'met' is special-cased: it shows only
 // the trailing-24h Met list — recent completions, not the full Met history.
 const SWARM_START_STATUSES = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
+
+// ── The card's order (req #3302) ────────────────────────────────────────────
+//
+// Two REAL positions. They were `hand` and `created`, and `changeSortMode`
+// discarded the value it was handed — both ran `isMet ? metSort : createdSort`,
+// so the menu had two entries and one behaviour and only the checkmark moved.
+//
+// Hand sort cannot work on this card at all: it aggregates ACROSS categories
+// while `requirements.sort_order` positions a row within ONE of them, and the
+// card is deliberately not a drop target (`memory/aggregator-card-pattern.md`),
+// so there is no way to set a position. The two orders that are meaningful for
+// "every requirement with status X" are the two comparators this file already
+// had, so this makes them selectable rather than inventing a third.
+export const SORT_OLDEST = 'oldest';
+export const SORT_NEWEST = 'newest';
+
+// The template row (id === '') is an input affordance, not a requirement, and
+// stays anchored at the bottom on every re-sort.
+const templateLast = (a, b) => (a.id === '' ? 1 : b.id === '' ? -1 : 0);
+
+// THE TWO MODES ARE INVERSES OVER ONE KEY, and that is not decoration. A first
+// cut made Oldest `id ASC` and Newest `completed_at DESC`, so on the met chip the
+// two answered different questions and the pair only looked like a direction
+// toggle — its own test caught it by asserting they must DIFFER on a fixture
+// where those two keys happened to agree.
+//
+// The key is "when did this happen": `completed_at` where there is one, id
+// otherwise. Rows with no completion sort LAST in both directions — they are
+// undated, not earliest, and flipping them to the front under Oldest would make
+// the met chip open on the rows it knows least about.
+const completedAtOf = (r) => (r.completed_at ? new Date(r.completed_at).getTime() : null);
+
+const byRecency = (a, b, dir) => {
+    const t = templateLast(a, b);
+    if (t) return t;
+    const aTime = completedAtOf(a);
+    const bTime = completedAtOf(b);
+    // Undated last, both directions.
+    if (aTime === null && bTime !== null) return 1;
+    if (bTime === null && aTime !== null) return -1;
+    if (aTime !== null && bTime !== null && aTime !== bTime) return (bTime - aTime) * dir;
+    // No completion anywhere — every row on the four queue chips — so the id is
+    // the only ordering fact there is.
+    return (b.id - a.id) * dir;
+};
+
+// Newest first: most-recently-completed first (req #2613's `metSort`), id DESC
+// where nothing is completed.
+const newestSort = (a, b) => byRecency(a, b, 1);
+
+// Oldest first: the exact inverse. id ASC where nothing is completed, which is
+// what the four queue chips have always shown.
+const oldestSort = (a, b) => byRecency(a, b, -1);
+
+export const aggregatorSort = (mode) => (mode === SORT_NEWEST ? newestSort : oldestSort);
+
+/**
+ * The order a chip shows before the reader has chosen one.
+ *
+ * Exported so a test can reach the rule rather than re-derive it. Newest for
+ * `met` — req #2613 made that list most-recently-completed first and it is what
+ * the list is read for — and Oldest for the four queue chips, which is what they
+ * have always shown. Keeping "unchosen" distinct from either value is what let
+ * the menu become real without changing what any chip shows on arrival.
+ */
+export const defaultSortMode = (isMet) => (isMet ? SORT_NEWEST : SORT_OLDEST);
 const MET_TRAILING_HOURS = 24;
 // Met window refresh cadence — also the quantum the window is rounded to so that
 // re-renders within a single quantum don't mint a new query key (req #2609).
@@ -57,8 +123,8 @@ import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import SwapVertIcon from '@mui/icons-material/SwapVert';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { CircularProgress } from '@mui/material';
 
@@ -85,7 +151,15 @@ const SwarmStartCard = () => {
 
     const [requirementsArray, setRequirementsArray] = useState();
     const [sessionStatusMap, setSessionStatusMap] = useState({});
-    const [sortMode, setSortMode] = useState('hand');
+    // req #3302 — a REAL two-position order. This was `'hand' | 'created'`, and
+    // `changeSortMode` ignored the value entirely: both items ran
+    // `isMet ? metSort : createdSort`, so the two menu entries produced the same
+    // list and only the checkmark moved. Hand sort cannot work here at all — the
+    // aggregator is CROSS-CATEGORY and `requirements.sort_order` positions a row
+    // within ONE category, and the card is not a drop target, so there is no way
+    // to set it. The two orders that ARE meaningful for "every requirement with
+    // status X" are the two comparators this file already had.
+    const [sortMode, setSortMode] = useState(null);
     const [menuAnchorEl, setMenuAnchorEl] = useState(null);
     const menuOpen = Boolean(menuAnchorEl);
 
@@ -103,6 +177,14 @@ const SwarmStartCard = () => {
     }, [selectedStatus, effectiveStatus, setSelectedStatus]);
 
     const isMet = effectiveStatus === 'met';
+
+    // `null` means the reader has not chosen, so the chip's own default applies —
+    // Newest for `met` (req #2613: most-recently-completed first, which is what
+    // that list is read for) and Oldest for the four queue chips. Keeping the
+    // unchosen state distinct is what lets the menu become real without changing
+    // what either chip shows on arrival. A pick sticks for the visit and applies
+    // to every chip, which is why it is not persisted per status.
+    const effectiveSortMode = sortMode ?? defaultSortMode(isMet);
 
     // Trailing-24h Met window — quantized to MET_REFRESH_INTERVAL_MS boundaries and
     // bumped on a timer + tab-visibility return (req #2609). Quantization keeps the
@@ -232,42 +314,33 @@ const SwarmStartCard = () => {
         return counts;
     }, [allRequirementsForCounts, serverMetRequirements, eligibleMetRequirements, pipelinedIds, hidePipelined]);
 
-    // Template rows (id === '') always sort last so they stay anchored at the
-    // bottom of the card on every re-sort.
-    const createdSort = (a, b) => {
-        if (a.id === '') return 1;
-        if (b.id === '') return -1;
-        return a.id - b.id;
-    };
+    // Comparators are module-level — see `aggregatorSort` above.
 
-    // Met chip sort (req #2613): most-recently-completed first. Rows missing
-    // completed_at sink to the end; id DESC tiebreaker so same-instant completions
-    // surface the higher (typically newer) id first.
-    const metSort = (a, b) => {
-        if (a.id === '') return 1;
-        if (b.id === '') return -1;
-        const aTime = a.completed_at ? new Date(a.completed_at).getTime() : -Infinity;
-        const bTime = b.completed_at ? new Date(b.completed_at).getTime() : -Infinity;
-        if (aTime !== bTime) return bTime - aTime;
-        return b.id - a.id;
-    };
-
-    // Seed local state from server data (re-runs on every fetch — including chip switch).
-    // After req #2405 removed requirements.sort_order, 'hand' and 'created' sort modes
-    // both resolve to id-ascending order; the toggle is retained only for UI continuity
-    // and will be removed in a follow-up req.
+    // Seed local state from server data (re-runs on every fetch, chip switch, and
+    // sort-order pick). THE ONLY PLACE THIS CARD ORDERS ITS ROWS — `changeSortMode`
+    // deliberately re-sorts nothing, so there is one ordering path rather than two
+    // racing ones (req #3302).
     useEffect(() => {
         if (!currentRequirements) {
             setRequirementsArray(undefined);
             return;
         }
         const sorted = [...currentRequirements];
-        sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
+        sorted.sort(aggregatorSort(effectiveSortMode));
         // Template row (req #2414) — title-only entry; saving is deferred to the
         // requirement editor where the user must pick a category before any POST.
-        sorted.push({ id: '', title: '', requirement_status: 'authoring', category_fk: null });
-        setRequirementsArray(sorted);
-    }, [currentRequirements, isMet]); // eslint-disable-line react-hooks/exhaustive-deps
+        //
+        // CARRY THE EXISTING TEMPLATE FORWARD (req #2747's fix, which `CategoryCard`
+        // has had since then and this card never did). A fresh `{ title: '' }`
+        // discards whatever the user has typed into the add-row but not yet saved,
+        // and since req #3302 this effect re-runs on a sort-order pick as well as
+        // on a refetch — so the loss went from occasional to routine.
+        setRequirementsArray(prev => {
+            const prevTemplate = prev && prev.find(r => r.id === '');
+            return [...sorted, prevTemplate
+                ?? { id: '', title: '', requirement_status: 'authoring', category_fk: null }];
+        });
+    }, [currentRequirements, effectiveSortMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Build session status map (same logic as CategoryCard)
     useEffect(() => {
@@ -292,14 +365,18 @@ const SwarmStartCard = () => {
     const handleMenuOpen = (e) => setMenuAnchorEl(e.currentTarget);
     const handleMenuClose = () => setMenuAnchorEl(null);
 
+    // RECORD THE PICK, ALWAYS. The re-sort is the seeding effect's, which re-runs
+    // on `effectiveSortMode`.
+    //
+    // There is deliberately no `newMode === effectiveSortMode` early return: an
+    // unchosen `sortMode` is `null`, so on the met chip `effectiveSortMode` is
+    // already 'newest' and such a guard would swallow the click on "Newest first"
+    // — leaving the card looking correct while recording nothing, so switching
+    // chips silently flipped the order back. NOT CHANGING THE ORDER IS NOT THE
+    // SAME AS NOT CHANGING THE INTENTION.
     const changeSortMode = (newMode) => {
         handleMenuClose();
         setSortMode(newMode);
-        if (requirementsArray) {
-            const sorted = [...requirementsArray];
-            sorted.sort((a, b) => isMet ? metSort(a, b) : createdSort(a, b));
-            setRequirementsArray(sorted);
-        }
     };
 
     const handleChipClick = (status) => {
@@ -543,15 +620,15 @@ const SwarmStartCard = () => {
                         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                     >
-                        <MenuItem onClick={() => changeSortMode('hand')} data-testid="swarm-start-sort-hand">
-                            <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Hand Sort</ListItemText>
-                            {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                        <MenuItem onClick={() => changeSortMode(SORT_OLDEST)} data-testid="swarm-start-sort-oldest">
+                            <ListItemIcon><ArrowUpwardIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Oldest first</ListItemText>
+                            {effectiveSortMode === SORT_OLDEST && <Check fontSize="small" sx={{ ml: 1 }} />}
                         </MenuItem>
-                        <MenuItem onClick={() => changeSortMode('created')} data-testid="swarm-start-sort-created">
-                            <ListItemIcon><AccessTimeIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Created Sort</ListItemText>
-                            {sortMode === 'created' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                        <MenuItem onClick={() => changeSortMode(SORT_NEWEST)} data-testid="swarm-start-sort-newest">
+                            <ListItemIcon><ArrowDownwardIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Newest first</ListItemText>
+                            {effectiveSortMode === SORT_NEWEST && <Check fontSize="small" sx={{ ml: 1 }} />}
                         </MenuItem>
                     </Menu>
                 </Box>
@@ -565,7 +642,11 @@ const SwarmStartCard = () => {
                         deleteClick,
                         requirementsArray,
                         setRequirementsArray,
-                        sortMode: 'created', // suppress insert indicators — no same-card reorder
+                        // A SENTINEL, not this card's sort mode (which is
+                        // SORT_OLDEST/SORT_NEWEST since req #3302). `RequirementRow`
+                        // reads it only to suppress the hand-sort insert indicators,
+                        // because the aggregator is not a drop target.
+                        sortMode: 'created',
                         setCrossCardInsertIndex,
                         sessionStatusMap,
                         categoryColorMap,
