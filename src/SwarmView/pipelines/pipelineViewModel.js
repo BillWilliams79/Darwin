@@ -23,6 +23,7 @@ import {
     eligibility,
     requirementCounts,
     pauseState,
+    serialState,
     STEP_DONE,
     STEP_RUNNING,
     STEP_PENDING,
@@ -294,6 +295,15 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     // every mutation these rows carry.
     const pause = pauseState(model || {}, rows);
 
+    // req #3388 — serial turn-taking, IMMEDIATELY AFTER pause and before
+    // anything reads `suppressedBy`. It appends `turn` to the same list pause
+    // just wrote, so calling it later (or not at all) leaves the browser
+    // showing a step as launchable while the engine is holding it — the two
+    // surfaces disagreeing about the live plan, which is the exact failure the
+    // shared conformance corpus exists to prevent. The corpus pins
+    // `serialState` itself; THIS line is what puts it on the browser's path.
+    const serial = serialState(model || {}, rows);
+
     // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
     // call owns (buildPlanRows returns new objects every time), never the caller's
     // input, so there is nothing outside this function to surprise.
@@ -326,6 +336,11 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         // that only has `plan` (not the rows) can still read the plan-wide
         // and epic-wide pause facts.
         pause,
+        // req #3388 — the mode, the epic order, which epics are closed, whose
+        // turn it is and what that holds. Carried beside `pause` for the same
+        // reason: a consumer with only `plan` and not the rows still needs the
+        // plan-wide answer.
+        serial,
     };
 }
 

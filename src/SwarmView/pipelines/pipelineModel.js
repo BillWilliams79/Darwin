@@ -134,6 +134,12 @@ export const PAUSED_STATUS = 'paused';
 // Requirement statuses that close a step (rule 1).
 export const TERMINAL_REQUIREMENT_STATUSES = ['met', 'deferred', 'wontfix'];
 
+// How a plan runs its epics (req #3388). `parallel` is every epic at once — the
+// behaviour that existed before this column, which is why it is the DEFAULT and
+// why an ABSENT value reads as parallel.
+export const MODE_PARALLEL = 'parallel';
+export const MODE_SERIAL = 'serial';
+
 const STATE_RANK = { [STEP_DONE]: 0, [STEP_RUNNING]: 1, [STEP_PENDING]: 2 };
 const RUN_RANK = { auto: 0, manual: 1 };
 
@@ -1322,5 +1328,81 @@ export function pauseState(model, rows) {
         pipelinePaused,
         pausedEpicIds: [...pausedEpicIds].sort((a, b) => a - b),
         suppressedStepIds,
+    };
+}
+
+/**
+ * Which epic's turn it is, and therefore which steps must WAIT for it (req #3388).
+ *
+ * The browser half of `pipeline_derive.py::serial_state`. That module's
+ * docstring carries the full rationale — the order is FIRST APPEARANCE IN
+ * DISPLAY ORDER (topological, not `epics.sort_order`, which is global to the
+ * epic and measured backwards on pipeline 79), an epic is CLOSED when every
+ * step it owns is `done`, and the live epic is the first one not closed.
+ *
+ * Called AFTER `pauseState`, whose `suppressedBy` list this APPENDS to rather
+ * than replacing: a step held by both a pause and a turn must name both, or
+ * unpausing it looks like it should start and does not. `turn` stays a distinct
+ * reason from `epic`/`pipeline` because they clear differently — a pause needs a
+ * person, a turn passes by itself when the epic ahead closes.
+ *
+ * An epic is BEHIND, LIVE or AHEAD, and only the ones AHEAD are held — a CLOSED
+ * epic is never suppressed, because `turn` means "has not had its turn yet",
+ * which is false of an epic that has finished. That is the one place serial does
+ * NOT copy `pauseState`, whose `epic` reason means "this scope is paused" and is
+ * true of its done steps too. Within an epic that IS ahead, suppression is by
+ * MEMBERSHIP and not eligibility, exactly as `pauseState` does it.
+ *
+ * A step with no epic label is never suppressed by turn: it has no turn to wait
+ * for, and holding it would deadlock a plan no unpause could rescue.
+ */
+export function serialState(model, rows) {
+    const pipeline = (model && model.pipeline) || {};
+    const mode = pipeline.execution_mode || MODE_PARALLEL;
+    const serial = mode === MODE_SERIAL;
+
+    // `rows` arrive in DISPLAY order — the caller's contract, and the whole
+    // basis of the sequence.
+    const epicOrder = [];
+    for (const row of rows || []) {
+        if (row.epicId != null && !epicOrder.includes(row.epicId)) {
+            epicOrder.push(row.epicId);
+        }
+    }
+
+    const closedEpicIds = epicOrder.filter((epicId) => (rows || [])
+        .filter((row) => row.epicId === epicId)
+        .every((row) => row.state === STEP_DONE));
+    const closed = new Set(closedEpicIds);
+
+    let liveEpicId = null;
+    for (const epicId of epicOrder) {
+        if (!closed.has(epicId)) { liveEpicId = epicId; break; }
+    }
+
+    // AHEAD of the live epic: not closed (behind) and not live.
+    const waitingEpicIds = epicOrder.filter(
+        (epicId) => !closed.has(epicId) && epicId !== liveEpicId);
+    const waiting = new Set(waitingEpicIds);
+
+    const heldStepIds = [];
+    if (serial && liveEpicId != null) {
+        for (const row of rows || []) {
+            if (row.epicId == null || !waiting.has(row.epicId)) continue;
+            row.suppressedBy = [...(row.suppressedBy || []), 'turn'];
+            row.launchSuppressed = true;
+            heldStepIds.push(row.id);
+        }
+    }
+
+    return {
+        executionMode: mode,
+        serial,
+        // In display order, which IS the running order. Not sorted by id.
+        epicOrder,
+        closedEpicIds,
+        liveEpicId,
+        waitingEpicIds,
+        heldStepIds,
     };
 }
