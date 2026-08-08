@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCardDateTime, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue, trimMicroseconds } from '../dateFormat';
+import { formatCardDateTime, formatDateTime, formatDate, formatHM12, formatHHMM, getTimeOfDayFraction, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue, trimMicroseconds } from '../dateFormat';
 
 describe('trimMicroseconds', () => {
     it('strips the microsecond tail from a MySQL DATETIME(6) string', () => {
@@ -21,6 +21,54 @@ describe('trimMicroseconds', () => {
     it('returns the em-dash placeholder for null/empty', () => {
         expect(trimMicroseconds(null)).toBe('—');
         expect(trimMicroseconds('')).toBe('—');
+    });
+});
+
+// ── naive datetime parsing (req #3120) ──────────────────────────────────────
+// A naive datetime with no Z/offset designator is stored/produced as UTC
+// everywhere in Darwin, regardless of whether the separator is a space (MySQL
+// JSON_OBJECT) or a 'T' (ISO-ish). Every formatter below shares the same
+// `toDate` parse helper, so one regression here would silently affect all of
+// them — the guard is tested once at each formatter's front door.
+//
+// Every case below pins an ABSOLUTE expected value, not just T-form/space-form
+// equality: the pre-fix bug parsed the T form as the *process's local*
+// timezone, so on a host whose local zone happens to be UTC (a bare parity
+// check, or a CI/container image defaulting to UTC) the buggy and fixed
+// parses are byte-identical and a parity-only assertion would pass against
+// either. `test:unit` pins `TZ=America/Los_Angeles` (package.json) so these
+// absolute values are meaningful wherever the suite runs; keep both a fixed
+// TZ and an absolute expectation if this block is ever extended.
+describe('naive datetime parsing — space and T forms agree', () => {
+    it('formatDateTime reads the T form as the same absolute UTC instant as the space form', () => {
+        expect(formatDateTime('2026-07-24T06:31:38', 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
+        expect(formatDateTime('2026-07-24 06:31:38', 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
+    });
+
+    it('formatDateTime still respects an explicit offset', () => {
+        // 06:31:38+05:00 is 01:31:38 UTC — must NOT be treated as naive UTC.
+        expect(formatDateTime('2026-07-24T06:31:38+05:00', 'UTC')).toBe('Jul 24, 2026, 1:31 AM');
+        expect(formatDateTime('2026-07-24T06:31:38Z', 'UTC')).toBe('Jul 24, 2026, 6:31 AM');
+    });
+
+    it('formatDate reads the T form as the same absolute UTC instant as the space form', () => {
+        expect(formatDate('2026-07-24T23:31:38', 'UTC')).toBe('Jul 24, 2026');
+        expect(formatDate('2026-07-24 23:31:38', 'UTC')).toBe('Jul 24, 2026');
+    });
+
+    it('formatHM12 reads the T form as the same absolute UTC instant as the space form', () => {
+        expect(formatHM12('2026-07-24T06:31:38', 'UTC')).toBe('6:31a');
+        expect(formatHM12('2026-07-24 06:31:38', 'UTC')).toBe('6:31a');
+    });
+
+    it('formatHHMM reads the T form as the same absolute UTC instant as the space form', () => {
+        expect(formatHHMM('2026-07-24T06:31:38', 'UTC')).toBe('06:31');
+        expect(formatHHMM('2026-07-24 06:31:38', 'UTC')).toBe('06:31');
+    });
+
+    it('getTimeOfDayFraction reads the T form as the same absolute UTC instant as the space form', () => {
+        expect(getTimeOfDayFraction('2026-07-24T06:31:38', 'UTC')).toBeCloseTo(0.2719675925925926, 12);
+        expect(getTimeOfDayFraction('2026-07-24 06:31:38', 'UTC')).toBeCloseTo(0.2719675925925926, 12);
     });
 });
 

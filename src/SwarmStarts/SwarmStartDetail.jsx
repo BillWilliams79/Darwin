@@ -6,8 +6,14 @@
 
 import { useContext, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
+import AppContext from '../Context/AppContext';
+import call_rest_api from '../RestApi/RestApi';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { swarmStartKeys, swarmStartSessionKeys } from '../hooks/useQueryKeys';
 import {
     useSwarmStartById,
     useSessions,
@@ -21,12 +27,15 @@ import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 import { parseSummary } from './SwarmStartsPage';
 import { selectSessionsForSwarmStart } from './sessionFilter';
+import SwarmStartDeleteDialog from './SwarmStartDeleteDialog';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
+import IconButton from '@mui/material/IconButton';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -37,6 +46,7 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { DataGrid } from '@mui/x-data-grid';
 
 const SYNTHESIZED_HEADERS = ['Session', 'Branch', 'Autonomy', 'Terminal', 'PRs'];
@@ -113,17 +123,22 @@ export default function SwarmStartDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
-    const { profile } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const { darwinUri } = useContext(AppContext);
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
+    const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
 
     const swarmStartId = parseInt(id);
     const { data: row, isLoading } = useSwarmStartById(creatorFk, swarmStartId);
 
     // Req #2494 — linked-sessions table. Junction is global; user-scope falls
     // out naturally when filtered against the user's own `useSessions` list.
-    const { data: sessionsArray, isLoading: sessionsLoading } = useSessions(creatorFk);
-    const { data: junction, isLoading: junctionLoading } = useAllSwarmStartSessions(creatorFk);
+    const { data: sessionsArray, isLoading: sessionsLoading, isError: sessionsError } =
+        useSessions(creatorFk);
+    const { data: junction, isLoading: junctionLoading, isError: junctionError } =
+        useAllSwarmStartSessions(creatorFk);
     // req #2943 — resolve this start's machine name from the machines cache.
     const { data: machinesData = [] } = useMachines(creatorFk);
     const machineName = useMemo(() => {
@@ -136,8 +151,33 @@ export default function SwarmStartDetail() {
         () => selectSessionsForSwarmStart(sessionsArray, junction, swarmStartId),
         [sessionsArray, junction, swarmStartId]
     );
-    const linkedLoading = sessionsLoading || junctionLoading;
+    // req #3265 code review (re-verify pass, finding 1) — a settled query
+    // error leaves isLoading false, so isError must gate the delete affordance
+    // too or a failed sessions/junction fetch reads as "confirmed unlinked".
+    const linkedLoading = sessionsLoading || junctionLoading || sessionsError || junctionError;
     const linkedSectionRef = useRef(null);
+
+    // req #3265 — delete affordance. This is a CLIENT-SIDE guard only: the
+    // dialog disables Delete and names linked sessions while `linkedLoading`
+    // gates it during the fetch, but there is no database-level backstop
+    // (swarm_start_sessions.swarm_start_fk is ON DELETE CASCADE, not
+    // RESTRICT — see SwarmStartDeleteDialog.jsx).
+    const swarmStartDelete = useConfirmDialog({
+        onConfirm: ({ swarmStartId: deleteId }) => {
+            const uri = `${darwinUri}/swarm_starts`;
+            call_rest_api(uri, 'DELETE', { id: deleteId }, idToken)
+                .then(result => {
+                    if (result.httpStatus.httpStatus === 200 || result.httpStatus.httpStatus === 204) {
+                        queryClient.invalidateQueries({ queryKey: swarmStartKeys.all(creatorFk) });
+                        queryClient.invalidateQueries({ queryKey: swarmStartSessionKeys.all(creatorFk) });
+                        navigate('/swarm/swarm-starts');
+                    } else {
+                        showError(result, 'Unable to delete swarm start');
+                    }
+                })
+                .catch(error => showError(error, 'Unable to delete swarm start'));
+        }
+    });
 
     const scrollToLinkedSessions = (e) => {
         if (e) e.preventDefault();
@@ -179,12 +219,20 @@ export default function SwarmStartDetail() {
     const NARROW = { maxWidth: 900 };
     return (
         <Box sx={{ p: 3, maxWidth: 1400 }} data-testid="swarm-start-detail">
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Button variant="outlined" onClick={handleBack}
                         startIcon={<ArrowBackIcon />}
                         data-testid="btn-back">
                     Back
                 </Button>
+                <Tooltip title="Delete swarm start" enterDelay={400} enterNextDelay={200}>
+                    <IconButton
+                        onClick={() => swarmStartDelete.openDialog({ swarmStartId: row.id })}
+                        data-testid="btn-delete-swarm-start"
+                    >
+                        <DeleteIcon />
+                    </IconButton>
+                </Tooltip>
             </Box>
 
             <Typography variant="h5" gutterBottom>
@@ -320,6 +368,16 @@ export default function SwarmStartDetail() {
                     }
                 </AccordionDetails>
             </Accordion>
+
+            <SwarmStartDeleteDialog
+                deleteDialogOpen={swarmStartDelete.dialogOpen}
+                setDeleteDialogOpen={swarmStartDelete.setDialogOpen}
+                setDeleteId={swarmStartDelete.setInfoObject}
+                setDeleteConfirmed={swarmStartDelete.setConfirmed}
+                swarmStart={row}
+                linkedSessionIds={linkedSessions.map(s => s.id)}
+                linkedLoading={linkedLoading}
+            />
         </Box>
     );
 }

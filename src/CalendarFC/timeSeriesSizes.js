@@ -192,15 +192,18 @@ export function computePhaseSegments(session, startPct, endPct) {
 export const SWARM_CLUSTER_WINDOW_MS = 3 * 60 * 1000;   // 3 minutes
 
 // Parse a started_at/completed_at value the same way the rest of the
-// visualizer does (utils/dateFormat.toDate): MySQL-format "YYYY-MM-DD HH:MM:SS"
-// is UTC-stored and must be given an explicit `Z`, otherwise `new Date(...)`
-// parses it in the browser's local tz — which silently disagrees with
-// positionFor/toLocaleDateString and skews relative deltas across DST
-// boundaries. Kept local to this module so timeSeriesSizes stays standalone
-// (no circular dep with the dateFormat utility).
+// visualizer does (utils/dateFormat.toDate): a naive datetime — space OR 'T'
+// separated, no Z/offset designator — is UTC-stored and must be given an
+// explicit `Z`, otherwise `new Date(...)` parses it in the browser's local tz
+// — which silently disagrees with positionFor/toLocaleDateString and skews
+// relative deltas across DST boundaries. Kept local to this module so
+// timeSeriesSizes stays standalone (no circular dep with the dateFormat
+// utility); the regex is a duplicate of dateFormat's `NAIVE_DATETIME` (req
+// #3120) and must be kept in step with it.
+const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
 function parseStartedAtMs(value) {
     if (!value) return NaN;
-    if (typeof value === 'string' && value.includes(' ') && !value.includes('T')) {
+    if (typeof value === 'string' && NAIVE_DATETIME.test(value)) {
         return new Date(value.replace(' ', 'T') + 'Z').getTime();
     }
     return new Date(value).getTime();
