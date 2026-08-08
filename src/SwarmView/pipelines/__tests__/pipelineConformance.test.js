@@ -149,6 +149,12 @@ function observe(wireModel, now) {
             req_ids: [...(row.reqIds || [])],
             tracking_req_ids: [...(row.trackingReqIds || [])],
             unresolved_req_ids: [...(row.unresolvedReqIds || [])],
+            // req #3360 — the /swarm-start argument list and the reasons an id
+            // is missing from it. A plain rename, nothing derived: the split is
+            // `buildPlanRows`'s and this only projects it onto the wire shape.
+            launch_req_ids: [...(row.launchReqIds || [])],
+            launch_excluded: [...(row.launchExcluded || [])],
+            launch_block: row.launchBlock,
             dep_ids: [...(row.depIds || [])],
             time_deps: [...(row.timeDeps || [])],
             // COUNT, never the identities: this engine keys machines by TITLE and
@@ -175,6 +181,8 @@ function observe(wireModel, now) {
         time_deps: [...b.timeDeps],
         run: b.run,
         swarm_start_req_ids: [...b.swarmStartArgs],
+        launch_excluded: [...(b.launchExcluded || [])],
+        launch_block: b.launchBlock,
         no_launch_reason: b.noLaunchReason,
         machine_bucket_count: (b.machineLabels || []).length,
     }));
