@@ -36,7 +36,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     buildPlanRows, displayOrder, verifyOrder, eligibility, launchBatches,
-    requirementCounts, pauseState,
+    requirementCounts, pauseState, serialState,
 } from '../pipelineModel';
 import { SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -125,6 +125,11 @@ function observe(wireModel, now) {
     // because it writes `launchSuppressed`/`suppressedBy` onto `outRows` in
     // place, mirroring `observe.py`'s own call ordering.
     const pause = pauseState(model, outRows);
+
+    // req #3388 — AFTER `pauseState` and BEFORE the per-row loop, matching
+    // `observe.py` exactly: it APPENDS to the `suppressedBy` list pause wrote,
+    // so calling the two out of order would silently drop a pause reason.
+    const serial = serialState(model, outRows);
 
     const observedRows = {};
     for (const row of outRows) {
@@ -218,6 +223,18 @@ function observe(wireModel, now) {
             pipeline_paused: pause.pipelinePaused,
             paused_epic_ids: [...pause.pausedEpicIds],
             suppressed_step_ids: [...pause.suppressedStepIds],
+        },
+        // req #3388 — `execution_mode` is dropped for the same reason
+        // `pipeline_status` is: a verbatim wire field, not a derived answer.
+        // The epic ORDER, which epics are CLOSED, whose turn it is and which
+        // steps that holds are the four things two engines could disagree about.
+        serial: {
+            serial: serial.serial,
+            epic_order: [...serial.epicOrder],
+            closed_epic_ids: [...serial.closedEpicIds],
+            live_epic_id: serial.liveEpicId,
+            waiting_epic_ids: [...serial.waitingEpicIds],
+            held_step_ids: [...serial.heldStepIds],
         },
     };
 }
