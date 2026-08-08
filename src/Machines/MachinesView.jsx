@@ -31,8 +31,9 @@ const platformChipProps = (platform) => {
 /**
  * MachinesView — the /swarm/machines management page (req #2943).
  *
- * Table of the machines that run Darwin swarm work. Name + Description are
- * inline-editable (DataGrid processRowUpdate → REST PUT). The Closed column is a
+ * Table of the machines that run Darwin swarm work. Name + Description +
+ * Concurrency Ceiling (max_live_sessions, req #3390) are inline-editable
+ * (DataGrid processRowUpdate → REST PUT). The Closed column is a
  * click-to-toggle retire/re-open chip (soft-close via `closed`). Follows the Dev
  * Servers page shape; no Cards/Trends views (minimal by design).
  */
@@ -63,6 +64,15 @@ const MachinesView = () => {
         if (newRow.description !== oldRow.description) {
             const d = (newRow.description || '').trim();
             patch.description = d === '' ? 'NULL' : d;
+        }
+        if (newRow.max_live_sessions !== oldRow.max_live_sessions) {
+            const raw = newRow.max_live_sessions;
+            // MUI's numeric editor parses an empty/unparseable cell to null — Number(null)
+            // is 0, which would silently drain the machine. Reject before coercing.
+            if (raw === null || raw === undefined || raw === '') return oldRow;
+            const n = Number(raw);
+            if (!Number.isInteger(n) || n < 0 || n > 32767) return oldRow;  // 0 is meaningful (drain); negative/oversized refused
+            patch.max_live_sessions = n;
         }
         if (Object.keys(patch).length === 0) return oldRow;
         try {
@@ -135,6 +145,13 @@ const MachinesView = () => {
             valueFormatter: (value) => value ? formatDateTime(value, profile?.timezone) : '—',
         },
         {
+            field: 'max_live_sessions',
+            headerName: 'Concurrency Ceiling',
+            width: 150,
+            type: 'number',
+            editable: true,
+        },
+        {
             field: 'closed',
             headerName: 'Status',
             width: 110,
@@ -197,6 +214,9 @@ const MachinesView = () => {
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                                         Last seen: {m.last_seen_at ? formatDateTime(m.last_seen_at, profile?.timezone) : '—'}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                        Concurrency ceiling: {m.max_live_sessions}
                                     </Typography>
                                 </CardContent>
                             </Card>

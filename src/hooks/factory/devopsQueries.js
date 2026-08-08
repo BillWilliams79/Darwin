@@ -194,7 +194,7 @@ export const swarmCompleteSessions = createEntityQueries({
 // ---------------------------------------------------------------------------
 const MACHINE_DEFAULT_FIELDS =
     'id,title,description,hostname,platform,arch,hw_model,os_version,' +
-    'last_seen_at,closed,sort_order,creator_fk,create_ts,update_ts';
+    'last_seen_at,max_live_sessions,closed,sort_order,creator_fk,create_ts,update_ts';
 
 export const machines = createEntityQueries({
     entity: 'machines',
