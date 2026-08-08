@@ -400,7 +400,7 @@ export const orchestrationClaims = createEntityQueries({
 export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:
-        'id,title,description,pipeline_status,machine_fk,' +
+        'id,title,description,pipeline_status,execution_mode,machine_fk,' +
         'started_at,completed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'id:desc',
